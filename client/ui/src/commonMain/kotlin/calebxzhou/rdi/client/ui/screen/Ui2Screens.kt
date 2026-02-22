@@ -21,6 +21,7 @@ object Wardrobe
 @Serializable object HostList
 @Serializable data class HostInfo(val hostId: String)
 @Serializable object Mail
+@Serializable data class MailDetail(val mailId: String)
 @Serializable object WorldList
 @Serializable object TaskView
 @Serializable object McPlayView

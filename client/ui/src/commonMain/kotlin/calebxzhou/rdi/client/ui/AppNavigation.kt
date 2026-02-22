@@ -124,7 +124,19 @@ fun AppNavigation(
                 )
             }
             composable<Wardrobe> { WardrobeScreen(onBack = { navController.navigate(HostList) }) }
-            composable<Mail> { MailScreen(onBack = { navController.navigate(HostList) }) }
+            composable<Mail> {
+                MailScreen(
+                    onBack = { navController.navigate(HostList) },
+                    onOpenDetail = { mailId -> navController.navigate(MailDetail(mailId)) }
+                )
+            }
+            composable<MailDetail> {
+                val route = it.toRoute<MailDetail>()
+                MailDetailScreen(
+                    mailId = route.mailId,
+                    onBack = { navController.popBackStack() }
+                )
+            }
             composable<HostList> {
                 HostListScreen(
                     onBack = { navController.navigate(Login) },

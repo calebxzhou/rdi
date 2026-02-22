@@ -35,7 +35,8 @@ import org.bson.types.ObjectId
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MailScreen(
-    onBack: () -> Unit = {}
+    onBack: () -> Unit = {},
+    onOpenDetail: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var mails by remember { mutableStateOf<List<Mail.Vo>>(emptyList()) }
@@ -43,7 +44,6 @@ fun MailScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var selectedIds by remember { mutableStateOf<Set<ObjectId>>(emptySet()) }
     var confirmDelete by remember { mutableStateOf(false) }
-    var detailId by remember { mutableStateOf<ObjectId?>(null) }
 
     fun reload() {
         loading = true
@@ -127,7 +127,7 @@ fun MailScreen(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { detailId = mail.id }
+                        .clickable { onOpenDetail(mail.id.toHexString()) }
                         .padding(12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween
@@ -216,90 +216,4 @@ fun MailScreen(
             }
         )
     }
-
-    detailId?.let { id ->
-        MailDetailDialog(
-            id = id,
-            onDismiss = { detailId = null },
-            onDelete = {
-                scope.launch {
-                    val response = withContext(Dispatchers.IO) {
-                        runCatching {
-                            server.makeRequest<Unit>("mail/${id}", HttpMethod.Delete)
-                        }.getOrNull()
-                    }
-                    if (response == null) {
-                        errorMessage = "删除失败"
-                        return@launch
-                    }
-                    if (!response.ok) {
-                        errorMessage = response.msg
-                        return@launch
-                    }
-                    detailId = null
-                    reload()
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun MailDetailDialog(
-    id: ObjectId,
-    onDismiss: () -> Unit,
-    onDelete: () -> Unit
-) {
-    var loading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var mail by remember { mutableStateOf<Mail?>(null) }
-
-    LaunchedEffect(id) {
-        loading = true
-        errorMessage = null
-        val response = withContext(Dispatchers.IO) {
-            runCatching { server.makeRequest<Mail>("mail/${id}") }.getOrNull()
-        }
-        loading = false
-        if (response == null) {
-            errorMessage = "加载邮件失败"
-        } else if (!response.ok) {
-            errorMessage = response.msg
-        } else {
-            mail = response.data
-        }
-    }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(mail?.title ?: "详细内容") },
-        text = {
-            when {
-                loading -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.width(24.dp))
-                    }
-                }
-                errorMessage != null -> {
-                    Text(errorMessage ?: "加载失败", color = MaterialTheme.colors.error)
-                }
-                mail != null -> {
-                    Text(mail?.content.orEmpty())
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDelete) {
-                Text("删除", color = MaterialTheme.colors.error)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("关闭")
-            }
-        }
-    )
 }
