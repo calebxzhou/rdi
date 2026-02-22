@@ -5,8 +5,10 @@
   "target": "@env(DEFAULT)",
   "client": [
     "mMultiScreen",
+    "mSkinManager",
     "mTabOverlay",
-    "mTitleScreen"
+    "mTitleScreen",
+    "mUser"
   ],
   "mixins": [
     "mClientIntentionPacket",
