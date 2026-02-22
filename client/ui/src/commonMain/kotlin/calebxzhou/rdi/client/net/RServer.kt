@@ -173,7 +173,7 @@ fun CoroutineScope.sse(
     } catch (t: Throwable) {
         lgr.error(t) { "[SSE] Connection failed" }
         onError(t)
-        throw t
+        return@launch
     }
 }
 inline fun CoroutineScope.rdiRequestU(
