@@ -16,6 +16,7 @@ object Wardrobe
 @Serializable data class ModpackInfo(val modpackId: String, val fromHostId: String? = null)
 @Serializable object ModpackUpload
 @Serializable object Login
+@Serializable object Menu
 @Serializable data class Register(val msa: Boolean)
 @Serializable object Setting
 @Serializable object HostList

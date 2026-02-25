@@ -106,11 +106,26 @@ fun AppNavigation(
             composable<Login> {
                 LoginScreen(
                     onLoginSuccess = {
-                        navController.navigate(HostList) {
+                        navController.navigate(Menu) {
                             popUpTo(Login) { inclusive = true }
                         }
                     },
                     onOpenRegister = { msa -> navController.navigate(Register(msa)) }
+                )
+            }
+            composable<Menu> {
+                MenuScreen(
+                    onOpenMcVersions = { navController.navigate(RMcVersion(null)) },
+                    onOpenSettings = { navController.navigate(Setting) },
+                    onOpenMail = { navController.navigate(Mail) },
+                    onOpenHostLobby = { navController.navigate(HostList) },
+                    onOpenWardrobe = { navController.navigate(Wardrobe) },
+                    onOpenModpackList = { navController.navigate(ModpackList) },
+                    onBack = {
+                        navController.navigate(Login) {
+                            popUpTo(Menu) { inclusive = true }
+                        }
+                    }
                 )
             }
             composable<Register> {
@@ -123,10 +138,10 @@ fun AppNavigation(
                     }
                 )
             }
-            composable<Wardrobe> { WardrobeScreen(onBack = { navController.navigate(HostList) }) }
+            composable<Wardrobe> { WardrobeScreen(onBack = { navController.popBackStack() }) }
             composable<Mail> {
                 MailScreen(
-                    onBack = { navController.navigate(HostList) },
+                    onBack = { navController.popBackStack() },
                     onOpenDetail = { mailId -> navController.navigate(MailDetail(mailId)) }
                 )
             }
@@ -139,7 +154,7 @@ fun AppNavigation(
             }
             composable<HostList> {
                 HostListScreen(
-                    onBack = { navController.navigate(Login) },
+                    onBack = { navController.popBackStack() },
                     onOpenWorldList = { navController.navigate(WorldList) },
                     onOpenHostInfo = { hostId ->
                         navController.navigate(HostInfo(hostId))
@@ -161,7 +176,7 @@ fun AppNavigation(
                 val route = it.toRoute<HostInfo>()
                 HostInfoScreen(
                     hostId = ObjectId(route.hostId),
-                    onBack = { navController.navigate(HostList) },
+                    onBack = { navController.popBackStack() },
                     onOpenModpackInfo = { modpackId ->
                         navController.navigate(ModpackInfo(modpackId, fromHostId = route.hostId))
                     },
@@ -228,12 +243,12 @@ fun AppNavigation(
             addDesktopOnlyRoutes(navController)
             composable<Setting> {
                 SettingScreen(
-                    onBack = { navController.navigate(HostList) },
+                    onBack = { navController.popBackStack() },
                 )
             }
             composable<ModpackList> {
                 ModpackListScreen(
-                    onBack = { navController.navigate(HostList) },
+                    onBack = { navController.popBackStack() },
                     onOpenUpload = { navController.navigate(ModpackUpload) },
                     onOpenTask = { task, autoClose, onDone ->
                         openTaskView(task, autoClose, onDone)
@@ -279,7 +294,7 @@ fun AppNavigation(
                 val required = route.mcVer?.let { ver -> McVersion.from(ver) }
                 McVersionScreen(
                     requiredMcVer = required,
-                    onBack = { navController.navigate(ModpackList) },
+                    onBack = { navController.popBackStack() },
                     onOpenTask = { task ->
                         openTaskView(task, false, null)
                     },
