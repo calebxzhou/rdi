@@ -153,6 +153,23 @@ actual fun decodeImageBitmap(bytes: ByteArray): androidx.compose.ui.graphics.Ima
     return bmp.asImageBitmap()
 }
 
+actual fun imageBitmapFromArgb(
+    argb: IntArray,
+    width: Int,
+    height: Int
+): androidx.compose.ui.graphics.ImageBitmap {
+    require(width > 0 && height > 0) { "Invalid bitmap size: ${width}x$height" }
+    val size = width * height
+    val safePixels = if (argb.size >= size) {
+        argb
+    } else {
+        IntArray(size).also { argb.copyInto(it, endIndex = argb.size) }
+    }
+    val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+    bitmap.setPixels(safePixels, 0, width, 0, 0, width, height)
+    return bitmap.asImageBitmap()
+}
+
 actual fun getPlatformTotalPhysicalMemoryMb(): Int = 0
 
 actual fun validatePlatformJavaPath(rawPath: String, expectedMajor: Int): Result<Unit> =

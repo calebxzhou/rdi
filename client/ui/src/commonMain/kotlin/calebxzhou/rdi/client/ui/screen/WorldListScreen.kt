@@ -17,6 +17,7 @@ import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.WorldCard
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.model.World
 import io.ktor.http.*
 
@@ -26,7 +27,8 @@ import io.ktor.http.*
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorldListScreen(
-    onBack: (() -> Unit)? = null
+    onBack: (() -> Unit)? = null,
+    onOpenBirdView: (String) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var worlds by remember { mutableStateOf<List<World.Vo>>(emptyList()) }
@@ -68,11 +70,17 @@ fun WorldListScreen(
             TitleRow("区块管理", onBack = { onBack?.invoke() ?: Unit }) {
                 errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
                 val canOperate = selectedWorld != null
+                if(DEBUG){
+                    CircleIconButton(
+                        "\uDB85\uDDC6","俯视图", enabled = canOperate
+                    ){
+                        selectedWorld?.let { onOpenBirdView(it.id.toHexString()) }
+                    }
+                }
                 CircleIconButton(
                     icon = "\uF0C5",
                     tooltip = "复制",
-                    bgColor = if (canOperate) MaterialColor.GRAY_200.color else MaterialColor.GRAY_100.color,
-                    iconColor = if (canOperate) MaterialColor.GRAY_900.color else MaterialColor.GRAY_400.color
+                    enabled = canOperate
                 ) {
                     selectedWorld?.let { confirmCopy = it }
                 }
@@ -80,8 +88,7 @@ fun WorldListScreen(
                 CircleIconButton(
                     icon = "\uEA81",
                     tooltip = "删除",
-                    bgColor = if (canOperate) MaterialColor.RED_900.color else MaterialColor.GRAY_100.color,
-                    iconColor = if (canOperate) MaterialColor.WHITE.color else MaterialColor.GRAY_400.color
+                    enabled = canOperate
                 ) {
                     selectedWorld?.let { confirmDelete = it }
                 }

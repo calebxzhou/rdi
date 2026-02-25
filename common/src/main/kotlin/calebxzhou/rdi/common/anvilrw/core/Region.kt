@@ -5,7 +5,6 @@ import calebxzhou.rdi.common.anvilrw.util.AnvilConstants.CHUNKS_PER_REGION
 import calebxzhou.rdi.common.anvilrw.util.AnvilConstants.CHUNKS_PER_REGION_SIDE
 import calebxzhou.rdi.common.anvilrw.util.AnvilConstants.SECTOR_SIZE_BYTES
 import calebxzhou.rdi.common.anvilrw.util.AnvilUtils
-import java.io.IOException
 import java.io.RandomAccessFile
 import java.nio.ByteOrder
 
@@ -100,17 +99,25 @@ class Region {
             raf.read(byteBuffer)
             AnvilUtils.readInt(byteBuffer, ByteOrder.BIG_ENDIAN)
         }
-
-        return (0 until locationCount).map { i ->
-            val currLocation = locations[i]
-            if (currLocation.offset == 0 && currLocation.sectorCount == 0) {
-                Chunk(i, locations[i], timestamps[i], ByteArray(0))
+        val chunks = MutableList(locationCount) { i ->
+            Chunk(i, Location.createEmpty(), 0, ByteArray(0))
+        }
+        val nonEmptyChunkMeta = (0 until locationCount).mapNotNull { i ->
+            val location = locations[i]
+            if (location.offset == 0 || location.sectorCount == 0) {
+                chunks[i] = Chunk(i, location, timestamps[i], ByteArray(0))
+                null
             } else {
-                raf.seek(currLocation.offset * SECTOR_SIZE_BYTES.toLong())
-                val chunkData = ByteArray(currLocation.sectorCount * SECTOR_SIZE_BYTES)
-                raf.read(chunkData)
-                Chunk(i, locations[i], timestamps[i], chunkData)
+                Triple(i, location, timestamps[i])
             }
-        }.toMutableList()
+        }.sortedBy { (_, location, _) -> location.offset }
+
+        for ((i, location, timestamp) in nonEmptyChunkMeta) {
+            raf.seek(location.offset * SECTOR_SIZE_BYTES.toLong())
+            val chunkData = ByteArray(location.sectorCount * SECTOR_SIZE_BYTES)
+            raf.read(chunkData)
+            chunks[i] = Chunk(i, location, timestamp, chunkData)
+        }
+        return chunks
     }
 }

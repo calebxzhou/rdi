@@ -82,11 +82,12 @@ class RegionBuilder private constructor() {
     }
 
     private fun calculateChunkIndex(chunkX: Int, chunkZ: Int): Int =
-        (chunkZ % CHUNKS_PER_REGION_SIDE) * CHUNKS_PER_REGION_SIDE + (chunkX % CHUNKS_PER_REGION_SIDE)
+        Math.floorMod(chunkZ, CHUNKS_PER_REGION_SIDE) * CHUNKS_PER_REGION_SIDE +
+            Math.floorMod(chunkX, CHUNKS_PER_REGION_SIDE)
 
     private fun validateChunkCoordinates(chunk: Chunk) {
-        val expectedRegionX = chunk.x / CHUNKS_PER_REGION_SIDE
-        val expectedRegionZ = chunk.z / CHUNKS_PER_REGION_SIDE
+        val expectedRegionX = Math.floorDiv(chunk.x, CHUNKS_PER_REGION_SIDE)
+        val expectedRegionZ = Math.floorDiv(chunk.z, CHUNKS_PER_REGION_SIDE)
         require(expectedRegionX == regionX && expectedRegionZ == regionZ) {
             "Chunk at (${chunk.x}, ${chunk.z}) does not belong to region ($regionX, $regionZ). Expected region: ($expectedRegionX, $expectedRegionZ)"
         }

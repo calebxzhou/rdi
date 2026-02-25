@@ -23,6 +23,7 @@ object Wardrobe
 @Serializable object Mail
 @Serializable data class MailDetail(val mailId: String)
 @Serializable object WorldList
+@Serializable data class WorldBirdView(val worldId: String)
 @Serializable object TaskView
 @Serializable object McPlayView
 @Serializable data class RMcVersion(val mcVer: String? = null)

@@ -114,7 +114,7 @@ class ChunkBuilder private constructor() {
         val compressedData = tempPayload.compressData(nbtBytes, compressionType)
 
         val buffer = ByteBuffer.allocate(5 + compressedData.size).order(ByteOrder.BIG_ENDIAN)
-        buffer.putInt(compressedData.size)
+        buffer.putInt(compressedData.size + 1)
         buffer.put(compressionType)
         buffer.put(compressedData)
         return buffer.array()

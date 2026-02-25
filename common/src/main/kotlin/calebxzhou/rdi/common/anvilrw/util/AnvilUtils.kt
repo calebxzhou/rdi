@@ -40,10 +40,16 @@ object AnvilUtils {
     fun isSectorAligned(offset: Long): Boolean = offset % SECTOR_SIZE == 0L
 
     fun blockToChunk(blockX: Int, blockZ: Int): IntArray =
-        intArrayOf(blockX / BLOCKS_PER_CHUNK_SIDE, blockZ / BLOCKS_PER_CHUNK_SIDE)
+        intArrayOf(
+            Math.floorDiv(blockX, BLOCKS_PER_CHUNK_SIDE),
+            Math.floorDiv(blockZ, BLOCKS_PER_CHUNK_SIDE)
+        )
 
     fun chunkToRegion(chunkX: Int, chunkZ: Int): IntArray =
-        intArrayOf(chunkX / CHUNKS_PER_REGION_SIDE, chunkZ / CHUNKS_PER_REGION_SIDE)
+        intArrayOf(
+            Math.floorDiv(chunkX, CHUNKS_PER_REGION_SIDE),
+            Math.floorDiv(chunkZ, CHUNKS_PER_REGION_SIDE)
+        )
 
     fun blockToRegion(blockX: Int, blockZ: Int): IntArray {
         val chunkCoords = blockToChunk(blockX, blockZ)
@@ -79,7 +85,8 @@ object AnvilUtils {
     }
 
     fun chunkCoordinatesToIndex(chunkX: Int, chunkZ: Int): Int =
-        (chunkZ % CHUNKS_PER_REGION_SIDE) * CHUNKS_PER_REGION_SIDE + (chunkX % CHUNKS_PER_REGION_SIDE)
+        Math.floorMod(chunkZ, CHUNKS_PER_REGION_SIDE) * CHUNKS_PER_REGION_SIDE +
+            Math.floorMod(chunkX, CHUNKS_PER_REGION_SIDE)
 
     fun calculateChunkCoordinates(regionX: Int, regionZ: Int, chunkIndex: Int): IntArray {
         require(chunkIndex in 0 until CHUNKS_PER_REGION) {

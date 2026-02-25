@@ -44,6 +44,9 @@ class Chunk(
         val decompressed = this.payload.getDecompressedData()
         val rawRoot = nbt.decodeFromByteArray(NbtCompound.serializer(), decompressed)
         val root = AnvilUtils.unwrapRoot(rawRoot)
+        // Reuse this decoded NBT later in getNbtData() to avoid decompress/parse twice.
+        cachedNbtData = root
+        nbtLoaded = true
 
         val x: Int
         val z: Int
@@ -83,6 +86,12 @@ class Chunk(
         return cachedNbtData
     }
 
+    fun releaseSurfaceReadData() {
+        cachedNbtData = null
+        nbtLoaded = false
+        payload.releaseCompressedData()
+    }
+
     fun setNbtData(nbtData: NbtCompound) {
         val wrapped = AnvilUtils.wrapRoot(nbtData)
         val nbtBytes = nbt.encodeToByteArray(NbtCompound.serializer(), wrapped)
@@ -107,11 +116,14 @@ class Chunk(
     }
 
     fun chunkToRegionCoordinate(): IntArray =
-        intArrayOf(x / CHUNKS_PER_REGION_SIDE, z / CHUNKS_PER_REGION_SIDE)
+        intArrayOf(
+            Math.floorDiv(x, CHUNKS_PER_REGION_SIDE),
+            Math.floorDiv(z, CHUNKS_PER_REGION_SIDE)
+        )
 
     fun isBlockInChunk(blockX: Int, blockZ: Int): Boolean {
-        val chunkX = blockX / BLOCKS_PER_CHUNK_SIDE
-        val chunkZ = blockZ / BLOCKS_PER_CHUNK_SIDE
+        val chunkX = Math.floorDiv(blockX, BLOCKS_PER_CHUNK_SIDE)
+        val chunkZ = Math.floorDiv(blockZ, BLOCKS_PER_CHUNK_SIDE)
         return chunkX == x && chunkZ == z
     }
 

@@ -118,6 +118,15 @@ expect fun openFolder(path: String)
 expect fun decodeImageBitmap(bytes: ByteArray): androidx.compose.ui.graphics.ImageBitmap
 
 /**
+ * Build an ImageBitmap directly from ARGB pixels (0xAARRGGBB).
+ */
+expect fun imageBitmapFromArgb(
+    argb: IntArray,
+    width: Int,
+    height: Int
+): ImageBitmap
+
+/**
  * Get total physical memory in MB.
  * Desktop: uses OperatingSystemMXBean. Android: returns 0.
  */

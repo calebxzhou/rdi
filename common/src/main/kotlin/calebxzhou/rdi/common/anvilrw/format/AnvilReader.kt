@@ -70,10 +70,17 @@ class AnvilReader(private val anvilFile: File) : Closeable {
         if (fileSize < headerSize) {
             throw IOException("Invalid MCA file: file size $fileSize bytes is less than required header size $headerSize bytes")
         }
-        if (fileSize % SECTOR_SIZE_BYTES != 0L) {
-            throw IOException("File size $fileSize bytes is not sector-aligned (must be multiple of $SECTOR_SIZE_BYTES)")
+        val trailingBytes = fileSize % SECTOR_SIZE_BYTES
+        if (trailingBytes != 0L) {
+            // Some third-party tools may leave non-sector trailing bytes. Keep reading using only aligned sectors.
+            System.err.printf(
+                "Warning: MCA file %s has %d trailing non-sector bytes (size=%d). Continuing with aligned sectors only.%n",
+                anvilFile.name,
+                trailingBytes,
+                fileSize
+            )
         }
-        val maxReasonableFileSize = 256L * 1024 * 1024
+        val maxReasonableFileSize = 4L * 1024 * 1024 * 1024
         if (fileSize > maxReasonableFileSize) {
             throw IOException("File size $fileSize bytes exceeds reasonable limit $maxReasonableFileSize bytes")
         }
@@ -239,8 +246,8 @@ class AnvilReader(private val anvilFile: File) : Closeable {
         }
 
         val expectedSectorCount = AnvilUtils.calculateSectorCount(totalChunkSize)
-        if (sectorCount != expectedSectorCount) {
-            throw IOException("Sector count mismatch: location specifies $sectorCount sectors, but chunk size $totalChunkSize requires $expectedSectorCount sectors")
+        if (sectorCount < expectedSectorCount) {
+            throw IOException("Sector count too small: location specifies $sectorCount sectors, but chunk size $totalChunkSize requires at least $expectedSectorCount sectors")
         }
 
         return sectorData

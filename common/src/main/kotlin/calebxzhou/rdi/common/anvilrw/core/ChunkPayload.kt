@@ -33,14 +33,26 @@ class ChunkPayload(payload: ByteArray) {
             compressionType = 3
             compressedData = ByteArray(0)
         } else {
-            length = AnvilUtils.readInt(payload.copyOfRange(0, 4), ByteOrder.BIG_ENDIAN)
-            if (length < 0 || length > payload.size - 5) {
+            if (payloadLength < 5) {
                 throw java.io.IOException(
-                    "Invalid chunk length field: $length. Payload size: ${payload.size} bytes"
+                    "Invalid chunk payload: expected at least 5 bytes (length + compression), got $payloadLength bytes"
+                )
+            }
+            val lengthField = AnvilUtils.readInt(payload.copyOfRange(0, 4), ByteOrder.BIG_ENDIAN)
+            if (lengthField <= 0 || lengthField > payloadLength - 4) {
+                throw java.io.IOException(
+                    "Invalid chunk length field: $lengthField. Payload size: $payloadLength bytes"
                 )
             }
             compressionType = payload[4]
-            compressedData = payload.copyOfRange(5, 5 + length)
+            val compressedLength = lengthField - 1
+            if (compressedLength < 0 || compressedLength > payloadLength - 5) {
+                throw java.io.IOException(
+                    "Invalid compressed data length: $compressedLength. Payload size: $payloadLength bytes"
+                )
+            }
+            length = lengthField
+            compressedData = payload.copyOfRange(5, 5 + compressedLength)
         }
     }
 
@@ -58,19 +70,26 @@ class ChunkPayload(payload: ByteArray) {
             )
         }
         compressedData = buffer
-        length = buffer.size
-        payloadLength = AnvilUtils.calculateSectorCount(buffer.size + 4 + 1) * AnvilUtils.SECTOR_SIZE
+        length = buffer.size + 1
+        payloadLength = AnvilUtils.calculateSectorCount(4 + length) * AnvilUtils.SECTOR_SIZE
     }
 
     fun getFullPayload(): ByteArray {
-        val buffer = ByteBuffer.allocate(5 + length).order(ByteOrder.BIG_ENDIAN)
-        buffer.putInt(length)
+        val lengthField = compressedData.size + 1
+        val buffer = ByteBuffer.allocate(4 + lengthField).order(ByteOrder.BIG_ENDIAN)
+        buffer.putInt(lengthField)
         buffer.put(compressionType)
         buffer.put(compressedData)
         return AnvilUtils.padToSectorSize(buffer.array())
     }
 
     fun getDecompressedData(): ByteArray = decompressData(compressedData, compressionType)
+
+    fun releaseCompressedData() {
+        compressedData = ByteArray(0)
+        payloadLength = 0
+        length = 0
+    }
 
     fun decompressData(data: ByteArray, compressionType: Byte): ByteArray {
         return when (compressionType.toInt()) {

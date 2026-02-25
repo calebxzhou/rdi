@@ -29,7 +29,7 @@ class AnvilWriter(private val anvilFile: File) : Closeable {
     }
 
     fun validateChunk(chunk: calebxzhou.rdi.common.anvilrw.core.Chunk): Boolean {
-        return chunk.x >= 0 && chunk.z >= 0
+        return chunk.index in 0 until CHUNKS_PER_REGION
     }
 
     fun flush() {
@@ -95,5 +95,7 @@ class AnvilWriter(private val anvilFile: File) : Closeable {
 
             raf.write(paddedData)
         }
+
+        raf.setLength(currentSectorOffset.toLong() * SECTOR_SIZE_BYTES)
     }
 }

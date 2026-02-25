@@ -187,7 +187,7 @@ fun AppNavigation(
             }
             composable<WorldList> {
                 WorldListScreen(
-                    onBack = { navController.navigate(HostList) },
+                    onBack = { navController.popBackStack() },
                     onOpenBirdView = { worldId ->
                         navController.navigate(WorldBirdView(worldId))
                     }
