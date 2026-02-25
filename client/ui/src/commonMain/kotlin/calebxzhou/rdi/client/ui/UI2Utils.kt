@@ -342,7 +342,7 @@ private fun IconButtonBase(
 @Composable
 fun CircleIconButton(
     icon: String,
-    tooltip: String? = "",
+    tooltip: String? = null,
     tooltipAnchorPosition: TooltipAnchorPosition = TooltipAnchorPosition.Below,
     size: Int = 36,
     contentPadding: PaddingValues = ButtonDefaults.TextButtonContentPadding,
