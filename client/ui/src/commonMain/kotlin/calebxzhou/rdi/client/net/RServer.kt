@@ -75,8 +75,10 @@ class RServer(
                 accountAuthHeader()
                 builder()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
-            e.printStackTrace()
+            lgr.warn(e) { "request failed: $method $path" }
             throw RequestError("无法连接服务器 请检查网络连接")
         }
     }
@@ -196,7 +198,7 @@ inline fun <reified T> CoroutineScope.rdiRequest(
     crossinline onErr: (Throwable) -> Unit,
     crossinline onOk: (Response<T>) -> Unit,
 ) = this.launch {
-    runCatching {
+    try {
         val req = withContext(Dispatchers.IO) {
             server.makeRequest<T>(path, method, params) {
                 body?.let {
@@ -210,8 +212,11 @@ inline fun <reified T> CoroutineScope.rdiRequest(
         } else {
             throw RequestError(req.msg)
         }
-    }.getOrElse {
-        onErr(it)
+    } catch (cancel: CancellationException) {
+        return@launch
+    } catch (t: Throwable) {
+        onErr(t)
+    } finally {
+        onDone()
     }
-    onDone()
 }
