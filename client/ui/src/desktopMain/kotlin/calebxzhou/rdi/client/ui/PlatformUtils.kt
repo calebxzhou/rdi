@@ -18,6 +18,7 @@ import kotlinx.coroutines.withContext
 import java.awt.Desktop
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
+import java.awt.image.BufferedImage
 import java.io.File
 import java.net.URI
 import javax.swing.JFileChooser
@@ -183,6 +184,25 @@ actual fun openFolder(path: String) {
 
 actual fun decodeImageBitmap(bytes: ByteArray): androidx.compose.ui.graphics.ImageBitmap {
     return org.jetbrains.skia.Image.makeFromEncoded(bytes).toComposeImageBitmap()
+}
+
+actual fun imageBitmapFromArgb(
+    argb: IntArray,
+    width: Int,
+    height: Int
+): androidx.compose.ui.graphics.ImageBitmap {
+    require(width > 0 && height > 0) { "Invalid bitmap size: ${width}x$height" }
+    val size = width * height
+    val safePixels = if (argb.size >= size) {
+        argb
+    } else {
+        IntArray(size).also { argb.copyInto(it, endIndex = argb.size) }
+    }
+    val image = BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB).apply {
+        setRGB(0, 0, width, height, safePixels, 0, width)
+    }
+    // Avoid PNG encode/decode roundtrip (very expensive during frequent map updates).
+    return image.toComposeImageBitmap()
 }
 
 actual fun getPlatformTotalPhysicalMemoryMb(): Int {
