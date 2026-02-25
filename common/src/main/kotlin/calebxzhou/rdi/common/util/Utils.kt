@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 import java.nio.ByteBuffer
+import java.time.LocalDateTime
 import java.util.*
 
 fun ObjectId.toUUID(): UUID {
@@ -52,4 +53,13 @@ fun String.validateName(): Result<Unit> {
     val len = trimmed.displayLength
     if (len !in 3..32) throw RequestError("名称长度需在3~32个字符，当前为${len}（一个汉字算两个）")
     return Result.success(Unit)
+}
+val periodOfDay: String = when (LocalDateTime.now().hour) {
+    in 0..5 -> "凌晨"
+    in 6..8 -> "早上"
+    in 9..10 -> "上午"
+    in 11..12 -> "中午"
+    in 13..17 -> "下午"
+    in 18..23 -> "晚上"
+    else -> ""
 }
