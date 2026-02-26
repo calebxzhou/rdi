@@ -350,8 +350,85 @@ fun CircleIconButton(
     iconColor: Color = Color.White,
     enabled: Boolean = true,
     longPressDelay: Long = 0L,
+    showText: Boolean = false,
     onClick: () -> Unit
 ) {
+    val inlineText = tooltip?.takeIf { it.isNotBlank() }
+    if (showText && longPressDelay <= 0L && inlineText != null) {
+        BoxWithConstraints {
+            val density = LocalDensity.current
+            val textMeasurer = rememberTextMeasurer()
+            val labelStyle = MaterialTheme.typography.body2
+            val labelWidthPx = remember(inlineText, labelStyle) {
+                textMeasurer.measure(
+                    text = AnnotatedString(inlineText),
+                    style = labelStyle,
+                    maxLines = 1,
+                    softWrap = false
+                ).size.width
+            }
+            val availableWidthPx = if (maxWidth == Dp.Infinity) {
+                Int.MAX_VALUE
+            } else {
+                with(density) { maxWidth.roundToPx() }
+            }
+            val iconBoxPx = with(density) { size.dp.roundToPx() }
+            val gapPx = with(density) { 8.dp.roundToPx() }
+            val horizontalPaddingPx = with(density) { 28.dp.roundToPx() }
+            val requiredWidthPx = iconBoxPx + gapPx + labelWidthPx + horizontalPaddingPx
+            val canShowInlineText = availableWidthPx >= requiredWidthPx
+
+            val drawButton = @Composable {
+                if (canShowInlineText) {
+                    TextButton(
+                        onClick = onClick,
+                        shape = RoundedCornerShape(percent = 50),
+                        modifier = Modifier.height(size.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            backgroundColor = bgColor,
+                            contentColor = iconColor
+                        ),
+                        contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+                        enabled = enabled
+                    ) {
+                        RowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = icon.asIconText,
+                                fontSize = TextUnit(size * 0.5f, TextUnitType.Sp),
+                                color = iconColor
+                            )
+                            Text(
+                                text = inlineText,
+                                style = labelStyle,
+                                color = iconColor,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip
+                            )
+                        }
+                    }
+                } else {
+                    TextButton(
+                        onClick = onClick,
+                        shape = CircleShape,
+                        modifier = Modifier.size(size.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            backgroundColor = bgColor,
+                            contentColor = iconColor
+                        ),
+                        contentPadding = contentPadding,
+                        enabled = enabled
+                    ) {
+                        Text(text = icon.asIconText, fontSize = TextUnit(size * 0.5f, TextUnitType.Sp))
+                    }
+                }
+            }
+
+            SimpleTooltip(inlineText, tooltipAnchorPosition) { drawButton() }
+        }
+        return
+    }
+
     IconButtonBase(
         tooltip = tooltip,
         tooltipAnchorPosition = tooltipAnchorPosition,

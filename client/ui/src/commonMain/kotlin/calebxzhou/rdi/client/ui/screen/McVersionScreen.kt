@@ -85,20 +85,20 @@ fun McVersionScreen(
 
     MainBox {
         MainColumn {
-            TitleRow("MC资源管理", onBack) {
+            TitleRow("版本管理", onBack) {
                 if (isDesktop) {
                     Text("若下载不成功，可尝试从网盘下载，然后手动导入。")
-                    CircleIconButton("\uDB85\uDC03", "从网盘下载") {
+                    CircleIconButton("\uDB85\uDC03", "从网盘下载", showText = true) {
                         openUrl("https://www.123865.com/s/iWSWvd-Zrtdd")
                     }
                     Space8w()
-                    CircleIconButton("\uEE38", "导入MC运行资源包") {
+                    CircleIconButton("\uEE38", "导入MC版本", showText = true) {
                         val files = selectRdiPackFiles() ?: return@CircleIconButton
                         val task = if (files.size == 1) {
                             buildImportPackTask(files.first())
                         } else {
                             Task.Sequence(
-                                name = "导入整合包",
+                                name = "导入MC版本",
                                 subTasks = files.map { buildImportPackTask(it) }
                             )
                         }
