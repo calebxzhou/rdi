@@ -28,11 +28,15 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
@@ -66,6 +70,11 @@ fun Space24w() {
 @Composable
 fun Space8h() {
     Spacer(modifier = Modifier.height(8.dp))
+}
+
+@Composable
+fun Space24h() {
+    Spacer(modifier = Modifier.height(24.dp))
 }
 
 @Composable
@@ -337,7 +346,10 @@ private fun IconButtonBase(
         SimpleTooltip(tip, tooltipAnchorPosition) { drawButton() }
     } ?: drawButton()
 }
-
+@Composable
+fun SimpleTextButton(text:String, color: Color = MaterialTheme.colors.primary, onClick: () -> Unit){
+    TextButton(onClick,colors = ButtonDefaults.buttonColors(backgroundColor = color)){Text(text)}
+}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CircleIconButton(
