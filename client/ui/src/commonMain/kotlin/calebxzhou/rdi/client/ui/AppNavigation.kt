@@ -1,8 +1,6 @@
 package calebxzhou.rdi.client.ui
 
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
@@ -11,21 +9,14 @@ import androidx.compose.material.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import androidx.navigation.NavGraphBuilder
-import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.UIFontFamily
-import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.service.MojangApi.dashless
-import calebxzhou.rdi.common.util.toUUID
 import org.bson.types.ObjectId
 
 /**
@@ -121,6 +112,7 @@ fun AppNavigation(
                     onOpenHostLobby = { navController.navigate(HostList) },
                     onOpenWardrobe = { navController.navigate(Wardrobe) },
                     onOpenModpackList = { navController.navigate(ModpackList) },
+                    onOpenWorldList = { navController.navigate(WorldList) },
                     onBack = {
                         navController.navigate(Login) {
                             popUpTo(Menu) { inclusive = true }
@@ -155,7 +147,6 @@ fun AppNavigation(
             composable<HostList> {
                 HostListScreen(
                     onBack = { navController.popBackStack() },
-                    onOpenWorldList = { navController.navigate(WorldList) },
                     onOpenHostInfo = { hostId ->
                         navController.navigate(HostInfo(hostId))
                     },
@@ -166,10 +157,7 @@ fun AppNavigation(
                     },
                     onOpenTask = { task ->
                         openTaskView(task, false, null)
-                    },
-                    onOpenWardrobe = { navController.navigate(Wardrobe) },
-                    onOpenMail = { navController.navigate(Mail) },
-                    onOpenSettings = { navController.navigate(Setting) }
+                    }
                 )
             }
             composable<HostInfo> {

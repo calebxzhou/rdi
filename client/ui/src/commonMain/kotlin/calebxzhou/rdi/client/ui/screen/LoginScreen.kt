@@ -24,6 +24,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.window.Dialog
+import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.ui.Space8w
 import calebxzhou.rdi.common.DEBUG
 
@@ -278,9 +279,12 @@ fun LoginScreen(
                             color = MaterialTheme.colors.onSurface
                         )
                     }
+
                 }
+                Text("版本 "+Const.VERSION_NUMBER,style = MaterialTheme.typography.caption,)
             }
         }
+
         BottomSnakebar(snackbarHostState)
 
         // MS Account Dialog

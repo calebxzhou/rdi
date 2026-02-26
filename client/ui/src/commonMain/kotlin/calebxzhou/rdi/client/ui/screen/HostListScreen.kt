@@ -12,7 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.Const
-import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.StartPlayResult
 import calebxzhou.rdi.client.service.startPlay
@@ -32,10 +31,6 @@ import org.bson.types.ObjectId
 @Composable
 fun HostListScreen(
     onBack: (() -> Unit),
-    onOpenWardrobe: (() -> Unit)? = null,
-    onOpenMail: (() -> Unit)? = null,
-    onOpenSettings: (() -> Unit)? = null,
-    onOpenWorldList: (() -> Unit)? = null,
     onOpenHostInfo: ((String) -> Unit)? = null,
     onOpenModpackList: (() -> Unit)? = null,
     onOpenMcVersions: ((McVersion?) -> Unit)? = null,
@@ -108,10 +103,6 @@ fun HostListScreen(
                 }
             }
             Space8w()
-            HeadButton(loggedAccount._id) {
-                onOpenWardrobe?.invoke()
-            }
-            Space8w()
             ImageIconButton(
                 "grass_block", "大家的整合包",
                 bgColor = Color.LightGray
@@ -119,20 +110,7 @@ fun HostListScreen(
                 onOpenModpackList?.invoke()
             }
             Space8w()
-            CircleIconButton("\uDB85\uDC5C", "区块数据管理") {
-                onOpenWorldList?.invoke()
-            }
-            Space8w()
-            CircleIconButton(
-                "\uEB51",
-                "设置",
-            ) {
-                onOpenSettings?.invoke()
-            }
-            Space8w()
-            CircleIconButton("\uEB1C", "信箱") {
-                onOpenMail?.invoke()
-            }
+
 
         }
         Spacer(modifier = Modifier.height(16.dp))
