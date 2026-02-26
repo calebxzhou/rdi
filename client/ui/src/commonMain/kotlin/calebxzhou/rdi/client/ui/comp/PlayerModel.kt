@@ -87,29 +87,12 @@ fun PlayerModel(
         skinData?.let { PlayerModelRenderer(it, slim, showOuterLayer) }
     }
 
-    val renderRotation = remember(
-        orbitYawDeg,
-        orbitPitchDeg
-    ) {
-        val yawDeg = orbitYawDeg
-        val pitchDeg = orbitPitchDeg
-        val yawQuat = Quat.fromAxisAngle(
-            axis = Vec3(0f, 1f, 0f),
-            radians = Math.toRadians(yawDeg.toDouble()).toFloat()
-        )
-        val rightAxis = yawQuat.rotate(Vec3(1f, 0f, 0f))
-        val pitchQuat = Quat.fromAxisAngle(
-            axis = rightAxis,
-            radians = Math.toRadians(pitchDeg.toDouble()).toFloat()
-        )
-        (pitchQuat * yawQuat).normalized()
-    }
-
     val rendered by produceState<ImageBitmap?>(
         initialValue = null,
         renderer,
         viewport,
-        renderRotation,
+        orbitYawDeg,
+        orbitPitchDeg,
         walkPhase,
         maxRenderSide
     ) {
@@ -124,7 +107,8 @@ fun PlayerModel(
             val pixels = renderer.render(
                 width = renderWidth,
                 height = renderHeight,
-                rotation = renderRotation,
+                orbitYawDeg = orbitYawDeg,
+                orbitPitchDeg = orbitPitchDeg,
                 walkPhaseDeg = walkPhase
             )
             imageBitmapFromArgb(pixels, renderWidth, renderHeight)
@@ -144,7 +128,7 @@ fun PlayerModel(
                 ) { change, dragAmount ->
                     change.consume()
                     orbitYawDeg += dragAmount.x * 0.65f
-                    orbitPitchDeg -= dragAmount.y * 0.35f
+                    orbitPitchDeg = (orbitPitchDeg - dragAmount.y * 0.35f).coerceIn(-80f, 80f)
                 }
             }
     ) {
@@ -264,21 +248,27 @@ private class PlayerModelRenderer(
     showOuterLayer: Boolean
 ) {
     private val faces: List<Face> = buildFaces(skin.legacy32, isSlim, showOuterLayer)
-    private val modelPivot = Vec3(0f, 16f, 0f)
     private val armPivotX = if (isSlim) 5.5f else 6f
 
     fun render(
         width: Int,
         height: Int,
-        rotation: Quat,
+        orbitYawDeg: Float,
+        orbitPitchDeg: Float,
         walkPhaseDeg: Float
     ): IntArray {
         val out = IntArray(width * height)
         val depth = FloatArray(width * height) { Float.NEGATIVE_INFINITY }
-        val cameraDist = 78f
-        val focal = min(width, height) * 1.12f
-        val cx = width * 0.5f
-        val cy = height * 0.86f
+        val camera = OrbitCamera.fromOrbit(
+            target = Vec3(0f, 16f, 0f),
+            radius = 42f,
+            yawDeg = orbitYawDeg,
+            pitchDeg = orbitPitchDeg
+        )
+        val fit = computeProjectionFit(camera, width, height)
+        val focal = fit.focal
+        val cx = fit.cx
+        val cy = fit.cy
         val light = Vec3(0.35f, 0.85f, 0.75f).normalized()
         val walkPhaseRad = Math.toRadians(walkPhaseDeg.toDouble()).toFloat()
 
@@ -288,12 +278,11 @@ private class PlayerModelRenderer(
             val a2 = animateWalkVertex(face.v2, face.part, armPivotX, walkPhaseRad)
             val a3 = animateWalkVertex(face.v3, face.part, armPivotX, walkPhaseRad)
 
-            val p0 = rotateAroundPivot(a0, rotation, modelPivot)
-            val p1 = rotateAroundPivot(a1, rotation, modelPivot)
-            val p2 = rotateAroundPivot(a2, rotation, modelPivot)
-            val p3 = rotateAroundPivot(a3, rotation, modelPivot)
-            val limbNormal = animateWalkDirection(face.normal, face.part, walkPhaseRad)
-            val normal = rotation.rotate(limbNormal).normalized()
+            val p0 = camera.worldToCamera(a0)
+            val p1 = camera.worldToCamera(a1)
+            val p2 = camera.worldToCamera(a2)
+            val p3 = camera.worldToCamera(a3)
+            val normal = animateWalkDirection(face.normal, face.part, walkPhaseRad).normalized()
 
             val shade = (face.baseShade * (0.7f + max(0f, normal.dot(light)) * 0.35f))
                 .coerceIn(0.2f, 1.25f)
@@ -304,10 +293,10 @@ private class PlayerModelRenderer(
             val v0 = if (uv.flipY) uv.v + uv.h else uv.v
             val v1 = if (uv.flipY) uv.v else uv.v + uv.h
 
-            val a = project(p0, u0, v1, cameraDist, focal, cx, cy) ?: return@forEach
-            val b = project(p1, u1, v1, cameraDist, focal, cx, cy) ?: return@forEach
-            val c = project(p2, u1, v0, cameraDist, focal, cx, cy) ?: return@forEach
-            val d = project(p3, u0, v0, cameraDist, focal, cx, cy) ?: return@forEach
+            val a = project(p0, u0, v1, focal, cx, cy) ?: return@forEach
+            val b = project(p1, u1, v1, focal, cx, cy) ?: return@forEach
+            val c = project(p2, u1, v0, focal, cx, cy) ?: return@forEach
+            val d = project(p3, u0, v0, focal, cx, cy) ?: return@forEach
 
             rasterizeTriangle(a, b, c, shade, skin, out, depth, width, height)
             rasterizeTriangle(a, c, d, shade, skin, out, depth, width, height)
@@ -318,8 +307,14 @@ private class PlayerModelRenderer(
 
 private data class Vec3(val x: Float, val y: Float, val z: Float) {
     fun dot(other: Vec3): Float = x * other.x + y * other.y + z * other.z
+    fun cross(other: Vec3): Vec3 = Vec3(
+        x = y * other.z - z * other.y,
+        y = z * other.x - x * other.z,
+        z = x * other.y - y * other.x
+    )
     operator fun plus(other: Vec3): Vec3 = Vec3(x + other.x, y + other.y, z + other.z)
     operator fun minus(other: Vec3): Vec3 = Vec3(x - other.x, y - other.y, z - other.z)
+    operator fun times(scale: Float): Vec3 = Vec3(x * scale, y * scale, z * scale)
     fun normalized(): Vec3 {
         val len = kotlin.math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
         if (len < 1e-6f) return this
@@ -327,8 +322,95 @@ private data class Vec3(val x: Float, val y: Float, val z: Float) {
     }
 }
 
-private fun rotateAroundPivot(v: Vec3, rotation: Quat, pivot: Vec3): Vec3 {
-    return rotation.rotate(v - pivot) + pivot
+private data class OrbitCamera(
+    val position: Vec3,
+    val right: Vec3,
+    val up: Vec3,
+    val forward: Vec3
+) {
+    fun worldToCamera(world: Vec3): Vec3 {
+        val rel = world - position
+        return Vec3(
+            x = rel.dot(right),
+            y = rel.dot(up),
+            z = rel.dot(forward)
+        )
+    }
+
+    companion object {
+        fun fromOrbit(target: Vec3, radius: Float, yawDeg: Float, pitchDeg: Float): OrbitCamera {
+            val pitch = Math.toRadians(pitchDeg.coerceIn(-85f, 85f).toDouble()).toFloat()
+            val yaw = Math.toRadians(yawDeg.toDouble()).toFloat()
+            val cosPitch = cos(pitch)
+            val orbitOffset = Vec3(
+                x = sin(yaw) * cosPitch * radius,
+                y = sin(pitch) * radius,
+                z = -cos(yaw) * cosPitch * radius
+            )
+            val position = target + orbitOffset
+            val forward = (target - position).normalized()
+            val worldUp = Vec3(0f, 1f, 0f)
+            var right = worldUp.cross(forward)
+            if (right.dot(right) < 1e-6f) right = Vec3(1f, 0f, 0f)
+            right = right.normalized()
+            val up = forward.cross(right).normalized()
+            return OrbitCamera(position, right, up, forward)
+        }
+    }
+}
+
+private data class ProjectionFit(
+    val focal: Float,
+    val cx: Float,
+    val cy: Float
+)
+
+private fun computeProjectionFit(camera: OrbitCamera, width: Int, height: Int): ProjectionFit {
+    val modelBounds = arrayOf(
+        Vec3(-8.75f, -0.75f, -4.75f),
+        Vec3(-8.75f, -0.75f, 4.75f),
+        Vec3(-8.75f, 32.75f, -4.75f),
+        Vec3(-8.75f, 32.75f, 4.75f),
+        Vec3(8.75f, -0.75f, -4.75f),
+        Vec3(8.75f, -0.75f, 4.75f),
+        Vec3(8.75f, 32.75f, -4.75f),
+        Vec3(8.75f, 32.75f, 4.75f)
+    )
+    var minNormX = Float.POSITIVE_INFINITY
+    var maxNormX = Float.NEGATIVE_INFINITY
+    var minNormY = Float.POSITIVE_INFINITY
+    var maxNormY = Float.NEGATIVE_INFINITY
+
+    for (corner in modelBounds) {
+        val p = camera.worldToCamera(corner)
+        if (p.z <= 0.05f) continue
+        val normX = p.x / p.z
+        val normY = -p.y / p.z
+        minNormX = min(minNormX, normX)
+        maxNormX = max(maxNormX, normX)
+        minNormY = min(minNormY, normY)
+        maxNormY = max(maxNormY, normY)
+    }
+
+    if (!minNormX.isFinite() || !minNormY.isFinite()) {
+        return ProjectionFit(
+            focal = min(width, height) * 1.4f,
+            cx = width * 0.5f,
+            cy = height * 0.5f
+        )
+    }
+
+    val spanX = (maxNormX - minNormX).coerceAtLeast(1e-4f)
+    val spanY = (maxNormY - minNormY).coerceAtLeast(1e-4f)
+    val fitRatio = 0.96f
+    val focalX = width * fitRatio / spanX
+    val focalY = height * fitRatio / spanY
+    val focal = min(focalX, focalY)
+    val centerNormX = (minNormX + maxNormX) * 0.5f
+    val centerNormY = (minNormY + maxNormY) * 0.5f
+    val cx = width * 0.5f - focal * centerNormX
+    val cy = height * 0.5f - focal * centerNormY
+    return ProjectionFit(focal, cx, cy)
 }
 
 private fun rotateAroundXAxis(v: Vec3, pivot: Vec3, radians: Float): Vec3 {
@@ -362,49 +444,6 @@ private fun animateWalkDirection(v: Vec3, part: ModelPart, phaseRad: Float): Vec
         ModelPart.LEFT_LEG -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), -swingRad)
         ModelPart.RIGHT_LEG -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), swingRad)
         else -> v
-    }
-}
-
-private data class Quat(
-    val w: Float,
-    val x: Float,
-    val y: Float,
-    val z: Float
-) {
-    fun normalized(): Quat {
-        val len = sqrt((w * w + x * x + y * y + z * z).toDouble()).toFloat()
-        if (len < 1e-6f) return this
-        return Quat(w / len, x / len, y / len, z / len)
-    }
-
-    operator fun times(other: Quat): Quat {
-        return Quat(
-            w = w * other.w - x * other.x - y * other.y - z * other.z,
-            x = w * other.x + x * other.w + y * other.z - z * other.y,
-            y = w * other.y - x * other.z + y * other.w + z * other.x,
-            z = w * other.z + x * other.y - y * other.x + z * other.w
-        )
-    }
-
-    fun rotate(v: Vec3): Vec3 {
-        val qv = Quat(0f, v.x, v.y, v.z)
-        val inv = Quat(w, -x, -y, -z)
-        val out = this * qv * inv
-        return Vec3(out.x, out.y, out.z)
-    }
-
-    companion object {
-        fun fromAxisAngle(axis: Vec3, radians: Float): Quat {
-            val n = axis.normalized()
-            val half = radians * 0.5f
-            val s = sin(half)
-            return Quat(
-                w = cos(half),
-                x = n.x * s,
-                y = n.y * s,
-                z = n.z * s
-            ).normalized()
-        }
     }
 }
 
@@ -458,12 +497,11 @@ private fun project(
     p: Vec3,
     u: Float,
     v: Float,
-    cameraDist: Float,
     focal: Float,
     cx: Float,
     cy: Float
 ): ProjVertex? {
-    val depth = p.z + cameraDist
+    val depth = p.z
     if (depth <= 0.1f) return null
     val invZ = 1f / depth
     return ProjVertex(
