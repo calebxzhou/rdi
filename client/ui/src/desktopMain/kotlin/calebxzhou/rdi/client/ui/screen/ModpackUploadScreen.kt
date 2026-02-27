@@ -59,6 +59,7 @@ fun ModpackUploadScreen(
     // --- State: download progress ---
     var downloadProgress by remember { mutableStateOf<TaskProgress?>(null) }
     var isDownloading by remember { mutableStateOf(false) }
+    var downloadFailed by remember { mutableStateOf(false) }
 
     // --- State: editable fields (basic info tab) ---
     var modpackName by remember { mutableStateOf("") }
@@ -104,35 +105,55 @@ fun ModpackUploadScreen(
         }
     }
 
+    fun modsNeedDownload(source: List<Mod>): List<Mod> =
+        source.filter { mod -> !DL_MOD_DIR.resolve(mod.fileName).exists() }
+
+    fun startModsDownload(targetMods: List<Mod>) {
+        if (isDownloading) return
+        if (targetMods.isEmpty()) {
+            downloadFailed = false
+            return
+        }
+        isDownloading = true
+        downloadFailed = false
+        errorText = null
+        scope.launch(Dispatchers.IO) {
+            try {
+                val task = ModService.downloadModsTask(targetMods)
+                task.start { progress ->
+                    scope.launch {
+                        downloadProgress = progress
+                    }
+                }
+                val remaining = modsNeedDownload(targetMods)
+                scope.launch {
+                    if (remaining.isNotEmpty()) {
+                        errorText = "下载未完成，仍有${remaining.size}个Mod未下载"
+                        downloadFailed = true
+                    } else {
+                        downloadFailed = false
+                    }
+                    downloadProgress = null
+                    isDownloading = false
+                }
+            } catch (e: Exception) {
+                val remaining = modsNeedDownload(targetMods)
+                scope.launch {
+                    errorText = "下载失败: ${e.message}"
+                    downloadFailed = remaining.isNotEmpty()
+                    downloadProgress = null
+                    isDownloading = false
+                }
+            }
+        }
+    }
+
     // When mods finish loading, check if download is needed and auto-download in background
     LaunchedEffect(modsLoaded, payload) {
         if (!modsLoaded || payload == null || isDownloading) return@LaunchedEffect
-        val currentMods = mods
-        val needDownload = currentMods.any { mod ->
-            !DL_MOD_DIR.resolve(mod.fileName).exists()
-        }
-        if (needDownload) {
-            isDownloading = true
-            scope.launch(Dispatchers.IO) {
-                try {
-                    val task = ModService.downloadModsTask(currentMods)
-                    task.start { progress ->
-                        scope.launch {
-                            downloadProgress = progress
-                        }
-                    }
-                    scope.launch {
-                        downloadProgress = null
-                        isDownloading = false
-                    }
-                } catch (e: Exception) {
-                    scope.launch {
-                        errorText = "下载失败: ${e.message}"
-                        downloadProgress = null
-                        isDownloading = false
-                    }
-                }
-            }
+        val pendingMods = modsNeedDownload(mods)
+        if (pendingMods.isNotEmpty()) {
+            startModsDownload(pendingMods)
         }
     }
 
@@ -156,6 +177,17 @@ fun ModpackUploadScreen(
                         Text(it, color = MaterialTheme.colors.error)
                     }
                     Space8w()
+                    if (downloadFailed && !isDownloading) {
+                        CircleIconButton(
+                            icon = "\uF2F9",
+                            tooltip = "重试下载失败的Mod",
+                            bgColor = MaterialColor.YELLOW_900.color,
+                            showText = true
+                        ) {
+                            startModsDownload(modsNeedDownload(mods))
+                        }
+                        Space8w()
+                    }
                     parseProgress?.let {
                         Text(it)
                         Space8w()
@@ -230,6 +262,17 @@ fun ModpackUploadScreen(
                         Text(it, color = MaterialTheme.colors.error)
                     }
                     Space8w()
+                    if (downloadFailed && !isDownloading) {
+                        CircleIconButton(
+                            icon = "\uF2F9",
+                            tooltip = "重试下载失败的Mod",
+                            bgColor = MaterialColor.YELLOW_900.color,
+                            showText = true
+                        ) {
+                            startModsDownload(modsNeedDownload(mods))
+                        }
+                        Space8w()
+                    }
                     CircleIconButton("\uF058", "确认上传") {
                         //if(!DEBUG){
                             if (currentTester != null) {
