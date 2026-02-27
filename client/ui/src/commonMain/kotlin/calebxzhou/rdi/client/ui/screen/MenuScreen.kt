@@ -110,13 +110,14 @@ private fun PlayerPreviewCard(
     ) {
         PlayerModel(
             skinUrl = loggedAccount.cloth.skin,
+            capeUrl = loggedAccount.cloth.cape,
             modifier = Modifier.fillMaxSize(),
             backgroundColor = Color.Transparent,
             autoRotate = true,
             animateWalk = true,
             showOuterLayer = true,
             isSlim = loggedAccount.cloth.isSlim,
-            maxRenderSide = 1440
+            maxRenderSide = 256
         )
     }
 }
