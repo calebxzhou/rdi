@@ -36,26 +36,29 @@ import kotlin.math.*
  * calebxzhou @ 2026-02-25 18:04
  *
  * Software player model renderer (skinview-like).
- * Input: a standard minecraft skin (64x64 or 64x32).
+ * Input: a standard minecraft skin (64x64 or 64x32) and optional cape.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlayerModel(
     skin: ImageBitmap?,
+    cape: ImageBitmap? = null,
     modifier: Modifier = Modifier,
     backgroundColor: Color = Color.Transparent,
     autoRotate: Boolean = true,
     animateWalk: Boolean = true,
     showOuterLayer: Boolean = true,
     isSlim: Boolean? = null,
-    maxRenderSide: Int = 256
+    maxRenderSide: Int = 256,
+    enableTaa: Boolean = true,
+    taaLowResThreshold: Int = 640
 ) {
     var viewport by remember { mutableStateOf(IntSize.Zero) }
-    var orbitYawDeg by remember(skin) { mutableStateOf(0f) }
-    var orbitPitchDeg by remember(skin) { mutableStateOf(0f) }
+    var orbitYawDeg by remember(skin, cape) { mutableStateOf(0f) }
+    var orbitPitchDeg by remember(skin, cape) { mutableStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
 
-    LaunchedEffect(autoRotate, skin) {
+    LaunchedEffect(autoRotate, skin, cape) {
         val speedDegPerSecond = 30f
         var lastFrameNanos = withFrameNanos { it }
         while (isActive) {
@@ -83,9 +86,11 @@ fun PlayerModel(
 
     val skinData = remember(skin) { skin?.let(::SkinData) }
     val slim = remember(skinData, isSlim) { isSlim ?: (skinData?.detectSlim() ?: false) }
-    val renderer = remember(skinData, slim, showOuterLayer) {
-        skinData?.let { PlayerModelRenderer(it, slim, showOuterLayer) }
+    val capeData = remember(cape) { cape?.let(::SkinData) }
+    val renderer = remember(skinData, capeData, slim, showOuterLayer) {
+        skinData?.let { PlayerModelRenderer(it, capeData, slim, showOuterLayer) }
     }
+    val taaState = remember(renderer) { TemporalAaState() }
 
     val rendered by produceState<ImageBitmap?>(
         initialValue = null,
@@ -94,9 +99,12 @@ fun PlayerModel(
         orbitYawDeg,
         orbitPitchDeg,
         walkPhase,
-        maxRenderSide
+        maxRenderSide,
+        enableTaa,
+        taaLowResThreshold
     ) {
         if (renderer == null || viewport.width <= 2 || viewport.height <= 2) {
+            taaState.reset()
             value = null
             return@produceState
         }
@@ -104,14 +112,35 @@ fun PlayerModel(
         val renderWidth = viewport.width.coerceIn(2, renderCap)
         val renderHeight = viewport.height.coerceIn(2, renderCap)
         value = withContext(Dispatchers.Default) {
-            val pixels = renderer.render(
-                width = renderWidth,
-                height = renderHeight,
-                orbitYawDeg = orbitYawDeg,
-                orbitPitchDeg = orbitPitchDeg,
-                walkPhaseDeg = walkPhase
-            )
-            imageBitmapFromArgb(pixels, renderWidth, renderHeight)
+            val taaEnabledNow = enableTaa && min(renderWidth, renderHeight) <= max(64, taaLowResThreshold)
+            val passes = if (taaEnabledNow) 2 else 1
+            var resolved: IntArray? = null
+            repeat(passes) {
+                val jitter = if (taaEnabledNow) taaState.nextJitter() else Vec2(0f, 0f)
+                val current = renderer.render(
+                    width = renderWidth,
+                    height = renderHeight,
+                    orbitYawDeg = orbitYawDeg,
+                    orbitPitchDeg = orbitPitchDeg,
+                    walkPhaseDeg = walkPhase,
+                    jitterX = jitter.x,
+                    jitterY = jitter.y
+                )
+                resolved = if (taaEnabledNow) {
+                    taaState.resolve(
+                        current = current,
+                        width = renderWidth,
+                        height = renderHeight,
+                        yawDeg = orbitYawDeg,
+                        pitchDeg = orbitPitchDeg,
+                        walkPhaseDeg = walkPhase
+                    )
+                } else {
+                    current
+                }
+            }
+            if (!taaEnabledNow) taaState.reset()
+            imageBitmapFromArgb(resolved!!, renderWidth, renderHeight)
         }
     }
 
@@ -171,13 +200,16 @@ fun PlayerModel(
 @Composable
 fun PlayerModel(
     skinUrl: String,
+    capeUrl: String? = null,
     modifier: Modifier = Modifier,
     backgroundColor: Color = Color.Transparent,
     autoRotate: Boolean = true,
     animateWalk: Boolean = true,
     showOuterLayer: Boolean = true,
     isSlim: Boolean? = null,
-    maxRenderSide: Int = 256
+    maxRenderSide: Int = 256,
+    enableTaa: Boolean = true,
+    taaLowResThreshold: Int = 640
 ) {
     val skin = produceState<ImageBitmap?>(initialValue = null, skinUrl) {
         value = withContext(Dispatchers.IO) {
@@ -188,15 +220,31 @@ fun PlayerModel(
             }.getOrNull()
         }
     }.value
+    val cape = produceState<ImageBitmap?>(initialValue = null, capeUrl) {
+        if (capeUrl.isNullOrBlank()) {
+            value = null
+            return@produceState
+        }
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val response = httpRequest { url(capeUrl) }
+                if (!response.status.isSuccess()) return@runCatching null
+                decodeImageBitmap(response.bodyAsBytes())
+            }.getOrNull()
+        }
+    }.value
     PlayerModel(
         skin = skin,
+        cape = cape,
         modifier = modifier,
         backgroundColor = backgroundColor,
         autoRotate = autoRotate,
         animateWalk = animateWalk,
         showOuterLayer = showOuterLayer,
         isSlim = isSlim,
-        maxRenderSide = maxRenderSide
+        maxRenderSide = maxRenderSide,
+        enableTaa = enableTaa,
+        taaLowResThreshold = taaLowResThreshold
     )
 }
 
@@ -244,10 +292,11 @@ private class SkinData(image: ImageBitmap) {
 
 private class PlayerModelRenderer(
     private val skin: SkinData,
+    private val cape: SkinData?,
     isSlim: Boolean,
     showOuterLayer: Boolean
 ) {
-    private val faces: List<Face> = buildFaces(skin.legacy32, isSlim, showOuterLayer)
+    private val faces: List<Face> = buildFaces(skin.legacy32, isSlim, showOuterLayer, cape != null)
     private val armPivotX = if (isSlim) 5.5f else 6f
 
     fun render(
@@ -255,7 +304,9 @@ private class PlayerModelRenderer(
         height: Int,
         orbitYawDeg: Float,
         orbitPitchDeg: Float,
-        walkPhaseDeg: Float
+        walkPhaseDeg: Float,
+        jitterX: Float = 0f,
+        jitterY: Float = 0f
     ): IntArray {
         val out = IntArray(width * height)
         val depth = FloatArray(width * height) { Float.NEGATIVE_INFINITY }
@@ -267,8 +318,8 @@ private class PlayerModelRenderer(
         )
         val fit = computeProjectionFit(camera, width, height)
         val focal = fit.focal
-        val cx = fit.cx
-        val cy = fit.cy
+        val cx = fit.cx + jitterX
+        val cy = fit.cy + jitterY
         val light = Vec3(0.35f, 0.85f, 0.75f).normalized()
         val walkPhaseRad = Math.toRadians(walkPhaseDeg.toDouble()).toFloat()
 
@@ -286,6 +337,10 @@ private class PlayerModelRenderer(
 
             val shade = (face.baseShade * (0.7f + max(0f, normal.dot(light)) * 0.35f))
                 .coerceIn(0.2f, 1.25f)
+            val texture = when (face.texture) {
+                TextureSource.SKIN -> skin
+                TextureSource.CAPE -> cape ?: return@forEach
+            }
 
             val uv = face.uv
             val u0 = if (uv.flipX) uv.u + uv.w else uv.u
@@ -298,11 +353,123 @@ private class PlayerModelRenderer(
             val c = project(p2, u1, v0, focal, cx, cy) ?: return@forEach
             val d = project(p3, u0, v0, focal, cx, cy) ?: return@forEach
 
-            rasterizeTriangle(a, b, c, shade, skin, out, depth, width, height)
-            rasterizeTriangle(a, c, d, shade, skin, out, depth, width, height)
+            rasterizeTriangle(a, b, c, shade, texture, out, depth, width, height)
+            rasterizeTriangle(a, c, d, shade, texture, out, depth, width, height)
         }
         return out
     }
+}
+
+private data class Vec2(val x: Float, val y: Float)
+
+private class TemporalAaState {
+    private var width: Int = 0
+    private var height: Int = 0
+    private var history: IntArray = IntArray(0)
+    private var output: IntArray = IntArray(0)
+    private var initialized = false
+    private var jitterIndex = 0
+    private var lastYaw = 0f
+    private var lastPitch = 0f
+    private var lastWalk = 0f
+
+    fun reset() {
+        width = 0
+        height = 0
+        history = IntArray(0)
+        output = IntArray(0)
+        initialized = false
+        jitterIndex = 0
+        lastYaw = 0f
+        lastPitch = 0f
+        lastWalk = 0f
+    }
+
+    fun nextJitter(): Vec2 {
+        val jitter = TAA_JITTER_SEQUENCE[jitterIndex % TAA_JITTER_SEQUENCE.size]
+        jitterIndex++
+        return jitter
+    }
+
+    fun resolve(
+        current: IntArray,
+        width: Int,
+        height: Int,
+        yawDeg: Float,
+        pitchDeg: Float,
+        walkPhaseDeg: Float
+    ): IntArray {
+        ensureBuffers(width, height)
+        val yawDelta = wrappedAngleDelta(yawDeg, lastYaw)
+        val pitchDelta = abs(pitchDeg - lastPitch)
+        val walkDelta = wrappedAngleDelta(walkPhaseDeg, lastWalk)
+        val motion = yawDelta * 0.6f + pitchDelta * 0.8f + walkDelta * 0.05f
+        val resetHistory = !initialized || motion > 2.5f
+        val currentWeight = when {
+            resetHistory -> 1f
+            motion > 1.25f -> 0.45f
+            motion > 0.35f -> 0.30f
+            else -> 0.18f
+        }
+        for (i in current.indices) {
+            val blended = if (resetHistory) {
+                current[i]
+            } else {
+                blendArgb(history[i], current[i], currentWeight)
+            }
+            history[i] = blended
+            output[i] = blended
+        }
+        initialized = true
+        lastYaw = yawDeg
+        lastPitch = pitchDeg
+        lastWalk = walkPhaseDeg
+        return output
+    }
+
+    private fun ensureBuffers(width: Int, height: Int) {
+        if (this.width == width && this.height == height && history.size == width * height) return
+        this.width = width
+        this.height = height
+        history = IntArray(width * height)
+        output = IntArray(width * height)
+        initialized = false
+        jitterIndex = 0
+    }
+}
+
+private val TAA_JITTER_SEQUENCE = arrayOf(
+    Vec2(0.0f, 0.0f),
+    Vec2(0.25f, -0.25f),
+    Vec2(-0.25f, 0.25f),
+    Vec2(0.375f, 0.125f),
+    Vec2(-0.125f, -0.375f),
+    Vec2(0.125f, 0.375f),
+    Vec2(-0.375f, -0.125f),
+    Vec2(0.5f, 0.5f)
+)
+
+private fun wrappedAngleDelta(a: Float, b: Float): Float {
+    val diff = (a - b + 540f) % 360f - 180f
+    return abs(diff)
+}
+
+private fun blendArgb(history: Int, current: Int, currentWeight: Float): Int {
+    val t = currentWeight.coerceIn(0f, 1f)
+    val inv = 1f - t
+    val ha = (history ushr 24) and 0xFF
+    val hr = (history ushr 16) and 0xFF
+    val hg = (history ushr 8) and 0xFF
+    val hb = history and 0xFF
+    val ca = (current ushr 24) and 0xFF
+    val cr = (current ushr 16) and 0xFF
+    val cg = (current ushr 8) and 0xFF
+    val cb = current and 0xFF
+    val a = (ha * inv + ca * t).roundToInt().coerceIn(0, 255)
+    val r = (hr * inv + cr * t).roundToInt().coerceIn(0, 255)
+    val g = (hg * inv + cg * t).roundToInt().coerceIn(0, 255)
+    val b = (hb * inv + cb * t).roundToInt().coerceIn(0, 255)
+    return (a shl 24) or (r shl 16) or (g shl 8) or b
 }
 
 private data class Vec3(val x: Float, val y: Float, val z: Float) {
@@ -367,13 +534,13 @@ private data class ProjectionFit(
 
 private fun computeProjectionFit(camera: OrbitCamera, width: Int, height: Int): ProjectionFit {
     val modelBounds = arrayOf(
-        Vec3(-8.75f, -0.75f, -4.75f),
+        Vec3(-8.75f, -0.75f, -6.9f),
         Vec3(-8.75f, -0.75f, 4.75f),
-        Vec3(-8.75f, 32.75f, -4.75f),
+        Vec3(-8.75f, 32.75f, -6.9f),
         Vec3(-8.75f, 32.75f, 4.75f),
-        Vec3(8.75f, -0.75f, -4.75f),
+        Vec3(8.75f, -0.75f, -6.9f),
         Vec3(8.75f, -0.75f, 4.75f),
-        Vec3(8.75f, 32.75f, -4.75f),
+        Vec3(8.75f, 32.75f, -6.9f),
         Vec3(8.75f, 32.75f, 4.75f)
     )
     var minNormX = Float.POSITIVE_INFINITY
@@ -427,22 +594,26 @@ private fun rotateAroundXAxis(v: Vec3, pivot: Vec3, radians: Float): Vec3 {
 
 private fun animateWalkVertex(v: Vec3, part: ModelPart, armPivotX: Float, phaseRad: Float): Vec3 {
     val swingRad = sin(phaseRad) * Math.toRadians(20.0).toFloat()
+    val capeSwingRad = Math.toRadians(8.0).toFloat() + sin(phaseRad * 0.5f) * Math.toRadians(4.0).toFloat()
     return when (part) {
         ModelPart.LEFT_ARM -> rotateAroundXAxis(v, Vec3(-armPivotX, 24f, 0f), swingRad)
         ModelPart.RIGHT_ARM -> rotateAroundXAxis(v, Vec3(armPivotX, 24f, 0f), -swingRad)
         ModelPart.LEFT_LEG -> rotateAroundXAxis(v, Vec3(-1.9f, 12f, -0.1f), -swingRad)
         ModelPart.RIGHT_LEG -> rotateAroundXAxis(v, Vec3(1.9f, 12f, -0.1f), swingRad)
+        ModelPart.CAPE -> rotateAroundXAxis(v, Vec3(0f, 24f, -2.6f), capeSwingRad)
         else -> v
     }
 }
 
 private fun animateWalkDirection(v: Vec3, part: ModelPart, phaseRad: Float): Vec3 {
     val swingRad = sin(phaseRad) * Math.toRadians(20.0).toFloat()
+    val capeSwingRad = Math.toRadians(8.0).toFloat() + sin(phaseRad * 0.5f) * Math.toRadians(4.0).toFloat()
     return when (part) {
         ModelPart.LEFT_ARM -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), swingRad)
         ModelPart.RIGHT_ARM -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), -swingRad)
         ModelPart.LEFT_LEG -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), -swingRad)
         ModelPart.RIGHT_LEG -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), swingRad)
+        ModelPart.CAPE -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), capeSwingRad)
         else -> v
     }
 }
@@ -462,7 +633,13 @@ private enum class ModelPart {
     LEFT_ARM,
     RIGHT_ARM,
     LEFT_LEG,
-    RIGHT_LEG
+    RIGHT_LEG,
+    CAPE
+}
+
+private enum class TextureSource {
+    SKIN,
+    CAPE
 }
 
 private data class Face(
@@ -473,7 +650,8 @@ private data class Face(
     val normal: Vec3,
     val uv: UvRect,
     val baseShade: Float,
-    val part: ModelPart
+    val part: ModelPart,
+    val texture: TextureSource = TextureSource.SKIN
 )
 
 private data class CuboidUv(
@@ -518,7 +696,7 @@ private fun rasterizeTriangle(
     b: ProjVertex,
     c: ProjVertex,
     shade: Float,
-    skin: SkinData,
+    texture: SkinData,
     out: IntArray,
     zBuf: FloatArray,
     width: Int,
@@ -551,7 +729,7 @@ private fun rasterizeTriangle(
 
             val u = (w0 * a.uOverZ + w1 * b.uOverZ + w2 * c.uOverZ) / invZ
             val v = (w0 * a.vOverZ + w1 * b.vOverZ + w2 * c.vOverZ) / invZ
-            val argb = skin.sample(u, v)
+            val argb = texture.sample(u, v)
             val alpha = (argb ushr 24) and 0xFF
             if (alpha < 8) continue
 
@@ -575,7 +753,8 @@ private fun shadeArgb(color: Int, shade: Float): Int {
 private fun buildFaces(
     legacy32: Boolean,
     isSlim: Boolean,
-    showOuterLayer: Boolean
+    showOuterLayer: Boolean,
+    hasCape: Boolean
 ): List<Face> {
     val faces = ArrayList<Face>(96)
     val armWidth = if (isSlim) 3 else 4
@@ -678,6 +857,16 @@ private fun buildFaces(
             )
         }
     }
+    if (hasCape) {
+        addCuboid(
+            faces,
+            center = Vec3(0f, 16f, -2.6f),
+            size = Vec3(10f, 16f, 1f),
+            uv = cubeCapeUv(),
+            part = ModelPart.CAPE,
+            texture = TextureSource.CAPE
+        )
+    }
     return faces
 }
 
@@ -698,6 +887,8 @@ private fun cubeSkinUv(
     )
 }
 
+private fun cubeCapeUv(): CuboidUv = cubeSkinUv(0, 0, 10, 16, 1)
+
 private fun uv(
     u: Int,
     v: Int,
@@ -713,7 +904,8 @@ private fun addCuboid(
     size: Vec3,
     uv: CuboidUv,
     part: ModelPart,
-    inflate: Float = 0f
+    inflate: Float = 0f,
+    texture: TextureSource = TextureSource.SKIN
 ) {
     val hx = size.x * 0.5f + inflate
     val hy = size.y * 0.5f + inflate
@@ -731,26 +923,26 @@ private fun addCuboid(
 
     out += Face(
         v0 = Vec3(l, d, f), v1 = Vec3(r, d, f), v2 = Vec3(r, u, f), v3 = Vec3(l, u, f),
-        normal = Vec3(0f, 0f, 1f), uv = uv.front, baseShade = 1.0f, part = part
+        normal = Vec3(0f, 0f, 1f), uv = uv.front, baseShade = 1.0f, part = part, texture = texture
     )
     out += Face(
         v0 = Vec3(r, d, b), v1 = Vec3(l, d, b), v2 = Vec3(l, u, b), v3 = Vec3(r, u, b),
-        normal = Vec3(0f, 0f, -1f), uv = uv.back, baseShade = 0.82f, part = part
+        normal = Vec3(0f, 0f, -1f), uv = uv.back, baseShade = 0.82f, part = part, texture = texture
     )
     out += Face(
         v0 = Vec3(l, d, b), v1 = Vec3(l, d, f), v2 = Vec3(l, u, f), v3 = Vec3(l, u, b),
-        normal = Vec3(-1f, 0f, 0f), uv = uv.left, baseShade = 0.9f, part = part
+        normal = Vec3(-1f, 0f, 0f), uv = uv.left, baseShade = 0.9f, part = part, texture = texture
     )
     out += Face(
         v0 = Vec3(r, d, f), v1 = Vec3(r, d, b), v2 = Vec3(r, u, b), v3 = Vec3(r, u, f),
-        normal = Vec3(1f, 0f, 0f), uv = uv.right, baseShade = 0.78f, part = part
+        normal = Vec3(1f, 0f, 0f), uv = uv.right, baseShade = 0.78f, part = part, texture = texture
     )
     out += Face(
         v0 = Vec3(l, u, b), v1 = Vec3(r, u, b), v2 = Vec3(r, u, f), v3 = Vec3(l, u, f),
-        normal = Vec3(0f, 1f, 0f), uv = uv.top, baseShade = 1.08f, part = part
+        normal = Vec3(0f, 1f, 0f), uv = uv.top, baseShade = 1.08f, part = part, texture = texture
     )
     out += Face(
         v0 = Vec3(l, d, f), v1 = Vec3(r, d, f), v2 = Vec3(r, d, b), v3 = Vec3(l, d, b),
-        normal = Vec3(0f, -1f, 0f), uv = uv.bottom, baseShade = 0.62f, part = part
+        normal = Vec3(0f, -1f, 0f), uv = uv.bottom, baseShade = 0.62f, part = part, texture = texture
     )
 }
