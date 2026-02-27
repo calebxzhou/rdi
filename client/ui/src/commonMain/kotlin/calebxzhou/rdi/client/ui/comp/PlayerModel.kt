@@ -27,7 +27,9 @@ import calebxzhou.rdi.common.net.httpRequest
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import kotlin.math.*
@@ -65,12 +67,12 @@ fun PlayerModel(
             val nowNanos = withFrameNanos { it }
             val deltaSec = (nowNanos - lastFrameNanos) / 1_000_000_000f
             lastFrameNanos = nowNanos
-            if (autoRotate && !dragging) {
+            if (autoRotate && !dragging) { 
                 orbitYawDeg += speedDegPerSecond * deltaSec
             }
         }
     }
-    val walkPhase = if (animateWalk) {
+    val walkPhaseState: State<Float> = if (animateWalk) {
         rememberInfiniteTransition(label = "player-model-walk").animateFloat(
             initialValue = 0f,
             targetValue = 360f,
@@ -79,9 +81,9 @@ fun PlayerModel(
                 repeatMode = RepeatMode.Restart
             ),
             label = "player-model-walk-phase"
-        ).value
+        )
     } else {
-        0f
+        rememberUpdatedState(0f)
     }
 
     val skinData = remember(skin) { skin?.let(::SkinData) }
@@ -91,57 +93,60 @@ fun PlayerModel(
         skinData?.let { PlayerModelRenderer(it, capeData, slim, showOuterLayer) }
     }
     val taaState = remember(renderer) { TemporalAaState() }
+    var rendered by remember(renderer) { mutableStateOf<ImageBitmap?>(null) }
 
-    val rendered by produceState<ImageBitmap?>(
-        initialValue = null,
+    LaunchedEffect(
         renderer,
         viewport,
-        orbitYawDeg,
-        orbitPitchDeg,
-        walkPhase,
+        animateWalk,
         maxRenderSide,
         enableTaa,
         taaLowResThreshold
     ) {
         if (renderer == null || viewport.width <= 2 || viewport.height <= 2) {
             taaState.reset()
-            value = null
-            return@produceState
+            rendered = null
+            return@LaunchedEffect
         }
         val renderCap = max(2, maxRenderSide)
         val renderWidth = viewport.width.coerceIn(2, renderCap)
         val renderHeight = viewport.height.coerceIn(2, renderCap)
-        value = withContext(Dispatchers.Default) {
-            val taaEnabledNow = enableTaa && min(renderWidth, renderHeight) <= max(64, taaLowResThreshold)
-            val passes = if (taaEnabledNow) 2 else 1
-            var resolved: IntArray? = null
-            repeat(passes) {
-                val jitter = if (taaEnabledNow) taaState.nextJitter() else Vec2(0f, 0f)
-                val current = renderer.render(
-                    width = renderWidth,
-                    height = renderHeight,
-                    orbitYawDeg = orbitYawDeg,
-                    orbitPitchDeg = orbitPitchDeg,
-                    walkPhaseDeg = walkPhase,
-                    jitterX = jitter.x,
-                    jitterY = jitter.y
-                )
-                resolved = if (taaEnabledNow) {
-                    taaState.resolve(
-                        current = current,
-                        width = renderWidth,
-                        height = renderHeight,
-                        yawDeg = orbitYawDeg,
-                        pitchDeg = orbitPitchDeg,
-                        walkPhaseDeg = walkPhase
-                    )
-                } else {
-                    current
+        snapshotFlow { Triple(orbitYawDeg, orbitPitchDeg, walkPhaseState.value) }
+            .conflate()
+            .collect { (yawDeg, pitchDeg, walkDeg) ->
+                val bitmap = withContext(Dispatchers.Default) {
+                    val taaEnabledNow = enableTaa && min(renderWidth, renderHeight) <= max(64, taaLowResThreshold)
+                    val passes = if (taaEnabledNow) 2 else 1
+                    var resolved: IntArray? = null
+                    repeat(passes) {
+                        val jitter = if (taaEnabledNow) taaState.nextJitter() else Vec2(0f, 0f)
+                        val current = renderer.render(
+                            width = renderWidth,
+                            height = renderHeight,
+                            orbitYawDeg = yawDeg,
+                            orbitPitchDeg = pitchDeg,
+                            walkPhaseDeg = walkDeg,
+                            jitterX = jitter.x,
+                            jitterY = jitter.y
+                        )
+                        resolved = if (taaEnabledNow) {
+                            taaState.resolve(
+                                current = current,
+                                width = renderWidth,
+                                height = renderHeight,
+                                yawDeg = yawDeg,
+                                pitchDeg = pitchDeg,
+                                walkPhaseDeg = walkDeg
+                            )
+                        } else {
+                            current
+                        }
+                    }
+                    if (!taaEnabledNow) taaState.reset()
+                    imageBitmapFromArgb(resolved!!, renderWidth, renderHeight)
                 }
+                rendered = bitmap
             }
-            if (!taaEnabledNow) taaState.reset()
-            imageBitmapFromArgb(resolved!!, renderWidth, renderHeight)
-        }
     }
 
     Box(
@@ -298,6 +303,7 @@ private class PlayerModelRenderer(
 ) {
     private val faces: List<Face> = buildFaces(skin.legacy32, isSlim, showOuterLayer, cape != null)
     private val armPivotX = if (isSlim) 5.5f else 6f
+    private var zBuf: FloatArray = FloatArray(0)
 
     fun render(
         width: Int,
@@ -309,7 +315,7 @@ private class PlayerModelRenderer(
         jitterY: Float = 0f
     ): IntArray {
         val out = IntArray(width * height)
-        val depth = FloatArray(width * height) { Float.NEGATIVE_INFINITY }
+        val depth = acquireDepthBuffer(width * height)
         val camera = OrbitCamera.fromOrbit(
             target = Vec3(0f, 16f, 0f),
             radius = 42f,
@@ -357,6 +363,12 @@ private class PlayerModelRenderer(
             rasterizeTriangle(a, c, d, shade, texture, out, depth, width, height)
         }
         return out
+    }
+
+    private fun acquireDepthBuffer(size: Int): FloatArray {
+        if (zBuf.size < size) zBuf = FloatArray(size)
+        zBuf.fill(Float.NEGATIVE_INFINITY, 0, size)
+        return zBuf
     }
 }
 
