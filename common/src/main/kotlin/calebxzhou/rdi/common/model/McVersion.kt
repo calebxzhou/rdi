@@ -65,7 +65,34 @@ enum class McVersion(
             )
         )
     ),
-    V165(
+    V122(
+        "1.12.2",
+        "assets/icons/terracotta.png", 21,
+        //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
+        mapOf(
+            ModLoader.cleanroom to ModLoader.Version(
+                ModLoader.cleanroom,
+                "cleanroom-0.4.4-alpha",
+                "https://repo.cleanroommc.com/releases/com/cleanroommc/cleanroom/0.4.4-alpha/cleanroom-0.4.4-alpha-installer.jar",
+                "7ba9df42bac465cad51a06bd0f2e53816c6e6d2b"
+            )
+        ),enabled = false
+    ),
+    V071(
+        "1.7.10",
+        "assets/icons/acacia_log.webp", 21,
+        //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
+        mapOf(
+            ModLoader.forge to ModLoader.Version(
+                ModLoader.forge,
+                "1.7.10-Forge10.13.4.1614-1.7.10",
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.7.10-10.13.4.1614-1.7.10/forge-1.7.10-10.13.4.1614-1.7.10-installer.jar",
+                "fccafccf8ad4ce6d9f008e786b48ff53172bf9de"
+            )
+        )
+        ,enabled = false
+    ),
+    /*V165(
         "1.16.5",
         "assets/icons/zoglin.webp", 8,
         mapOf(
@@ -76,7 +103,7 @@ enum class McVersion(
                 "e09ecf910e4d5eae12fb3564d9b7de212c1958b2"
             )
         ),enabled = false
-    ),
+    ),*/
 
     ;
 
