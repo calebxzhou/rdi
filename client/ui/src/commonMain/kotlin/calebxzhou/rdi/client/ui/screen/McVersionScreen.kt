@@ -149,7 +149,10 @@ fun McVersionScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Text("已安装整合包", style = MaterialTheme.typography.subtitle1)
+                        Text(
+                            selected?.let { "已选择 ${it.vo.name} ${it.verName}" } ?: "管理已安装整合包",
+                            style = MaterialTheme.typography.subtitle1
+                        )
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -158,9 +161,6 @@ fun McVersionScreen(
                             packActionMessage?.let {
                                 Text(it, color = MaterialTheme.colors.primary)
                             }
-                            selected?.let {
-                                Text("已选择 ${it.vo.name} ${it.verName}")
-                            } ?: Text("选择一个整合包...")
                         }
                         FlowRow(
                             modifier = Modifier.fillMaxWidth(),
@@ -173,7 +173,8 @@ fun McVersionScreen(
                                     "导入RDI整合包",
                                     bgColor = MaterialColor.GREEN_900.color,
                                     size = size,
-                                    enabled = true
+                                    enabled = true,
+                                    showText = true
                                 ) {
                                     scope.launch {
                                         val task = withContext(Dispatchers.IO) {
@@ -197,13 +198,15 @@ fun McVersionScreen(
                                     }
                                 }
                             }
+                            Space8w()
                             CircleIconButton(
                                 "\uEA81",
                                 "删除",
                                 size = size,
                                 bgColor = MaterialColor.RED_900.color,
                                 longPressDelay = 5000L,
-                                enabled = selected != null
+                                enabled = selected != null,
+                                showText = true
                             ) {
                                 val packdir = selected ?: return@CircleIconButton
                                 scope.launch {
@@ -216,12 +219,13 @@ fun McVersionScreen(
                                     reload()
                                 }
                             }
+                            Space8w()
                             CircleIconButton(
                                 "\uDB81\uDC53",
                                 "重装",
                                 size = size,
-                                bgColor = MaterialColor.PINK_900.color,
-                                enabled = selected != null
+                                enabled = selected != null,
+                                showText = true
                             ) {
                                 val packdir = selected ?: return@CircleIconButton
                                 scope.launch {
@@ -242,12 +246,14 @@ fun McVersionScreen(
                                 }
                             }
                             if (isDesktop) {
+                                Space8w()
                                 CircleIconButton(
                                     "\uEAED",
                                     "打开文件夹",
                                     size = size,
-                                    bgColor = MaterialColor.YELLOW_900.color,
-                                    enabled = selected != null
+                                    enabled = selected != null,
+                                    bgColor = MaterialColor.TEAL_900.color,
+                                    showText = true
                                 ) {
                                     val packdir = selected ?: return@CircleIconButton
                                     val dir = packdir.dir
@@ -262,7 +268,11 @@ fun McVersionScreen(
                                     }
                                 }
                             }
-                            CircleIconButton("\uEB9B", "测试运行", size = size, enabled = selected != null) {
+                            Space8w()
+                            CircleIconButton(
+                                "\uEB9B", "测试运行", size = size, enabled = selected != null,
+                                showText = true
+                            ) {
                                 selected?.let { packdir ->
                                     val playArgs = McPlayArgs(
                                         title = "测试运行 - ${packdir.vo.name} ${packdir.verName}",
@@ -273,13 +283,16 @@ fun McVersionScreen(
                                     onOpenPlay?.invoke(playArgs)
                                 }
                             }
+
                             if (isDesktop) {
+                                Space8w()
                                 CircleIconButton(
                                     "\uEF11",
                                     "导出日志",
                                     size = size,
                                     bgColor = MaterialColor.GRAY_900.color,
-                                    enabled = selected != null
+                                    enabled = selected != null,
+                                    showText = true
                                 ) {
                                     val packdir = selected ?: return@CircleIconButton
                                     scope.launch {
@@ -289,12 +302,14 @@ fun McVersionScreen(
                                         }
                                     }
                                 }
-
+                                Space8w()
                                 CircleIconButton(
                                     "\uDB82\uDD5E",
                                     "导出RDI整合包",
                                     size = size,
-                                    enabled = selected != null
+                                    bgColor = MaterialColor.BLUE_900.color,
+                                    enabled = selected != null,
+                                    showText = true
                                 ) {
                                     val packdir = selected ?: return@CircleIconButton
                                     scope.launch {
