@@ -5,6 +5,14 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 object Wardrobe
+@Serializable data class SkinPreview(
+    val tid: Int,
+    val name: String,
+    val type: String,
+    val uploader: Int,
+    val isPublic: Boolean,
+    val likes: Int
+)
 @Serializable data class HostCreate(
     val modpackId: String,
     val modpackName: String,

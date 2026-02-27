@@ -31,18 +31,11 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
-private enum class AlertKind { OK, WARN, ERR }
-
-private data class AlertPayload(
-    val kind: AlertKind,
-    val message: String,
-    val key: Int
-)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WardrobeScreen(
-    onBack: (() -> Unit)={}
+    onBack: (() -> Unit) = {},
+    onOpenSkinPreview: (BSSkinData) -> Unit = {}
 ) {
     val urlPrefix = "https://littleskin.cn"
     val scope = rememberCoroutineScope()
@@ -55,23 +48,15 @@ fun WardrobeScreen(
     var loading by remember { mutableStateOf(false) }
     var hasMoreData by remember { mutableStateOf(true) }
     var toastMessage by remember { mutableStateOf<String?>(null) }
-    var alertPayload by remember { mutableStateOf<AlertPayload?>(null) }
-    var alertKey by remember { mutableStateOf(0) }
-    var confirmSkin by remember { mutableStateOf<BSSkinData?>(null) }
     var showMojangDialog by remember { mutableStateOf(false) }
 
     val skins = remember { mutableStateListOf<BSSkinData>() }
-    fun showAlert(kind: AlertKind, message: String) {
-        alertKey += 1
-        alertPayload = AlertPayload(kind, message, alertKey)
-    }
 
     fun refreshSkins() {
         if (loading) return
         loading = true
         page = 1
         hasMoreData = true
-        alertPayload = null
         skins.clear()
         scope.launch {
             val newSkins = withContext(Dispatchers.IO) {
@@ -163,7 +148,7 @@ fun WardrobeScreen(
                 )
                 Text("披风")
                 Spacer(8.wM)
-                CircleIconButton("\uDB81\uDDB3","导入正版皮肤/披风") {
+                CircleIconButton("\uDB81\uDDB3","导入正版皮肤", showText = true) {
                     showMojangDialog = true
                 }
             }
@@ -182,7 +167,7 @@ fun WardrobeScreen(
                     SkinCard(
                         skin = skin,
                         urlPrefix = urlPrefix,
-                        onClick = { confirmSkin = skin }
+                        onClick = { onOpenSkinPreview(skin) }
                     )
                 }
                 if (loading) {
@@ -203,50 +188,11 @@ fun WardrobeScreen(
         )
     }
 
-    confirmSkin?.let { skin ->
-        AlertDialog(
-            onDismissRequest = { confirmSkin = null },
-            title = { Text("确认更换") },
-            text = { Text("要设定${if (skin.isCape) "披风" else "皮肤"} ${skin.name}吗？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmSkin = null
-                    scope.launch {
-                        val result = withContext(Dispatchers.IO) {
-                            SkinService.applyBlessingSkin(urlPrefix, skin)
-                        }
-                        result.onSuccess {
-                            showAlert(AlertKind.OK, "皮肤设置成功")
-                        }
-                        result.onFailure { err ->
-                            showAlert(AlertKind.ERR, err.message ?: "设置皮肤失败")
-                        }
-                    }
-                }) {
-                    Text("确定")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmSkin = null }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
     if (showMojangDialog) {
         MojangSkinDialog(
             onDismiss = { showMojangDialog = false },
             onToast = { toastMessage = it }
         )
-    }
-    alertPayload?.let { payload ->
-        key(payload.key) {
-            when (payload.kind) {
-                AlertKind.OK -> alertOk(payload.message)
-                AlertKind.WARN -> alertWarn(payload.message)
-                AlertKind.ERR -> alertErr(payload.message)
-            }
-        }
     }
     LaunchedEffect(toastMessage) {
         toastMessage?.let {

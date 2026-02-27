@@ -14,6 +14,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import calebxzhou.mykotutils.std.encodeBase64
+import calebxzhou.rdi.client.model.BSSkinData
 import calebxzhou.rdi.client.UIFontFamily
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
@@ -130,7 +131,37 @@ fun AppNavigation(
                     }
                 )
             }
-            composable<Wardrobe> { WardrobeScreen(onBack = { navController.popBackStack() }) }
+            composable<Wardrobe> {
+                WardrobeScreen(
+                    onBack = { navController.popBackStack() },
+                    onOpenSkinPreview = { skin ->
+                        navController.navigate(
+                            SkinPreview(
+                                tid = skin.tid,
+                                name = skin.name,
+                                type = skin.type,
+                                uploader = skin.uploader,
+                                isPublic = skin.public,
+                                likes = skin.likes
+                            )
+                        )
+                    }
+                )
+            }
+            composable<SkinPreview> {
+                val route = it.toRoute<SkinPreview>()
+                SkinPreviewScreen(
+                    skin = BSSkinData(
+                        tid = route.tid,
+                        name = route.name,
+                        type = route.type,
+                        uploader = route.uploader,
+                        public = route.isPublic,
+                        likes = route.likes
+                    ),
+                    onBack = { navController.popBackStack() }
+                )
+            }
             composable<Mail> {
                 MailScreen(
                     onBack = { navController.popBackStack() },
