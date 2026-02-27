@@ -119,21 +119,26 @@ fun McVersionCard(
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     if (isDesktop) {
-
-                        CircleIconButton("\uF019", "下载全部所需文件") {
+                        val enabled = mcver.enabled
+                        CircleIconButton("\uF019", "下载全部所需文件", enabled = enabled) {
                             onOpenTask?.invoke(GameService.downloadVersion(mcver, mcver.firstLoader))
                         }
-                        CircleIconButton("\uF305", "仅下载MC核心", bgColor = Color.Gray) {
+                        CircleIconButton("\uF305", "仅下载MC核心", bgColor = Color.Gray, enabled = enabled) {
                             onOpenTask?.invoke(GameService.downloadClient(mcver.metadata))
                         }
-                        CircleIconButton("\uDB84\uDE5F", "仅下载运行库", bgColor = Color.Gray) {
+                        CircleIconButton("\uDB84\uDE5F", "仅下载运行库", bgColor = Color.Gray, enabled = enabled) {
                             onOpenTask?.invoke(GameService.downloadLibraries(mcver.metadata.libraries))
                         }
-                        CircleIconButton("\uF001", "仅下载音频资源", bgColor = Color.Gray) {
+                        CircleIconButton("\uF001", "仅下载音频资源", bgColor = Color.Gray, enabled = enabled) {
                             onOpenTask?.invoke(GameService.downloadAssets(mcver.metadata))
                         }
                         mcver.loaderVersions.forEach { (loader, _) ->
-                            CircleIconButton("\uEEFF", "安装${loader.name.lowercase()}", bgColor = Color.Gray) {
+                            CircleIconButton(
+                                "\uEEFF",
+                                "安装${loader.name.lowercase()}",
+                                bgColor = Color.Gray,
+                                enabled = enabled
+                            ) {
                                 onOpenTask?.invoke(GameService.downloadLoader(mcver, loader))
                             }
                         }
