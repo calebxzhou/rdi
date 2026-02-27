@@ -222,8 +222,8 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
                 this += loaderVer.serverArgsPath(hostOs.isUnixLike)
                 this += "%*"
             }
-
-            McVersion.V165 -> {
+            else -> {}
+           /* McVersion.V165 -> {
                 if (loaderVer.loader == ModLoader.forge) {
                     val jarFileName = "forge-${loaderVer.id}.jar"
                     this += "-jar"
@@ -233,7 +233,7 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
                         ClientDirs.mcDir.resolve(jarFileName).toPath()
                     )
                 }
-            }
+            }*/
         }
         this += "--nogui"
     }
