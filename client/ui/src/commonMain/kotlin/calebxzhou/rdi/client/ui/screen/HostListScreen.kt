@@ -42,9 +42,6 @@ fun HostListScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var installConfirmTask by remember { mutableStateOf<Task?>(null) }
     var page by remember { mutableStateOf(0) }
-    val onlinePlayers = remember(hosts) {
-        hosts.flatMap { it.onlinePlayerIds }.distinct()
-    }
     var loadingMore by remember { mutableStateOf(false) }
     var reachedEnd by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
@@ -93,15 +90,6 @@ fun HostListScreen(
         // Header / Toolbar
         TitleRow("地图大厅 · ${onlinePlayers.size}人在线", onBack = onBack) {
             errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
-            if (onlinePlayers.isNotEmpty()) {
-                Column(modifier = Modifier.widthIn(max = 600.dp)) {
-                    FlowRow {
-                        onlinePlayers.forEach {
-                            HeadButton(it, showName = false, avatarSize = 12.dp)
-                        }
-                    }
-                }
-            }
             Space8w()
             ImageIconButton(
                 "grass_block", "大家的整合包",
