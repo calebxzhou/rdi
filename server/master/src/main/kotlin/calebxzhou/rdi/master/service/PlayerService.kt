@@ -10,6 +10,7 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.MojangPlayerProfile
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
+import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.CryptoManager
 import calebxzhou.rdi.common.service.MojangApi
@@ -247,7 +248,7 @@ object PlayerService {
 
     suspend fun RAccount.inviteRegister(regCode: String) {
         if (!hasMsid) throw RequestError("你需要先绑定微软账号")
-        if (getInvitedCount() >= 5) throw RequestError("最多邀请5个玩家")
+        if (getInvitedCount() >= 5 && !this.isDav) throw RequestError("最多邀请5个玩家")
 
         val invReg = runCatching {
             serdesJson.decodeFromString<RAccount.RegisterDto>(CryptoManager.decrypt(regCode))
