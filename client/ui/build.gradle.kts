@@ -74,6 +74,8 @@ kotlin {
                 implementation("org.jetbrains.compose.ui:ui:$composeVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
                 implementation(project(":common"))
+                // Source: https://mvnrepository.com/artifact/org.joml/joml
+                implementation("org.joml:joml:1.10.8")
                 implementation("net.raphimc:MinecraftAuth:5.0.0")
                 implementation("io.ktor:ktor-client-core:$ktorVersion")
                 implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")

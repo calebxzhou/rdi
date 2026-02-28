@@ -4,9 +4,7 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -19,6 +17,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import calebxzhou.rdi.client.graphics.crossed
+import calebxzhou.rdi.client.graphics.minus
+import calebxzhou.rdi.client.graphics.normalized
+import calebxzhou.rdi.client.graphics.plus
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.decodeImageBitmap
@@ -27,11 +29,12 @@ import calebxzhou.rdi.common.net.httpRequest
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
+import org.joml.Vector2f
+import org.joml.Vector3f
 import kotlin.math.*
 
 /**
@@ -56,23 +59,25 @@ fun PlayerModel(
     taaLowResThreshold: Int = 640
 ) {
     var viewport by remember { mutableStateOf(IntSize.Zero) }
-    var orbitYawDeg by remember(skin, cape) { mutableStateOf(0f) }
+    var orbitYawDeg by remember(skin, cape) { mutableStateOf(DEFAULT_ORBIT_YAW_DEG) }
     var orbitPitchDeg by remember(skin, cape) { mutableStateOf(0f) }
     var dragging by remember { mutableStateOf(false) }
+    var autoRotateEnabled by remember(skin, cape, autoRotate) { mutableStateOf(autoRotate) }
+    var walkEnabled by remember(skin, cape, animateWalk) { mutableStateOf(animateWalk) }
 
-    LaunchedEffect(autoRotate, skin, cape) {
+    LaunchedEffect(autoRotateEnabled, skin, cape) {
         val speedDegPerSecond = 30f
         var lastFrameNanos = withFrameNanos { it }
         while (isActive) {
             val nowNanos = withFrameNanos { it }
             val deltaSec = (nowNanos - lastFrameNanos) / 1_000_000_000f
             lastFrameNanos = nowNanos
-            if (autoRotate && !dragging) { 
+            if (autoRotateEnabled && !dragging) {
                 orbitYawDeg += speedDegPerSecond * deltaSec
             }
         }
     }
-    val walkPhaseState: State<Float> = if (animateWalk) {
+    val walkPhaseState: State<Float> = if (walkEnabled) {
         rememberInfiniteTransition(label = "player-model-walk").animateFloat(
             initialValue = 0f,
             targetValue = 360f,
@@ -98,7 +103,7 @@ fun PlayerModel(
     LaunchedEffect(
         renderer,
         viewport,
-        animateWalk,
+        walkEnabled,
         maxRenderSide,
         enableTaa,
         taaLowResThreshold
@@ -119,7 +124,7 @@ fun PlayerModel(
                     val passes = if (taaEnabledNow) 2 else 1
                     var resolved: IntArray? = null
                     repeat(passes) {
-                        val jitter = if (taaEnabledNow) taaState.nextJitter() else Vec2(0f, 0f)
+                        val jitter = if (taaEnabledNow) taaState.nextJitter() else Vector2f(0f, 0f)
                         val current = renderer.render(
                             width = renderWidth,
                             height = renderHeight,
@@ -187,15 +192,34 @@ fun PlayerModel(
                     .align(Alignment.BottomEnd)
                     .padding(8.dp)
             ) {
-                CircleIconButton(
-                    icon = "\uDB81\uDC50",
-                    tooltip = "重置视角",
-                    bgColor = MaterialColor.BLUE_900.color,
-                    size = 30
-                ) {
-                    orbitYawDeg = 0f
-                    orbitPitchDeg = 0f
-                    dragging = false
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    CircleIconButton(
+                        icon = "\uDB83\uDD98",
+                        tooltip = if (autoRotateEnabled) "自动旋转：开" else "自动旋转：关",
+                        bgColor = if (autoRotateEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
+                        size = 30
+                    ) {
+                        autoRotateEnabled = !autoRotateEnabled
+                    }
+
+                    CircleIconButton(
+                        icon = "\uEE1D",
+                        tooltip = if (walkEnabled) "走路动画：开" else "走路动画：关",
+                        bgColor = if (walkEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
+                        size = 30
+                    ) {
+                        walkEnabled = !walkEnabled
+                    }
+                    CircleIconButton(
+                        icon = "\uDB81\uDC50",
+                        tooltip = "重置视角",
+                        bgColor = MaterialColor.BLUE_900.color,
+                        size = 30
+                    ) {
+                        orbitYawDeg = DEFAULT_ORBIT_YAW_DEG
+                        orbitPitchDeg = 0f
+                        dragging = false
+                    }
                 }
             }
         }
@@ -317,7 +341,7 @@ private class PlayerModelRenderer(
         val out = IntArray(width * height)
         val depth = acquireDepthBuffer(width * height)
         val camera = OrbitCamera.fromOrbit(
-            target = Vec3(0f, 16f, 0f),
+            target = Vector3f(0f, 16f, 0f),
             radius = 42f,
             yawDeg = orbitYawDeg,
             pitchDeg = orbitPitchDeg
@@ -326,7 +350,7 @@ private class PlayerModelRenderer(
         val focal = fit.focal
         val cx = fit.cx + jitterX
         val cy = fit.cy + jitterY
-        val light = Vec3(0.35f, 0.85f, 0.75f).normalized()
+        val light = Vector3f(0.35f, 0.85f, 0.75f).normalized()
         val walkPhaseRad = Math.toRadians(walkPhaseDeg.toDouble()).toFloat()
 
         faces.forEach { face ->
@@ -372,7 +396,7 @@ private class PlayerModelRenderer(
     }
 }
 
-private data class Vec2(val x: Float, val y: Float)
+private const val DEFAULT_ORBIT_YAW_DEG = 180f
 
 private class TemporalAaState {
     private var width: Int = 0
@@ -397,7 +421,7 @@ private class TemporalAaState {
         lastWalk = 0f
     }
 
-    fun nextJitter(): Vec2 {
+    fun nextJitter(): Vector2f {
         val jitter = TAA_JITTER_SEQUENCE[jitterIndex % TAA_JITTER_SEQUENCE.size]
         jitterIndex++
         return jitter
@@ -451,14 +475,14 @@ private class TemporalAaState {
 }
 
 private val TAA_JITTER_SEQUENCE = arrayOf(
-    Vec2(0.0f, 0.0f),
-    Vec2(0.25f, -0.25f),
-    Vec2(-0.25f, 0.25f),
-    Vec2(0.375f, 0.125f),
-    Vec2(-0.125f, -0.375f),
-    Vec2(0.125f, 0.375f),
-    Vec2(-0.375f, -0.125f),
-    Vec2(0.5f, 0.5f)
+    Vector2f(0.0f, 0.0f),
+    Vector2f(0.25f, -0.25f),
+    Vector2f(-0.25f, 0.25f),
+    Vector2f(0.375f, 0.125f),
+    Vector2f(-0.125f, -0.375f),
+    Vector2f(0.125f, 0.375f),
+    Vector2f(-0.375f, -0.125f),
+    Vector2f(0.5f, 0.5f)
 )
 
 private fun wrappedAngleDelta(a: Float, b: Float): Float {
@@ -484,55 +508,34 @@ private fun blendArgb(history: Int, current: Int, currentWeight: Float): Int {
     return (a shl 24) or (r shl 16) or (g shl 8) or b
 }
 
-private data class Vec3(val x: Float, val y: Float, val z: Float) {
-    fun dot(other: Vec3): Float = x * other.x + y * other.y + z * other.z
-    fun cross(other: Vec3): Vec3 = Vec3(
-        x = y * other.z - z * other.y,
-        y = z * other.x - x * other.z,
-        z = x * other.y - y * other.x
-    )
-    operator fun plus(other: Vec3): Vec3 = Vec3(x + other.x, y + other.y, z + other.z)
-    operator fun minus(other: Vec3): Vec3 = Vec3(x - other.x, y - other.y, z - other.z)
-    operator fun times(scale: Float): Vec3 = Vec3(x * scale, y * scale, z * scale)
-    fun normalized(): Vec3 {
-        val len = kotlin.math.sqrt((x * x + y * y + z * z).toDouble()).toFloat()
-        if (len < 1e-6f) return this
-        return Vec3(x / len, y / len, z / len)
-    }
-}
-
 private data class OrbitCamera(
-    val position: Vec3,
-    val right: Vec3,
-    val up: Vec3,
-    val forward: Vec3
+    val position: Vector3f,
+    val right: Vector3f,
+    val up: Vector3f,
+    val forward: Vector3f
 ) {
-    fun worldToCamera(world: Vec3): Vec3 {
+    fun worldToCamera(world: Vector3f): Vector3f {
         val rel = world - position
-        return Vec3(
-            x = rel.dot(right),
-            y = rel.dot(up),
-            z = rel.dot(forward)
-        )
+        return Vector3f(rel.dot(right), rel.dot(up), rel.dot(forward))
     }
 
     companion object {
-        fun fromOrbit(target: Vec3, radius: Float, yawDeg: Float, pitchDeg: Float): OrbitCamera {
+        fun fromOrbit(target: Vector3f, radius: Float, yawDeg: Float, pitchDeg: Float): OrbitCamera {
             val pitch = Math.toRadians(pitchDeg.coerceIn(-85f, 85f).toDouble()).toFloat()
             val yaw = Math.toRadians(yawDeg.toDouble()).toFloat()
             val cosPitch = cos(pitch)
-            val orbitOffset = Vec3(
-                x = sin(yaw) * cosPitch * radius,
-                y = sin(pitch) * radius,
-                z = -cos(yaw) * cosPitch * radius
+            val orbitOffset = Vector3f(
+                sin(yaw) * cosPitch * radius,
+                sin(pitch) * radius,
+                -cos(yaw) * cosPitch * radius
             )
             val position = target + orbitOffset
             val forward = (target - position).normalized()
-            val worldUp = Vec3(0f, 1f, 0f)
-            var right = worldUp.cross(forward)
-            if (right.dot(right) < 1e-6f) right = Vec3(1f, 0f, 0f)
+            val worldUp = Vector3f(0f, 1f, 0f)
+            var right = worldUp.crossed(forward)
+            if (right.dot(right) < 1e-6f) right = Vector3f(1f, 0f, 0f)
             right = right.normalized()
-            val up = forward.cross(right).normalized()
+            val up = forward.crossed(right).normalized()
             return OrbitCamera(position, right, up, forward)
         }
     }
@@ -546,14 +549,14 @@ private data class ProjectionFit(
 
 private fun computeProjectionFit(camera: OrbitCamera, width: Int, height: Int): ProjectionFit {
     val modelBounds = arrayOf(
-        Vec3(-8.75f, -0.75f, -6.9f),
-        Vec3(-8.75f, -0.75f, 4.75f),
-        Vec3(-8.75f, 32.75f, -6.9f),
-        Vec3(-8.75f, 32.75f, 4.75f),
-        Vec3(8.75f, -0.75f, -6.9f),
-        Vec3(8.75f, -0.75f, 4.75f),
-        Vec3(8.75f, 32.75f, -6.9f),
-        Vec3(8.75f, 32.75f, 4.75f)
+        Vector3f(-8.75f, -0.75f, -6.9f),
+        Vector3f(-8.75f, -0.75f, 4.75f),
+        Vector3f(-8.75f, 32.75f, -6.9f),
+        Vector3f(-8.75f, 32.75f, 4.75f),
+        Vector3f(8.75f, -0.75f, -6.9f),
+        Vector3f(8.75f, -0.75f, 4.75f),
+        Vector3f(8.75f, 32.75f, -6.9f),
+        Vector3f(8.75f, 32.75f, 4.75f)
     )
     var minNormX = Float.POSITIVE_INFINITY
     var maxNormX = Float.NEGATIVE_INFINITY
@@ -592,40 +595,36 @@ private fun computeProjectionFit(camera: OrbitCamera, width: Int, height: Int): 
     return ProjectionFit(focal, cx, cy)
 }
 
-private fun rotateAroundXAxis(v: Vec3, pivot: Vec3, radians: Float): Vec3 {
+private fun rotateAroundXAxis(v: Vector3f, pivot: Vector3f, radians: Float): Vector3f {
     val c = cos(radians)
     val s = sin(radians)
     val dy = v.y - pivot.y
     val dz = v.z - pivot.z
-    return Vec3(
-        x = v.x,
-        y = pivot.y + dy * c - dz * s,
-        z = pivot.z + dy * s + dz * c
-    )
+    return Vector3f(v.x, pivot.y + dy * c - dz * s, pivot.z + dy * s + dz * c)
 }
 
-private fun animateWalkVertex(v: Vec3, part: ModelPart, armPivotX: Float, phaseRad: Float): Vec3 {
+private fun animateWalkVertex(v: Vector3f, part: ModelPart, armPivotX: Float, phaseRad: Float): Vector3f {
     val swingRad = sin(phaseRad) * Math.toRadians(20.0).toFloat()
     val capeSwingRad = Math.toRadians(8.0).toFloat() + sin(phaseRad * 0.5f) * Math.toRadians(4.0).toFloat()
     return when (part) {
-        ModelPart.LEFT_ARM -> rotateAroundXAxis(v, Vec3(-armPivotX, 24f, 0f), swingRad)
-        ModelPart.RIGHT_ARM -> rotateAroundXAxis(v, Vec3(armPivotX, 24f, 0f), -swingRad)
-        ModelPart.LEFT_LEG -> rotateAroundXAxis(v, Vec3(-1.9f, 12f, -0.1f), -swingRad)
-        ModelPart.RIGHT_LEG -> rotateAroundXAxis(v, Vec3(1.9f, 12f, -0.1f), swingRad)
-        ModelPart.CAPE -> rotateAroundXAxis(v, Vec3(0f, 24f, -2.6f), capeSwingRad)
+        ModelPart.LEFT_ARM -> rotateAroundXAxis(v, Vector3f(-armPivotX, 24f, 0f), swingRad)
+        ModelPart.RIGHT_ARM -> rotateAroundXAxis(v, Vector3f(armPivotX, 24f, 0f), -swingRad)
+        ModelPart.LEFT_LEG -> rotateAroundXAxis(v, Vector3f(-1.9f, 12f, -0.1f), -swingRad)
+        ModelPart.RIGHT_LEG -> rotateAroundXAxis(v, Vector3f(1.9f, 12f, -0.1f), swingRad)
+        ModelPart.CAPE -> rotateAroundXAxis(v, Vector3f(0f, 24f, -2.6f), capeSwingRad)
         else -> v
     }
 }
 
-private fun animateWalkDirection(v: Vec3, part: ModelPart, phaseRad: Float): Vec3 {
+private fun animateWalkDirection(v: Vector3f, part: ModelPart, phaseRad: Float): Vector3f {
     val swingRad = sin(phaseRad) * Math.toRadians(20.0).toFloat()
     val capeSwingRad = Math.toRadians(8.0).toFloat() + sin(phaseRad * 0.5f) * Math.toRadians(4.0).toFloat()
     return when (part) {
-        ModelPart.LEFT_ARM -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), swingRad)
-        ModelPart.RIGHT_ARM -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), -swingRad)
-        ModelPart.LEFT_LEG -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), -swingRad)
-        ModelPart.RIGHT_LEG -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), swingRad)
-        ModelPart.CAPE -> rotateAroundXAxis(v, Vec3(0f, 0f, 0f), capeSwingRad)
+        ModelPart.LEFT_ARM -> rotateAroundXAxis(v, Vector3f(0f, 0f, 0f), swingRad)
+        ModelPart.RIGHT_ARM -> rotateAroundXAxis(v, Vector3f(0f, 0f, 0f), -swingRad)
+        ModelPart.LEFT_LEG -> rotateAroundXAxis(v, Vector3f(0f, 0f, 0f), -swingRad)
+        ModelPart.RIGHT_LEG -> rotateAroundXAxis(v, Vector3f(0f, 0f, 0f), swingRad)
+        ModelPart.CAPE -> rotateAroundXAxis(v, Vector3f(0f, 0f, 0f), capeSwingRad)
         else -> v
     }
 }
@@ -655,11 +654,11 @@ private enum class TextureSource {
 }
 
 private data class Face(
-    val v0: Vec3,
-    val v1: Vec3,
-    val v2: Vec3,
-    val v3: Vec3,
-    val normal: Vec3,
+    val v0: Vector3f,
+    val v1: Vector3f,
+    val v2: Vector3f,
+    val v3: Vector3f,
+    val normal: Vector3f,
     val uv: UvRect,
     val baseShade: Float,
     val part: ModelPart,
@@ -684,7 +683,7 @@ private data class ProjVertex(
 )
 
 private fun project(
-    p: Vec3,
+    p: Vector3f,
     u: Float,
     v: Float,
     focal: Float,
@@ -776,43 +775,43 @@ private fun buildFaces(
     // Same texture boxes as skinview3d/src/model.ts::setSkinUVs(...)
     addCuboid(
         faces,
-        center = Vec3(0f, 28f, 0f),
-        size = Vec3(8f, 8f, 8f),
+        center = Vector3f(0f, 28f, 0f),
+        size = Vector3f(8f, 8f, 8f),
         uv = cubeSkinUv(0, 0, 8, 8, 8),
         part = ModelPart.HEAD
     )
     addCuboid(
         faces,
-        center = Vec3(0f, 18f, 0f),
-        size = Vec3(8f, 12f, 4f),
+        center = Vector3f(0f, 18f, 0f),
+        size = Vector3f(8f, 12f, 4f),
         uv = cubeSkinUv(16, 16, 8, 12, 4),
         part = ModelPart.BODY
     )
     addCuboid(
         faces,
-        center = Vec3(-armX, 18f, 0f),
-        size = Vec3(armWidthF, 12f, 4f),
+        center = Vector3f(-armX, 18f, 0f),
+        size = Vector3f(armWidthF, 12f, 4f),
         uv = cubeSkinUv(40, 16, armWidth, 12, 4),
         part = ModelPart.LEFT_ARM
     )
     addCuboid(
         faces,
-        center = Vec3(armX, 18f, 0f),
-        size = Vec3(armWidthF, 12f, 4f),
+        center = Vector3f(armX, 18f, 0f),
+        size = Vector3f(armWidthF, 12f, 4f),
         uv = if (legacy32) cubeSkinUv(40, 16, armWidth, 12, 4) else cubeSkinUv(32, 48, armWidth, 12, 4),
         part = ModelPart.RIGHT_ARM
     )
     addCuboid(
         faces,
-        center = Vec3(-1.9f, 6f, -0.1f),
-        size = Vec3(4f, 12f, 4f),
+        center = Vector3f(-1.9f, 6f, -0.1f),
+        size = Vector3f(4f, 12f, 4f),
         uv = cubeSkinUv(0, 16, 4, 12, 4),
         part = ModelPart.LEFT_LEG
     )
     addCuboid(
         faces,
-        center = Vec3(1.9f, 6f, -0.1f),
-        size = Vec3(4f, 12f, 4f),
+        center = Vector3f(1.9f, 6f, -0.1f),
+        size = Vector3f(4f, 12f, 4f),
         uv = if (legacy32) cubeSkinUv(0, 16, 4, 12, 4) else cubeSkinUv(16, 48, 4, 12, 4),
         part = ModelPart.RIGHT_LEG
     )
@@ -820,8 +819,8 @@ private fun buildFaces(
     if (showOuterLayer) {
         addCuboid(
             faces,
-            center = Vec3(0f, 28f, 0f),
-            size = Vec3(8f, 8f, 8f),
+            center = Vector3f(0f, 28f, 0f),
+            size = Vector3f(8f, 8f, 8f),
             inflate = 0.5f,
             uv = cubeSkinUv(32, 0, 8, 8, 8),
             part = ModelPart.HEAD
@@ -829,40 +828,40 @@ private fun buildFaces(
         if (!legacy32) {
             addCuboid(
                 faces,
-                center = Vec3(0f, 18f, 0f),
-                size = Vec3(8f, 12f, 4f),
+                center = Vector3f(0f, 18f, 0f),
+                size = Vector3f(8f, 12f, 4f),
                 inflate = 0.25f,
                 uv = cubeSkinUv(16, 32, 8, 12, 4),
                 part = ModelPart.BODY
             )
             addCuboid(
                 faces,
-                center = Vec3(-armX, 18f, 0f),
-                size = Vec3(armWidthF, 12f, 4f),
+                center = Vector3f(-armX, 18f, 0f),
+                size = Vector3f(armWidthF, 12f, 4f),
                 inflate = 0.25f,
                 uv = cubeSkinUv(40, 32, armWidth, 12, 4),
                 part = ModelPart.LEFT_ARM
             )
             addCuboid(
                 faces,
-                center = Vec3(armX, 18f, 0f),
-                size = Vec3(armWidthF, 12f, 4f),
+                center = Vector3f(armX, 18f, 0f),
+                size = Vector3f(armWidthF, 12f, 4f),
                 inflate = 0.25f,
                 uv = cubeSkinUv(48, 48, armWidth, 12, 4),
                 part = ModelPart.RIGHT_ARM
             )
             addCuboid(
                 faces,
-                center = Vec3(-1.9f, 6f, -0.1f),
-                size = Vec3(4f, 12f, 4f),
+                center = Vector3f(-1.9f, 6f, -0.1f),
+                size = Vector3f(4f, 12f, 4f),
                 inflate = 0.25f,
                 uv = cubeSkinUv(0, 32, 4, 12, 4),
                 part = ModelPart.LEFT_LEG
             )
             addCuboid(
                 faces,
-                center = Vec3(1.9f, 6f, -0.1f),
-                size = Vec3(4f, 12f, 4f),
+                center = Vector3f(1.9f, 6f, -0.1f),
+                size = Vector3f(4f, 12f, 4f),
                 inflate = 0.25f,
                 uv = cubeSkinUv(0, 48, 4, 12, 4),
                 part = ModelPart.RIGHT_LEG
@@ -872,8 +871,8 @@ private fun buildFaces(
     if (hasCape) {
         addCuboid(
             faces,
-            center = Vec3(0f, 16f, -2.6f),
-            size = Vec3(10f, 16f, 1f),
+            center = Vector3f(0f, 16f, -2.6f),
+            size = Vector3f(10f, 16f, 1f),
             uv = cubeCapeUv(),
             part = ModelPart.CAPE,
             texture = TextureSource.CAPE
@@ -912,8 +911,8 @@ private fun uv(
 
 private fun addCuboid(
     out: MutableList<Face>,
-    center: Vec3,
-    size: Vec3,
+    center: Vector3f,
+    size: Vector3f,
     uv: CuboidUv,
     part: ModelPart,
     inflate: Float = 0f,
@@ -934,27 +933,27 @@ private fun addCuboid(
     val f = cz + hz
 
     out += Face(
-        v0 = Vec3(l, d, f), v1 = Vec3(r, d, f), v2 = Vec3(r, u, f), v3 = Vec3(l, u, f),
-        normal = Vec3(0f, 0f, 1f), uv = uv.front, baseShade = 1.0f, part = part, texture = texture
+        v0 = Vector3f(l, d, f), v1 = Vector3f(r, d, f), v2 = Vector3f(r, u, f), v3 = Vector3f(l, u, f),
+        normal = Vector3f(0f, 0f, 1f), uv = uv.front, baseShade = 1.0f, part = part, texture = texture
     )
     out += Face(
-        v0 = Vec3(r, d, b), v1 = Vec3(l, d, b), v2 = Vec3(l, u, b), v3 = Vec3(r, u, b),
-        normal = Vec3(0f, 0f, -1f), uv = uv.back, baseShade = 0.82f, part = part, texture = texture
+        v0 = Vector3f(r, d, b), v1 = Vector3f(l, d, b), v2 = Vector3f(l, u, b), v3 = Vector3f(r, u, b),
+        normal = Vector3f(0f, 0f, -1f), uv = uv.back, baseShade = 0.82f, part = part, texture = texture
     )
     out += Face(
-        v0 = Vec3(l, d, b), v1 = Vec3(l, d, f), v2 = Vec3(l, u, f), v3 = Vec3(l, u, b),
-        normal = Vec3(-1f, 0f, 0f), uv = uv.left, baseShade = 0.9f, part = part, texture = texture
+        v0 = Vector3f(l, d, b), v1 = Vector3f(l, d, f), v2 = Vector3f(l, u, f), v3 = Vector3f(l, u, b),
+        normal = Vector3f(-1f, 0f, 0f), uv = uv.left, baseShade = 0.9f, part = part, texture = texture
     )
     out += Face(
-        v0 = Vec3(r, d, f), v1 = Vec3(r, d, b), v2 = Vec3(r, u, b), v3 = Vec3(r, u, f),
-        normal = Vec3(1f, 0f, 0f), uv = uv.right, baseShade = 0.78f, part = part, texture = texture
+        v0 = Vector3f(r, d, f), v1 = Vector3f(r, d, b), v2 = Vector3f(r, u, b), v3 = Vector3f(r, u, f),
+        normal = Vector3f(1f, 0f, 0f), uv = uv.right, baseShade = 0.78f, part = part, texture = texture
     )
     out += Face(
-        v0 = Vec3(l, u, b), v1 = Vec3(r, u, b), v2 = Vec3(r, u, f), v3 = Vec3(l, u, f),
-        normal = Vec3(0f, 1f, 0f), uv = uv.top, baseShade = 1.08f, part = part, texture = texture
+        v0 = Vector3f(l, u, b), v1 = Vector3f(r, u, b), v2 = Vector3f(r, u, f), v3 = Vector3f(l, u, f),
+        normal = Vector3f(0f, 1f, 0f), uv = uv.top, baseShade = 1.08f, part = part, texture = texture
     )
     out += Face(
-        v0 = Vec3(l, d, f), v1 = Vec3(r, d, f), v2 = Vec3(r, d, b), v3 = Vec3(l, d, b),
-        normal = Vec3(0f, -1f, 0f), uv = uv.bottom, baseShade = 0.62f, part = part, texture = texture
+        v0 = Vector3f(l, d, f), v1 = Vector3f(r, d, f), v2 = Vector3f(r, d, b), v3 = Vector3f(l, d, b),
+        normal = Vector3f(0f, -1f, 0f), uv = uv.bottom, baseShade = 0.62f, part = part, texture = texture
     )
 }
