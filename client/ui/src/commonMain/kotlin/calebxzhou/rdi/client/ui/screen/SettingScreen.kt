@@ -372,9 +372,12 @@ private fun AccountSettings(
             Text("已绑定微软MC账号，邀请你的朋友一起玩RDI。")
             Space8h()
 
-            RowV {
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Text("已邀请：${invitedPlayers.size}/5人")
-                Spacer(Modifier.width(8.dp))
                 if (loading) {
                     CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
                 }

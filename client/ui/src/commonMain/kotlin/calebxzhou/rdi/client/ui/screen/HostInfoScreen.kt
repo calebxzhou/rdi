@@ -2,6 +2,8 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -361,8 +363,14 @@ fun HostInfoScreen(
                         when (selectedTab) {
                             0 -> {
                                 val meMember = host.members.any { it.id == loggedAccount._id }
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    host.members.forEach { member ->
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    items(
+                                        items = host.members,
+                                        key = { member -> member.id }
+                                    ) { member ->
                                         val memberColor = when (member.role) {
                                             Role.OWNER -> MaterialColor.YELLOW_900.color
                                             Role.ADMIN -> Color(0xFFC0C0C0)
@@ -420,7 +428,8 @@ fun HostInfoScreen(
                                             }
                                         }
                                     }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                    item {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
                                         if (meMember && !meOwner) {
                                             TextButton(onClick = { quitConfirm = true }) {
                                                 Text("退出受邀成员列表", color = MaterialColor.RED_900.color)
@@ -432,6 +441,7 @@ fun HostInfoScreen(
                                             }
                                         }
                                     }
+                                }
                                 }
                             }
                             1 -> {
