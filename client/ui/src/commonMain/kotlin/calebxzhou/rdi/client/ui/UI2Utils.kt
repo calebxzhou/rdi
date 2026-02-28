@@ -103,6 +103,18 @@ inline fun RowV(
 }
 
 @Composable
+fun FlowRowV(
+    modifier: Modifier = Modifier,
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    content: @Composable (FlowRowScope.() -> Unit)
+) {
+    FlowRow(
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier, horizontalArrangement = horizontalArrangement, content = content
+    )
+}
+
+@Composable
 fun alertOk(msg: String) {
     createAlertDialog(title = "成功", icon = "\uF058", msg = msg, accentColor = MaterialColor.GREEN_900.color)
 }
