@@ -1,3 +1,5 @@
+# Introduction
+this project is minecraft multiplayer platform, player can upload modpacks to create a host that can invite friends to play together
 # Repository Guidelines
 
 ## Project Structure & Module Organization
@@ -31,7 +33,8 @@ Run commands inside each module directory (there is no repo-root wrapper).
 - Types/files: `PascalCase`; functions/vars: `camelCase`; constants: `UPPER_SNAKE_CASE`.
 - Compose screens use `*Screen.kt`; reusable widgets use `*Card.kt`, `*Button.kt`, etc.
 - Keep shared DTO/model changes in `common` first, then adapt client/server callers.
-
+- no need to add spaces between chinese characters and numbers,letters. e.g. Mod数量8个 is ok, Mod 数量 8 个 is not ok
+- do not use file.deleteRecursively() function, use file.deleteRecursivelyNoSymlink() instead (extension from calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink), because it will delete the symlink target on windows
 ## Testing Guidelines
 - Frameworks: Kotlin test + JUnit Platform.
 - Test file naming: `*Test.kt` (examples: `HostTest.kt`, `ModpackTest.kt`).
