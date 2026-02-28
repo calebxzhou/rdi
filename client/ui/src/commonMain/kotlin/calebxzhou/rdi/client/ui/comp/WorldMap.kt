@@ -87,7 +87,6 @@ fun WorldMap(
     }
 }
 
-@Preview
 @Composable
 private fun WorldMapPreview() {
     val w = 160
