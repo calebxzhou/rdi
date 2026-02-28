@@ -54,7 +54,7 @@ fun String.validateName(): Result<Unit> {
     if (len !in 3..32) throw RequestError("名称长度需在3~32个字符，当前为${len}（一个汉字算两个）")
     return Result.success(Unit)
 }
-val periodOfDay: String = when (LocalDateTime.now().hour) {
+val periodOfDay: String get() = when (LocalDateTime.now().hour) {
     in 0..5 -> "凌晨"
     in 6..8 -> "早上"
     in 9..10 -> "上午"
