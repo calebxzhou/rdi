@@ -37,6 +37,8 @@ data class Host(
     companion object {
         var portNow: Int = 0
     }
+    //所有人都能玩 无论是否启动
+    val isPublicTest get() = name.contains("公测")
 
     @Serializable
     data class Member(

@@ -16,7 +16,6 @@ import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.master.DB
 import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.exception.ParamError
-import calebxzhou.rdi.master.lgr
 import calebxzhou.rdi.master.model.WsMessage
 import calebxzhou.rdi.master.net.*
 import calebxzhou.rdi.master.service.HostService.addMember
@@ -26,7 +25,6 @@ import calebxzhou.rdi.master.service.HostService.createHost
 import calebxzhou.rdi.master.service.HostService.delMember
 import calebxzhou.rdi.master.service.HostService.delete
 import calebxzhou.rdi.master.service.HostService.forceStop
-import calebxzhou.rdi.master.service.HostService.getOnlinePlayers
 import calebxzhou.rdi.master.service.HostService.graceStop
 import calebxzhou.rdi.master.service.HostService.hostContext
 import calebxzhou.rdi.master.service.HostService.listAllHosts
@@ -86,6 +84,9 @@ val Host.dir get() = HOSTS_DIR.resolve(_id.str)
 
 // ---------- Routing DSL (mirrors teamRoutes style) ----------
 fun Route.hostRoutes() = route("/host") {
+    get("/online-player-ids"){
+        response(data = HostService.getAllHostsOnlinePlayerIds())
+    }
     route("") {
         post("/v2") {
             call.player().createHost(call.receive())
@@ -350,7 +351,8 @@ object HostService {
                 McVersion.V211 -> {
                     loaderVersion.serverArgsPath(true)
                 }
-                McVersion.V165,
+                //1.16-
+                else
                      //V122 V071
                          -> {
                     "-jar ${loaderVersion.serverJarName}"
@@ -445,6 +447,7 @@ object HostService {
         }
     }
 
+    val HostContext.needMember get() = requireRole(Role.MEMBER)
     val HostContext.needAdmin get() = requireRole(Role.ADMIN)
     val HostContext.needOwner get() = requireRole(Role.OWNER)
     fun HostContext.requireRole(level: Role): HostContext {
@@ -905,6 +908,16 @@ object HostService {
         }
     }
 
+    suspend fun getAllHostsOnlinePlayerIds(): List<ObjectId> = coroutineScope {
+        val hosts = getPlayables()
+        if (hosts.isEmpty()) return@coroutineScope emptyList()
+        hosts.map { host ->
+            async { host.getOnlinePlayers() }
+        }.awaitAll()
+            .flatten()
+            .distinct()
+    }
+
     private suspend fun RAccount.resolveWorld(
         saveWorld: Boolean,
         worldId: ObjectId?,
@@ -928,10 +941,12 @@ object HostService {
 
     suspend fun RAccount.createHost(host: Host.CreateDto) {
         host.name.validateName()
-        if(!hasMsid) throw RequestError("必须绑定微软账号才能创建地图")
         val playerId = _id
         if (getByOwner(playerId).size > 3 && !this.isDav) {
             throw RequestError("最多只可创建3张地图")
+        }
+        if(host.name.contains("公测") && !this.isDav){
+            throw RequestError("无权创建公测地图")
         }
         val world = resolveWorld(host.saveWorld, host.worldId, host.modpackId)
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此包")
@@ -1032,7 +1047,7 @@ object HostService {
                     }
                 }
             //1.16.5以下装入核心
-            if(modpack.mcVer == McVersion.V165){
+            if(modpack.mcVer == McVersion.V122 || modpack.mcVer == McVersion.V071){
                 this += Mount()
                     .withType(MountType.BIND)
                     .withSource(sharedLibsDir.resolve(loaderVer.serverJarName).absolutePath)
@@ -1144,7 +1159,12 @@ object HostService {
     }
 
     suspend fun HostContext.start() {
-        val current = getById(host._id) ?: throw RequestError("无此地图")
+        val current = host
+        val isMember = member.role != Role.GUEST
+        val isPublicHost = current.isPublicTest || !current.whitelist
+        if (!isPublicHost && !isMember && !player.isDav) {
+            throw RequestError("私有地图仅成员可启动")
+        }
         if (DockerService.isStarted(current._id.str)) {
             throw RequestError("已经启动过了")
         }
@@ -1171,9 +1191,8 @@ object HostService {
     }
 
     suspend fun HostContext.restart() {
-        val current = getById(host._id) ?: throw RequestError("无此地图")
         sendCommand("stop")
-        clearShutFlag(current._id)
+        clearShutFlag(host._id)
         DockerService.restart(host._id.str)
     }
 
@@ -1433,14 +1452,13 @@ object HostService {
         if (hosts.isEmpty()) return emptyList()
 
         val requesterId = _id
+        val (memberHosts, otherHosts) = hosts.partition { host ->
+            host.ownerId == requesterId ||
+                    host.members.any { it.id == requesterId }
+        }
         val visibleHosts = if (myOnly) {
-            hosts.filter { host ->
-                host.ownerId == requesterId || host.members.any { it.id == requesterId }
-            }
+            memberHosts
         } else {
-            val (memberHosts, otherHosts) = hosts.partition { host ->
-                host.ownerId == requesterId || host.members.any { it.id == requesterId }
-            }
             memberHosts + otherHosts
         }
 
@@ -1452,6 +1470,7 @@ object HostService {
                     val isMember = host.ownerId == requesterId || host.members.any { it.id == requesterId }
                     val playable = when {
                         isMember -> true
+                        host.isPublicTest -> true
                         host.status == HostStatus.PLAYABLE && !host.whitelist -> true
                         else -> false
                     }
@@ -1587,16 +1606,20 @@ object HostService {
     }
 
     suspend fun HostContext.addMember(qq: String) {
+        val current = getById(host._id) ?: throw RequestError("无此地图")
         val target = PlayerService.getByQQ(qq) ?: throw RequestError("无此账号")
-        if (host.hasMember(target._id)) {
+        if (current.hasMember(target._id)) {
             throw RequestError("该用户已是成员")
         }
+        if (!current.isPublicTest && current.members.size >= 10) {
+            throw RequestError("该地图最多只能有10名成员")
+        }
         val joinedCount = dbcl.countDocuments(eq("${Host::members.name}.${Host.Member::id.name}", target._id))
-        if (joinedCount >= 9) {
+        if (joinedCount >= 10) {
             throw RequestError("该用户已加入 9 张地图，无法继续加入")
         }
         dbcl.updateOne(
-            eq("_id", host._id),
+            eq("_id", current._id),
             Updates.push(Host::members.name, Host.Member(target._id, Role.MEMBER))
         )
     }
