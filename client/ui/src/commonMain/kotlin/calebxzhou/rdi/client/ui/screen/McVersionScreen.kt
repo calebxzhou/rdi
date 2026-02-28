@@ -49,7 +49,8 @@ fun McVersionScreen(
     onBack: () -> Unit,
     requiredMcVer: McVersion? = null,
     onOpenTask: ((Task) -> Unit)? = null,
-    onOpenPlay: ((McPlayArgs) -> Unit)? = null
+    onOpenPlay: ((McPlayArgs) -> Unit)? = null,
+    onOpenModpackList: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
@@ -167,7 +168,14 @@ fun McVersionScreen(
                             horizontalArrangement = if (compactActions) Arrangement.Start else Arrangement.End,
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
+                            CircleIconButton(
+                                "\uDB86\uDDD8",
+                                "下载整合包" ,size = size, showText = true
+                            ) {
+                                onOpenModpackList?.invoke()
+                            }
                             if (isDesktop) {
+                                Space8w()
                                 CircleIconButton(
                                     "\uDB82\uDD5D",
                                     "导入RDI整合包",

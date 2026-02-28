@@ -69,32 +69,20 @@ fun ModpackListScreen(
     MainColumn {
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val compactActions = maxWidth < 760.dp
-            val actionGap = if (compactActions) 4.dp else 8.dp
 
             TitleRow("选择整合包 · 创建地图", onBack) {
                 Checkbox(
                     checked = onlyMine,
                     onCheckedChange = { onlyMine = it }
                 )
-                if (!compactActions || isDesktop) {
-                    Text("只看我的包")
-                    Space8w()
-                }
-
-                ImageIconButton(
-                    "bookshelf",
-                    if (compactActions) "MC版本" else "MC版本资源管理",
-                    bgColor = Color.LightGray
-                ) {
-                    onOpenMcVersions.invoke()
-                }
-                Spacer(modifier = Modifier.width(actionGap))
-
+                Text("我的包")
+                Space8w()
                 val allow = loggedAccount.hasMsid
                 CircleIconButton(
                     "\uDB80\uDFD5",
-                    tooltip = if (allow) "上传新整合包" else "绑定微软MC账号上传整合包",
+                    tooltip = if (allow) "传包" else "绑定微软MC账号上传整合包",
                     enabled = allow,
+                    showText = true
                 ) {
                     onOpenUpload.invoke()
                 }

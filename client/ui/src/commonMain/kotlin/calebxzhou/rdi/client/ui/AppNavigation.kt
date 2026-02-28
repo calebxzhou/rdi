@@ -112,7 +112,6 @@ fun AppNavigation(
                     onOpenMail = { navController.navigate(Mail) },
                     onOpenHostLobby = { navController.navigate(HostList) },
                     onOpenWardrobe = { navController.navigate(Wardrobe) },
-                    onOpenModpackList = { navController.navigate(ModpackList) },
                     onOpenWorldList = { navController.navigate(WorldList) },
                     onBack = {
                         navController.navigate(Login) {
@@ -326,7 +325,8 @@ fun AppNavigation(
                     onOpenTask = { task ->
                         openTaskView(task, false, null)
                     },
-                    onOpenPlay = handleOpenMcPlay
+                    onOpenPlay = handleOpenMcPlay,
+                    onOpenModpackList = { navController.navigate(ModpackList) }
                 )
             }
         }
