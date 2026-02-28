@@ -11,11 +11,10 @@ import androidx.compose.ui.window.WindowPosition
 import androidx.compose.ui.window.application
 import androidx.compose.ui.window.rememberWindowState
 import calebxzhou.mykotutils.std.decodeBase64
-import calebxzhou.mykotutils.std.ioScope
+import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.service.ClientDirs
-import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.screen.*
@@ -27,12 +26,8 @@ import calebxzhou.rdi.common.serdesJson
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import java.awt.Toolkit
-import java.awt.dnd.DnDConstants
-import java.awt.dnd.DropTarget
-import java.awt.dnd.DropTargetAdapter
-import java.awt.dnd.DropTargetDragEvent
-import java.awt.dnd.DropTargetDropEvent
 import java.awt.datatransfer.DataFlavor
+import java.awt.dnd.*
 import java.net.URI
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
@@ -40,58 +35,69 @@ import java.util.zip.ZipFile
 
 val VERTICAL_MODE= System.getProperty("rdi.ui.vertical").toBoolean()
 lateinit var ScreenSize: Pair<Dp, Dp>
-fun main() = application {
-    if(DEBUG){
-        System.setProperty("javax.net.ssl.trustStoreType", "Windows-ROOT")
-    }
-    val windowIcon = remember {
-        jarResource("icon.png").use { stream ->
-            BitmapPainter(stream.readAllBytes().decodeToImageBitmap())
+fun main() {
+    clearPackProcDirOnStartup()
+    application {
+        if(DEBUG){
+            System.setProperty("javax.net.ssl.trustStoreType", "Windows-ROOT")
         }
-    }
+        val windowIcon = remember {
+            jarResource("icon.png").use { stream ->
+                BitmapPainter(stream.readAllBytes().decodeToImageBitmap())
+            }
+        }
 
-    //账号信息
-    System.getProperty("rdi.account")?.let {
-        loggedAccount = serdesJson.decodeFromString(it.decodeBase64)
-    }
-    //JWT
-    System.getProperty("rdi.jwt")?.let {
-        loggedAccount.jwt = it
-    }
-    if (loggedAccount.jwt == null && loggedAccount != RAccount.DEFAULT) {
-        GlobalScope.launch {
-            val jwt = PlayerService.getJwt(loggedAccount.qq, loggedAccount.pwd)
-            loggedAccount.jwt = jwt
+        //账号信息
+        System.getProperty("rdi.account")?.let {
+            loggedAccount = serdesJson.decodeFromString(it.decodeBase64)
+        }
+        //JWT
+        System.getProperty("rdi.jwt")?.let {
+            loggedAccount.jwt = it
+        }
+        if (loggedAccount.jwt == null && loggedAccount != RAccount.DEFAULT) {
+            GlobalScope.launch {
+                val jwt = PlayerService.getJwt(loggedAccount.qq, loggedAccount.pwd)
+                loggedAccount.jwt = jwt
+            }
+        }
+        // 设置窗口初始大小为屏幕的2/3，并居中显示
+        val screen = remember { Toolkit.getDefaultToolkit().screenSize }
+        ScreenSize = (screen.width * 2 / 3).dp to  (screen.height * 2 / 3).dp
+        val windowState = if(VERTICAL_MODE) rememberWindowState(
+            width = (screen.width*1/5).dp ,
+            height = ScreenSize.second,
+            position = WindowPosition(Alignment.Center)
+        )  else rememberWindowState(
+            width = ScreenSize.first,
+            height = ScreenSize.second,
+            position = WindowPosition(Alignment.Center)
+        )
+        Window(
+            onCloseRequest = ::exitApplication,
+            title = "RDI ${Const.VERSION_NUMBER}",
+            icon = windowIcon,
+            state = windowState
+        ) {
+            val initScreenName = System.getProperty("rdi.init.screen")?.trim()
+            val startDestination: Any = when (initScreenName) {
+                "wd" -> Wardrobe
+                "mail" -> Mail
+                "hl" -> HostList
+                "wl" -> WorldList
+                "ml" -> ModpackList
+                else -> Login
+            }
+            AppNavigation(startDestination = startDestination)
         }
     }
-    // 设置窗口初始大小为屏幕的2/3，并居中显示
-    val screen = remember { Toolkit.getDefaultToolkit().screenSize }
-    ScreenSize = (screen.width * 2 / 3).dp to  (screen.height * 2 / 3).dp
-    val windowState = if(VERTICAL_MODE) rememberWindowState(
-        width = (screen.width*1/5).dp ,
-        height = ScreenSize.second,
-        position = WindowPosition(Alignment.Center)
-    )  else rememberWindowState(
-        width = ScreenSize.first,
-        height = ScreenSize.second,
-        position = WindowPosition(Alignment.Center)
-    )
-    Window(
-        onCloseRequest = ::exitApplication,
-        title = "RDI ${Const.VERSION_NUMBER}",
-        icon = windowIcon,
-        state = windowState
-    ) {
-        val initScreenName = System.getProperty("rdi.init.screen")?.trim()
-        val startDestination: Any = when (initScreenName) {
-            "wd" -> Wardrobe
-            "mail" -> Mail
-            "hl" -> HostList
-            "wl" -> WorldList
-            "ml" -> ModpackList
-            else -> Login
-        }
-        AppNavigation(startDestination = startDestination)
+}
+
+private fun clearPackProcDirOnStartup()= GlobalScope.launch {
+    val packProcDir = ClientDirs.packProcDir
+    runCatching {
+        packProcDir.deleteRecursivelyNoSymlink()
+        packProcDir.mkdirs()
     }
 }
 

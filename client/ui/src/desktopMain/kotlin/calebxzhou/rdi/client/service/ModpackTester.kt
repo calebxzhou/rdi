@@ -65,7 +65,6 @@ class ModpackTester(
 
     fun dispose(uiScope: CoroutineScope) {
         stop(uiScope, markStopped = false)
-        destroyTestWorkDir()
     }
 
     fun stop(
@@ -81,7 +80,6 @@ class ModpackTester(
                 appendLog("[RDI] 已发送停止测试服务器指令")
             }
         }
-        destroyTestWorkDir()
     }
 
     fun startWithAutoFix(
@@ -108,7 +106,6 @@ class ModpackTester(
 
         uiScope.launch(Dispatchers.IO) {
             runCatching {
-                destroyTestWorkDir()
                 val workDir = createServerTestWorkDir(
                     payload = payload,
                     mods = getMods(),
@@ -137,7 +134,7 @@ class ModpackTester(
                             val changedUnknown = latestMods.count { it.side == Mod.Side.UNKNOWN }
                             if (changedUnknown > 0) {
                                 setMods(normalizedMods)
-                                appendLog("[RDI] 测试通过，已将 ${changedUnknown} 个未识别运行侧Mod标记为 BOTH")
+                                appendLog("[RDI] 测试通过，已将 $changedUnknown 个未识别运行侧Mod标记为 BOTH")
                             }
                             _passSeconds.value = matched.groupValues.getOrNull(1)
                             _status.value = TestStatus.PASSED
@@ -188,7 +185,6 @@ class ModpackTester(
                     if (exitCode != 0 && crashTriggered) {
                         onError("测试服务器异常退出: $exitCode")
                     }
-                    destroyTestWorkDir()
                 }
             }.onFailure {
                 uiScope.launch {
@@ -197,13 +193,6 @@ class ModpackTester(
                     stop(uiScope, markStopped = false)
                 }
             }
-        }
-    }
-
-    private fun destroyTestWorkDir() {
-        testWorkDir?.let { dir ->
-            runCatching { dir.deleteRecursivelyNoSymlink() }
-            testWorkDir = null
         }
     }
 
