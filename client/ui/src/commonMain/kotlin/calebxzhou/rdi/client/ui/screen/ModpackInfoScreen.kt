@@ -314,22 +314,6 @@ fun ModpackInfoScreen(
                                     )
                                     Text(statusText.asIconText, color = statusColor)
                                     Space8w()
-                                    if (version.status == Modpack.Status.OK) {
-                                        val allowCreateHost = loggedAccount.hasMsid
-                                        CircleIconButton(
-                                            icon = "\uDB86\uDD4B",
-                                            tooltip = if(allowCreateHost)"选定此版本创建地图" else "绑定微软MC账号创建地图",
-                                            enabled = allowCreateHost,
-                                            bgColor = MaterialColor.GREEN_700.color
-                                        ) {
-                                            val skyblock = version.mods.any { it.slug == "skyblock-builder" }
-                                            if (onCreateHost != null) {
-                                                onCreateHost(pack._id.toHexString(), pack.name, version.name, skyblock)
-                                            } else {
-                                                okMessage = "暂不支持在此页面创建地图"
-                                            }
-                                        }
-                                    }
                                     if (isAuthor) {
                                         Space8w()
                                         CircleIconButton(

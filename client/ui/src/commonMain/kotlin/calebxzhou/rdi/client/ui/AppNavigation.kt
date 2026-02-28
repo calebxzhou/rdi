@@ -181,7 +181,16 @@ fun AppNavigation(
                     onOpenHostInfo = { hostId ->
                         navController.navigate(HostInfo(hostId))
                     },
-                    onOpenModpackList = { navController.navigate(ModpackList) },
+                    onOpenHostCreate = {
+                        navController.navigate(
+                            HostCreate(
+                                modpackId = "",
+                                modpackName = "",
+                                packVer = "",
+                                skyblock = false
+                            )
+                        )
+                    },
                     onOpenMcPlay = handleOpenMcPlay,
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(RMcVersion(mcVer?.mcVer))
@@ -235,7 +244,7 @@ fun AppNavigation(
                 )
             }
             composable<HostCreate> {
-                HostCreateScreen(
+                HostNewCreateScreen(
                     it.toRoute(),
                     onBack = { navController.popBackStack() },
                     onNavigateProfile = { navController.navigate(HostList) }

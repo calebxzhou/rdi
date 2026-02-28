@@ -287,28 +287,24 @@ fun HostCreateScreen(
                                 ) {
                                     ImageCard(
                                         title = "和平",
-                                        desc = "无敌对生物",
                                         iconPath = "assets/icons/difficulty_peaceful.png",
                                         selected = difficulty == 0,
                                         onClick = { difficulty = 0 }
                                     )
                                     ImageCard(
                                         title = "简单",
-                                        desc = "有敌对生物 伤害较低",
                                         iconPath = "assets/icons/difficulty_easy.png",
                                         selected = difficulty == 1,
                                         onClick = { difficulty = 1 }
                                     )
                                     ImageCard(
                                         title = "普通",
-                                        desc = "有敌对生物 中等伤害",
                                         iconPath = "assets/icons/difficulty_normal.png",
                                         selected = difficulty == 2,
                                         onClick = { difficulty = 2 }
                                     )
                                     ImageCard(
                                         title = "困难",
-                                        desc = "有敌对生物 更高伤害",
                                         iconPath = "assets/icons/difficulty_hard.png",
                                         selected = difficulty == 3,
                                         onClick = { difficulty = 3 }
@@ -324,14 +320,12 @@ fun HostCreateScreen(
                                 ) {
                                     ImageCard(
                                         title = "生存模式",
-                                        desc = "探索一个神秘的世界",
                                         iconPath = "assets/icons/gamemode_survival.png",
                                         selected = gameMode == 0,
                                         onClick = { gameMode = 0 }
                                     )
                                     ImageCard(
                                         title = "创造模式",
-                                        desc = "无限制地建造和探索",
                                         iconPath = "assets/icons/gamemode_creative.png",
                                         selected = gameMode == 1,
                                         onClick = { gameMode = 1 }
@@ -348,7 +342,6 @@ fun HostCreateScreen(
                                     if (arg.skyblock) {
                                         ImageCard(
                                             title = "空岛",
-                                            desc = "漂浮小岛 开局资源稀少",
                                             iconPath = "assets/icons/worldtype_skyblock.jpg",
                                             selected = levelChoice == 2,
                                             onClick = {
@@ -359,7 +352,6 @@ fun HostCreateScreen(
                                     } else {
                                         ImageCard(
                                             title = "普通",
-                                            desc = "最多生物群系的维度",
                                             iconPath = "assets/icons/worldtype_normal.png",
                                             selected = levelChoice == 0,
                                             onClick = {
@@ -369,7 +361,6 @@ fun HostCreateScreen(
                                         )
                                         ImageCard(
                                             title = "超平坦",
-                                            desc = "完全平坦的表面",
                                             iconPath = "assets/icons/worldtype_flat.png",
                                             selected = levelChoice == 1,
                                             onClick = {

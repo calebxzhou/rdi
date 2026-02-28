@@ -4,19 +4,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material.*
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.Const
+import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.StartPlayResult
 import calebxzhou.rdi.client.service.startPlay
 import calebxzhou.rdi.client.ui.*
-import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
@@ -27,12 +25,12 @@ import org.bson.types.ObjectId
 /**
  * calebxzhou @ 2026-01-15 14:15
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostListScreen(
     onBack: (() -> Unit),
     onOpenHostInfo: ((String) -> Unit)? = null,
-    onOpenModpackList: (() -> Unit)? = null,
+    onOpenHostCreate: (() -> Unit)? = null,
     onOpenMcVersions: ((McVersion?) -> Unit)? = null,
     onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
     onOpenTask: ((Task) -> Unit)? = null
@@ -88,18 +86,12 @@ fun HostListScreen(
     }
     MainColumn {
         // Header / Toolbar
-        TitleRow("地图大厅 · ${onlinePlayers.size}人在线", onBack = onBack) {
+        TitleRow("地图大厅", onBack = onBack) {
             errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
             Space8w()
-            ImageIconButton(
-                "grass_block", "大家的整合包",
-                bgColor = Color.LightGray
-            ) {
-                onOpenModpackList?.invoke()
+            CircleIconButton("\uDB81\uDC90","创建地图", showText = true){
+                onOpenHostCreate?.invoke()
             }
-            Space8w()
-
-
         }
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -162,9 +154,6 @@ fun HostListScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 if (playableHosts.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text("能玩的图", style = MaterialTheme.typography.subtitle1)
-                    }
                     items(playableHosts) { host ->
                         renderHostCard(host)
                     }
