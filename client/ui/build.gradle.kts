@@ -9,28 +9,6 @@ val ktorVersion = "3.3.3"
 val version = "5.11"
 project.version = version
 
-/*val keystoreProperties = Properties()
-val keystorePropertiesFile = rootProject.file("keystore.properties")
-if (keystorePropertiesFile.exists()) {
-    keystorePropertiesFile.inputStream().use(keystoreProperties::load)
-}
-
-fun signingValue(key: String, envName: String): String? =
-    keystoreProperties.getProperty(key)?.takeIf { it.isNotBlank() }
-        ?: providers.gradleProperty("rdi.signing.$key").orNull?.takeIf { it.isNotBlank() }
-        ?: System.getenv(envName)?.takeIf { it.isNotBlank() }
-
-val releaseStoreFilePath = signingValue("storeFile", "RDI_SIGNING_STORE_FILE")
-val releaseStorePassword = signingValue("storePassword", "RDI_SIGNING_STORE_PASSWORD")
-val releaseKeyAlias = signingValue("keyAlias", "RDI_SIGNING_KEY_ALIAS")
-val releaseKeyPassword = signingValue("keyPassword", "RDI_SIGNING_KEY_PASSWORD")
-val hasReleaseSigning = listOf(
-    releaseStoreFilePath,
-    releaseStorePassword,
-    releaseKeyAlias,
-    releaseKeyPassword
-).all { !it.isNullOrBlank() }*/
-
 plugins {
     kotlin("multiplatform") version "2.2.21"
     kotlin("plugin.serialization") version "2.2.21"
@@ -277,6 +255,15 @@ tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
 }
 
+tasks.withType<Jar>().configureEach {
+    manifest {
+        attributes(
+            "Implementation-Title" to project.name,
+            "Implementation-Version" to project.version.toString()
+        )
+    }
+}
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
@@ -314,6 +301,10 @@ tasks.register<Sync>("desktopInstallLibs") {
     from(configurations.getByName("desktopRuntimeClasspath"))
     from(tasks.named<Jar>("desktopJar"))
     into(layout.buildDirectory.dir("install/ui/lib"))
+}
+
+tasks.named<Jar>("desktopJar") {
+    archiveFileName.set("rdi-5-ui.jar")
 }
 
 
