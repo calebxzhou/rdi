@@ -9,6 +9,7 @@ import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.mykotutils.std.readAllString
 import calebxzhou.rdi.RDIClient
 import calebxzhou.rdi.client.service.fetchHwSpec
+import calebxzhou.rdi.client.ui.screen.HostList
 import calebxzhou.rdi.client.ui.screen.McPlayView
 import calebxzhou.rdi.client.ui.screen.ModpackList
 import calebxzhou.rdi.client.ui.screen.ModpackUpload
@@ -270,7 +271,15 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
                 mcVer = args.mcVer,
                 versionId = args.versionId,
                 jvmArgs = arrayOf("-Drdi.play=${args.playArg.encodeBase64}"),
-                onBack = { navController.popBackStack() }
+                onBack = {
+                    val callback = McPlayStore.onBack
+                    McPlayStore.onBack = null
+                    if (callback != null) {
+                        callback()
+                    } else {
+                        navController.navigate(HostList)
+                    }
+                }
             )
         } else {
             androidx.compose.material.Text("没有可显示的游戏")
@@ -281,7 +290,13 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
             ModpackUploadStore.preset.also { ModpackUploadStore.preset = null }
         }
         calebxzhou.rdi.client.ui.screen.ModpackUploadScreen(
-            onBack = { navController.navigate(ModpackList) },
+            onBack = {
+                navController.navigate(ModpackList) {
+                    popUpTo<ModpackList> { inclusive = true }
+                    launchSingleTop = true
+                    restoreState = false
+                }
+            },
             updateModpackId = preset?.updateModpackId,
             updateModpackName = preset?.updateModpackName
         )

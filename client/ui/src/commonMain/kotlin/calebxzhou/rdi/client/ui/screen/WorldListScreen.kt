@@ -45,7 +45,7 @@ fun WorldListScreen(
         scope.rdiRequest<List<World.Vo>>(
             "world",
             onDone = {
-                loading=false
+                loading = false
             },
             onErr = {
                 errorMessage = "加载区块数据失败:${it.message}"
@@ -70,25 +70,46 @@ fun WorldListScreen(
             TitleRow("区块管理", onBack = { onBack?.invoke() ?: Unit }) {
                 errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
                 val canOperate = selectedWorld != null
-                if(DEBUG){
-                    CircleIconButton(
-                        "\uDB85\uDDC6","俯视图", enabled = canOperate
-                    ){
-                        selectedWorld?.let { onOpenBirdView(it.id.toHexString()) }
-                    }
+                CircleIconButton(
+                    "\uDB85\uDDC6", "俯视图[开发中]", enabled = DEBUG,
+                    showText = true
+                ) {
+                   // selectedWorld?.let { onOpenBirdView(it.id.toHexString()) }
                 }
+
+                Space8w()
+                CircleIconButton(
+                    icon = "\uDB80\uDD67",
+                    tooltip = "上传存档(开发中)",
+                    enabled = DEBUG,
+                    showText = true
+                ) {
+                }
+                Space8w()
+                CircleIconButton(
+                    icon = "\uDB80\uDD62",
+                    tooltip = "下载存档(开发中)",
+                    enabled = DEBUG,
+                    showText = true
+                ) {
+
+                }
+                Space8w()
                 CircleIconButton(
                     icon = "\uF0C5",
                     tooltip = "复制",
-                    enabled = canOperate
+                    enabled = canOperate,
+                    showText = true
                 ) {
                     selectedWorld?.let { confirmCopy = it }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
+                Space8w()
                 CircleIconButton(
                     icon = "\uEA81",
                     tooltip = "删除",
-                    enabled = canOperate
+                    enabled = canOperate,
+                    bgColor = Color.Red,
+                    showText = true
                 ) {
                     selectedWorld?.let { confirmDelete = it }
                 }

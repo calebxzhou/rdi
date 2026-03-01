@@ -70,7 +70,7 @@ fun ModpackListScreen(
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val compactActions = maxWidth < 760.dp
 
-            TitleRow("选择整合包 · 创建地图", onBack) {
+            TitleRow("上传过的整合包", onBack) {
                 Checkbox(
                     checked = onlyMine,
                     onCheckedChange = { onlyMine = it }

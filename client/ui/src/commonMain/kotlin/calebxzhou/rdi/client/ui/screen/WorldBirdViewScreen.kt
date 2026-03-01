@@ -488,12 +488,9 @@ fun WorldBirdViewScreen(
                 )
                 Space8w()
                 val blocksPerPixel = ((2f.pow(zoomLevel) * 100f).roundToInt() / 100f)
-                Text("比例尺 1像素≈${blocksPerPixel}方块")
+                Text("比例尺 1:${blocksPerPixel}")
                 Space8w()
-                CircleIconButton("\uF00E", "放大") { setZoomLevel(zoomLevel - 1f) }
-                Space8w()
-                CircleIconButton("\uF010", "缩小") { setZoomLevel(zoomLevel + 1f) }
-                CircleIconButton("\uDB83\uDCBD", "构建地图") { requestBuildAllSurfaceCaches() }
+                //CircleIconButton("\uDB83\uDCBD", "构建地图", showText = true) { requestBuildAllSurfaceCaches() }
             }
             Spacer(modifier = Modifier.height(12.dp))
 

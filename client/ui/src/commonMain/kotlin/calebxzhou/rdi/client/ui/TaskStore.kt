@@ -6,4 +6,5 @@ object TaskStore {
     var current: Task? = null
     var autoClose: Boolean = false
     var onDone: (() -> Unit)? = null
+    var onBack: (() -> Unit)? = null
 }

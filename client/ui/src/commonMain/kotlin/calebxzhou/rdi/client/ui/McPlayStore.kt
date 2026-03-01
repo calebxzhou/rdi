@@ -12,6 +12,7 @@ data class McPlayArgs(
 
 object McPlayStore {
     var current: McPlayArgs? = null
+    var onBack: (() -> Unit)? = null
     var process: Process? = null
     val consoleState: ConsoleState = ConsoleState()
 }

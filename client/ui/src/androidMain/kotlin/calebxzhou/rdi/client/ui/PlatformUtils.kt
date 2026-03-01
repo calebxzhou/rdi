@@ -185,7 +185,13 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("Android 暂不支持上传整合包")
-            TextButton(onClick = { navController.navigate(ModpackList) }) {
+            TextButton(onClick = {
+                navController.navigate(ModpackList) {
+                    popUpTo<ModpackList> { inclusive = true }
+                    launchSingleTop = true
+                    restoreState = false
+                }
+            }) {
                 Text("返回整合包列表")
             }
         }

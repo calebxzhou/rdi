@@ -327,7 +327,7 @@ fun HostNewCreateScreen(
                 0 -> {
                     if (isEditMode()) {
                         Space8h()
-                        Text("编辑模式下不可更换整合包。", color = MaterialColor.GRAY_700.color)
+                        Text("整合包一经设定，就不能更换。换包请重新创建地图", color = MaterialColor.GRAY_700.color)
                     }
                     Space8h()
                     localPackError?.let {

@@ -9,6 +9,7 @@ import androidx.compose.material.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -26,6 +27,14 @@ import org.bson.types.ObjectId
 val AppTypography: Typography
     @Composable get() = Typography(defaultFontFamily = UIFontFamily)
 
+private inline fun <reified T : Any> NavHostController.navigateAbsolute(route: T) {
+    navigate(route) {
+        popUpTo<T> { inclusive = true }
+        launchSingleTop = true
+        restoreState = false
+    }
+}
+
 /**
  * Common navigation graph shared between desktop and Android.
  * Desktop-only routes (McPlayView, ModpackUpload) are gated behind isDesktop.
@@ -39,19 +48,21 @@ fun AppNavigation(
 ) {
     MaterialTheme(typography = AppTypography) {
         val navController = rememberNavController()
-        val openTaskView: (calebxzhou.rdi.common.model.Task, Boolean, (() -> Unit)?) -> Unit = { task, autoClose, onDone ->
+        val openTaskView: (calebxzhou.rdi.common.model.Task, Boolean, (() -> Unit)?, (() -> Unit)?) -> Unit = { task, autoClose, onDone, onBack ->
             TaskStore.current = task
             TaskStore.autoClose = autoClose
             TaskStore.onDone = onDone
+            TaskStore.onBack = onBack
             navController.navigate(TaskView)
         }
 
         // Android FCL launch dialog
         val showFclLaunchDialog = remember { mutableStateOf(false) }
         val fclLaunchArgs = remember { mutableStateOf<McPlayArgs?>(null) }
-        val handleOpenMcPlay: (McPlayArgs) -> Unit = { args ->
+        val openMcPlay: (McPlayArgs, (() -> Unit)?) -> Unit = { args, onBack ->
             if (isDesktop) {
                 McPlayStore.current = args
+                McPlayStore.onBack = onBack
                 navController.navigate(McPlayView)
             } else {
                 fclLaunchArgs.value = args
@@ -124,15 +135,15 @@ fun AppNavigation(
                 val route = it.toRoute<Register>()
                 RegisterScreen(
                     route.msa,
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.navigateAbsolute(Login) },
                     onRegisterSuccess = {
-                        navController.popBackStack()
+                        navController.navigateAbsolute(Login)
                     }
                 )
             }
             composable<Wardrobe> {
                 WardrobeScreen(
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.navigateAbsolute(Menu) },
                     onOpenSkinPreview = { skin ->
                         navController.navigate(
                             SkinPreview(
@@ -158,12 +169,12 @@ fun AppNavigation(
                         public = route.isPublic,
                         likes = route.likes
                     ),
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.navigateAbsolute(Wardrobe) }
                 )
             }
             composable<Mail> {
                 MailScreen(
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.navigateAbsolute(Menu) },
                     onOpenDetail = { mailId -> navController.navigate(MailDetail(mailId)) }
                 )
             }
@@ -171,12 +182,12 @@ fun AppNavigation(
                 val route = it.toRoute<MailDetail>()
                 MailDetailScreen(
                     mailId = route.mailId,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.navigateAbsolute(Mail) }
                 )
             }
             composable<HostList> {
                 HostListScreen(
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.navigateAbsolute(Menu) },
                     onOpenHostInfo = { hostId ->
                         navController.navigate(HostInfo(hostId))
                     },
@@ -190,12 +201,16 @@ fun AppNavigation(
                             )
                         )
                     },
-                    onOpenMcPlay = handleOpenMcPlay,
+                    onOpenMcPlay = { args ->
+                        openMcPlay(args) { navController.navigateAbsolute(HostList) }
+                    },
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(RMcVersion(mcVer?.mcVer))
                     },
                     onOpenTask = { task ->
-                        openTaskView(task, false, null)
+                        openTaskView(task, false, null) {
+                            navController.navigateAbsolute(HostList)
+                        }
                     }
                 )
             }
@@ -203,16 +218,20 @@ fun AppNavigation(
                 val route = it.toRoute<HostInfo>()
                 HostInfoScreen(
                     hostId = ObjectId(route.hostId),
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.navigateAbsolute(HostList) },
                     onOpenModpackInfo = { modpackId ->
                         navController.navigate(ModpackInfo(modpackId, fromHostId = route.hostId))
                     },
-                    onOpenMcPlay = handleOpenMcPlay,
+                    onOpenMcPlay = { args ->
+                        openMcPlay(args) { navController.navigateAbsolute(HostInfo(route.hostId)) }
+                    },
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(RMcVersion(mcVer?.mcVer))
                     },
                     onOpenTask = { task ->
-                        openTaskView(task, false, null)
+                        openTaskView(task, false, null) {
+                            navController.navigateAbsolute(HostInfo(route.hostId))
+                        }
                     },
                     onOpenHostEdit = { host ->
                         navController.navigate(
@@ -229,7 +248,7 @@ fun AppNavigation(
             }
             composable<WorldList> {
                 WorldListScreen(
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.navigateAbsolute(Menu) },
                     onOpenBirdView = { worldId ->
                         navController.navigate(WorldBirdView(worldId))
                     }
@@ -239,14 +258,21 @@ fun AppNavigation(
                 val route = it.toRoute<WorldBirdView>()
                 WorldBirdViewScreen(
                     worldId = route.worldId,
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.navigateAbsolute(WorldList) }
                 )
             }
             composable<HostCreate> {
+                val route = it.toRoute<HostCreate>()
                 HostNewCreateScreen(
-                    it.toRoute(),
-                    onBack = { navController.popBackStack() },
-                    onNavigateProfile = { navController.navigate(HostList) }
+                    route,
+                    onBack = {
+                        if (route.hostId != null) {
+                            navController.navigateAbsolute(HostInfo(route.hostId))
+                        } else {
+                            navController.navigateAbsolute(HostList)
+                        }
+                    },
+                    onNavigateProfile = { navController.navigateAbsolute(HostList) }
                 )
             }
             composable<TaskView> {
@@ -255,10 +281,17 @@ fun AppNavigation(
                     TaskScreen(
                         task = task,
                         autoClose = TaskStore.autoClose,
-                        onBack = { navController.popBackStack() },
+                        onBack = {
+                            val back = TaskStore.onBack ?: { navController.navigateAbsolute(Menu) }
+                            TaskStore.onBack = null
+                            TaskStore.onDone = null
+                            TaskStore.autoClose = false
+                            back.invoke()
+                        },
                         onDone = {
                             TaskStore.onDone?.invoke()
                             TaskStore.onDone = null
+                            TaskStore.onBack = null
                             TaskStore.autoClose = false
                         }
                     )
@@ -270,15 +303,17 @@ fun AppNavigation(
             addDesktopOnlyRoutes(navController)
             composable<Setting> {
                 SettingScreen(
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.navigateAbsolute(Menu) },
                 )
             }
             composable<ModpackList> {
                 ModpackListScreen(
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.navigateAbsolute(Menu) },
                     onOpenUpload = { navController.navigate(ModpackUpload) },
                     onOpenTask = { task, autoClose, onDone ->
-                        openTaskView(task, autoClose, onDone)
+                        openTaskView(task, autoClose, onDone) {
+                            navController.navigateAbsolute(ModpackList)
+                        }
                     },
                     onOpenMcVersions = { navController.navigate(RMcVersion(null)) },
                     onOpenInfo = { modpackId ->
@@ -292,9 +327,9 @@ fun AppNavigation(
                     modpackId = route.modpackId,
                     onBack = {
                         if (route.fromHostId != null) {
-                            navController.navigate(HostInfo(route.fromHostId))
+                            navController.navigateAbsolute(HostInfo(route.fromHostId))
                         } else {
-                            navController.navigate(ModpackList)
+                            navController.navigateAbsolute(ModpackList)
                         }
                     },
                     onOpenUpload = { modpackId, modpackName ->
@@ -311,7 +346,9 @@ fun AppNavigation(
                         )
                     },
                     onOpenTask = { task ->
-                        openTaskView(task, false, null)
+                        openTaskView(task, false, null) {
+                            navController.navigateAbsolute(ModpackInfo(route.modpackId, route.fromHostId))
+                        }
                     }
                 )
             }
@@ -321,11 +358,15 @@ fun AppNavigation(
                 val required = route.mcVer?.let { ver -> McVersion.from(ver) }
                 McVersionScreen(
                     requiredMcVer = required,
-                    onBack = { navController.popBackStack() },
+                    onBack = { navController.navigateAbsolute(Menu) },
                     onOpenTask = { task ->
-                        openTaskView(task, false, null)
+                        openTaskView(task, false, null) {
+                            navController.navigateAbsolute(RMcVersion(route.mcVer))
+                        }
                     },
-                    onOpenPlay = handleOpenMcPlay,
+                    onOpenPlay = { args ->
+                        openMcPlay(args) { navController.navigateAbsolute(RMcVersion(route.mcVer)) }
+                    },
                     onOpenModpackList = { navController.navigate(ModpackList) }
                 )
             }
