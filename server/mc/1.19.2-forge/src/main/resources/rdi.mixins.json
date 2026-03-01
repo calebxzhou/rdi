@@ -12,7 +12,8 @@
     "mAllowChineseNameLogin",
     "mChatMsg",
     "mSaveBandwidth",
-    "mServerLoginPacketListener"
+    "mServerLoginPacketListener",
+    "mServerPlayer"
   ],
   "client": [
   ]

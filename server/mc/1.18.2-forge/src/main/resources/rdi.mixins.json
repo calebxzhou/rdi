@@ -11,7 +11,8 @@
     "AServerEntity",
     "mAllowChineseNameLogin",
     "mSaveBandwidth",
-    "mServerLoginPacketListener"
+    "mServerLoginPacketListener",
+    "mServerPlayer"
   ],
   "client": [
   ]

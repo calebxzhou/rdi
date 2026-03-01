@@ -14,7 +14,8 @@
     "mChinesePlayerName",
     "mPlusTimeout",
     "mSaveBandwidth",
-    "mServerLoginPacketListener"
+    "mServerLoginPacketListener",
+    "mServerPlayer"
   ],
   "client": [
   ]

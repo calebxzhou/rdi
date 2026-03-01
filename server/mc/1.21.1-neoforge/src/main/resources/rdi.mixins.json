@@ -13,6 +13,7 @@
     "mChatMsg",
     "mChinesePlayerName",
     "mSaveBandwidth",
-    "mServerLoginPacketListener"
+    "mServerLoginPacketListener",
+    "mServerPlayer"
   ]
 }
