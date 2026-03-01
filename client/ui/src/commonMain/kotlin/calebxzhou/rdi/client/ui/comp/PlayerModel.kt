@@ -56,7 +56,7 @@ fun PlayerModel(
     isSlim: Boolean? = null,
     maxRenderSide: Int = 256,
     enableTaa: Boolean = true,
-    taaLowResThreshold: Int = 640
+    taaLowResThreshold: Int = 1440
 ) {
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var orbitYawDeg by remember(skin, cape) { mutableStateOf(DEFAULT_ORBIT_YAW_DEG) }
