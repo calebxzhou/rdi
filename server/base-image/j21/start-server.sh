@@ -63,7 +63,13 @@ done
 iptables -A OUTPUT -p udp --dport 53 -j ACCEPT
 iptables -A OUTPUT -p tcp --dport 53 -j ACCEPT
 
-# Set default policy to DROP for all other outgoing connections
+# Immediately reject non-whitelisted egress instead of silently dropping it.
+# This prevents client code in container from waiting on long socket timeouts.
+iptables -A OUTPUT -p tcp -j REJECT --reject-with tcp-reset
+iptables -A OUTPUT -p udp -j REJECT --reject-with icmp-port-unreachable
+iptables -A OUTPUT -j REJECT --reject-with icmp-proto-unreachable
+
+# Keep DROP as fallback policy (normal traffic should already be handled above).
 iptables -P OUTPUT DROP
 
 # Drop to the non-root server user before launching Java
