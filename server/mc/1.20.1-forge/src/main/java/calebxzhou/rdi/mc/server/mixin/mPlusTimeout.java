@@ -11,8 +11,8 @@ import org.spongepowered.asm.mixin.injection.ModifyConstant;
  */
 @Mixin(ServerGamePacketListenerImpl.class)
 public class mPlusTimeout {
-    @ModifyConstant(method = "tick",constant = @Constant(longValue = 15000L))
+    /*@ModifyConstant(method = "tick",constant = @Constant(longValue = 15000L))
     private static long plusTimeout(long constant){
         return 60000L;
-    }
+    }*/
 }
