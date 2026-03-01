@@ -39,6 +39,9 @@ import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.DL_MOD_DIR
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        private var processActivityBootstrapped = false
+    }
 
     private val storagePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -53,7 +56,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
+        val shouldResetFromProcessRestore = savedInstanceState != null && !processActivityBootstrapped
+        processActivityBootstrapped = true
+        super.onCreate(if (shouldResetFromProcessRestore) null else savedInstanceState)
         intent.extras?.getString("debug")?.let {
             DEBUG = it.toBoolean()
             RServer.OFFICIAL_DEBUG.ip = "192.168.1.20"
