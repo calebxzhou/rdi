@@ -29,10 +29,10 @@ public class mTitleScreen extends Screen {
         super(title);
     }
 
-    @Redirect(method = "render",at= @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/PanoramaRenderer;render(FF)V"))
+    /*不用了 有的包有mixin冲突 @Redirect(method = "render",at= @At(value = "INVOKE", target = "Lnet/minecraft/client/renderer/PanoramaRenderer;render(FF)V"))
     public void RDI$NOrenderPanorama(PanoramaRenderer instance, float deltaT, float alpha) {
 
-    }
+    }*/
 
     @Inject(method = "createNormalMenuOptions", at = @At("HEAD"))
     private void RDI$AddMultiplayerButton(int y, int rowHeight, CallbackInfo ci) {
