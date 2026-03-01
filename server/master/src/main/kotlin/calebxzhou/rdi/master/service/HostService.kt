@@ -272,7 +272,7 @@ object HostService {
 
     private const val PORT_START = 50000
     private const val PORT_END_EXCLUSIVE = 60000
-    private const val SHUTDOWN_THRESHOLD = 10
+    private const val SHUTDOWN_THRESHOLD = 20
     private const val HOSTS_PER_PAGE = 48
     private const val HOST_WORKDIR_LIMIT_BYTES: Long = 1L * 1024 * 1024 * 1024
 
@@ -838,8 +838,8 @@ object HostService {
                 host.getOnlinePlayers()
             } catch (cancel: CancellationException) {
                 throw cancel
-            }.filter { PlayerService.has(it) }
-
+            }.mapNotNull { if(it == ObjectId("000000000000000000000000")) RAccount.DEFAULT else PlayerService.getById(it) }
+            lgr.info { "${host.name}在线：${onlinePlayers.map { it.name }}" }
             if (onlinePlayers.isEmpty()) {
                 if (forceStop) {
                     clearShutFlag(host._id)
@@ -866,7 +866,7 @@ object HostService {
         } else {
             val state = hostStates.computeIfAbsent(hostId) { HostState() }
             state.shutFlag = value
-            lgr.debug { "upd shut flag $hostId $value" }
+            lgr.info { "upd shut flag $hostId $value" }
         }
     }
 
@@ -898,6 +898,7 @@ object HostService {
             if (status != HostStatus.PLAYABLE)
                 return emptyList()
             McServerPinger.ping(this.port).players?.let { players ->
+                lgr.info { "get online players for ${this.name} = ${players}" }
                 players.sample.map { UUID.fromString(it.id).objectId }
             } ?: emptyList()
         } catch (cancel: CancellationException) {
