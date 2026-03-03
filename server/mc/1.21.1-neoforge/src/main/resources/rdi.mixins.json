@@ -12,8 +12,12 @@
     "mAllowChineseNameLogin",
     "mChatMsg",
     "mChinesePlayerName",
+    "mGuardChunkTick",
+    "mGuardLevelTick",
     "mSaveBandwidth",
     "mServerLoginPacketListener",
-    "mServerPlayer"
+    "mServerPlayer",
+    "mTickingEntity",
+    "mTickInvertServer"
   ]
 }
