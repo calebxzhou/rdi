@@ -84,8 +84,9 @@ val Modpack.Version.clientZip
     get() = dir.parentFile.resolve("${name}-client.zip")
 
 const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
-
+val MAX_PACK_SIZE = 384 * 1024 * 1024L
 fun Route.modpackRoutes() {
+
     route("/modpack") {
         get {
             response(data = ModpackService.listAll())
@@ -95,7 +96,7 @@ fun Route.modpackRoutes() {
 
         }
         post {
-            val multipart = call.receiveMultipart(formFieldLimit = 128 * 1024 * 1024)
+            val multipart = call.receiveMultipart(formFieldLimit = MAX_PACK_SIZE)
             var zipBytes: ByteArray? = null
             var dto: Modpack.CreateWithVersionDto? = null
             while (true) {
@@ -186,7 +187,7 @@ fun Route.modpackRoutes() {
                     }
 
                     //limit 1 GB
-                    val multipart = call.receiveMultipart(formFieldLimit = 128 * 1024 * 1024)
+                    val multipart = call.receiveMultipart(formFieldLimit = MAX_PACK_SIZE)
                     var zipBytes: ByteArray? = null
                     var mods: MutableList<Mod>? = null
 
@@ -211,9 +212,8 @@ fun Route.modpackRoutes() {
                     }
 
                     val payload = zipBytes ?: throw ParamError("缺少文件")
-                    val maxSize = 256L * 1024 * 1024
-                    if (payload.size > maxSize) {
-                        throw RequestError("整合包版本文件过大，最大允许 256MB")
+                    if (payload.size > MAX_PACK_SIZE) {
+                        throw RequestError("整合包版本文件过大，最大允许 384MB")
                     }
                     val modList = mods ?: throw ParamError("缺少mods列表")
 
@@ -400,6 +400,7 @@ object ModpackService {
             authorId = authorId,
             authorName = authorName,
             modCount = versions.maxOfOrNull { it.mods.size } ?: 0,
+            sourceUrl = sourceUrl,
             icon = iconUrl,
             info = info,
             modloader = modloader,
@@ -411,6 +412,7 @@ object ModpackService {
     suspend fun Modpack.CreateWithVersionDto.createWithVersion(player: RAccount, zipBytes: ByteArray) {
         name.validateName().getOrNull()
         verName.validateVerName().getOrNull()
+        validateIconUrl(iconUrl)
         if (!player.hasMsid) throw RequestError("必须有微软账号才能传包")
         if (getModpackCount(player._id) >= MAX_MODPACK_PER_USER && !player.isDav) {
             throw RequestError("一个人最多传${MAX_MODPACK_PER_USER}个包")
@@ -419,8 +421,11 @@ object ModpackService {
         val modpack = Modpack(
             name = this.name,
             authorId = player._id,
+            iconUrl = iconUrl?.trim()?.ifBlank { null },
+            info = info?.trim()?.ifBlank { null },
             mcVer = mcVer,
-            modloader = modLoader
+            modloader = modLoader,
+            sourceUrl = sourceUrl?.trim()?.ifBlank { null }
         )
         modpack.dir.mkdirs()
         mods.sortBy { it.slug.lowercase() }
