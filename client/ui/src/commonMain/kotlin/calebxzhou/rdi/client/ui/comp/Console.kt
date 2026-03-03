@@ -177,7 +177,8 @@ fun Console(
                     icon = if(lockScroll) "\uF023" else "\uF2FC",
                     tooltip = if(lockScroll) "解锁滚动" else "锁定滚动",
                     bgColor = MaterialColor.BLUE_900.color,
-                    size = 32
+                    size = 32,
+                    showText = false
                 ) {
                     lockScroll = !lockScroll
                 }
@@ -185,7 +186,8 @@ fun Console(
                     icon = "\uEF11",
                     tooltip = "导出日志",
                     bgColor = MaterialColor.YELLOW_900.color,
-                    size = 32
+                    size = 32,
+                    showText = false
                 ) {
                     scope.launch {
                         val result = exportLogsToZip(state.lines)
@@ -201,7 +203,8 @@ fun Console(
                     icon = "\uF103",
                     tooltip = "翻到最下面",
                     bgColor = MaterialColor.PINK_900.color,
-                    size = 32
+                    size = 32,
+                    showText = false
                 ) {
                     scope.launch {
                         if (lineCount > 0) {

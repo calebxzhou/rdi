@@ -2,13 +2,13 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.gradle.api.tasks.testing.Test
 
-val ktorVersion = "3.3.3"
+val ktorVersion = "3.4.0"
 
 plugins {
     application
-    kotlin("jvm") version "2.2.21"
-    kotlin("plugin.serialization") version "2.2.21"
-    id("io.ktor.plugin") version "3.3.3"
+    kotlin("jvm") version "2.3.10"
+    kotlin("plugin.serialization") version "2.3.10"
+    id("io.ktor.plugin") version "3.4.0"
 }
 
 group = "calebxzhou.rdi"
@@ -29,6 +29,7 @@ dependencies {
     implementation("io.ktor:ktor-server-core:$ktorVersion")
     implementation("io.ktor:ktor-server-netty:$ktorVersion")
     implementation("io.ktor:ktor-server-compression:$ktorVersion")
+    implementation("io.ktor:ktor-server-compression-zstd:${ktorVersion}")
     implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
     implementation("io.ktor:ktor-server-auth:$ktorVersion")
     implementation("io.ktor:ktor-server-auth-jwt:$ktorVersion")

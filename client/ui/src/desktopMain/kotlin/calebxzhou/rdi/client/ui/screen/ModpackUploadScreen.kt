@@ -182,7 +182,6 @@ fun ModpackUploadScreen(
                             icon = "\uF2F9",
                             tooltip = "重试下载失败的Mod",
                             bgColor = MaterialColor.YELLOW_900.color,
-                            showText = true
                         ) {
                             startModsDownload(modsNeedDownload(mods))
                         }
@@ -267,7 +266,7 @@ fun ModpackUploadScreen(
                             icon = "\uF2F9",
                             tooltip = "重试下载失败的Mod",
                             bgColor = MaterialColor.YELLOW_900.color,
-                            showText = true
+                            
                         ) {
                             startModsDownload(modsNeedDownload(mods))
                         }
@@ -302,6 +301,9 @@ fun ModpackUploadScreen(
                                 mods = mods,
                                 modpackName = name,
                                 versionName = version,
+                                iconUrl = iconUrl,
+                                sourceUrl = sourceUrl,
+                                info = infoText,
                                 updateModpackId = updateModpackId,
                                 onProgress = { scope.launch { parseProgress = it } },
                                 onError = { scope.launch { errorText = it } },

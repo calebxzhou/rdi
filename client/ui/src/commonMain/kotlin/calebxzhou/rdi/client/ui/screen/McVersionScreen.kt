@@ -89,11 +89,11 @@ fun McVersionScreen(
             TitleRow("版本管理", onBack) {
                 if (isDesktop) {
                     Text("若下载不成功，可尝试从网盘下载，然后手动导入。")
-                    CircleIconButton("\uDB85\uDC03", "从网盘下载", showText = true) {
+                    CircleIconButton("\uDB85\uDC03", "从网盘下载",) {
                         openUrl("https://www.123865.com/s/iWSWvd-Zrtdd")
                     }
                     Space8w()
-                    CircleIconButton("\uEE38", "导入MC版本", showText = true) {
+                    CircleIconButton("\uEE38", "导入MC版本",) {
                         val files = selectRdiPackFiles() ?: return@CircleIconButton
                         val task = if (files.size == 1) {
                             buildImportPackTask(files.first())
@@ -170,7 +170,7 @@ fun McVersionScreen(
                         ) {
                             CircleIconButton(
                                 "\uDB86\uDDD8",
-                                "下载整合包" ,size = size, showText = true
+                                "下载整合包" ,size = size
                             ) {
                                 onOpenModpackList?.invoke()
                             }
@@ -181,8 +181,7 @@ fun McVersionScreen(
                                     "导入RDI整合包",
                                     bgColor = MaterialColor.GREEN_900.color,
                                     size = size,
-                                    enabled = true,
-                                    showText = true
+                                    enabled = true
                                 ) {
                                     scope.launch {
                                         val task = withContext(Dispatchers.IO) {
@@ -214,7 +213,7 @@ fun McVersionScreen(
                                 bgColor = MaterialColor.RED_900.color,
                                 longPressDelay = 5000L,
                                 enabled = selected != null,
-                                showText = true
+                               
                             ) {
                                 val packdir = selected ?: return@CircleIconButton
                                 scope.launch {
@@ -233,7 +232,7 @@ fun McVersionScreen(
                                 "重装",
                                 size = size,
                                 enabled = selected != null,
-                                showText = true
+                               
                             ) {
                                 val packdir = selected ?: return@CircleIconButton
                                 scope.launch {
@@ -261,7 +260,7 @@ fun McVersionScreen(
                                     size = size,
                                     enabled = selected != null,
                                     bgColor = MaterialColor.TEAL_900.color,
-                                    showText = true
+                                   
                                 ) {
                                     val packdir = selected ?: return@CircleIconButton
                                     val dir = packdir.dir
@@ -279,7 +278,7 @@ fun McVersionScreen(
                             Space8w()
                             CircleIconButton(
                                 "\uEB9B", "测试运行", size = size, enabled = selected != null,
-                                showText = true
+                               
                             ) {
                                 selected?.let { packdir ->
                                     val playArgs = McPlayArgs(
@@ -300,7 +299,7 @@ fun McVersionScreen(
                                     size = size,
                                     bgColor = MaterialColor.GRAY_900.color,
                                     enabled = selected != null,
-                                    showText = true
+                                   
                                 ) {
                                     val packdir = selected ?: return@CircleIconButton
                                     scope.launch {
@@ -317,7 +316,7 @@ fun McVersionScreen(
                                     size = size,
                                     bgColor = MaterialColor.BLUE_900.color,
                                     enabled = selected != null,
-                                    showText = true
+                                   
                                 ) {
                                     val packdir = selected ?: return@CircleIconButton
                                     scope.launch {

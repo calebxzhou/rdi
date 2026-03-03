@@ -120,16 +120,16 @@ fun McVersionCard(
                 ) {
                     if (isDesktop) {
                         val enabled = mcver.enabled
-                        CircleIconButton("\uF019", "下载全部所需文件", enabled = enabled) {
+                        CircleIconButton("\uF019", "下载全部所需文件", enabled = enabled, showText = false) {
                             onOpenTask?.invoke(GameService.downloadVersion(mcver, mcver.firstLoader))
                         }
-                        CircleIconButton("\uF305", "仅下载MC核心", bgColor = Color.Gray, enabled = enabled) {
+                        CircleIconButton("\uF305", "仅下载MC核心", bgColor = Color.Gray, enabled = enabled, showText = false) {
                             onOpenTask?.invoke(GameService.downloadClient(mcver.metadata))
                         }
-                        CircleIconButton("\uDB84\uDE5F", "仅下载运行库", bgColor = Color.Gray, enabled = enabled) {
+                        CircleIconButton("\uDB84\uDE5F", "仅下载运行库", bgColor = Color.Gray, enabled = enabled, showText = false) {
                             onOpenTask?.invoke(GameService.downloadLibraries(mcver.metadata.libraries))
                         }
-                        CircleIconButton("\uF001", "仅下载音频资源", bgColor = Color.Gray, enabled = enabled) {
+                        CircleIconButton("\uF001", "仅下载音频资源", bgColor = Color.Gray, enabled = enabled, showText = false) {
                             onOpenTask?.invoke(GameService.downloadAssets(mcver.metadata))
                         }
                         mcver.loaderVersions.forEach { (loader, _) ->
@@ -137,7 +137,7 @@ fun McVersionCard(
                                 "\uEEFF",
                                 "安装${loader.name.lowercase()}",
                                 bgColor = Color.Gray,
-                                enabled = enabled
+                                enabled = enabled, showText = false
                             ) {
                                 onOpenTask?.invoke(GameService.downloadLoader(mcver, loader))
                             }

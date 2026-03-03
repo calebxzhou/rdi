@@ -24,6 +24,7 @@ import io.ktor.server.auth.jwt.*
 import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.plugins.compression.*
+import io.ktor.server.plugins.compression.zstd.zstd
 import io.ktor.server.plugins.contentnegotiation.*
 import io.ktor.server.plugins.statuspages.*
 import io.ktor.server.request.httpMethod
@@ -280,6 +281,11 @@ private fun Application.configureServer() {
             excludeContentType(ContentType.Text.EventStream)
         }
         deflate {
+            matchContentType(*contentTypes)
+            excludeContentType(ContentType.Text.EventStream)
+        }
+
+        zstd(level = 3) {
             matchContentType(*contentTypes)
             excludeContentType(ContentType.Text.EventStream)
         }

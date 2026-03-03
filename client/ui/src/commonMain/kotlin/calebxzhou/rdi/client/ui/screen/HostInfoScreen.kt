@@ -1,40 +1,19 @@
 package calebxzhou.rdi.client.ui.screen
 
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.SnackbarDuration
-import androidx.compose.material.SnackbarHostState
-import androidx.compose.material.Tab
-import androidx.compose.material.TabRow
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material.*
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzhou.mykotutils.std.secondsToHumanDateTime
@@ -44,32 +23,16 @@ import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.sse
 import calebxzhou.rdi.client.service.StartPlayResult
 import calebxzhou.rdi.client.service.startPlay
-import calebxzhou.rdi.client.ui.McPlayArgs
-import calebxzhou.rdi.client.ui.BottomSnakebar
-import calebxzhou.rdi.client.ui.CircleIconButton
-import calebxzhou.rdi.client.ui.ConfirmDialog
-import calebxzhou.rdi.client.ui.ErrorText
-import calebxzhou.rdi.client.ui.MainBox
-import calebxzhou.rdi.client.ui.MainColumn
-import calebxzhou.rdi.client.ui.MaterialColor
-import calebxzhou.rdi.client.ui.SimpleTooltip
-import calebxzhou.rdi.client.ui.Space8h
-import calebxzhou.rdi.client.ui.Space8w
-import calebxzhou.rdi.client.ui.TitleRow
-import calebxzhou.rdi.client.ui.asIconText
+import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.common.extension.isAdmin
-import calebxzhou.rdi.common.model.Host
-import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.model.Task
-import calebxzhou.rdi.common.model.isDav
+import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.model.Role
-import io.ktor.client.plugins.sse.SSEBufferPolicy
-import io.ktor.http.HttpMethod
+import io.ktor.client.plugins.sse.*
+import io.ktor.http.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
@@ -154,7 +117,7 @@ fun HostInfoScreen(
     }
 
     val host = hostDetail
-    val meAdmin = host?.let { it.isAdmin(loggedAccount) || loggedAccount.isDav  }?: false
+    val meAdmin = host?.let { it.isAdmin(loggedAccount) || loggedAccount.isDav } ?: false
     val meOwner = host?.let { it.ownerId == loggedAccount._id || loggedAccount.isDav } ?: false
 
     DisposableEffect(selectedTab, hostId) {
@@ -212,7 +175,8 @@ fun HostInfoScreen(
                     CircleIconButton(
                         icon = "\uF04B",
                         tooltip = "开始游玩",
-                        bgColor = MaterialColor.GREEN_900.color
+                        bgColor = MaterialColor.GREEN_900.color,
+                        showText = false
                     ) {
                         scope.launch {
                             val args = try {
@@ -229,9 +193,11 @@ fun HostInfoScreen(
                                         errorMessage = "暂不支持在此页面游玩"
                                     }
                                 }
+
                                 is StartPlayResult.NeedInstall -> {
                                     installConfirmTask = args.task
                                 }
+
                                 is StartPlayResult.NeedMc -> {
                                     errorMessage = "未安装MC版本资源：${args.ver.mcVer}，请先下载"
                                     onOpenMcVersions?.invoke(args.ver)
@@ -241,21 +207,23 @@ fun HostInfoScreen(
                     }
                     Space8w()
                     if (meAdmin) {
-                    CircleIconButton(
-                        icon = "\uF013",
-                        tooltip = "设置"
-                    ) {
-                        if (onOpenHostEdit != null) {
-                            onOpenHostEdit(host)
-                        } else {
-                            errorMessage = "暂不支持编辑地图"
+                        CircleIconButton(
+                            icon = "\uF013",
+                            tooltip = "设置",
+                            showText = false
+                        ) {
+                            if (onOpenHostEdit != null) {
+                                onOpenHostEdit(host)
+                            } else {
+                                errorMessage = "暂不支持编辑地图"
+                            }
                         }
-                    }
                         if (modpackDetail != null) {
                             Space8w()
                             CircleIconButton(
                                 icon = "\uDB80\uDFD5",
-                                tooltip = "更新"
+                                tooltip = "更新",
+                                showText = false
                             ) { showUpdateConfirm = true }
                         }
                     }
@@ -264,7 +232,8 @@ fun HostInfoScreen(
                         CircleIconButton(
                             icon = "\uEA81",
                             tooltip = "删除地图",
-                            bgColor = MaterialColor.RED_900.color
+                            bgColor = MaterialColor.RED_900.color,
+                            showText = false
                         ) { showDeleteConfirm = true }
                     }
                 }
@@ -349,13 +318,30 @@ fun HostInfoScreen(
                             }
                         }
 
-                        val tabs = listOf("\uEF69 成员(${host.members.size}/10)", "\uDB80\uDD8D 后台", "\uE5FC 配置", "\uE615 信息")
-                        TabRow(selectedTabIndex = selectedTab, backgroundColor = Color.White) {
+                        val tabs = listOf(
+                            "\uEF69 成员(${host.members.size}/10)",
+                            "\uDB80\uDD8D 后台",
+                            "\uE5FC 配置",
+                            "\uE615 信息"
+                        )
+                        TabRow(
+                            selectedTabIndex = selectedTab,
+                            backgroundColor = Color.White,
+                        ) {
                             tabs.forEachIndexed { index, title ->
                                 Tab(
+                                    modifier = Modifier.padding(0.dp),
                                     selected = selectedTab == index,
                                     onClick = { selectedTab = index },
-                                    text = { Text(title.asIconText) }
+                                    text = {
+                                        Text(
+                                            text = title.asIconText,
+                                            maxLines = 1,
+                                            softWrap = false,
+                                            overflow = TextOverflow.Clip,
+                                            letterSpacing = TextUnit(0f, TextUnitType.Sp)
+                                        )
+                                    }
                                 )
                             }
                         }
@@ -406,44 +392,55 @@ fun HostInfoScreen(
                                                 }
                                             }
                                             Spacer(modifier = Modifier.weight(1f))
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                            FlowRowV {
                                                 if (meOwner && member.role != Role.OWNER) {
-                                                    TextButton(onClick = { transferConfirm = member.id }) {
-                                                        Text("转让")
+                                                    CircleIconButton("\uDB81\uDEAE", "转让",
+                                                        showText = false) {
+                                                        transferConfirm = member.id
                                                     }
                                                 }
                                                 if (meOwner && member.role != Role.OWNER) {
-                                                    val newRole = if (member.role == Role.ADMIN) Role.MEMBER else Role.ADMIN
-                                                    TextButton(onClick = {
+                                                    Space8w()
+                                                    val newRole =
+                                                        if (member.role == Role.ADMIN) Role.MEMBER else Role.ADMIN
+                                                    CircleIconButton(
+                                                        "\uEFA6",
+                                                        if (member.role == Role.ADMIN) "取消管理员" else "设为管理员",
+                                                        showText = false, bgColor = MaterialColor.TEAL_900.color
+                                                    ) {
                                                         roleChangeConfirm = RoleChange(member.id, newRole)
-                                                    }) {
-                                                        Text(if (member.role == Role.ADMIN) "取消管理员" else "设为管理员")
                                                     }
                                                 }
                                                 if (meAdmin && member.role != Role.OWNER) {
-                                                    TextButton(onClick = { kickConfirm = member.id }) {
-                                                        Text("踢出", color = MaterialColor.RED_900.color)
-                                                    }
+                                                    Space8w()
+                                                    CircleIconButton(
+                                                        "\uF2FE",
+                                                        "踢出",
+                                                        bgColor = MaterialColor.RED_900.color,
+                                                        showText = false
+                                                    ) { kickConfirm = member.id }
+
                                                 }
                                             }
                                         }
                                     }
                                     item {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
-                                        if (meMember && !meOwner) {
-                                            TextButton(onClick = { quitConfirm = true }) {
-                                                Text("退出受邀成员列表", color = MaterialColor.RED_900.color)
+                                            if (meMember && !meOwner) {
+                                                TextButton(onClick = { quitConfirm = true }) {
+                                                    Text("退出受邀成员列表", color = MaterialColor.RED_900.color)
+                                                }
                                             }
-                                        }
-                                        if (meAdmin) {
-                                            TextButton(onClick = { showInviteDialog = true }) {
-                                                Text("+ 邀请成员")
+                                            if (meAdmin) {
+                                                TextButton(onClick = { showInviteDialog = true }) {
+                                                    Text("+ 邀请成员")
+                                                }
                                             }
                                         }
                                     }
                                 }
-                                }
                             }
+
                             1 -> {
                                 Box(modifier = Modifier.fillMaxSize()) {
                                     Console(state = consoleState, modifier = Modifier.fillMaxSize())
@@ -457,7 +454,8 @@ fun HostInfoScreen(
                                         CircleIconButton(
                                             icon = "\uF04B",
                                             tooltip = "启动",
-                                            bgColor = MaterialColor.GREEN_900.color
+                                            bgColor = MaterialColor.GREEN_900.color,
+                                            showText = false
                                         ) {
                                             scope.rdiRequestU(
                                                 path = "host/$hostId/start",
@@ -469,30 +467,35 @@ fun HostInfoScreen(
                                         CircleIconButton(
                                             icon = "\uF01E",
                                             tooltip = "重启",
-                                            bgColor = MaterialColor.BLUE_800.color
+                                            bgColor = MaterialColor.BLUE_800.color,
+                                            showText = false
                                         ) {
                                             restartConfirm = true
                                         }
                                         CircleIconButton(
                                             icon = "\uF04D",
                                             tooltip = "停止",
-                                            bgColor = MaterialColor.RED_700.color
+                                            bgColor = MaterialColor.RED_700.color,
+                                            showText = false
                                         ) {
                                             stopConfirm = true
                                         }
                                         CircleIconButton(
                                             icon = "\uF05E",
                                             tooltip = "强制停止",
-                                            bgColor = MaterialColor.RED_900.color
+                                            bgColor = MaterialColor.RED_900.color,
+                                            showText = false
                                         ) {
                                             forceStopConfirm = true
                                         }
                                     }
                                 }
                             }
+
                             2 -> {
                                 Text("配置文件功能开发中", color = MaterialColor.GRAY_700.color)
                             }
+
                             else -> {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     val difficultyText = when (host.difficulty) {

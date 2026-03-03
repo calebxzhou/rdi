@@ -92,7 +92,6 @@ fun SkinPreviewScreen(
                 CircleIconButton(
                     icon = "\uF00C",
                     tooltip = "确认使用",
-                    showText = true,
                     enabled = !applying && loadState.cloth != null
                 ) {
                     if (applying || loadState.cloth == null) return@CircleIconButton

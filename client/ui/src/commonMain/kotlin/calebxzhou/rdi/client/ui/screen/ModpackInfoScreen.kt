@@ -82,7 +82,7 @@ fun ModpackInfoScreen(
         loading = true
         errorMessage = null
         scope.rdiRequest<Modpack.DetailVo>(
-            path = "modpack/$modpackId",
+            path = "modpack/$modpackId/detail",
             onOk = { response ->
                 modpack = response.data
                 val versions = response.data?.versions.orEmpty()
@@ -131,9 +131,17 @@ fun ModpackInfoScreen(
             okMessage = null
         }
     }
-
     val pack = modpack
     val isAuthor = pack?.let {  it.authorId == loggedAccount._id || loggedAccount.isDav } ?: false
+    LaunchedEffect(showEditDialog, pack) {
+        if (!showEditDialog) return@LaunchedEffect
+        pack?.let {
+            editName = it.name
+            editIconUrl = it.icon ?: ""
+            editInfo = it.info ?: ""
+            editSourceUrl = it.sourceUrl ?: ""
+        }
+    }
 
     MainBox {
         MainColumn {
@@ -153,13 +161,7 @@ fun ModpackInfoScreen(
                         tooltip = "修改信息",
                         bgColor = MaterialColor.YELLOW_900.color
                     ) {
-                        pack.let {
-                            editName = it.name
-                            editIconUrl = it.icon ?: ""
-                            editInfo = it.info?:"无"
-                            editSourceUrl = it.sourceUrl ?: ""
-                            showEditDialog = true
-                        }
+                        showEditDialog = true
                     }
                     // Upload button — desktop only
                     if (isDesktop) {
@@ -183,7 +185,8 @@ fun ModpackInfoScreen(
                         CircleIconButton(
                             icon = "\uEA81",
                             tooltip = "删除整合包",
-                            bgColor = MaterialColor.RED_900.color
+                            bgColor = MaterialColor.RED_900.color,
+                            showText = false
                         ) { confirmDeletePack = true }
                     }
 

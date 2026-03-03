@@ -156,9 +156,7 @@ fun CoroutineScope.sse(
                         lgr.info { "[SSE] Event: ${event.event}, data: ${event.data?.take(100)}" }
                     }*/
                     when (event.event) {
-                        "heartbeat" -> {
-                            lgr.info("SSE heartbeat")
-                        }
+                        "heartbeat" -> {}
                         "error" -> onError(RequestError(event.data))
                         else -> onEvent(event)
                     }

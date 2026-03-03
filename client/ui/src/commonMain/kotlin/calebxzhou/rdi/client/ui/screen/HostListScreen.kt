@@ -89,7 +89,7 @@ fun HostListScreen(
         TitleRow("地图大厅", onBack = onBack) {
             errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
             Space8w()
-            CircleIconButton("\uDB81\uDC90","创建地图", showText = true){
+            CircleIconButton("\uDB81\uDC90","创建地图", ){
                 onOpenHostCreate?.invoke()
             }
         }

@@ -148,7 +148,7 @@ fun WardrobeScreen(
                 )
                 Text("披风")
                 Spacer(8.wM)
-                CircleIconButton("\uDB81\uDDB3","导入正版皮肤", showText = true) {
+                CircleIconButton("\uDB81\uDDB3","导入正版皮肤", ) {
                     showMojangDialog = true
                 }
             }

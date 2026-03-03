@@ -72,7 +72,7 @@ fun WorldListScreen(
                 val canOperate = selectedWorld != null
                 CircleIconButton(
                     "\uDB85\uDDC6", "俯视图[开发中]", enabled = DEBUG,
-                    showText = true
+                    
                 ) {
                    // selectedWorld?.let { onOpenBirdView(it.id.toHexString()) }
                 }
@@ -82,7 +82,7 @@ fun WorldListScreen(
                     icon = "\uDB80\uDD67",
                     tooltip = "上传存档(开发中)",
                     enabled = DEBUG,
-                    showText = true
+                    
                 ) {
                 }
                 Space8w()
@@ -90,7 +90,7 @@ fun WorldListScreen(
                     icon = "\uDB80\uDD62",
                     tooltip = "下载存档(开发中)",
                     enabled = DEBUG,
-                    showText = true
+                    
                 ) {
 
                 }
@@ -99,7 +99,7 @@ fun WorldListScreen(
                     icon = "\uF0C5",
                     tooltip = "复制",
                     enabled = canOperate,
-                    showText = true
+                    
                 ) {
                     selectedWorld?.let { confirmCopy = it }
                 }
@@ -109,7 +109,7 @@ fun WorldListScreen(
                     tooltip = "删除",
                     enabled = canOperate,
                     bgColor = Color.Red,
-                    showText = true
+                    
                 ) {
                     selectedWorld?.let { confirmDelete = it }
                 }

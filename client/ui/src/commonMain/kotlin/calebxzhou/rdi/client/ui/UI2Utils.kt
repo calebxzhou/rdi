@@ -109,7 +109,7 @@ fun FlowRowV(
     content: @Composable (FlowRowScope.() -> Unit)
 ) {
     FlowRow(
-        verticalArrangement = Arrangement.Center,
+        itemVerticalAlignment = Alignment.CenterVertically,
         modifier = modifier, horizontalArrangement = horizontalArrangement, content = content
     )
 }
@@ -374,7 +374,7 @@ fun CircleIconButton(
     iconColor: Color = Color.White,
     enabled: Boolean = true,
     longPressDelay: Long = 0L,
-    showText: Boolean = false,
+    showText: Boolean = true,
     onClick: () -> Unit
 ) {
     val inlineText = tooltip?.takeIf { it.isNotBlank() }
@@ -509,23 +509,18 @@ fun TitleRow(
         var leftWidthPx by remember { mutableStateOf(0f) }
         var rightWidthPx by remember { mutableStateOf(0f) }
         val spacingPx = with(density) { 12.dp.toPx() }
-        val fitsOneLine = leftWidthPx <= 0f || rightWidthPx <= 0f || (leftWidthPx + spacingPx + rightWidthPx <= maxWidthPx)
 
-        if (fitsOneLine) {
-            Row(
+            FlowRowV (
                 modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.onSizeChanged { leftWidthPx = it.width.toFloat() }
-                ) {
+                FlowRowV {
                     CircleIconButton(
                         icon = "\uF060",
                         tooltip = if (longPressToBack) "长按返回" else "返回",
                         size = 32,
-                        longPressDelay = if (longPressToBack) 3000L else 0L
+                        longPressDelay = if (longPressToBack) 3000L else 0L,
+                        showText = false
                     ) { onBack.invoke() }
 
                     Spacer(modifier = Modifier.width(12.dp))
@@ -534,54 +529,11 @@ fun TitleRow(
                         style = MaterialTheme.typography.h6
                     )
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.onSizeChanged { rightWidthPx = it.width.toFloat() }
-                ) {
+                FlowRowV {
                     content()
                 }
             }
-        } else {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.onSizeChanged { leftWidthPx = it.width.toFloat() }
-                    ) {
-                        CircleIconButton(
-                            icon = "\uF060",
-                            tooltip = if (longPressToBack) "长按返回" else "返回",
-                            size = 32,
-                            longPressDelay = if (longPressToBack) 3000L else 0L
-                        ) { onBack.invoke() }
 
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(
-                            text = title,
-                            style = MaterialTheme.typography.h6
-                        )
-                    }
-                }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.onSizeChanged { rightWidthPx = it.width.toFloat() }
-                    ) {
-                        content()
-                    }
-                }
-            }
-        }
     }
 }
 

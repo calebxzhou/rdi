@@ -70,7 +70,8 @@ fun MenuScreen(
                         "\uDB81\uDC25",
                         "退出登录",
                         bgColor = MaterialColor.RED_900.color,
-                        contentPadding = PaddingValues()
+                        contentPadding = PaddingValues(),
+                        showText = false
                     ) {
                         loggedAccount = RAccount.DEFAULT
                         onBack.invoke()
@@ -78,20 +79,23 @@ fun MenuScreen(
                     Space8w()
                     CircleIconButton(
                         "\uEB51",
-                        "设置"
+                        "设置",
+                        showText = false
                     ) {
                         onOpenSettings()
                     }
                     Space8w()
-                    ImageIconButton("grass_block", "版本管理", bgColor = Color.LightGray) {
+                    ImageIconButton("grass_block", "版本管理", bgColor = Color.LightGray ) {
                         onOpenMcVersions?.invoke()
                     }
                     Space8w()
-                    CircleIconButton("\uEB1C", "信箱", bgColor = Color.LightGray, iconColor = Color.Black) {
+                    CircleIconButton("\uEB1C", "信箱", bgColor = Color.LightGray, iconColor = Color.Black,
+                        showText = false) {
                         onOpenMail.invoke()
                     }
                     Space8w()
-                    CircleIconButton("\uDB85\uDC5C", "区块数据管理") {
+                    CircleIconButton("\uDB85\uDC5C", "区块数据管理",
+                        showText = false) {
                         onOpenWorldList?.invoke()
                     }
                     Space8w()
@@ -99,7 +103,8 @@ fun MenuScreen(
                         "\uF04B",
                         "多人游玩",
                         bgColor = MaterialColor.GREEN_900.color,
-                        contentPadding = PaddingValues(start = 2.dp)
+                        contentPadding = PaddingValues(start = 2.dp),
+                        showText = false
                     ) {
                         onOpenHostLobby?.invoke()
                     }

@@ -82,7 +82,7 @@ fun ModpackListScreen(
                     "\uDB80\uDFD5",
                     tooltip = if (allow) "传包" else "绑定微软MC账号上传整合包",
                     enabled = allow,
-                    showText = true
+                    
                 ) {
                     onOpenUpload.invoke()
                 }

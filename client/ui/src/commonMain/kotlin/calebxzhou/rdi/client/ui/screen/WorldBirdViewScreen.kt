@@ -490,7 +490,7 @@ fun WorldBirdViewScreen(
                 val blocksPerPixel = ((2f.pow(zoomLevel) * 100f).roundToInt() / 100f)
                 Text("比例尺 1:${blocksPerPixel}")
                 Space8w()
-                //CircleIconButton("\uDB83\uDCBD", "构建地图", showText = true) { requestBuildAllSurfaceCaches() }
+                //CircleIconButton("\uDB83\uDCBD", "构建地图", ) { requestBuildAllSurfaceCaches() }
             }
             Spacer(modifier = Modifier.height(12.dp))
 
