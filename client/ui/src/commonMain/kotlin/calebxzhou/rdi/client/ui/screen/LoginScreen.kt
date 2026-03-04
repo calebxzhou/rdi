@@ -91,6 +91,11 @@ fun LoginScreen(
             symlinkError = """RDI需要权限为Mod及资源文件创建软连接。
 请点击上方【创建桌面快捷方式】按钮，从桌面图标运行RDI。"""
         }
+        if(Const.NO_UPDATE){
+            updateCheckComplete=true
+            updateDetail = "自动更新已关闭"
+            return@LaunchedEffect
+        }
         runDesktopUpdateFlow(
             onStatus = { updateStatus = it },
             onDetail = { updateDetail = it },
