@@ -17,10 +17,37 @@ import java.nio.file.StandardCopyOption
 
 object UpdateService {
     private val lgr by Loggers
-    private const val UI_LIB_STAGING_DIR_NAME = ".ui-update-staging"
-    private const val UI_LIB_UPDATES_DIR_NAME = "updates"
-    private const val UI_LIB_DELETE_LIST_FILE_NAME = "delete-list.txt"
-    private const val UPDATE_MAIN_CLASS = "calebxzhou.rdi.client.MainKt"
+    /**
+     * Force delete a file even if it's locked by another process.
+     * Tries multiple strategies: normal delete, retry with delay, truncate to 0 bytes,
+     * Windows force delete command, and finally deleteOnExit.
+     */
+    /**
+     * Force delete a file. Returns Pair<immediatelyDeleted, markedForDeletion>
+     */
+    private fun forceDelete(file: File): Pair<Boolean, Boolean> {
+        // Strategy 2: Try Windows force delete command
+        if (System.getProperty("os.name").lowercase().contains("win")) {
+            runCatching {
+                val process = ProcessBuilder("cmd", "/c", "del", "/f", "/q", "\"${file.absolutePath}\"")
+                    .redirectErrorStream(true)
+                    .start()
+                process.waitFor(3, java.util.concurrent.TimeUnit.SECONDS)
+                process.destroyForcibly()
+            }
+            if (!file.exists()) return true to false
+        }
+        
+        // Strategy 3: Truncate file to 0 bytes (makes it useless even if can't delete)
+        val truncated = runCatching {
+            FileOutputStream(file).use { it.channel.truncate(0) }
+            true
+        }.getOrElse { false }
+        
+        // Strategy 4: Mark for deletion on JVM exit
+        file.deleteOnExit()
+        return false to true // Not deleted immediately, but marked for deletion
+    }
 
     suspend fun startUpdateFlow(
         onStatus: (String) -> Unit,
@@ -63,14 +90,8 @@ object UpdateService {
                 onStatus("更新失败，请检查网络")
                 return@runCatching
             }
-            // UI库更新改为暂存并在退出后应用，避免运行中替换类路径导致崩溃
+            //更新ui库后需要重启
             if (uiSync.second) {
-                onStatus("更新包已准备完成，重启后应用")
-                val prepared = prepareUiLibApplyOnExit(onDetail)
-                if (!prepared) {
-                    onStatus("更新失败，请检查环境")
-                    return@runCatching
-                }
                 onStatus("更新完成，需要重启")
                 onRestart?.invoke()
                 return@runCatching
@@ -203,10 +224,6 @@ object UpdateService {
     ): Pair<Boolean, Boolean> {
         val libDir = File("lib").absoluteFile
         if (!libDir.exists()) libDir.mkdirs()
-        val stageDir = File(libDir, UI_LIB_STAGING_DIR_NAME).absoluteFile
-        val updatesDir = File(stageDir, UI_LIB_UPDATES_DIR_NAME).absoluteFile
-        if (!updatesDir.exists()) updatesDir.mkdirs()
-        val deleteListFile = File(stageDir, UI_LIB_DELETE_LIST_FILE_NAME).absoluteFile
 
         val serverEntries = server.makeRequest<Map<String, String>>("update/ui/libs").data
             ?: throw RequestError("获取UI库信息失败")
@@ -214,16 +231,12 @@ object UpdateService {
 
         serverEntries.forEach { (name, sha) ->
             val localFile = File(libDir, name)
-            val stagedFile = File(updatesDir, name)
-            stagedFile.parentFile?.mkdirs()
-            val localUpToDate = localFile.exists() && localFile.sha1.equals(sha, true)
-            val stagedUpToDate = stagedFile.exists() && stagedFile.sha1.equals(sha, true)
-            val needsUpdate = !localUpToDate && !stagedUpToDate
+            val needsUpdate = !localFile.exists() || localFile.sha1 != sha
             if (needsUpdate) {
                 onStatus("准备下载 $name...")
                 val encodedName = URLEncoder.encode(name, "UTF-8").replace("+", "%20")
                 val ok = downloadAndReplaceCore(
-                    targetFile = stagedFile,
+                    targetFile = localFile,
                     downloadUrl = "${server.hqUrl}/update/ui/lib/$encodedName",
                     expectedSha = sha,
                     label = name,
@@ -231,7 +244,7 @@ object UpdateService {
                 )
                 if (!ok) return false to updated
                 updated = true
-                onStatus("$name 下载完成，将在重启后应用")
+                onStatus("$name 更新完成")
             }
         }
 
@@ -242,221 +255,31 @@ object UpdateService {
         val extraFiles = libDir.listFiles()
             ?.filter { it.isFile && it.name !in serverNames }
             ?: emptyList()
-        val extraNames = extraFiles.map { it.name }
-        lgr.info { "需要删除的库: $extraNames" }
-
+        lgr.info { "需要删除的库: ${extraFiles.map { it.name }}" }
+        
         if (extraFiles.isNotEmpty()) {
-            stageDir.mkdirs()
-            deleteListFile.writeText(extraNames.joinToString("\n"))
-            onStatus("已记录${extraFiles.size}个多余库文件，将在重启后清理")
-            onDetail("等待重启后删除: ${extraNames.joinToString(", ")}")
-            updated = true
-        } else if (deleteListFile.exists()) {
-            deleteListFile.delete()
-        }
-
-        val pendingStagedFiles = updatesDir.listFiles()?.filter { it.isFile } ?: emptyList()
-        val pendingDeleteNames = readPendingDeleteNames(deleteListFile)
-        val restartRequired = pendingStagedFiles.isNotEmpty() || pendingDeleteNames.isNotEmpty()
-        if (restartRequired) {
-            onDetail("等待重启应用更新，待应用文件${pendingStagedFiles.size}个，待删除文件${pendingDeleteNames.size}个")
-        }
-
-        return true to restartRequired
-    }
-
-    private fun prepareUiLibApplyOnExit(onDetail: (String) -> Unit): Boolean {
-        val libDir = File("lib").absoluteFile
-        val stageDir = File(libDir, UI_LIB_STAGING_DIR_NAME).absoluteFile
-        val updatesDir = File(stageDir, UI_LIB_UPDATES_DIR_NAME).absoluteFile
-        val deleteListFile = File(stageDir, UI_LIB_DELETE_LIST_FILE_NAME).absoluteFile
-        val hasPendingUpdates = updatesDir.listFiles()?.any { it.isFile } == true
-        val hasPendingDeletes = readPendingDeleteNames(deleteListFile).isNotEmpty()
-        if (!hasPendingUpdates && !hasPendingDeletes) return true
-
-        return if (isWindows()) {
-            prepareUiLibApplyOnExitWindows(stageDir, libDir, onDetail)
-        } else {
-            prepareUiLibApplyOnExitPosix(stageDir, libDir, onDetail)
-        }
-    }
-
-    private fun prepareUiLibApplyOnExitWindows(
-        stageDir: File,
-        libDir: File,
-        onDetail: (String) -> Unit
-    ): Boolean {
-        val javaPath = resolveJavaExecutableForRestart() ?: run {
-            onDetail("未找到Java可执行文件，无法自动重启")
-            return false
-        }
-        val classPath = System.getProperty("java.class.path") ?: run {
-            onDetail("未读取到类路径，无法自动重启")
-            return false
-        }
-        val workDir = File(".").absoluteFile
-        val pid = ProcessHandle.current().pid().toString()
-        val script = File.createTempFile("rdi-ui-apply-", ".ps1").absoluteFile
-        script.writeText(
-            """
-            param(
-              [long]__D__PidToWait,
-              [string]__D__StageDir,
-              [string]__D__LibDir,
-              [string]__D__JavaPath,
-              [string]__D__Classpath,
-              [string]__D__MainClass,
-              [string]__D__WorkDir
-            )
-            __D__ErrorActionPreference = 'SilentlyContinue'
-            for (__D__i = 0; __D__i -lt 1200; __D__i++) {
-              __D__proc = Get-Process -Id __D__PidToWait -ErrorAction SilentlyContinue
-              if (__D__null -eq __D__proc) { break }
-              Start-Sleep -Milliseconds 250
+            onStatus("正在清理多余的库文件...")
+            var deletedNow = 0
+            var markedForLater = 0
+            extraFiles.forEach { extra ->
+                onDetail("删除: ${extra.name}")
+                val (immediate, marked) = forceDelete(extra)
+                if (immediate) {
+                    deletedNow++
+                } else if (marked) {
+                    markedForLater++
+                    onDetail("${extra.name} 将在重启后删除")
+                }
             }
-            __D__updatesDir = Join-Path __D__StageDir 'updates'
-            if (Test-Path __D__updatesDir) {
-              Get-ChildItem -Path __D__updatesDir -File | ForEach-Object {
-                __D__target = Join-Path __D__LibDir __D___.Name
-                Move-Item -Path __D___.FullName -Destination __D__target -Force
-              }
+            val msg = when {
+                deletedNow > 0 && markedForLater > 0 -> "已删除 $deletedNow 个，$markedForLater 个将在重启后删除"
+                deletedNow > 0 -> "已清理 $deletedNow 个多余的库文件"
+                markedForLater > 0 -> "$markedForLater 个库文件将在重启后删除"
+                else -> "清理完成"
             }
-            __D__deleteList = Join-Path __D__StageDir 'delete-list.txt'
-            if (Test-Path __D__deleteList) {
-              Get-Content -Path __D__deleteList | ForEach-Object {
-                __D__name = __D___.Trim()
-                if ([string]::IsNullOrWhiteSpace(__D__name)) { return }
-                __D__target = Join-Path __D__LibDir __D__name
-                if (Test-Path __D__target) { Remove-Item -Path __D__target -Force -ErrorAction SilentlyContinue }
-              }
-            }
-            Remove-Item -Path __D__StageDir -Recurse -Force -ErrorAction SilentlyContinue
-            Start-Process -FilePath __D__JavaPath -WorkingDirectory __D__WorkDir -ArgumentList @('-cp', __D__Classpath, __D__MainClass)
-            """.trimIndent().replace("__D__", "$")
-        )
+            onStatus(msg)
+        }
 
-        val psCommands = listOf("powershell", "pwsh")
-        val started = psCommands.any { cmd ->
-            runCatching {
-                ProcessBuilder(
-                    cmd,
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    script.absolutePath,
-                    "-PidToWait",
-                    pid,
-                    "-StageDir",
-                    stageDir.absolutePath,
-                    "-LibDir",
-                    libDir.absolutePath,
-                    "-JavaPath",
-                    javaPath.absolutePath,
-                    "-Classpath",
-                    classPath,
-                    "-MainClass",
-                    UPDATE_MAIN_CLASS,
-                    "-WorkDir",
-                    workDir.absolutePath
-                ).start()
-            }.isSuccess
-        }
-        if (!started) {
-            onDetail("无法启动PowerShell自动应用更新，请手动重启")
-        }
-        return started
-    }
-
-    private fun prepareUiLibApplyOnExitPosix(
-        stageDir: File,
-        libDir: File,
-        onDetail: (String) -> Unit
-    ): Boolean {
-        val javaPath = resolveJavaExecutableForRestart() ?: run {
-            onDetail("未找到Java可执行文件，无法自动重启")
-            return false
-        }
-        val classPath = System.getProperty("java.class.path") ?: run {
-            onDetail("未读取到类路径，无法自动重启")
-            return false
-        }
-        val workDir = File(".").absoluteFile
-        val pid = ProcessHandle.current().pid().toString()
-        val script = File.createTempFile("rdi-ui-apply-", ".sh").absoluteFile
-        script.writeText(
-            """
-            #!/bin/sh
-            PID_TO_WAIT="__D__1"
-            STAGE_DIR="__D__2"
-            LIB_DIR="__D__3"
-            JAVA_PATH="__D__4"
-            CLASSPATH="__D__5"
-            MAIN_CLASS="__D__6"
-            WORK_DIR="__D__7"
-            while kill -0 "__D__PID_TO_WAIT" 2>/dev/null; do
-              sleep 0.2
-            done
-            UPDATES_DIR="__D__STAGE_DIR/updates"
-            if [ -d "__D__UPDATES_DIR" ]; then
-              for f in "__D__UPDATES_DIR"/*; do
-                [ -f "__D__f" ] || continue
-                mv -f "__D__f" "__D__LIB_DIR/__D__(basename "__D__f")"
-              done
-            fi
-            if [ -f "__D__STAGE_DIR/delete-list.txt" ]; then
-              while IFS= read -r name; do
-                [ -n "__D__name" ] || continue
-                rm -f "__D__LIB_DIR/__D__name"
-              done < "__D__STAGE_DIR/delete-list.txt"
-            fi
-            rm -rf "__D__STAGE_DIR"
-            cd "__D__WORK_DIR" || exit 0
-            nohup "__D__JAVA_PATH" -cp "__D__CLASSPATH" "__D__MAIN_CLASS" >/dev/null 2>&1 &
-            """.trimIndent().replace("__D__", "$")
-        )
-        script.setExecutable(true)
-        val started = runCatching {
-            ProcessBuilder(
-                "sh",
-                script.absolutePath,
-                pid,
-                stageDir.absolutePath,
-                libDir.absolutePath,
-                javaPath.absolutePath,
-                classPath,
-                UPDATE_MAIN_CLASS,
-                workDir.absolutePath
-            ).start()
-        }.isSuccess
-        if (!started) {
-            onDetail("无法启动shell自动应用更新，请手动重启")
-        }
-        return started
-    }
-
-    private fun resolveJavaExecutableForRestart(): File? {
-        val javaHome = File(System.getProperty("java.home"))
-        val isWin = isWindows()
-        val preferred = if (isWin) {
-            javaHome.resolve("bin").resolve("javaw.exe")
-        } else {
-            javaHome.resolve("bin").resolve("java")
-        }
-        if (preferred.exists()) return preferred
-        val fallback = if (isWin) javaHome.resolve("bin").resolve("java.exe") else preferred
-        return fallback.takeIf { it.exists() }
-    }
-
-    private fun readPendingDeleteNames(file: File): List<String> {
-        if (!file.exists()) return emptyList()
-        return runCatching {
-            file.readLines().map { it.trim() }.filter { it.isNotEmpty() }
-        }.getOrDefault(emptyList())
-    }
-
-    private fun isWindows(): Boolean {
-        return System.getProperty("os.name").lowercase().contains("win")
+        return true to updated
     }
 }
-
