@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
+import java.net.URI
 import java.nio.ByteBuffer
 import java.time.LocalDateTime
 import java.util.*
@@ -53,6 +54,16 @@ fun String.validateName(): Result<Unit> {
     val len = trimmed.displayLength
     if (len !in 3..32) throw RequestError("名称长度需在3~32个字符，当前为${len}（一个汉字算两个）")
     return Result.success(Unit)
+}
+fun String.validateHttpUrl(): Result<URI> {
+    val uri = runCatching { URI(this) }.getOrElse {
+        throw RequestError("链接无效")
+    }
+    val scheme = uri.scheme?.lowercase()
+    if (scheme != "http" && scheme != "https") {
+        throw RequestError("链接必须以http或https开头")
+    }
+    return ok(uri)
 }
 val periodOfDay: String get() = when (LocalDateTime.now().hour) {
     in 0..5 -> "凌晨"
