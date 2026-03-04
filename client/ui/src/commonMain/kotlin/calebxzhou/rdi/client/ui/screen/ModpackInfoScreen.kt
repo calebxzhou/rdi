@@ -1,10 +1,6 @@
 package calebxzhou.rdi.client.ui.screen
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -25,20 +21,18 @@ import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.ModpackService.startInstall
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.ModCard
+import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Task
 import calebxzhou.rdi.common.model.isDav
-import calebxzhou.rdi.common.model.latest
-import calebxzhou.rdi.common.model.validateIconUrl
-import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.CurseForgeService.fillCurseForgeVo
 import calebxzhou.rdi.common.service.ModrinthService.fillModrinthVo
-import calebxzhou.rdi.common.util.validateName
+import calebxzhou.rdi.common.service.latest
+import calebxzhou.rdi.common.service.validate
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -441,30 +435,21 @@ fun ModpackInfoScreen(
             confirmButton = {
                 TextButton(onClick = {
                     scope.launch {
-                        try {
-                            editName.validateName().getOrThrow()
-                        } catch (e: Exception) {
-                            errorMessage = e.message
-                            return@launch
-                        }
-                        try {
-                            validateIconUrl(editIconUrl.trim().ifBlank { null })
-                        } catch (e: Exception) {
-                            errorMessage = e.message ?: "图标链接错误"
-                            return@launch
-                        }
-                        val body = serdesJson.encodeToString(
+                        val options = runCatching {
                             Modpack.OptionsDto(
                                 name = editName.trim().ifBlank { null },
                                 iconUrl = editIconUrl.trim().ifBlank { null },
                                 info = editInfo.trim().ifBlank { null },
                                 sourceUrl = editSourceUrl.trim().ifBlank { null }
-                            )
-                        )
+                            ).validate()
+                        }.getOrElse {
+                            errorMessage = it.message
+                            return@launch
+                        }
                         scope.rdiRequestU(
                             path = "modpack/${pack._id}/options",
                             method = HttpMethod.Put,
-                            body = body,
+                            body = options.json,
                             onOk = {
                                 okMessage = "已更新"
                                 reload()
