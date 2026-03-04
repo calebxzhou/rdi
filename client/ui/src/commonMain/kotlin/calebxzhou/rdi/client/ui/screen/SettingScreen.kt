@@ -26,6 +26,7 @@ import calebxzhou.rdi.client.ui.comp.PasswordField
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
+import calebxzhou.rdi.common.model.isDav
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -60,44 +61,45 @@ fun SettingScreen(
     var proxyUsr by remember { mutableStateOf("") }
     var proxyPwd by remember { mutableStateOf("") }
     var totalMemoryMb by remember { mutableStateOf(0) }
-
-    // Load config on desktop
-    if (isDesktop) {
-        LaunchedEffect(Unit) {
-            withContext(Dispatchers.IO) {
-                runCatching {
-                    val config = calebxzhou.rdi.client.AppConfig.load()
-                    useMirror = config.useMirror
-                    maxMemoryText = if (config.maxMemory <= 0) "" else config.maxMemory.toString()
-                    jre21Path = config.jre21Path.orEmpty()
-                    jre8Path = config.jre8Path.orEmpty()
-                    carrier = config.carrier
-                    proxyEnabled = config.proxyConfig?.enabled ?: false
-                    proxySystem = config.proxyConfig?.systemProxy ?: false
-                    proxyHost = config.proxyConfig?.host ?: "127.0.0.1"
-                    proxyPortText = (config.proxyConfig?.port ?: 10808).toString()
-                    proxyUsr = config.proxyConfig?.usr.orEmpty()
-                    proxyPwd = config.proxyConfig?.pwd.orEmpty()
+    // Load config on all platforms
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            runCatching {
+                val config = calebxzhou.rdi.client.AppConfig.load()
+                useMirror = config.useMirror
+                maxMemoryText = if (config.maxMemory <= 0) "" else config.maxMemory.toString()
+                jre21Path = config.jre21Path.orEmpty()
+                jre8Path = config.jre8Path.orEmpty()
+                carrier = config.carrier
+                proxyEnabled = config.proxyConfig?.enabled ?: false
+                proxySystem = config.proxyConfig?.systemProxy ?: false
+                proxyHost = config.proxyConfig?.host ?: "127.0.0.1"
+                proxyPortText = (config.proxyConfig?.port ?: 10808).toString()
+                proxyUsr = config.proxyConfig?.usr.orEmpty()
+                proxyPwd = config.proxyConfig?.pwd.orEmpty()
+                if (isDesktop) {
                     totalMemoryMb = calebxzhou.rdi.client.service.SettingsService.getTotalPhysicalMemoryMb()
                 }
             }
         }
     }
 
+
     MainBox {
         MainColumn {
             TitleRow("设置", onBack) {
-                if (isDesktop) {
-                    CircleIconButton(
-                        icon = "\uF0C7",
-                        tooltip = "保存",
-                        bgColor = MaterialColor.GREEN_900.color,
-                        enabled = !saving
-                    ) {
-                        if (saving) return@CircleIconButton
-                        saving = true
-                        scope.launch {
-                            val svc = calebxzhou.rdi.client.service.SettingsService
+                CircleIconButton(
+                    icon = "\uF0C7",
+                    tooltip = "保存",
+                    bgColor = MaterialColor.GREEN_900.color,
+                    enabled = !saving
+                ) {
+                    if (saving) return@CircleIconButton
+                    saving = true
+                    scope.launch {
+                        val svc = calebxzhou.rdi.client.service.SettingsService
+
+                        if (isDesktop) {
                             // Validate memory
                             val memoryValidation = svc.validateMemory(maxMemoryText, totalMemoryMb)
                             if (!memoryValidation.success) {
@@ -131,27 +133,28 @@ fun SettingScreen(
                                 saving = false
                                 return@launch
                             }
-                            // Save settings
-                            svc.saveSettings(
-                                useMirror = useMirror,
-                                maxMemoryText = maxMemoryText,
-                                jre21Path = jre21Path,
-                                jre8Path = jre8Path,
-                                carrier = carrier,
-                                proxyEnabled = proxyEnabled,
-                                proxySystem = proxySystem,
-                                proxyHost = proxyHost,
-                                proxyPortText = proxyPortText,
-                                proxyUsr = proxyUsr,
-                                proxyPwd = proxyPwd
-                            ).onSuccess {
-                                errorMessage = null
-                                scaffoldState.snackbarHostState.showSnackbar("设置已保存")
-                            }.onFailure {
-                                errorMessage = "保存失败: ${it.message}"
-                            }
-                            saving = false
                         }
+
+                        // Save settings
+                        svc.saveSettings(
+                            useMirror = useMirror,
+                            maxMemoryText = maxMemoryText,
+                            jre21Path = jre21Path,
+                            jre8Path = jre8Path,
+                            carrier = carrier,
+                            proxyEnabled = proxyEnabled,
+                            proxySystem = proxySystem,
+                            proxyHost = proxyHost,
+                            proxyPortText = proxyPortText,
+                            proxyUsr = proxyUsr,
+                            proxyPwd = proxyPwd
+                        ).onSuccess {
+                            errorMessage = null
+                            scaffoldState.snackbarHostState.showSnackbar("设置已保存")
+                        }.onFailure {
+                            errorMessage = "保存失败: ${it.message}"
+                        }
+                        saving = false
                     }
                 }
             }
@@ -384,7 +387,7 @@ private fun AccountSettings(
                 invitedPlayers.forEach { player ->
                     HeadButton(player.id)
                 }
-                if (invitedPlayers.size < 5) {
+                if (invitedPlayers.size < 5 || loggedAccount.isDav) {
                     CircleIconButton("\uF234", "邀请") {
                         showInviteDialog = true
                     }

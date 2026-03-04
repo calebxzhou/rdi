@@ -2,6 +2,7 @@ package calebxzhou.rdi.client
 
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.CONF
+import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.ProxyConfig
 import calebxzhou.rdi.common.service.ModService
@@ -26,7 +27,12 @@ data class AppConfig(
 ){
     companion object {
         private val lgr by Loggers
-        private val configFile = File("config.toml")
+        private val configFile: File
+            get() = runCatching {
+                ClientDirs.dlPacksDir.parentFile.resolve("config.toml")
+            }.getOrElse {
+                File("config.toml")
+            }
         fun load(): AppConfig {
             return if (configFile.exists()) {
                 try {
