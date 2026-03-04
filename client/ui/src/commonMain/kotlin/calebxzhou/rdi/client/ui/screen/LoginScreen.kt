@@ -101,11 +101,6 @@ fun LoginScreen(
             onDetail = { updateDetail = it },
             onRestart = {
                 if (isDesktop) {
-                    updateStatus = "更新完成，客户端将在5秒自动重启..."
-                    for (i in 5 downTo 1) {
-                        updateDetail = "${i}秒"
-                        delay(1000)
-                    }
                     kotlin.system.exitProcess(0)
                 }
             }
