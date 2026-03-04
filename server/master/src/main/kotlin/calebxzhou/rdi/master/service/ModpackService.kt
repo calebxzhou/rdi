@@ -10,6 +10,7 @@ import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.BackgroundTaskRunner
+import calebxzhou.rdi.common.service.validate
 import calebxzhou.rdi.common.util.ioScope
 import calebxzhou.rdi.common.util.ok
 import calebxzhou.rdi.common.util.str
@@ -85,6 +86,44 @@ val Modpack.Version.clientZip
 
 const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
 val MAX_PACK_SIZE = 384 * 1024 * 1024L
+
+private suspend inline fun <reified T> ApplicationCall.receiveUploadPayload(
+    jsonFieldName: String,
+    missingJsonError: String,
+    invalidJsonPrefix: String
+): Pair<ByteArray, T> {
+    val multipart = receiveMultipart(formFieldLimit = MAX_PACK_SIZE)
+    var zipBytes: ByteArray? = null
+    var payloadDto: T? = null
+    while (true) {
+        val part = multipart.readPart() ?: break
+        when (part) {
+            is PartData.FormItem -> if (part.name == jsonFieldName) {
+                payloadDto = runCatching { serdesJson.decodeFromString<T>(part.value) }
+                    .getOrElse { throw ParamError("$invalidJsonPrefix: ${it.message}") }
+            }
+
+            is PartData.FileItem -> if (part.name == "file") {
+                zipBytes = part.provider().toByteArray()
+            }
+
+            is PartData.BinaryItem -> if (part.name == "file") {
+                zipBytes = part.provider().readByteArray()
+            }
+
+            else -> {}
+        }
+        part.dispose()
+    }
+
+    val fileBytes = zipBytes ?: throw ParamError("缺少文件")
+    if (fileBytes.size > MAX_PACK_SIZE) {
+        throw RequestError("整合包文件过大，最大允许 384MB")
+    }
+    val dto = payloadDto ?: throw ParamError(missingJsonError)
+    return fileBytes to dto
+}
+
 fun Route.modpackRoutes() {
 
     route("/modpack") {
@@ -96,31 +135,12 @@ fun Route.modpackRoutes() {
 
         }
         post {
-            val multipart = call.receiveMultipart(formFieldLimit = MAX_PACK_SIZE)
-            var zipBytes: ByteArray? = null
-            var dto: Modpack.CreateWithVersionDto? = null
-            while (true) {
-                val part = multipart.readPart() ?: break
-                when (part) {
-                    is PartData.FormItem -> if (part.name == "dto") {
-                        dto = runCatching { serdesJson.decodeFromString<Modpack.CreateWithVersionDto>(part.value) }
-                            .getOrElse { throw ParamError("格式错误: ${it.message}") }
-                    }
-
-                    is PartData.FileItem -> if (part.name == "file") {
-                        zipBytes = part.provider().toByteArray()
-                    }
-
-                    is PartData.BinaryItem -> if (part.name == "file") {
-                        zipBytes = part.provider().readByteArray()
-                    }
-
-                    else -> {}
-                }
-            }
-
-            val payload = zipBytes ?: throw ParamError("缺少文件")
-            dto?.createWithVersion(call.player(), payload)
+            val (payload, dto) = call.receiveUploadPayload<Modpack.CreateWithVersionDto>(
+                jsonFieldName = "dto",
+                missingJsonError = "缺少dto",
+                invalidJsonPrefix = "格式错误"
+            )
+            dto.createWithVersion(call.player(), payload)
             ok()
         }
         get("/my") {
@@ -186,36 +206,11 @@ fun Route.modpackRoutes() {
                         throw RequestError("版本 $verName 已存在")
                     }
 
-                    //limit 1 GB
-                    val multipart = call.receiveMultipart(formFieldLimit = MAX_PACK_SIZE)
-                    var zipBytes: ByteArray? = null
-                    var mods: MutableList<Mod>? = null
-
-                    while (true) {
-                        val part = multipart.readPart() ?: break
-                        when (part) {
-                            is PartData.FormItem -> if (part.name == "mods") {
-                                mods = runCatching { serdesJson.decodeFromString<MutableList<Mod>>(part.value) }
-                                    .getOrElse { throw ParamError("mods格式错误: ${it.message}") }
-                            }
-
-                            is PartData.FileItem -> if (part.name == "file") {
-                                zipBytes = part.provider().toByteArray()
-                            }
-
-                            is PartData.BinaryItem -> if (part.name == "file") {
-                                zipBytes = part.provider().readByteArray()
-                            }
-
-                            else -> {}
-                        }
-                    }
-
-                    val payload = zipBytes ?: throw ParamError("缺少文件")
-                    if (payload.size > MAX_PACK_SIZE) {
-                        throw RequestError("整合包版本文件过大，最大允许 384MB")
-                    }
-                    val modList = mods ?: throw ParamError("缺少mods列表")
+                    val (payload, modList) = call.receiveUploadPayload<MutableList<Mod>>(
+                        jsonFieldName = "mods",
+                        missingJsonError = "缺少mods列表",
+                        invalidJsonPrefix = "mods格式错误"
+                    )
 
                     ctx.createVersion(verName, payload, modList)
                     ok()
@@ -282,21 +277,14 @@ object ModpackService {
     }
 
     suspend fun ModpackContext.changeOptions(payload: Modpack.OptionsDto) {
-        val updates = mutableListOf<Bson>()
-        payload.name?.let { name ->
-            name.validateName().getOrNull()
-            updates += Updates.set(Modpack::name.name, name)
-        }
-        payload.iconUrl?.let {
-            validateIconUrl(it)
-            updates += Updates.set(Modpack::iconUrl.name, it)
-        }
-        payload.info?.let { updates += Updates.set(Modpack::info.name, it) }
-        payload.sourceUrl?.let { updates += Updates.set(Modpack::sourceUrl.name, it) }
-        if (updates.isNotEmpty()) {
-            val update = if (updates.size == 1) updates.first() else Updates.combine(updates)
-            dbcl.updateOne(eq("_id", modpack._id), update)
-        }
+        payload.validate()
+        val update = Updates.combine(
+            Updates.set(Modpack::name.name, payload.name ?: modpack.name),
+            Updates.set(Modpack::iconUrl.name, payload.iconUrl),
+            Updates.set(Modpack::info.name, payload.info),
+            Updates.set(Modpack::sourceUrl.name, payload.sourceUrl)
+        )
+        dbcl.updateOne(eq("_id", modpack._id), update)
     }
 
     fun Modpack.isMcVer(ver: McVersion): Boolean {
@@ -410,9 +398,8 @@ object ModpackService {
     }
 
     suspend fun Modpack.CreateWithVersionDto.createWithVersion(player: RAccount, zipBytes: ByteArray) {
-        name.validateName().getOrNull()
         verName.validateVerName().getOrNull()
-        validateIconUrl(iconUrl)
+        Modpack.OptionsDto(name,iconUrl,info,sourceUrl).validate()
         if (!player.hasMsid) throw RequestError("必须有微软账号才能传包")
         if (getModpackCount(player._id) >= MAX_MODPACK_PER_USER && !player.isDav) {
             throw RequestError("一个人最多传${MAX_MODPACK_PER_USER}个包")
@@ -428,41 +415,10 @@ object ModpackService {
             sourceUrl = sourceUrl?.trim()?.ifBlank { null }
         )
         modpack.dir.mkdirs()
-        mods.sortBy { it.slug.lowercase() }
-        val version = Modpack.Version(
-            modpackId = modpack._id,
-            name = verName,
-            changelog = "新上传",
-            status = Modpack.Status.WAIT,
-            mods = mods,
-            time = System.currentTimeMillis()
-        )
+        val version = prepareVersionUpload(modpack, verName, zipBytes, mods)
         modpack.versions += version
-        version.dir.mkdirs()
-        version.zip.writeBytes(zipBytes)
-        version.processMods(modpack)
         dbcl.insertOne(modpack)
-        ioScope.launch {
-            lgr.info { "开始构建 ${modpack.name}:${version.name}" }
-            val mailId = MailService.sendSystemMail(
-                player._id,
-                "整合包${verName}构建中",
-                "开始构建整合包 ${modpack.name} 版本${version.name}\n"
-            )._id
-            runCatching {
-                modpack.buildVersion(version) {
-                    lgr.info { it }
-                    MailService.changeMail(mailId, newContent = it)
-                }
-            }.onFailure { error ->
-                lgr.error(error) { "构建失败 ${modpack.name}:${version.name}" }
-                MailService.changeMail(
-                    mailId,
-                    "整合包构建失败：${modpack.name}",
-                    "无法构建整合包，错误原因：${error.message}"
-                )
-            }
-        }
+        enqueueVersionBuild(player, modpack, version)
     }
 
     fun ModpackContext.rebuildVersion() {
@@ -500,6 +456,22 @@ object ModpackService {
     }
 
     suspend fun ModpackContext.createVersion(verName: String, zipBytes: ByteArray, mods: MutableList<Mod>) {
+        val version = prepareVersionUpload(modpack, verName, zipBytes, mods)
+
+        // Add version to modpack
+        dbcl.updateOne(
+            eq(Modpack::_id.name, modpack._id),
+            Updates.push(Modpack::versions.name, version)
+        )
+        enqueueVersionBuild(player, modpack, version)
+    }
+
+    private fun prepareVersionUpload(
+        modpack: Modpack,
+        verName: String,
+        zipBytes: ByteArray,
+        mods: MutableList<Mod>
+    ): Modpack.Version {
         mods.sortBy { it.slug.lowercase() }
         val version = Modpack.Version(
             modpackId = modpack._id,
@@ -512,18 +484,15 @@ object ModpackService {
         version.dir.mkdirs()
         version.zip.writeBytes(zipBytes)
         version.processMods(modpack)
+        return version
+    }
 
-        // Add version to modpack
-        dbcl.updateOne(
-            eq(Modpack::_id.name, modpack._id),
-            Updates.push(Modpack::versions.name, version)
-        )
-
+    private fun enqueueVersionBuild(player: RAccount, modpack: Modpack, version: Modpack.Version) {
         ioScope.launch {
             lgr.info { "开始构建 ${modpack.name}:${version.name}" }
             val mailId = MailService.sendSystemMail(
                 player._id,
-                "整合包${verName}构建中",
+                "整合包${version.name}构建中",
                 "开始构建整合包 ${modpack.name} 版本${version.name}\n"
             )._id
             runCatching {
