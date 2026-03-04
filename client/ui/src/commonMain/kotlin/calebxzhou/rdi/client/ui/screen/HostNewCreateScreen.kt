@@ -53,8 +53,8 @@ fun HostNewCreateScreen(
 
     var title by remember { mutableStateOf("创建新地图") }
     var hostName by remember { mutableStateOf("${loggedAccount.name}的世界${Random.nextInt(1000)}") }
-    var modpackIdText by remember { mutableStateOf(arg.modpackId) }
-    var packVerText by remember { mutableStateOf(arg.packVer) }
+    var modpackIdText by remember { mutableStateOf("") }
+    var packVerText by remember { mutableStateOf("") }
 
     var localDirs by remember { mutableStateOf<List<ModpackLocalDir>>(emptyList()) }
     var selectedPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
@@ -78,9 +78,8 @@ fun HostNewCreateScreen(
     var selectedWorldId by remember { mutableStateOf<ObjectId?>(null) }
     var difficulty by remember { mutableStateOf(2) }
     var gameMode by remember { mutableStateOf(0) }
-    var skyblockOnly by remember { mutableStateOf(arg.skyblock) }
-    var levelType by remember { mutableStateOf(if (arg.skyblock) "skyblockbuilder:skyblock" else "minecraft:normal") }
-    var levelChoice by remember { mutableStateOf(if (arg.skyblock) 2 else 0) }
+    var levelType by remember { mutableStateOf("minecraft:normal") }
+    var levelChoice by remember { mutableStateOf(0) }
     var whitelist by remember { mutableStateOf(false) }
     var allowCheats by remember { mutableStateOf(false) }
 
@@ -147,7 +146,6 @@ fun HostNewCreateScreen(
                 gameMode = detail.gameMode
                 whitelist = detail.whitelist
                 allowCheats = detail.allowCheats
-                skyblockOnly = detail.levelType.contains("skyblock", true)
                 updateLevelChoiceFromType(detail.levelType)
                 if (detail.worldId == null) {
                     editPreferNoSave = true
@@ -275,12 +273,7 @@ fun HostNewCreateScreen(
     }
 
     val loadingAny = loadingLocalPacks || loadingHost || loadingWorlds
-    val selectedPackTitle = selectedPack?.let { "${it.vo.name} ${it.verName}" }
-        ?: if (modpackIdText.isNotBlank() && packVerText.isNotBlank()) {
-            "${arg.modpackName.ifBlank { "整合包" }} ${packVerText}"
-        } else {
-            "未选择整合包"
-        }
+    val selectedPackTitle = selectedPack?.let { "${it.vo.name} ${it.verName}" } ?: "未选择整合包"
     val tabs = listOf("1.选择整合包（$selectedPackTitle）", "2.地图设置")
     MainColumn {
         Column(
@@ -507,17 +500,6 @@ fun HostNewCreateScreen(
                                                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                                                     horizontalArrangement = Arrangement.spacedBy(2.dp)
                                                 ) {
-                                                    if (skyblockOnly) {
-                                                        ImageCard(
-                                                            title = "空岛",
-                                                            iconPath = "assets/icons/worldtype_skyblock.jpg",
-                                                            selected = levelChoice == 2,
-                                                            onClick = {
-                                                                levelChoice = 2
-                                                                levelType = "skyblockbuilder:skyblock"
-                                                            }
-                                                        )
-                                                    }
                                                     ImageCard(
                                                         title = "普通",
                                                         iconPath = "assets/icons/worldtype_normal.png",
@@ -534,6 +516,15 @@ fun HostNewCreateScreen(
                                                         onClick = {
                                                             levelChoice = 1
                                                             levelType = "minecraft:flat"
+                                                        }
+                                                    )
+                                                    ImageCard(
+                                                        title = "空岛",
+                                                        iconPath = "assets/icons/worldtype_skyblock.jpg",
+                                                        selected = levelChoice == 2,
+                                                        onClick = {
+                                                            levelChoice = 2
+                                                            levelType = "skyblockbuilder:skyblock"
                                                         }
                                                     )
                                                 }

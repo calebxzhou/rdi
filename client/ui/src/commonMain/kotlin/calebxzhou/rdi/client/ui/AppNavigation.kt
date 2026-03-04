@@ -192,14 +192,7 @@ fun AppNavigation(
                         navController.navigate(HostInfo(hostId))
                     },
                     onOpenHostCreate = {
-                        navController.navigate(
-                            HostCreate(
-                                modpackId = "",
-                                modpackName = "",
-                                packVer = "",
-                                skyblock = false
-                            )
-                        )
+                        navController.navigate(HostCreate())
                     },
                     onOpenMcPlay = { args ->
                         openMcPlay(args) { navController.navigateAbsolute(HostList) }
@@ -236,10 +229,6 @@ fun AppNavigation(
                     onOpenHostEdit = { host ->
                         navController.navigate(
                             HostCreate(
-                                modpackId = host.modpack.id.toHexString(),
-                                modpackName = host.modpack.name,
-                                packVer = host.packVer,
-                                skyblock = host.levelType.contains("skyblock", true),
                                 hostId = host._id.toHexString()
                             )
                         )
@@ -335,15 +324,8 @@ fun AppNavigation(
                     onOpenUpload = { modpackId, modpackName ->
                         navController.navigate(ModpackUpload)
                     },
-                    onCreateHost = { modpackId, modpackName, packVer, skyblock ->
-                        navController.navigate(
-                            HostCreate(
-                                modpackId = modpackId,
-                                modpackName = modpackName,
-                                packVer = packVer,
-                                skyblock = skyblock
-                            )
-                        )
+                    onCreateHost = { _, _, _, _ ->
+                        navController.navigate(HostCreate())
                     },
                     onOpenTask = { task ->
                         openTaskView(task, false, null) {

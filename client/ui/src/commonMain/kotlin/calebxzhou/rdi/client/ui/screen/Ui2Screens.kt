@@ -14,10 +14,6 @@ object Wardrobe
     val likes: Int
 )
 @Serializable data class HostCreate(
-    val modpackId: String,
-    val modpackName: String,
-    val packVer: String,
-    val skyblock: Boolean,
     val hostId: String? = null,
 )
 @Serializable object ModpackList
