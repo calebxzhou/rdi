@@ -6,7 +6,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 val ktorVersion = "3.4.0"
-val version = "5.11.1"
+val version = "5.11.2"
 project.version = version
 
 plugins {
@@ -67,6 +67,8 @@ kotlin {
                 implementation("org.jetbrains.androidx.navigation:navigation-compose:2.9.2")
                 implementation("org.jetbrains.compose.material3:material3:1.10.0-alpha05")
                 implementation("net.peanuuutz.tomlkt:tomlkt:0.5.0")
+                implementation("com.mikepenz:multiplatform-markdown-renderer:0.39.2")
+                implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.39.2")
                 implementation("com.github.oshi:oshi-core:6.9.3") {
                     exclude(group = "net.java.dev.jna")
                 }
@@ -315,7 +317,7 @@ fun registerCopyTask(name: String, extraDestinations: List<String> = emptyList()
 
         val baseDestinations = listOf(
             file("../../server/master/run/client-libs/lib"),
-            File(System.getProperty("user.home"), "Documents/rdi5ship/lib")
+       //     File(System.getProperty("user.home"), "Documents/rdi5ship/lib")
         )
         val destinationDirs = baseDestinations + extraDestinations.map { file(it) }
 
