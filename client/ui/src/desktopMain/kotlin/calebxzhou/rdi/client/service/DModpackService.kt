@@ -58,6 +58,13 @@ suspend fun parseUploadPayload(
         return null
     }
     val packType = detectPackType(prepared.rootDir)
+    if (packType != PackType.UNKNOWN && !hasOverridesDir(prepared.rootDir)) {
+        val msg = "无效的整合包文件：缺少 overrides 目录"
+        onError(msg)
+        onProgress(msg)
+        prepared.rootDir.deleteRecursively()
+        return null
+    }
     val embeddedMods = collectEmbeddedModFiles(prepared.rootDir)
     val embeddedMatches = matchEmbeddedModsAll(
         files = embeddedMods,
@@ -286,6 +293,9 @@ private fun findFile(rootDir: File, fileName: String): File? {
 private fun loadCurseForgeFromDir(rootDir: File): CurseForgeModpackData {
     val manifestFile = findFile(rootDir, "manifest.json")
         ?: throw ModpackException("整合包缺少文件：manifest.json")
+    if (!hasOverridesDir(rootDir)) {
+        throw ModpackException("整合包缺少目录：overrides")
+    }
     val manifestJson = manifestFile.readText(Charsets.UTF_8)
     val manifest = runCatching {
         calebxzhou.rdi.common.serdesJson.decodeFromString<CurseForgePackManifest>(manifestJson)
@@ -303,6 +313,10 @@ private fun collectEmbeddedModFiles(rootDir: File): List<File> {
         .filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
         .filter { it.invariantSeparatorsPath.contains("/mods/") }
         .toList()
+}
+
+private fun hasOverridesDir(rootDir: File): Boolean {
+    return rootDir.walkTopDown().any { it.isDirectory && it.name.equals("overrides", ignoreCase = true) }
 }
 
 private fun buildZipFromDir(rootDir: File, baseName: String): File {

@@ -260,7 +260,7 @@ object CurseForgeService {
             val hasGtoCore = entries.any { it.name.startsWith("overrides/mods/gtocore") }
             val hasGtoNativeLib = entries.any { it.name.startsWith("overrides/mods/gtonativelib") }
             if (hasGtoCore && hasGtoNativeLib) {
-                throw ModpackException("rdi核心被这个包强制禁用了 玩不了 请换个包")
+                throw ModpackException("无法识别具有单机反作弊与代码加密的整合包")
             }
             val manifestEntry = entries.firstOrNull {
                 !it.isDirectory && it.name.substringAfterLast('/') == "manifest.json"

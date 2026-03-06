@@ -48,6 +48,9 @@ object ModrinthService {
             throw ModpackException("找不到整合包文件: ${modpackFile.path}")
         }
         val index = if (modpackFile.isDirectory) {
+            if (!hasOverridesDir(modpackFile)) {
+                throw ModpackException("整合包缺少目录：overrides")
+            }
             val indexFile = modpackFile.walkTopDown()
                 .firstOrNull { it.isFile && it.name == "modrinth.index.json" }
                 ?: throw ModpackException("整合包缺少文件：modrinth.index.json")
@@ -62,6 +65,11 @@ object ModrinthService {
                 val indexEntry = zip.entries().asSequence().firstOrNull {
                     !it.isDirectory && it.name.substringAfterLast('/') == "modrinth.index.json"
                 } ?: throw ModpackException("整合包缺少文件：modrinth.index.json")
+                val rootPrefix = indexEntry.name.substringBeforeLast('/', missingDelimiterValue = "")
+                    .let { if (it.isBlank()) "" else "$it/" }
+                if (!hasOverridesDir(zip.entries().asSequence().toList().map { it.name }, rootPrefix)) {
+                    throw ModpackException("整合包缺少目录：overrides")
+                }
                 val indexJson = zip.getInputStream(indexEntry).bufferedReader(Charsets.UTF_8).use { it.readText() }
                 runCatching {
                     serdesJson.decodeFromString<ModrinthModpackIndex>(indexJson)
@@ -184,6 +192,19 @@ object ModrinthService {
                 modloader = parsedModloader
             )
         )
+    }
+
+    private fun hasOverridesDir(rootDir: File): Boolean {
+        return rootDir.walkTopDown().any { it.isDirectory && it.name.equals("overrides", ignoreCase = true) }
+    }
+
+    private fun hasOverridesDir(entryNames: List<String>, rootPrefix: String): Boolean {
+        val overridesPath = rootPrefix + "overrides"
+        val overridesPrefix = "$overridesPath/"
+        return entryNames.any { rawName ->
+            val normalized = rawName.replace('\\', '/').trimStart('/')
+            normalized == overridesPath || normalized.startsWith(overridesPrefix)
+        }
     }
 
     private fun ModrinthProject.toModSide(): Mod.Side {
