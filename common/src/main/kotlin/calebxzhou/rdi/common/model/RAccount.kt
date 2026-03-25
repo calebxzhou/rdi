@@ -10,7 +10,7 @@ import org.bson.types.ObjectId
 import java.util.UUID
 
 /*val account
-    get() = RAccount.now ?: RAccount.DEFAULT.also { lgr.warn("用户未登录 使用默认账号") }*/
+    get() = RAccount.now ?: RAccount.DEFAULT.also { lgr.warn { "用户未登录 使用默认账号" } }*/
 @Serializable
 data class RAccount(
     @Contextual
@@ -23,6 +23,7 @@ data class RAccount(
     val msid: UUID? = null,
     @Contextual
     val inviter: ObjectId?=null,
+    val allowUploadModpack: Boolean? = null,
     var cloth: Cloth = Cloth(),
 ) {
     @Transient
@@ -75,3 +76,4 @@ data class RAccount(
     val hasMsid get() = msid != null
 }
 val RAccount.isDav get() = name == "davickk"
+
