@@ -40,3 +40,8 @@ data class Mod(
     ) {
     }
 }
+val Mod.isPlatformCf get() = platform=="cf"
+val Mod.isPlatformMr get() = platform=="mr"
+val Mod.normalizedProjectId get() = projectId.trim()
+val Mod.normalizedSlug get() = slug.trim().lowercase()
+val Mod.displaySlugOrProject get() = slug.trim().ifBlank { normalizedProjectId }
