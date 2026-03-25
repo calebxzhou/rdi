@@ -6,9 +6,7 @@ import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.net.DownloadProgress
 import calebxzhou.rdi.common.net.downloadFileFrom
 import calebxzhou.rdi.common.serdesJson
-import com.electronwill.nightconfig.core.CommentedConfig
-import com.electronwill.nightconfig.core.Config
-import com.electronwill.nightconfig.toml.TomlFormat
+import kotlinx.serialization.decodeFromString
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
@@ -18,6 +16,7 @@ import java.util.jar.JarFile
 import java.util.jar.JarInputStream
 import kotlin.io.path.exists
 import kotlin.io.path.inputStream
+import net.peanuuutz.tomlkt.Toml
 
 
 object ModService {
@@ -27,24 +26,23 @@ object ModService {
     const val FABRIC_CONFIG_PATH = "fabric.mod.json"
     const val FORGE_CONFIG_PATH = "META-INF/mods.toml"
     private val lgr by Loggers
+    private val modsToml = Toml { ignoreUnknownKeys = true }
+    private val supportedModsTomlPaths = listOf(NEOFORGE_CONFIG_PATH, FORGE_CONFIG_PATH)
 
     val downloadedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
     var installedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
-    fun JarFile.readNeoForgeConfig(): CommentedConfig? {
-        return getJarEntry(NEOFORGE_CONFIG_PATH)?.let { modsTomlEntry ->
+    fun JarFile.readNeoForgeConfig(): ModsTomlConfig? {
+        return supportedModsTomlPaths.firstNotNullOfOrNull(::getJarEntry)?.let { modsTomlEntry ->
             getInputStream(modsTomlEntry).bufferedReader().use { reader ->
-                val parsed = TomlFormat.instance()
-                    .createParser()
-                    .parse(reader.readText())
-                parsed
+                parseModsToml(reader.readText())
             }
         }
     }
 
-    val CommentedConfig.modId
-        get() = get<List<Config>>("mods").firstOrNull()?.get<String>("modId")!!
-    val CommentedConfig.modDescription
-        get() = get<List<Config>>("mods").firstOrNull()?.get<String>("description")!!
+    val ModsTomlConfig.modId
+        get() = mods.firstOrNull()?.modId.orEmpty()
+    val ModsTomlConfig.modDescription
+        get() = mods.firstOrNull()?.description.orEmpty()
     val JarFile.modLogo
         get() =
             getJarEntry("logo.png")?.let { logoEntry ->
@@ -73,16 +71,11 @@ object ModService {
         filterNot { file ->
             JarFile(file).use { jar ->
                 val config = jar.readNeoForgeConfig() ?: return@use false
-                val modEntries = config.get("mods") as? List<Config> ?: return@use false
-
-                modEntries.any { modConfig ->
-                    val modId = modConfig.get<String>("modId")?.trim()?.lowercase() ?: return@any false
-                    val dependencyKey = "dependencies.$modId"
-                    val dependencies = config.get(dependencyKey) as? List<Config> ?: return@any false
-
-                    dependencies.any { dependency ->
-                        val dependencyModId = dependency.get<String>("modId")?.lowercase()
-                        val side = dependency.get<String>("side")?.uppercase()
+                config.mods.any { modConfig ->
+                    val modId = modConfig.modId.trim().lowercase().ifEmpty { return@any false }
+                    extractModsTomlDependencies(config, modId).any { dependency ->
+                        val dependencyModId = dependency.modId.trim().lowercase()
+                        val side = dependency.side?.trim()?.uppercase()
                         dependencyModId == "minecraft" && side == "CLIENT"
                     }
                 }
@@ -104,7 +97,7 @@ object ModService {
                     collectModIdsFromJar(jar, installedModIds)
                 }
             }.onFailure { err ->
-                lgr.error("Failed to read mod id from file: ${file.name}", err)
+                lgr.error { "Failed to read mod id from file: ${file.name + "\n" + err }" }
             }
         }
 
@@ -114,24 +107,18 @@ object ModService {
             runCatching {
                 JarFile(file).use { jar ->
                     val config = jar.readNeoForgeConfig() ?: return@use null
-                    val modEntries = config.get("mods") as? List<Config> ?: return@use null
-
-                    modEntries.forEach { modConfig ->
-                        val modId = modConfig.get<String>("modId")?.trim()?.lowercase() ?: return@forEach
-                        val dependencyKey = "dependencies.$modId"
-                        val dependencies = config.get(dependencyKey) as? List<Config> ?: return@forEach
-
-                        val missingDependencies = dependencies.mapNotNull { dependency ->
-                            val dependencyModId =
-                                dependency.get<String>("modId")?.trim()?.lowercase() ?: return@mapNotNull null
+                    config.mods.forEach { modConfig ->
+                        val modId = modConfig.modId.trim().lowercase().ifEmpty { return@forEach }
+                        val missingDependencies = extractModsTomlDependencies(config, modId).mapNotNull { dependency ->
+                            val dependencyModId = dependency.modId.trim().lowercase().ifEmpty { return@mapNotNull null }
                             if (dependencyModId.isEmpty() || builtinDependencyIds.contains(dependencyModId)) return@mapNotNull null
 
-                            val side = dependency.get<String>("side")?.trim()?.uppercase()
+                            val side = dependency.side?.trim()?.uppercase()
                             if (side == "CLIENT") return@mapNotNull null
 
-                            val dependencyType = dependency.get<String>("type")?.trim()?.lowercase()
-                            val optional = dependency.get<Boolean>("optional") ?: false
-                            val mandatory = dependency.get<Boolean>("mandatory")
+                            val dependencyType = dependency.type?.trim()?.lowercase()
+                            val optional = dependency.optional
+                            val mandatory = dependency.mandatory
                             val required = when {
                                 dependencyType == "optional" -> false
                                 dependencyType == "incompatible" -> false
@@ -147,24 +134,24 @@ object ModService {
 
                             if (installedModIds.contains(dependencyModId)) return@mapNotNull null
 
-                            val versionRange = (dependency.get("versionRange") as? String)?.takeIf { it.isNotBlank() }
+                            val versionRange = dependency.versionRange?.takeIf { it.isNotBlank() }
                             UnmatchedDependencies.Missing(dependencyModId, versionRange)
                         }
                             .distinctBy { it.modId }
                         if (missingDependencies.isNotEmpty()) {
-                            lgr.warn(
+                            lgr.warn {
                                 "Mod '$modId' is missing dependencies: ${
                                     missingDependencies.joinToString(", ") { missing ->
                                         missing.version?.let { ver -> "${missing.modId} ($ver)" } ?: missing.modId
                                     }
                                 }"
-                            )
+                            }
                             unmatched += UnmatchedDependencies(modId, missingDependencies)
                         }
                     }
                 }
             }.onFailure { err ->
-                lgr.error("Failed to check dependencies for mod file: ${file.name}", err)
+                lgr.error { "Failed to check dependencies for mod file: ${file.name + "\n" + err }" }
             }
         }
         return unmatched
@@ -188,7 +175,7 @@ object ModService {
                     collectModIdsFromNestedJar(nestedInput, installedModIds)
                 }
             }.onFailure { err ->
-                lgr.warn("Failed to inspect nested jar '$name' inside ${jar.name}")
+                lgr.warn { "Failed to inspect nested jar '$name' inside ${jar.name}" }
                 err.printStackTrace()
             }
         }
@@ -201,9 +188,9 @@ object ModService {
                 if (!entry.isDirectory) {
                     val entryName = entry.name
                     when {
-                        entryName.equals(NEOFORGE_CONFIG_PATH, ignoreCase = false) -> {
+                        supportedModsTomlPaths.any { it.equals(entryName, ignoreCase = false) } -> {
                             val configText = nestedJar.readBytes().toString(Charsets.UTF_8)
-                            parseNeoForgeConfig(configText)?.let { config ->
+                            parseModsToml(configText)?.let { config ->
                                 installedModIds += extractModIds(config)
                             }
                         }
@@ -221,23 +208,32 @@ object ModService {
         }
     }
 
-    private fun parseNeoForgeConfig(raw: String): CommentedConfig? {
+    private fun parseModsToml(raw: String): ModsTomlConfig? {
         if (raw.isBlank()) return null
         return runCatching {
-            TomlFormat.instance().createParser().parse(raw)
+            modsToml.decodeFromString<ModsTomlConfig>(raw)
         }.onFailure { err ->
-            lgr.debug("Failed to parse nested neoforge config", err)
+            lgr.debug(err) { "Failed to parse mods.toml" }
         }.getOrNull()
     }
 
-    private fun extractModIds(config: Config?): List<String> {
-        val modEntries = config?.get("mods") as? List<Config> ?: return emptyList()
-        return modEntries.mapNotNull { modConfig ->
-            modConfig.get<String>("modId")
-                ?.trim()
-                ?.lowercase()
-                ?.takeIf { it.isNotEmpty() }
-        }
+    private fun extractModIds(config: ModsTomlConfig?): List<String> {
+        return config?.mods.orEmpty()
+            .mapNotNull { modConfig ->
+                modConfig.modId
+                    .trim()
+                    .lowercase()
+                    .takeIf { it.isNotEmpty() }
+            }
+    }
+
+    private fun extractModsTomlDependencies(config: ModsTomlConfig, modId: String): List<ModsTomlDependency> {
+        val normalizedModId = modId.trim()
+        if (normalizedModId.isEmpty()) return emptyList()
+        return config.dependencies.entries
+            .firstOrNull { (key, _) -> key.equals(normalizedModId, ignoreCase = true) }
+            ?.value
+            .orEmpty()
     }
 
 
@@ -293,7 +289,7 @@ object ModService {
         val raw = runCatching {
             readResourceText(resourcePath)
         }.onFailure {
-            lgr.error(it) { "Failed to read $resourcePath" }
+            lgr.error { "Failed to read $resourcePath" + "\n" + it }
         }.getOrNull()
 
         if (raw.isNullOrBlank()) {
@@ -302,7 +298,7 @@ object ModService {
         }
 
         return runCatching { serdesJson.decodeFromString<List<ModBriefInfo>>(raw) }
-            .onFailure { err -> lgr.error(err) { "Failed to decode mod_brief_info.json" } }
+            .onFailure { err -> lgr.error { "Failed to decode mod_brief_info.json" + "\n" + err } }
             .getOrElse { emptyList() }
     }
 
@@ -445,7 +441,7 @@ object ModService {
             downloadedPath
         }.onFailure { err ->
             if (label == "mirror") {
-                lgr.warn(err) { "Mirror download failed for ${mod.slug}, will retry official" }
+                lgr.warn { "Mirror download failed for ${mod.slug + "\n" + err }, will retry official" }
             }
         }
 
@@ -458,7 +454,7 @@ object ModService {
         }
 
         finalResult.onFailure { err ->
-            lgr.error(err) { "Failed to download mod ${mod.slug}" }
+            lgr.error { "Failed to download mod ${mod.slug + "\n" + err }" }
         }
 
         return finalResult
@@ -513,7 +509,7 @@ object ModService {
             }
 
             lastError = result.exceptionOrNull()
-            lgr.warn(lastError) { "Download failed for ${mod.slug} from URL #${index + 1}: $url" }
+            lgr.warn { "Download failed for ${mod.slug + "\n" + lastError } from URL #${index + 1}: $url" }
 
             // If there are more URLs to try, continue
             if (index < urls.lastIndex) {
@@ -522,7 +518,7 @@ object ModService {
         }
 
         // All URLs failed
-        lgr.error(lastError) { "Failed to download mod ${mod.slug} from all ${urls.size} URLs" }
+        lgr.error { "Failed to download mod ${mod.slug + "\n" + lastError } from all ${urls.size} URLs" }
         return Result.failure(lastError ?: IllegalStateException("No download URLs available"))
     }
 
@@ -648,4 +644,6 @@ object ModService {
         return this
     }
 }
+
+
 

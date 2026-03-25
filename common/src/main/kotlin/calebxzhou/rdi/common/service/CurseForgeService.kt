@@ -96,8 +96,11 @@ object CurseForgeService {
 
         val modIds = matchRecords.keys.toList()
         if (modIds.isEmpty()) {
-            lgr.info("mod id 是空的")
-            return CurseForgeLocalResult()
+            lgr.info { "mod id 是空的" }
+            return CurseForgeLocalResult(
+                matched = emptyList(),
+                unmatched = hashToFile.values.toList()
+            )
         }
 
         val cfMods = getModsInfo(modIds)
@@ -148,7 +151,7 @@ object CurseForgeService {
             }
         }
         val unmatched = hashToFile.values.filterNot { it in matchedFiles }
-        lgr.info("curseforge没找到这些mod：${unmatched}")
+        lgr.info { "curseforge没找到这些mod：${unmatched}" }
         return CurseForgeLocalResult(matched, unmatched)
 
     }
@@ -159,7 +162,7 @@ object CurseForgeService {
      */
     suspend fun List<Mod>.fillCurseForgeVo(): List<Mod> {
         // Filter mods that need vo and are from CurseForge
-        val modsNeedingVo = filter { it.vo == null && it.platform == "cf" }
+        val modsNeedingVo = filter { it.vo == null && it.platform.equals("cf", ignoreCase = true) }
         if (modsNeedingVo.isEmpty()) return this
 
         // Batch fetch mod info for all mods needing vo
@@ -167,7 +170,7 @@ object CurseForgeService {
         val modInfos = getModsInfo(projectIdToMod.keys.toList())
         val projectIdToVo = modInfos.associate { it.id to it.toCardVo() }
         forEach { mod ->
-            if (mod.vo == null && mod.platform == "cf") {
+            if (mod.vo == null && mod.platform.equals("cf", ignoreCase = true)) {
                 mod.apply { vo = projectIdToVo[mod.projectId.toInt()]?.copy(side = side) }
             }
         }
@@ -195,12 +198,12 @@ object CurseForgeService {
         val libraryModSlugs = arrayListOf<String>()
         return mapNotNull { curseFile ->
             val modInfo = modInfoMap[curseFile.projectId] ?: let {
-                lgr.error("mod ${curseFile.projectId}/${curseFile.fileId} 在mod info map没有信息")
+                lgr.warn { "mod ${curseFile.projectId}/${curseFile.fileId} 在mod info map没有信息" }
                 return@mapNotNull null
             }
             val cfSlug = modInfo.slug
             val fileInfo = fileInfoMap[curseFile.fileId] ?: let {
-                lgr.error("mod ${curseFile.projectId}/${curseFile.fileId} file info map没有信息")
+                lgr.error{"mod ${curseFile.projectId}/${curseFile.fileId} file info map没有信息"}
                 return@mapNotNull null
             }
             val mrProject = fileSha1Map[curseFile.fileId]
@@ -364,7 +367,7 @@ object CurseForgeService {
         }
 
         mirrorResult.exceptionOrNull()?.let { ex ->
-            lgr.warn(ex) { "CurseForge mirror request with exception, falling back to official API: ${ex.message}" }
+            lgr.warn { "CurseForge mirror request with exception, falling back to official API: ${ex.message + "\n" + ex }" }
         }
 
         return doRequest(OFFICIAL_URL)
@@ -467,4 +470,6 @@ object CurseForgeService {
         }
     }
 }
+
+
 
