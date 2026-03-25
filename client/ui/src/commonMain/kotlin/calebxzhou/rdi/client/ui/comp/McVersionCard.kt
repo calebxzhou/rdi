@@ -151,7 +151,7 @@ fun McVersionCard(
                                 appendLine("4.选择${mcver.mcVer}")
                                 appendLine("5.点击${mcver.firstLoader.name}")
                                 appendLine("6.点击版本${mcver.firstLoaderVersion.ver}")
-                                appendLine("7.填入名称${mcver.firstLoaderVersion.dirName}，填错会导致无法启动！")
+                                appendLine("7.填入名称${mcver.firstLoaderVersion.dirName}，必须一模一样，填错会导致无法启动！填错会导致无法启动！填错会导致无法启动！")
                                 append("8.点击名称栏右侧的\uDB80\uDDDA等待安装完成")
                             }
                             onOpenFclDialog.invoke(

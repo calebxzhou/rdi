@@ -1,8 +1,13 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
@@ -16,6 +21,8 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import calebxzhou.mykotutils.std.secondsToHumanDateTime
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
@@ -24,12 +31,13 @@ import calebxzhou.rdi.client.net.sse
 import calebxzhou.rdi.client.service.StartPlayResult
 import calebxzhou.rdi.client.service.startPlay
 import calebxzhou.rdi.client.ui.*
-import calebxzhou.rdi.client.ui.comp.Console
-import calebxzhou.rdi.client.ui.comp.ConsoleState
-import calebxzhou.rdi.client.ui.comp.HeadButton
-import calebxzhou.rdi.client.ui.comp.ModpackCard
+import calebxzhou.rdi.client.ui.comp.*
 import calebxzhou.rdi.common.extension.isAdmin
 import calebxzhou.rdi.common.model.*
+import calebxzhou.rdi.common.serdesJson
+import calebxzhou.rdi.common.service.CurseForgeService.fillCurseForgeVo
+import calebxzhou.rdi.common.service.ModService
+import calebxzhou.rdi.common.service.ModrinthService.fillModrinthVo
 import calebxzhou.rdi.model.Role
 import io.ktor.client.plugins.sse.*
 import io.ktor.http.*
@@ -56,6 +64,7 @@ fun HostInfoScreen(
     var okMessage by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
+    var extraModsLoading by remember { mutableStateOf(false) }
     var hostDetail by remember { mutableStateOf<Host.DetailVo?>(null) }
     var modpackDetail by remember { mutableStateOf<Modpack.DetailVo?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -73,6 +82,75 @@ fun HostInfoScreen(
     var showInviteDialog by remember { mutableStateOf(false) }
     var inviteQq by remember { mutableStateOf("") }
     var installConfirmTask by remember { mutableStateOf<Task?>(null) }
+    var showAddExtraModDialog by remember { mutableStateOf(false) }
+    var addExtraModLoading by remember { mutableStateOf(false) }
+    var selectAllExtraMods by remember { mutableStateOf(false) }
+    var addExtraModLoadingText by remember { mutableStateOf("") }
+    var addExtraModDialogError by remember { mutableStateOf<String?>(null) }
+    var pendingExtraMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
+    var rejectedExtraModFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    var selectedExtraModKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var removeExtraModConfirm by remember { mutableStateOf<Mod?>(null) }
+    var hydratedExtraMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
+    var extraModsLoadVersion by remember { mutableStateOf(0) }
+
+    val memberTabIndex = 0
+    val extraModsTabIndex = 1
+    val consoleTabIndex = 2
+    val configTabIndex = 3
+    val infoTabIndex = 4
+
+    fun resetAddExtraModDialog() {
+        addExtraModLoading = false
+        addExtraModLoadingText = ""
+        addExtraModDialogError = null
+        pendingExtraMods = emptyList()
+        rejectedExtraModFiles = emptyList()
+    }
+
+    fun refreshExtraMods(rawMods: List<Mod>, currentHostId: ObjectId?) {
+        val loadVersion = extraModsLoadVersion + 1
+        extraModsLoadVersion = loadVersion
+        hydratedExtraMods = emptyList()
+        extraModsLoading = rawMods.isNotEmpty()
+        if (rawMods.isEmpty()) return
+        if (currentHostId == null) {
+            extraModsLoading = false
+            return
+        }
+        scope.launch {
+            try {
+                val hydratedMods = hydrateExtraMods(rawMods)
+                if (hostDetail?._id == currentHostId && extraModsLoadVersion == loadVersion) {
+                    hydratedExtraMods = hydratedMods
+                    hostDetail = hostDetail?.copy(extraMods = hydratedMods)
+                }
+            } finally {
+                if (hostDetail?._id == currentHostId && extraModsLoadVersion == loadVersion) {
+                    extraModsLoading = false
+                }
+            }
+        }
+    }
+
+    fun applyExtraMods(updatedMods: List<Mod>) {
+        val currentHostId = hostDetail?._id
+        hostDetail = hostDetail?.copy(extraMods = updatedMods)
+        refreshExtraMods(updatedMods, currentHostId)
+    }
+
+    fun updatePendingExtraModSide(mod: Mod, side: Mod.Side) {
+        pendingExtraMods = pendingExtraMods.map { existing ->
+            if (existing.platform == mod.platform && existing.projectId == mod.projectId && existing.fileId == mod.fileId) {
+                existing.copy(side = side).also {
+                    it.vo = existing.vo
+                    it.file = existing.file
+                }
+            } else {
+                existing
+            }
+        }
+    }
 
     fun reload() {
         loading = true
@@ -87,6 +165,7 @@ fun HostInfoScreen(
                     return@rdiRequest
                 }
                 hostDetail = detail
+                refreshExtraMods(detail.extraMods, detail._id)
                 scope.rdiRequest<Modpack.DetailVo>(
                     path = "modpack/${detail.modpack.id}",
                     onOk = { modpackResponse ->
@@ -119,9 +198,24 @@ fun HostInfoScreen(
     val host = hostDetail
     val meAdmin = host?.let { it.isAdmin(loggedAccount) || loggedAccount.isDav } ?: false
     val meOwner = host?.let { it.ownerId == loggedAccount._id || loggedAccount.isDav } ?: false
+    val canManageExtraMods = meAdmin || meOwner
+    val extraMods = when {
+        hydratedExtraMods.isNotEmpty() -> hydratedExtraMods
+        host?.extraMods?.isNotEmpty() == true -> host.extraMods
+        else -> emptyList()
+    }
+    val baseVersionMods = modpackDetail?.versions
+        ?.firstOrNull { it.name == host?.packVer }
+        ?.mods
+        .orEmpty()
+
+    LaunchedEffect(extraMods) {
+        val currentKeys = extraMods.map(::extraModKey).toSet()
+        selectedExtraModKeys = selectedExtraModKeys.intersect(currentKeys)
+    }
 
     DisposableEffect(selectedTab, hostId) {
-        if (selectedTab != 1) {
+        if (selectedTab != consoleTabIndex) {
             onDispose { }
         } else {
             consoleState.clear()
@@ -320,6 +414,7 @@ fun HostInfoScreen(
 
                         val tabs = listOf(
                             "\uEF69 成员(${host.members.size}/10)",
+                            "\uF02D 附加Mod(${extraMods.size})",
                             "\uDB80\uDD8D 后台",
                             "\uE5FC 配置",
                             "\uE615 信息"
@@ -394,8 +489,10 @@ fun HostInfoScreen(
                                             Spacer(modifier = Modifier.weight(1f))
                                             FlowRowV {
                                                 if (meOwner && member.role != Role.OWNER) {
-                                                    CircleIconButton("\uDB81\uDEAE", "转让",
-                                                        showText = false) {
+                                                    CircleIconButton(
+                                                        "\uDB81\uDEAE", "转让",
+                                                        showText = false
+                                                    ) {
                                                         transferConfirm = member.id
                                                     }
                                                 }
@@ -441,7 +538,173 @@ fun HostInfoScreen(
                                 }
                             }
 
-                            1 -> {
+                            extraModsTabIndex -> {
+                                val selectedExtraMods =
+                                    extraMods.filter { extraModKey(it) in selectedExtraModKeys }
+                                Column(
+                                    modifier = Modifier.fillMaxSize(),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Text(
+                                            text = "可以在整合包之外再添加更多Mod。",
+                                            color = MaterialColor.GRAY_700.color,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text(
+                                                text = "已选择${selectedExtraMods.size}个",
+                                                color = MaterialColor.GRAY_700.color
+                                            )
+                                            Checkbox(selectAllExtraMods, onCheckedChange = {
+                                                selectAllExtraMods = it
+                                                selectedExtraModKeys = if(it)  extraMods.map(::extraModKey).toSet() else emptySet()
+                                            })
+                                            Text("全选")
+                                            CircleIconButton(
+                                                icon = "\uF019",
+                                                tooltip = "下载",
+                                                enabled = selectedExtraMods.isNotEmpty(),
+                                                bgColor = MaterialColor.GREEN_900.color,
+                                            ) {
+                                                val task = ModService.downloadModsTask(selectedExtraMods)
+                                                if (onOpenTask != null) {
+                                                    onOpenTask(task)
+                                                } else {
+                                                    errorMessage = "暂不支持在此页面下载Mod"
+                                                }
+                                            }
+                                            if (canManageExtraMods) {
+                                                CircleIconButton(
+                                                    icon = "\uEA81",
+                                                    tooltip = "删除",
+                                                    enabled = selectedExtraMods.isNotEmpty(),
+                                                    bgColor = MaterialColor.RED_900.color,
+                                                ) {
+                                                    removeExtraModConfirm = selectedExtraMods.firstOrNull()
+                                                }
+                                                CircleIconButton(
+                                                    icon = "\uF067",
+                                                    tooltip = if (addExtraModLoading) {
+                                                        addExtraModLoadingText.ifBlank { "匹配中..." }
+                                                    } else {
+                                                        "附加Mod"
+                                                    },
+                                                    enabled = !addExtraModLoading,
+                                                    bgColor = MaterialColor.PURPLE_700.color,
+                                                ) {
+                                                    if (!isDesktop) {
+                                                        errorMessage = "当前平台暂不支持选择本地Mod文件"
+                                                        return@CircleIconButton
+                                                    }
+                                                    val hostMcVersion = modpackDetail?.mcVer
+                                                    if (hostMcVersion == null) {
+                                                        errorMessage = "无法获取当前整合包的MC版本"
+                                                        return@CircleIconButton
+                                                    }
+                                                    scope.launch {
+                                                        val files = selectHostExtraModFiles() ?: return@launch
+                                                        resetAddExtraModDialog()
+                                                        addExtraModLoading = true
+                                                        addExtraModLoadingText = "正在匹配Mod..."
+                                                        val matchResult = try {
+                                                            matchHostExtraModFiles(files, hostMcVersion) { progress ->
+                                                                addExtraModLoadingText = progress
+                                                            }
+                                                        } catch (e: Exception) {
+                                                            errorMessage = e.message ?: "匹配Mod失败"
+                                                            addExtraModLoading = false
+                                                            addExtraModLoadingText = ""
+                                                            return@launch
+                                                        }
+                                                        rejectedExtraModFiles = matchResult.rejectedFiles
+                                                    val matchedMods = matchResult.matchedMods.map { mod ->
+                                                        if (mod.platform.equals(
+                                                                "cf",
+                                                                ignoreCase = true
+                                                            ) && mod.side == Mod.Side.UNKNOWN
+                                                        ) {
+                                                                mod.copy(side = Mod.Side.SERVER).also {
+                                                                    it.vo = mod.vo
+                                                                    it.file = mod.file
+                                                                }
+                                                        } else {
+                                                            mod
+                                                        }
+                                                    }
+                                                    val dedupeResult = filterExtraModsForAdding(
+                                                        candidateMods = matchedMods,
+                                                        existingMods = extraMods + baseVersionMods
+                                                    )
+                                                    pendingExtraMods = dedupeResult.acceptedMods
+                                                    rejectedExtraModFiles = matchResult.rejectedFiles + dedupeResult.rejectedMessages
+                                                    addExtraModLoading = false
+                                                    addExtraModLoadingText = ""
+                                                    if (pendingExtraMods.isEmpty()) {
+                                                        if (rejectedExtraModFiles.isEmpty()) {
+                                                            errorMessage = "没有在网上搜索到这些Mod的信息"
+                                                            return@launch
+                                                        }
+                                                            showAddExtraModDialog = true
+                                                            return@launch
+                                                        }
+                                                        showAddExtraModDialog = true
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if (extraModsLoading) {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Column(
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                CircularProgressIndicator()
+                                                Text("正在载入附加Mod信息...", color = MaterialColor.GRAY_700.color)
+                                            }
+                                        }
+                                    }
+                                    if (!extraModsLoading && extraMods.isEmpty()) {
+                                        Text("当前没有附加Mod", color = MaterialColor.GRAY_700.color)
+                                    } else if (!extraModsLoading) {
+                                        LazyVerticalGrid(
+                                            columns = GridCells.Adaptive(minSize = 360.dp),
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            contentPadding = PaddingValues(bottom = 12.dp)
+                                        ) {
+                                            items(
+                                                items = extraMods,
+                                                key = { mod -> "${mod.platform}:${mod.projectId}:${mod.fileId}" }
+                                            ) { mod ->
+                                                SelectableExtraModCard(
+                                                    mod = mod,
+                                                    selected = extraModKey(mod) in selectedExtraModKeys,
+                                                    onSelectedChange = { selected ->
+                                                        val key = extraModKey(mod)
+                                                        selectedExtraModKeys = if (selected) {
+                                                            selectedExtraModKeys + key
+                                                        } else {
+                                                            selectedExtraModKeys - key
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            consoleTabIndex -> {
                                 Box(modifier = Modifier.fillMaxSize()) {
                                     Console(state = consoleState, modifier = Modifier.fillMaxSize())
                                     Column(
@@ -492,11 +755,11 @@ fun HostInfoScreen(
                                 }
                             }
 
-                            2 -> {
+                            configTabIndex -> {
                                 Text("配置文件功能开发中", color = MaterialColor.GRAY_700.color)
                             }
 
-                            else -> {
+                            infoTabIndex -> {
                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     val difficultyText = when (host.difficulty) {
                                         0 -> "和平"
@@ -621,6 +884,149 @@ fun HostInfoScreen(
         )
     }
 
+    if (showAddExtraModDialog) {
+        Dialog(
+            onDismissRequest = {
+                if (!addExtraModLoading) {
+                    resetAddExtraModDialog()
+                    showAddExtraModDialog = false
+                }
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .fillMaxHeight(0.9f),
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        if (pendingExtraMods.isNotEmpty()) {
+                            "确认添加${pendingExtraMods.size}个附加Mod"
+                        } else {
+                            "附加Mod添加失败"
+                        },
+                        style = MaterialTheme.typography.h6
+                    )
+                    Text(
+                        if (pendingExtraMods.isNotEmpty()) {
+                            "※在整合包以外添加Mod可能会导致地图无法运行，请自行保证Mod兼容性"
+                        } else {
+                            "选中的Mod都无法添加，请查看下方错误信息。"
+                        }
+                    )
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 360.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(bottom = 4.dp)
+                    ) {
+                        items(
+                            items = pendingExtraMods,
+                            key = { mod -> "${mod.platform}:${mod.projectId}:${mod.fileId}" }
+                        ) { mod ->
+                            PendingExtraModCard(
+                                mod = mod,
+                                enabled = !addExtraModLoading,
+                                onSideChange = { side -> updatePendingExtraModSide(mod, side) }
+                            )
+                        }
+                        if (rejectedExtraModFiles.isNotEmpty()) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                val rejectedPreview = rejectedExtraModFiles.joinToString("\n") { "• $it" }
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(255, 244, 244), RoundedCornerShape(16.dp))
+                                        .padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(
+                                        "以下mod无法添加",
+                                        color = MaterialColor.RED_900.color,
+                                        fontSize = 14.sp
+                                    )
+                                    Text(
+                                        rejectedPreview,
+                                        color = MaterialColor.RED_900.color,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        addExtraModDialogError?.let {
+                            Text(
+                                text = it,
+                                color = MaterialColor.RED_900.color,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Space8w()
+                        }
+                        TextButton(
+                            enabled = !addExtraModLoading,
+                            onClick = {
+                                resetAddExtraModDialog()
+                                showAddExtraModDialog = false
+                            }
+                        ) {
+                            Text("取消")
+                        }
+                        Space8w()
+                        TextButton(
+                            enabled = !addExtraModLoading && pendingExtraMods.isNotEmpty(),
+                            onClick = {
+                                val dedupeResult = filterExtraModsForAdding(
+                                    candidateMods = pendingExtraMods,
+                                    existingMods = extraMods + baseVersionMods
+                                )
+                                if (dedupeResult.acceptedMods.size != pendingExtraMods.size) {
+                                    pendingExtraMods = dedupeResult.acceptedMods
+                                    rejectedExtraModFiles = rejectedExtraModFiles + dedupeResult.rejectedMessages
+                                    addExtraModDialogError = "已移除同slug的重复Mod，请确认后再添加"
+                                    return@TextButton
+                                }
+                                addExtraModLoading = true
+                                addExtraModDialogError = null
+                                scope.rdiRequestU(
+                                    path = "host/$hostId/mods",
+                                    method = HttpMethod.Post,
+                                    body = serdesJson.encodeToString(pendingExtraMods),
+                                    onOk = {
+                                        okMessage = "已提交附加Mod添加任务，请在邮件中查看进度"
+                                        showAddExtraModDialog = false
+                                        resetAddExtraModDialog()
+                                    },
+                                    onErr = {
+                                        addExtraModDialogError = it.message ?: "添加附加Mod失败"
+                                    },
+                                    onDone = { addExtraModLoading = false }
+                                )
+                            }
+                        ) {
+                            Text(if (addExtraModLoading) "添加中..." else "添加")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     installConfirmTask?.let { task ->
         ConfirmDialog(
             title = "未下载整合包",
@@ -638,6 +1044,38 @@ fun HostInfoScreen(
     }
 
     // options dialog removed
+
+    removeExtraModConfirm?.let { mod ->
+        val selectedProjectIds = extraMods
+            .filter { extraModKey(it) in selectedExtraModKeys }
+            .map { it.projectId }
+            .distinct()
+        val targetProjectIds = selectedProjectIds.ifEmpty { listOf(mod.projectId) }
+        val removeCount = targetProjectIds.size
+        ConfirmDialog(
+            title = "删除附加Mod",
+            message = if (removeCount > 1) {
+                "确定删除已选择的${removeCount}个附加Mod吗？"
+            } else {
+                "确定删除附加Mod《${mod.vo?.name ?: mod.slug}》吗？"
+            },
+            onConfirm = {
+                scope.rdiRequest<List<Mod>>(
+                    path = "host/$hostId/mods",
+                    method = HttpMethod.Delete,
+                    body = serdesJson.encodeToString(targetProjectIds),
+                    onOk = { response ->
+                        applyExtraMods(response.data ?: emptyList())
+                        selectedExtraModKeys = emptySet()
+                        okMessage = "已删除附加Mod"
+                    },
+                    onErr = { errorMessage = it.message ?: "删除附加Mod失败" }
+                )
+                removeExtraModConfirm = null
+            },
+            onDismiss = { removeExtraModConfirm = null }
+        )
+    }
 
     roleChangeConfirm?.let { change ->
         val msg = if (change.newRole == Role.ADMIN) "确定设置该成员为管理员？" else "确定取消管理员身份？"
@@ -776,3 +1214,149 @@ private data class RoleChange(
     val memberId: ObjectId,
     val newRole: Role
 )
+
+private suspend fun hydrateExtraMods(mods: List<Mod>): List<Mod> {
+    val hydratedMods = mods.map {
+        it.copy(
+            platform = it.platform,
+            projectId = it.projectId,
+            slug = it.slug,
+            fileId = it.fileId,
+            hash = it.hash,
+            side = it.side,
+            downloadUrls = it.downloadUrls.toList()
+        )
+    }
+    hydrateExtraModsByPlatform(hydratedMods.filter { it.platform.equals("cf", ignoreCase = true) }) {
+        it.fillCurseForgeVo()
+    }
+    hydrateExtraModsByPlatform(hydratedMods.filter { it.platform.equals("mr", ignoreCase = true) }) {
+        it.fillModrinthVo(null)
+    }
+    return hydratedMods
+}
+
+private suspend fun hydrateExtraModsByPlatform(
+    mods: List<Mod>,
+    fill: suspend (List<Mod>) -> List<Mod>
+) {
+    if (mods.isEmpty()) return
+
+    val batchSucceeded = runCatching { fill(mods) }.isSuccess
+    if (!batchSucceeded) {
+        mods.forEach { mod ->
+            runCatching { fill(listOf(mod)) }
+        }
+        return
+    }
+
+    mods.filter { it.vo == null }.forEach { mod ->
+        runCatching { fill(listOf(mod)) }
+    }
+}
+
+@Composable
+private fun PendingExtraModCard(
+    mod: Mod,
+    enabled: Boolean,
+    onSideChange: (Mod.Side) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(255, 255, 255, 235), RoundedCornerShape(16.dp))
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        mod.vo?.ModCard(
+            currentSide = mod.side,
+            onSideChange = if (enabled) onSideChange else null
+        )
+    }
+}
+
+private fun extraModKey(mod: Mod): String = "${mod.platform}:${mod.projectId}:${mod.fileId}"
+
+private fun extraModPlatformName(mod: Mod): String = if (mod.platform.equals("mr", ignoreCase = true)) {
+    "Modrinth"
+} else {
+    "CurseForge"
+}
+
+private data class ExtraModAddFilterResult(
+    val acceptedMods: List<Mod>,
+    val rejectedMessages: List<String>
+)
+
+private fun filterExtraModsForAdding(candidateMods: List<Mod>, existingMods: List<Mod>): ExtraModAddFilterResult {
+    val existingKeys = existingMods.map(::extraModSlugIdentity)
+        .filter { it.isNotBlank() }
+        .toSet()
+    val acceptedMods = mutableListOf<Mod>()
+    val pendingKeys = mutableSetOf<String>()
+    val rejectedMessages = mutableListOf<String>()
+
+    candidateMods.forEach { mod ->
+        val key = extraModSlugIdentity(mod)
+        if (key.isBlank()) {
+            acceptedMods += mod
+            return@forEach
+        }
+        when {
+            key in existingKeys -> rejectedMessages += "${mod.displaySlugOrProject}：主机或整合包中已存在同slug Mod"
+            !pendingKeys.add(key) -> rejectedMessages += "${mod.displaySlugOrProject}：本次选择中已有同slug Mod"
+            else -> acceptedMods += mod
+        }
+    }
+
+    return ExtraModAddFilterResult(
+        acceptedMods = acceptedMods,
+        rejectedMessages = rejectedMessages.distinct()
+    )
+}
+
+private fun extraModSlugIdentity(mod: Mod): String = mod.normalizedSlug.ifBlank {
+    mod.normalizedProjectId.lowercase()
+}
+
+@Composable
+private fun SelectableExtraModCard(
+    mod: Mod,
+    selected: Boolean,
+    onSelectedChange: (Boolean) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(
+                if (selected) Color(243, 236, 255) else Color(255, 255, 255, 235),
+                RoundedCornerShape(16.dp)
+            )
+            .clickable { onSelectedChange(!selected) }
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        mod.vo?.ModCard(currentSide = mod.side) ?: Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Text(
+                text = mod.slug.ifBlank { mod.projectId },
+                color = MaterialColor.GRAY_900.color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${extraModPlatformName(mod)} · ${mod.side.text}",
+                color = MaterialColor.BLUE_600.color,
+                fontSize = 13.sp
+            )
+            Text(
+                text = "暂时无法加载Mod详情",
+                color = MaterialColor.GRAY_700.color,
+                fontSize = 13.sp
+            )
+        }
+
+    }
+}

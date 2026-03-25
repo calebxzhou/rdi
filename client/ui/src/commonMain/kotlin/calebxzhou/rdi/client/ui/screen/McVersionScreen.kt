@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.ui.screen
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -9,16 +11,25 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.AlertDialog
+import androidx.compose.material.Checkbox
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
+import androidx.compose.material.RadioButton
+import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ModpackLocalDir
@@ -37,6 +48,23 @@ import calebxzhou.rdi.common.model.TaskProgress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+private data class PersonalDataCopyEntry(
+    val key: String,
+    val label: String,
+    val path: String,
+    val isDirectory: Boolean = true
+)
+
+private val personalDataCopyEntries = listOf(
+    PersonalDataCopyEntry("saves", "单机存档", "saves"),
+    PersonalDataCopyEntry("resourcepacks", "资源包", "resourcepacks"),
+    PersonalDataCopyEntry("shaderpacks", "光影包", "shaderpacks"),
+    PersonalDataCopyEntry("schematics", "投影蓝图", "schematics"),
+    PersonalDataCopyEntry("waypoints", "旅行地图坐标点", "waypoints"),
+    PersonalDataCopyEntry("xaero", "Xaero小地图坐标点", "xaero"),
+    PersonalDataCopyEntry("options", "键位画质设置", "options.txt", isDirectory = false)
+)
 
 /**
  * calebxzhou @ 2026-01-29 18:43
@@ -60,6 +88,28 @@ fun McVersionScreen(
     var packActionMessage by remember { mutableStateOf<String?>(null) }
     var fclDialogText by remember { mutableStateOf<String?>(null) }
     var fclDialogDirName by remember { mutableStateOf<String?>(null) }
+    var reinstallConfirmPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
+    var copyDataSourcePack by remember { mutableStateOf<ModpackLocalDir?>(null) }
+    var copyDataTargetVersionId by remember { mutableStateOf<String?>(null) }
+    var copyDataSelectedKeys by remember {
+        mutableStateOf(personalDataCopyEntries.map { it.key }.toSet())
+    }
+
+    fun copyPersonalData(sourceDir: java.io.File, targetDir: java.io.File, selectedKeys: Set<String>) {
+        personalDataCopyEntries
+            .filter { it.key in selectedKeys }
+            .forEach { entry ->
+                val sourceChild = sourceDir.resolve(entry.path)
+                if (!sourceChild.exists()) return@forEach
+                val targetChild = targetDir.resolve(entry.path)
+                if (entry.isDirectory) {
+                    sourceChild.copyRecursively(targetChild, overwrite = true)
+                } else {
+                    targetChild.parentFile?.mkdirs()
+                    sourceChild.copyTo(targetChild, overwrite = true)
+                }
+            }
+    }
 
     fun reload() {
         loading = true
@@ -234,23 +284,21 @@ fun McVersionScreen(
                                 enabled = selected != null,
                                
                             ) {
+                                reinstallConfirmPack = selected
+                            }
+                            Space8w()
+                            CircleIconButton(
+                                "\uE8C8",
+                                "复制个人数据",
+                                size = size,
+                                enabled = selected != null && localDirs.size > 1,
+                            ) {
                                 val packdir = selected ?: return@CircleIconButton
-                                scope.launch {
-                                    val version = server.makeRequest<Modpack.Version>(
-                                        "modpack/${packdir.vo.id}/version/${packdir.verName}"
-                                    ).data
-                                    if (version == null) {
-                                        errorMessage = "未找到对应版本信息，可能已被删除"
-                                        return@launch
-                                    }
-                                    val task =
-                                        version.startInstall(packdir.vo.mcVer, packdir.vo.modloader, packdir.vo.name)
-                                    if (onOpenTask != null) {
-                                        onOpenTask(task)
-                                    } else {
-                                        errorMessage = "暂不支持在此页面下载"
-                                    }
-                                }
+                                copyDataSourcePack = packdir
+                                copyDataTargetVersionId = localDirs.firstOrNull {
+                                    it.versionId != packdir.versionId
+                                }?.versionId
+                                copyDataSelectedKeys = personalDataCopyEntries.map { it.key }.toSet()
                             }
                             if (isDesktop) {
                                 Space8w()
@@ -260,6 +308,7 @@ fun McVersionScreen(
                                     size = size,
                                     enabled = selected != null,
                                     bgColor = MaterialColor.TEAL_900.color,
+                                    showText = false
                                    
                                 ) {
                                     val packdir = selected ?: return@CircleIconButton
@@ -277,12 +326,13 @@ fun McVersionScreen(
                             }
                             Space8w()
                             CircleIconButton(
-                                "\uEB9B", "测试运行", size = size, enabled = selected != null,
+                                "\uEB9B", "单机", size = size, enabled = selected != null,
+                                showText = false
                                
                             ) {
                                 selected?.let { packdir ->
                                     val playArgs = McPlayArgs(
-                                        title = "测试运行 - ${packdir.vo.name} ${packdir.verName}",
+                                        title = "单机 - ${packdir.vo.name} ${packdir.verName}",
                                         mcVer = packdir.vo.mcVer,
                                         versionId = packdir.versionId,
                                         "${server.hqUrl}\n${server.ip}:${server.gamePort}\ntest\n25565"
@@ -299,7 +349,7 @@ fun McVersionScreen(
                                     size = size,
                                     bgColor = MaterialColor.GRAY_900.color,
                                     enabled = selected != null,
-                                   
+                                    showText = false
                                 ) {
                                     val packdir = selected ?: return@CircleIconButton
                                     scope.launch {
@@ -415,5 +465,242 @@ fun McVersionScreen(
                 }
             }
         )
+    }
+
+    reinstallConfirmPack?.let { packdir ->
+        AlertDialog(
+            onDismissRequest = { reinstallConfirmPack = null },
+            title = { Text("确认重装") },
+            text = {
+                Text(
+                    "将重装${packdir.vo.name} ${packdir.verName}。\n" +
+                            "重装会清空该整合包的 所有个人数据\n--包括: 单机存档 小地图路径点 资源/光影包 日志等\n确定继续吗？"
+                )
+            },
+            dismissButton = {
+                TextButton(onClick = { reinstallConfirmPack = null }) {
+                    Text("取消")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    reinstallConfirmPack = null
+                    scope.launch {
+                        val version = server.makeRequest<Modpack.Version>(
+                            "modpack/${packdir.vo.id}/version/${packdir.verName}"
+                        ).data
+                        if (version == null) {
+                            errorMessage = "未找到对应版本信息，可能已被删除"
+                            return@launch
+                        }
+                        val task =
+                            version.startInstall(packdir.vo.mcVer, packdir.vo.modloader, packdir.vo.name)
+                        if (onOpenTask != null) {
+                            onOpenTask(task)
+                        } else {
+                            errorMessage = "暂不支持在此页面下载"
+                        }
+                    }
+                }) {
+                    Text("确认重装")
+                }
+            }
+        )
+    }
+
+    copyDataSourcePack?.let { sourcePack ->
+        val targetCandidates = localDirs.filter { it.versionId != sourcePack.versionId }
+        val selectedTarget = targetCandidates.firstOrNull { it.versionId == copyDataTargetVersionId }
+        Dialog(
+            onDismissRequest = {
+                copyDataSourcePack = null
+                copyDataTargetVersionId = null
+                copyDataSelectedKeys = personalDataCopyEntries.map { it.key }.toSet()
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier.fillMaxWidth(0.75f),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colors.surface,
+                elevation = 8.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 24.dp, vertical = 20.dp)
+                ) {
+                    Text("复制个人数据", style = MaterialTheme.typography.h6)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text("把个人数据复制到另一个整合包，请先勾选要复制的内容，再选择目标整合包。")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        personalDataCopyEntries.forEach { entry ->
+                            val checked = entry.key in copyDataSelectedKeys
+                            Surface(
+                                modifier = Modifier.clickable {
+                                    copyDataSelectedKeys = if (checked) {
+                                        copyDataSelectedKeys - entry.key
+                                    } else {
+                                        copyDataSelectedKeys + entry.key
+                                    }
+                                },
+                                shape = MaterialTheme.shapes.medium,
+                                color = if (checked) {
+                                    MaterialTheme.colors.primary.copy(alpha = 0.08f)
+                                } else {
+                                    MaterialTheme.colors.surface
+                                },
+                                border = BorderStroke(
+                                    width = if (checked) 2.dp else 1.dp,
+                                    color = if (checked) {
+                                        MaterialTheme.colors.primary
+                                    } else {
+                                        MaterialTheme.colors.onSurface.copy(alpha = 0.18f)
+                                    }
+                                ),
+                                elevation = 0.dp
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = checked,
+                                        onCheckedChange = { isChecked ->
+                                            copyDataSelectedKeys = if (isChecked) {
+                                                copyDataSelectedKeys + entry.key
+                                            } else {
+                                                copyDataSelectedKeys - entry.key
+                                            }
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(entry.label)
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Text(
+                        text = "来源：${sourcePack.vo.name} ${sourcePack.verName}",
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState())
+                    ) {
+                        if (targetCandidates.isEmpty()) {
+                            Text("没有可复制的目标整合包")
+                        } else {
+                            FlowRow(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                targetCandidates.forEach { target ->
+                                    val isSelected = copyDataTargetVersionId == target.versionId
+                                    Surface(
+                                        modifier = Modifier
+                                            .widthIn(min = 180.dp, max = 220.dp)
+                                            .clickable { copyDataTargetVersionId = target.versionId },
+                                        shape = MaterialTheme.shapes.medium,
+                                        color = if (isSelected) {
+                                            MaterialTheme.colors.primary.copy(alpha = 0.08f)
+                                        } else {
+                                            MaterialTheme.colors.surface
+                                        },
+                                        border = BorderStroke(
+                                            width = if (isSelected) 2.dp else 1.dp,
+                                            color = if (isSelected) {
+                                                MaterialTheme.colors.primary
+                                            } else {
+                                                MaterialTheme.colors.onSurface.copy(alpha = 0.18f)
+                                            }
+                                        ),
+                                        elevation = 0.dp
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            RadioButton(
+                                                selected = isSelected,
+                                                onClick = { copyDataTargetVersionId = target.versionId }
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = target.vo.name.ifBlank { "未命名整合包" },
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    fontWeight = FontWeight.Medium,
+                                                    fontSize = TextUnit(14f, TextUnitType.Sp)
+                                                )
+                                                Text(
+                                                    text = target.verName,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        TextButton(onClick = {
+                            copyDataSourcePack = null
+                            copyDataTargetVersionId = null
+                            copyDataSelectedKeys = personalDataCopyEntries.map { it.key }.toSet()
+                        }) {
+                            Text("取消")
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        TextButton(
+                            enabled = selectedTarget != null && copyDataSelectedKeys.isNotEmpty(),
+                            onClick = {
+                                val targetPack = selectedTarget ?: return@TextButton
+                                val selectedKeys = copyDataSelectedKeys
+                                copyDataSourcePack = null
+                                copyDataTargetVersionId = null
+                                copyDataSelectedKeys = personalDataCopyEntries.map { it.key }.toSet()
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        runCatching {
+                                            copyPersonalData(sourcePack.dir, targetPack.dir, selectedKeys)
+                                        }
+                                    }
+                                    if (result.isFailure) {
+                                        errorMessage = "复制个人数据失败: ${result.exceptionOrNull()?.message}"
+                                        packActionMessage = null
+                                    } else {
+                                        errorMessage = null
+                                        packActionMessage = "已复制个人数据到${targetPack.vo.name} ${targetPack.verName}"
+                                    }
+                                }
+                            }
+                        ) {
+                            Text("复制")
+                        }
+                    }
+                }
+            }
+        }
     }
 }
