@@ -8,7 +8,12 @@ import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
+import calebxzhou.rdi.common.model.ModrinthVersionInfo
+import calebxzhou.rdi.common.service.BackgroundTaskRunner
+import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.service.McServerPinger
+import calebxzhou.rdi.common.service.ModService
+import calebxzhou.rdi.common.service.ModrinthService
 import calebxzhou.rdi.common.util.ioScope
 import calebxzhou.rdi.common.util.objectId
 import calebxzhou.rdi.common.util.str
@@ -18,12 +23,14 @@ import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.model.WsMessage
 import calebxzhou.rdi.master.net.*
+import calebxzhou.rdi.master.service.HostService.addExtraMods
 import calebxzhou.rdi.master.service.HostService.addMember
 import calebxzhou.rdi.master.service.HostService.changeOptions
 import calebxzhou.rdi.master.service.HostService.changeVersion
 import calebxzhou.rdi.master.service.HostService.createHost
 import calebxzhou.rdi.master.service.HostService.delMember
 import calebxzhou.rdi.master.service.HostService.delete
+import calebxzhou.rdi.master.service.HostService.deleteExtraMods
 import calebxzhou.rdi.master.service.HostService.forceStop
 import calebxzhou.rdi.master.service.HostService.graceStop
 import calebxzhou.rdi.master.service.HostService.hostContext
@@ -56,6 +63,7 @@ import com.mongodb.client.model.UpdateOptions
 import com.mongodb.client.model.Updates
 import com.mongodb.client.model.Updates.combine
 import com.mongodb.client.model.Updates.set
+import io.ktor.client.call.body
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.routing.*
@@ -68,11 +76,13 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
+import org.bouncycastle.asn1.x500.style.RFC4519Style.st
 import org.bson.Document
 import org.bson.conversions.Bson
 import org.bson.types.ObjectId
 import java.io.Closeable
 import java.io.File
+import java.net.URI
 import java.nio.file.Files
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -84,7 +94,7 @@ val Host.dir get() = HOSTS_DIR.resolve(_id.str)
 
 // ---------- Routing DSL (mirrors teamRoutes style) ----------
 fun Route.hostRoutes() = route("/host") {
-    get("/online-player-ids"){
+    get("/online-player-ids") {
         response(data = HostService.getAllHostsOnlinePlayerIds())
     }
     route("") {
@@ -167,6 +177,20 @@ fun Route.hostRoutes() = route("/host") {
                 response(data = it.toDetailVo())
             } ?: err("无此地图")
         }
+        route("/mods") {
+            post {
+                val ctx = call.hostContext().needAdmin
+                ctx.addExtraMods(call.receive())
+                ok()
+            }
+            delete {
+                val ctx = call.hostContext().needAdmin
+                response(data = ctx.deleteExtraMods(call.receive()))
+            }
+            get {
+                response(data = call.hostContext().host.extraMods)
+            }
+        }
         /*post("/modpack/{modpackId}/{verName}") {
             call.hostContext().needAdmin.changeModpack(idParam("modpackId"), param("verName"))
             ok()
@@ -187,7 +211,7 @@ fun Route.hostRoutes() = route("/host") {
 
             }
         }
-        put("/quit"){
+        put("/quit") {
             call.hostContext().quit()
             ok()
         }
@@ -211,7 +235,7 @@ fun Route.hostRoutes() = route("/host") {
 
 }
 
-//单独拿出来是为了不走authentication
+//单独拿出来是为了不走authentication  proxy和mc要用
 fun Route.hostPlayRoutes() = route("/host") {
     get("/status") {
         val port = param("port").toInt()
@@ -255,7 +279,8 @@ data class HostContext(
 ) {
     var reqId = 0
     val targetMember get() = targetMemberNull ?: throw ParamError("玩家${player.name}不是此地图的受邀成员")
-    suspend fun getTargetPlayer() = PlayerService.getById(targetMember.id) ?: throw ParamError("玩家${player.name}不存在")
+    suspend fun getTargetPlayer() =
+        PlayerService.getById(targetMember.id) ?: throw ParamError("玩家${player.name}不存在")
 }
 
 object HostService {
@@ -273,7 +298,7 @@ object HostService {
     private const val PORT_START = 50000
     private const val PORT_END_EXCLUSIVE = 60000
     private const val SHUTDOWN_THRESHOLD = 20
-    private const val HOSTS_PER_PAGE = 48
+    private const val HOSTS_PER_PAGE = 100
     private const val HOST_WORKDIR_LIMIT_BYTES: Long = 1L * 1024 * 1024 * 1024
 
     private val idleMonitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -343,8 +368,8 @@ object HostService {
 
 
     private val Host.containerEnv
-        get() = {mcv: McVersion, loaderVersion: ModLoader.Version ->
-            val serverArg = when(mcv){
+        get() = { mcv: McVersion, loaderVersion: ModLoader.Version ->
+            val serverArg = when (mcv) {
                 McVersion.V182,
                 McVersion.V192,
                 McVersion.V201,
@@ -353,8 +378,8 @@ object HostService {
                 }
                 //1.16-
                 else
-                     //V122 V071
-                         -> {
+                    //V122 V071
+                    -> {
                     "-jar ${loaderVersion.serverJarName}"
                 }
             }
@@ -393,27 +418,15 @@ object HostService {
     private fun Host.writeServerProperties() {
         dir.resolve("allowed_symlinks.txt").writeText("[regex].*")
         dir.resolve("eula.txt").writeText("eula=true")
+        syncAllOpMarkers()
         "server.properties".run {
             this.jarResource(this).readAllString()
                 .replace("#{port}", port.toString())
                 .replace(
-                    "#{difficulty}", when (difficulty) {
-                        0 -> "peaceful"
-                        1 -> "easy"
-                        2 -> "normal"
-                        3 -> "hard"
-                        else -> "normal"
-                    }
-                )
+                    "#{difficulty}", getDifficultyText(difficulty))
                 .replace("#{level-type}", levelType)
                 .replace(
-                    "#{gamemode}", when (gameMode) {
-                        0 -> "survival"
-                        1 -> "creative"
-                        2 -> "adventure"
-                        else -> "survival"
-                    }
-                ).let {
+                    "#{gamemode}",getGameModeText(gameMode)).let {
                     dir.resolve(this).writeText(it)
                 }
         }
@@ -434,6 +447,21 @@ object HostService {
             }
             serverPropsFile.outputStream().use { serverProps.store(it, null) }
         }
+    }
+
+    private fun Host.syncAllOpMarkers() {
+        val allOpMarker = dir.resolve("R_ALL_OP")
+        val opsFile = dir.resolve("ops.json")
+        if (allowCheats) {
+            if (!allOpMarker.exists()) {
+                allOpMarker.writeText("")
+            }
+            return
+        }
+        runCatching { Files.deleteIfExists(allOpMarker.toPath()) }
+            .onFailure { err -> lgr.warn { "Host ${_id} 删除R_ALL_OP失败: ${err.message}" } }
+        runCatching { Files.deleteIfExists(opsFile.toPath()) }
+            .onFailure { err -> lgr.warn { "Host ${_id} 删除ops.json失败: ${err.message}" } }
     }
 
     private fun Host.ensureWorkdirQuota() {
@@ -524,7 +552,7 @@ object HostService {
                             if (error is RequestError && error.message == "早就停了") {
                                 lgr.info { "Host $hostId 容器已处于停止状态" }
                             } else {
-                                lgr.warn(error) { "Host $hostId 通道断开后停止容器失败: ${error.message}" }
+                                lgr.warn { "Host $hostId 通道断开后停止容器失败: ${error.message + "\n" + error}" }
                             }
                         }
                         .also {
@@ -549,7 +577,7 @@ object HostService {
             }
 
         val content = runCatching { crashFile.readText() }.getOrElse {
-            lgr.warn(it) { "Host ${_id} 读取 crash 报告失败: ${crashFile.absolutePath}" }
+            lgr.warn { "host${this.name}读取 crash 报告失败: ${crashFile.absolutePath}" }
             return false
         }
 
@@ -679,8 +707,8 @@ object HostService {
             val hostModFile = dir.resolve("mods").resolve(name)
             if (hostModFile.exists()) {
                 runCatching { hostModFile.delete() }
-                    .onSuccess { lgr.info { "Host ${_id} 删除崩溃 mod 文件: $name" } }
-                    .onFailure { lgr.warn(it) { "Host ${_id} 删除 mod 文件失败: $name" } }
+                    .onSuccess { lgr.info { "Host ${name} 删除崩溃 mod 文件: $name" } }
+                    .onFailure { lgr.warn { "Host ${name} 删除 mod 文件失败: $name" } }
             }
         }
 
@@ -729,13 +757,14 @@ object HostService {
                             || line.contains("Failed to start the minecraft server")
                             || line.contains("Minecraft Crash Report")
                             || line.contains("Missing or unsupported mandatory dependencies")
-                        )) {
+                            )
+                ) {
                     if (triggered.compareAndSet(false, true)) {
                         timeoutJob.cancel()
                         closeListener()
                         ioScope.launch {
                             val ok = runCatching { analyzeCrashReport() }.getOrElse {
-                                lgr.warn(it) { "Host ${_id} 分析崩溃报告失败" }
+                                lgr.warn(it) { "Host ${name} 分析崩溃报告失败" }
                                 false
                             }
                             if (!ok) {
@@ -743,7 +772,7 @@ object HostService {
                                 markSkipWorldSizeUpdate(_id)
                                 runCatching { DockerService.forceStop(_id.str) }
                                     .onFailure { err ->
-                                        lgr.warn(err) { "Host ${_id} 强制停止失败" }
+                                        lgr.warn(err) { "Host ${name} 强制停止失败" }
                                     }
                             }
                         }
@@ -752,7 +781,7 @@ object HostService {
             },
             onError = { err ->
                 if (!triggered.get()) {
-                    lgr.warn(err) { "Host ${_id} 监听日志失败" }
+                    lgr.warn(err) { "Host ${name} 监听日志失败" }
                     timeoutJob.cancel()
                 }
             }
@@ -806,7 +835,7 @@ object HostService {
                 } catch (cancel: CancellationException) {
                     throw cancel
                 } catch (t: Throwable) {
-                    lgr.warn(t) { "Idle monitor tick failed: ${t.message}" }
+                    lgr.warn { "Idle monitor tick failed: ${t.message + "\n" + t}" }
                 }
                 delay(1.minutes)
             }
@@ -828,7 +857,7 @@ object HostService {
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (t: Throwable) {
-            lgr.warn(t) { "Failed to fetch running hosts: ${t.message}" }
+            lgr.warn { "Failed to fetch running hosts: ${t.message + "\n" + t}" }
             return
         }
         if (runningHosts.isEmpty()) return
@@ -838,7 +867,11 @@ object HostService {
                 host.getOnlinePlayers()
             } catch (cancel: CancellationException) {
                 throw cancel
-            }.mapNotNull { if(it == ObjectId("000000000000000000000000")) RAccount.DEFAULT else PlayerService.getById(it) }
+            }.mapNotNull {
+                if (it == ObjectId("000000000000000000000000")) RAccount.DEFAULT else PlayerService.getById(
+                    it
+                )
+            }
             lgr.info { "${host.name}在线：${onlinePlayers.map { it.name }}" }
             if (onlinePlayers.isEmpty()) {
                 if (forceStop) {
@@ -887,7 +920,7 @@ object HostService {
             lgr.info { "Stopped host $name ($reason)" }
             refreshWorldSizeAfterStop(waitForStop = false)
         }.onFailure {
-            lgr.warn(it) { "Failed to stop host ${name}: ${it.message}" }
+            lgr.warn { "Failed to stop host ${name + "\n" + it}: ${it.message}" }
         }
         clearShutFlag(_id)
     }
@@ -904,7 +937,7 @@ object HostService {
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (t: Throwable) {
-            lgr.warn(t) { "Failed to ping host ${this._id}: ${t.message}" }
+            lgr.warn { "Failed to ping host ${this._id}: ${t.message}" }
             emptyList()
         }
     }
@@ -946,7 +979,7 @@ object HostService {
         if (getByOwner(playerId).size > 3 && !this.isDav) {
             throw RequestError("最多只可创建3张地图")
         }
-        if(host.name.contains("公测") && !this.isDav){
+        if (host.name.contains("公测") && !this.isDav) {
             throw RequestError("无权创建公测地图")
         }
         val world = resolveWorld(host.saveWorld, host.worldId, host.modpackId)
@@ -1019,7 +1052,7 @@ object HostService {
         ensureWorkdirQuota()
 
         val sharedLibsDir = modpack.libsDir.canonicalFile.also { it.mkdirs() }
-        val loaderVer = modpack.mcVer.loaderVersions[modpack.modloader]?: throw RequestError("找不到对应版本的运行库")
+        val loaderVer = modpack.mcVer.loaderVersions[modpack.modloader] ?: throw RequestError("找不到对应版本的运行库")
         val rdiCore = "rdi-5-mc-server-${modpack.mcVer.mcVer}-${modpack.modloader}.jar"
         val mounts = mutableListOf(
             Mount()
@@ -1047,8 +1080,20 @@ object HostService {
                             .withTarget("/opt/server/mods/${mod.fileName}")
                     }
                 }
+            extraMods
+                .filter { it.side != Mod.Side.CLIENT && !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX) }
+                .forEach { mod ->
+                    val source = DL_MOD_DIR.resolve(mod.fileName)
+                    if (!source.exists()) {
+                        throw RequestError("主机额外Mod文件缺失: ${mod.fileName}")
+                    }
+                    this += Mount()
+                        .withType(MountType.BIND)
+                        .withSource(source.absolutePath)
+                        .withTarget("/opt/server/mods/${mod.fileName}")
+                }
             //1.16.5以下装入核心
-            if(modpack.mcVer == McVersion.V122 || modpack.mcVer == McVersion.V071){
+            if (modpack.mcVer == McVersion.V122 || modpack.mcVer == McVersion.V071) {
                 this += Mount()
                     .withType(MountType.BIND)
                     .withSource(sharedLibsDir.resolve(loaderVer.serverJarName).absolutePath)
@@ -1080,7 +1125,7 @@ object HostService {
                 this._id.str,
                 mounts,
                 image,
-                containerEnv(modpack.mcVer,modLoaderVersion)
+                containerEnv(modpack.mcVer, modLoaderVersion)
             )
         } ?: throw RequestError("不支持的mod加载器")
     }
@@ -1140,17 +1185,37 @@ object HostService {
         val updates = mutableListOf<Bson>()
         payload.gameRules?.let { rules ->
             updates += set(Host::gameRules.name, rules)
+            if(host.playable){
+                rules.forEach { (k, v) -> sendCommand("gamerule $k $v") }
+            }
         }
         payload.name?.let {
             it.validateName()
             updates += set(Host::name.name, it)
         }
         payload.packVer?.let { updates += set(Host::packVer.name, it) }
-        payload.difficulty?.let { updates += set(Host::difficulty.name, it) }
-        payload.gameMode?.let { updates += set(Host::gameMode.name, it) }
+        payload.difficulty?.let {
+            updates += set(Host::difficulty.name, it)
+            if(host.playable){
+                val modeStr = getDifficultyText(it)
+                sendCommand("difficulty ${modeStr}")
+            }
+        }
+        payload.gameMode?.let {
+            updates += set(Host::gameMode.name, it)
+            if(host.playable){
+                val modeStr = getGameModeText(it)
+                sendCommand("defaultgamemode ${modeStr}")
+                sendCommand("gamemode ${modeStr} @a")
+            }
+        }
         payload.levelType?.takeIf { it.isNotBlank() }?.let { updates += set(Host::levelType.name, it) }
         payload.whitelist?.let { updates += set(Host::whitelist.name, it) }
-        payload.allowCheats?.let { updates += set(Host::allowCheats.name, it) }
+        payload.allowCheats?.let {
+            updates += set(Host::allowCheats.name, it)
+            if (host.playable)
+                sendCommand("${if (it) "op" else "deop"} @a")
+        }
         if (updates.isNotEmpty()) {
             val update = if (updates.size == 1) updates.first() else combine(updates)
             dbcl.updateOne(eq("_id", host._id), update)
@@ -1232,7 +1297,7 @@ object HostService {
                     }
                 }
             }
-            lgr.warn(t) { "发送命令到 $hostId 失败: ${t.message}" }
+            lgr.warn { "发送命令到 $hostId 失败: ${t.message + "\n" + t}" }
             throw RequestError("发送命令失败: ${t.message ?: "未知错误"}")
         }
     }
@@ -1245,8 +1310,7 @@ object HostService {
             }
             return status
         }
-
-
+    val Host.playable get() = status == HostStatus.PLAYABLE
     suspend fun findByModpackVersion(modpackId: ObjectId, verName: String): List<Host> {
         return dbcl.find(
             and(
@@ -1504,6 +1568,259 @@ object HostService {
         dbcl.find(eq("worldId", worldId)).firstOrNull()
 
     suspend fun getById(id: ObjectId): Host? = dbcl.find(eq("_id", id)).firstOrNull()
+
+    private fun modIdentity(mod: Mod): String {
+        return buildString {
+            append(mod.platform)
+            append(':')
+            append(mod.projectId)
+            append(':')
+            append(mod.fileId)
+            append(':')
+            append(mod.hash)
+            append(':')
+            append(mod.slug)
+        }
+    }
+
+    private fun projectIdentity(mod: Mod): String = mod.normalizedProjectId
+
+    private fun slugIdentity(mod: Mod): String = mod.normalizedSlug
+
+    private fun modLabel(mod: Mod): String = mod.displaySlugOrProject
+
+    private fun duplicateRequestSlugLabels(mods: List<Mod>): List<String> = mods
+        .groupBy(::slugIdentity)
+        .filterKeys { it.isNotBlank() }
+        .values
+        .filter { it.size > 1 }
+        .map { modLabel(it.first()) }
+        .distinct()
+
+    private fun duplicateExistingSlugLabels(candidateMods: List<Mod>, existingMods: List<Mod>): List<String> {
+        val existingSlugs = existingMods.map(::slugIdentity)
+            .filter { it.isNotBlank() }
+            .toSet()
+        return candidateMods
+            .filter { slugIdentity(it).isNotBlank() && slugIdentity(it) in existingSlugs }
+            .map(::modLabel)
+            .distinct()
+    }
+
+    private fun String.isValidDownloadUrl(): Boolean {
+        return runCatching {
+            val uri = URI(this)
+            val scheme = uri.scheme?.lowercase()
+            (scheme == "http" || scheme == "https") && !uri.host.isNullOrBlank()
+        }.getOrDefault(false)
+    }
+
+    private suspend fun validateExtraMod(mod: Mod) {
+        if (mod.projectId.isBlank()) throw RequestError("Mod projectId不能为空")
+        if (mod.fileId.isBlank()) throw RequestError("Mod fileId不能为空")
+        if (mod.slug.isBlank()) throw RequestError("Mod slug不能为空")
+
+        when (mod.platform.lowercase()) {
+            "mr" -> {
+                if (mod.downloadUrls.none { it.isValidDownloadUrl() }) {
+                    throw RequestError("Modrinth Mod ${mod.slug} 缺少有效下载链接")
+                }
+                val projects = ModrinthService.getMultipleProjects(listOf(mod.projectId))
+                if (projects.isEmpty()) {
+                    throw RequestError("Modrinth不存在此项目: ${mod.projectId}")
+                }
+                val version = runCatching {
+                    ModrinthService.mrreq("version/${mod.fileId}").body<ModrinthVersionInfo>()
+                }.getOrElse {
+                    throw RequestError("Modrinth不存在此版本: ${mod.fileId}")
+                }
+                if (version.projectId != mod.projectId) {
+                    throw RequestError("Modrinth版本${mod.fileId}不属于项目${mod.projectId}")
+                }
+            }
+
+            "cf" -> {
+                val projectId = mod.projectId.toIntOrNull()
+                    ?: throw RequestError("CurseForge projectId无效: ${mod.projectId}")
+                val fileId = mod.fileId.toIntOrNull()
+                    ?: throw RequestError("CurseForge fileId无效: ${mod.fileId}")
+                val project = CurseForgeService.getModsInfo(listOf(projectId)).firstOrNull { it.id == projectId }
+                    ?: throw RequestError("CurseForge不存在此项目: ${mod.projectId}")
+                val fileInfo = CurseForgeService.getModFileInfo(projectId, fileId)
+                    ?: throw RequestError("CurseForge不存在此文件: ${mod.fileId}")
+                if (fileInfo.realDownloadUrl.isBlank() || !fileInfo.realDownloadUrl.isValidDownloadUrl()) {
+                    throw RequestError("CurseForge Mod ${project.slug} 缺少有效下载链接")
+                }
+            }
+
+            else -> throw RequestError("不支持的Mod平台: ${mod.platform}")
+        }
+    }
+
+    suspend fun HostContext.addExtraMods(mods: List<Mod>) {
+        if (mods.isEmpty()) throw RequestError("extraMods不能为空")
+
+        val duplicateRequestIds = mods.groupBy(::projectIdentity)
+            .filterKeys { it.isNotBlank() }
+            .filterValues { it.size > 1 }
+            .keys
+        if (duplicateRequestIds.isNotEmpty()) {
+            throw RequestError("请求中包含重复Mod projectId: ${duplicateRequestIds.joinToString()}")
+        }
+        val duplicateRequestSlugs = duplicateRequestSlugLabels(mods)
+        if (duplicateRequestSlugs.isNotEmpty()) {
+            throw RequestError("请求中包含同slug的重复Mod: ${duplicateRequestSlugs.joinToString()}")
+        }
+
+        val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此整合包")
+        val baseVersion = modpack.getVersion(host.packVer) ?: throw RequestError("无此整合包版本: ${host.packVer}")
+        val existingProjectIds = (host.extraMods + baseVersion.mods).map(::projectIdentity).toSet()
+        val duplicateExistingIds = mods.map(::projectIdentity).filter { it in existingProjectIds }
+        if (duplicateExistingIds.isNotEmpty()) {
+            val duplicateExistingSlugs = mods
+                .filter { projectIdentity(it) in duplicateExistingIds }
+                .map { it.slug.trim().ifBlank { projectIdentity(it) } }
+                .distinct()
+            throw RequestError("主机已有这些mod: ${duplicateExistingSlugs.joinToString()}")
+        }
+        val duplicateExistingSlugs = duplicateExistingSlugLabels(mods, host.extraMods + baseVersion.mods)
+        if (duplicateExistingSlugs.isNotEmpty()) {
+            throw RequestError("主机已有这些同slug mod: ${duplicateExistingSlugs.joinToString()}")
+        }
+
+        val mailId = MailService.sendSystemMail(
+            player._id,
+            "主机附加Mod添加中",
+            "开始为地图${host.name}添加${mods.size}个附加Mod"
+        )._id
+        enqueueAddExtraMods(host._id, host.name, host.modpackId, host.packVer, mods, mailId)
+    }
+
+    private fun enqueueAddExtraMods(
+        hostId: ObjectId,
+        hostName: String,
+        modpackId: ObjectId,
+        packVer: String,
+        mods: List<Mod>,
+        mailId: ObjectId
+    ) {
+        ioScope.launch {
+            runCatching {
+                MailService.changeMail(mailId, newContent = "开始校验Mod信息")
+                mods.forEachIndexed { index, mod ->
+                    validateExtraMod(mod)
+                    MailService.changeMail(mailId, newContent = "已校验 ${index + 1}/${mods.size}: ${mod.slug}")
+                }
+
+                val currentHost = getById(hostId) ?: throw RequestError("无此地图")
+                val modpack = ModpackService.getById(modpackId) ?: throw RequestError("无此整合包")
+                val baseVersion = modpack.getVersion(packVer) ?: throw RequestError("无此整合包版本: $packVer")
+                val existingProjectIds = (currentHost.extraMods + baseVersion.mods).map(::projectIdentity).toSet()
+                val duplicateExistingMods = mods.filter { projectIdentity(it) in existingProjectIds }
+                if (duplicateExistingMods.isNotEmpty()) {
+                    val duplicateSlugs = duplicateExistingMods
+                        .map { it.slug.trim().ifBlank { projectIdentity(it) } }
+                        .distinct()
+                    throw RequestError("主机已有这些mod: ${duplicateSlugs.joinToString()}")
+                }
+                val duplicateExistingSlugMods =
+                    duplicateExistingSlugLabels(mods, currentHost.extraMods + baseVersion.mods)
+                if (duplicateExistingSlugMods.isNotEmpty()) {
+                    throw RequestError("主机已有这些同slug mod: ${duplicateExistingSlugMods.joinToString()}")
+                }
+
+                with(BackgroundTaskRunner) {
+                    ModService.downloadModsTask(mods).start { progress ->
+                        val percentText = progress.fraction?.let { fraction ->
+                            " ${(fraction.coerceIn(0f, 1f) * 100).toInt()}%"
+                        }.orEmpty()
+                        MailService.changeMail(mailId, newContent = "${progress.message}$percentText")
+                    }
+                }
+
+                val latestHost = getById(hostId) ?: throw RequestError("无此地图")
+                val latestModpack = ModpackService.getById(latestHost.modpackId) ?: throw RequestError("无此整合包")
+                val latestBaseVersion = latestModpack.getVersion(latestHost.packVer)
+                    ?: throw RequestError("无此整合包版本: ${latestHost.packVer}")
+                val latestExistingProjectIds =
+                    (latestHost.extraMods + latestBaseVersion.mods).map(::projectIdentity).toSet()
+                val latestExistingSlugs = (latestHost.extraMods + latestBaseVersion.mods)
+                    .map(::slugIdentity)
+                    .filter { it.isNotBlank() }
+                    .toSet()
+                val modsToAppend = mods.filterNot {
+                    projectIdentity(it) in latestExistingProjectIds ||
+                            (slugIdentity(it).isNotBlank() && slugIdentity(it) in latestExistingSlugs)
+                }
+                if (modsToAppend.isEmpty()) {
+                    throw RequestError("这些mod在任务执行期间已被添加到主机")
+                }
+
+                val updatedMods = (latestHost.extraMods + modsToAppend)
+                    .distinctBy(::modIdentity)
+                    .toList()
+                dbcl.updateOne(
+                    eq("_id", hostId),
+                    set(Host::extraMods.name, updatedMods)
+                )
+                val skippedCount = mods.size - modsToAppend.size
+                MailService.changeMail(
+                    mailId,
+                    newTitle = "主机附加Mod添加完成",
+                    newContent = buildString {
+                        append("已为地图")
+                        append(hostName)
+                        append("添加")
+                        append(modsToAppend.size)
+                        append("个附加Mod")
+                        if (skippedCount > 0) {
+                            append("，另有")
+                            append(skippedCount)
+                            append("个mod因执行期间已存在而跳过")
+                        }
+                    }
+                )
+            }.onFailure { error ->
+                lgr.error { "添加主机附加Mod失败 host=$hostId\n$error" }
+                MailService.changeMail(
+                    mailId,
+                    newTitle = "主机附加Mod添加失败",
+                    newContent = "无法为地图${hostName}添加附加Mod: ${error.message ?: error}"
+                )
+            }
+        }
+    }
+
+    suspend fun HostContext.deleteExtraMods(projectIds: List<String>): List<Mod> {
+        val normalizedProjectIds = projectIds.map { it.trim() }.filter { it.isNotBlank() }.toSet()
+        if (normalizedProjectIds.isEmpty()) throw RequestError("projectIds不能为空")
+
+        val removedMods = host.extraMods
+            .filter { projectIdentity(it) in normalizedProjectIds }
+            .toList()
+        val updatedMods = host.extraMods
+            .filterNot { projectIdentity(it) in normalizedProjectIds }
+            .toList()
+        dbcl.updateOne(
+            eq("_id", host._id),
+            set(Host::extraMods.name, updatedMods)
+        )
+        removedMods.forEach { mod ->
+            val hostModPath = host.dir.resolve("mods").resolve(mod.fileName).toPath()
+            runCatching { Files.deleteIfExists(hostModPath) }
+                .onSuccess { deleted ->
+                    if (deleted) {
+                        lgr.info { "Host ${host._id} 删除附加Mod文件: ${hostModPath.fileName}" }
+                    }
+                }
+                .onFailure { err ->
+                    lgr.warn { "Host ${host._id} 删除附加Mod文件失败 ${hostModPath.fileName}: ${err.message}" }
+                }
+        }
+        host.extraMods = updatedMods
+        return updatedMods
+    }
+
     suspend fun Host.toDetailVo(): Host.DetailVo {
         val modpack = ModpackService.getById(modpackId)
         val modpackVo = modpack?.toBriefVo()
@@ -1561,7 +1878,7 @@ object HostService {
                         lgr.info { "Host ${_id} world size updated: ${size} bytes" }
                     }
                     .onFailure { err ->
-                        lgr.warn(err) { "Host ${_id} 更新存档大小失败: ${err.message}" }
+                        lgr.warn { "Host ${name} 更新存档大小失败: ${err.message}" }
                     }
             }
         }
@@ -1582,7 +1899,7 @@ object HostService {
         val current = getById(host._id) ?: throw RequestError("无此地图")
         val recipient = targetMember
         if (current.ownerId == recipient.id) throw RequestError("不能转给自己")
-        if(!getTargetPlayer().hasMsid) throw RequestError("找不到对方的微软账号")
+        if (!getTargetPlayer().hasMsid) throw RequestError("找不到对方的微软账号")
         val previousOwner = current.members.find { it.id == current.ownerId }
             ?: throw RequestError("当前拥有者不在成员列表")
         val hasRecipient = current.members.any { it.id == recipient.id }
@@ -1662,3 +1979,21 @@ object HostService {
     }
 }
 
+
+fun getGameModeText(modeId: Int): String {
+    return when (modeId) {
+        0 -> "survival"
+        1 -> "creative"
+        2 -> "adventure"
+        else -> "survival"
+    }
+}
+fun getDifficultyText(diffId: Int): String {
+    return when (diffId) {
+        0 -> "peaceful"
+        1 -> "easy"
+        2 -> "normal"
+        3 -> "hard"
+        else -> "normal"
+    }
+}
