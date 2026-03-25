@@ -84,7 +84,7 @@ class DynamicProxyFrontendHandler(
             try {
                 handleHandshake(ctx, buffer)
             } catch (e: Exception) {
-                lgr.error(e) { "Error parsing handshake" }
+                lgr.error { "Error parsing handshake" + "\n" + e }
                 ctx.channel().close()
             } finally {
                 ReferenceCountUtil.release(msg)
@@ -98,7 +98,7 @@ class DynamicProxyFrontendHandler(
             try {
                 handleStatusPacket(ctx, buffer)
             } catch (e: Exception) {
-                lgr.error(e) { "Error handling status packet" }
+                lgr.error { "Error handling status packet" + "\n" + e }
                 ctx.channel().close()
             } finally {
                 ReferenceCountUtil.release(msg)

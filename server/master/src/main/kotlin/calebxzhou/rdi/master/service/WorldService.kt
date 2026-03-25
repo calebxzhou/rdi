@@ -340,7 +340,7 @@ object WorldService {
                 content = "开始全量构建地图缓存（全部维度/区块）\n"
             )._id
         }.onFailure {
-            lgr.warn(it) { "发送地图缓存构建邮件失败: world=${_id.toHexString()}" }
+            lgr.warn { "发送地图缓存构建邮件失败: world=${_id.toHexString() + "\n" + it }" }
         }.getOrNull()
 
         fun updateMail(message: String, title: String? = null, append: Boolean = true) {
@@ -431,7 +431,7 @@ object WorldService {
             updateMail("构建任务已取消", title = "地图缓存构建已取消：$name")
             throw cancelled
         } catch (e: Throwable) {
-            lgr.error(e) { "surface cache build crashed: world=${_id.toHexString()}" }
+            lgr.error { "surface cache build crashed: world=${_id.toHexString() + "\n" + e }" }
             updateMail("构建任务异常终止：${e.message ?: "unknown"}", title = "地图缓存构建失败：$name")
         } finally {
             worldSurfaceBuildInProgress.remove(worldKey)
@@ -509,8 +509,7 @@ object WorldService {
                             throw cancelled
                         } catch (e: Throwable) {
                             failedChunks.incrementAndGet()
-                            lgr.warn(e) {
-                                "构建区块surface失败: world=${_id.toHexString()}, dim=$dimensionCode, " +
+                            lgr.warn { "构建区块surface失败: world=${_id.toHexString() + "\n" + e }, dim=$dimensionCode, " +
                                     "region=($regionX,$regionZ), localIndex=$localIndex"
                             }
                         } finally {
@@ -529,7 +528,7 @@ object WorldService {
                 }
             }.onFailure { e ->
                 if (e is CancellationException) throw e
-                lgr.warn(e) { "读取region失败: ${regionFile.absolutePath}" }
+                lgr.warn { "读取region失败: ${regionFile.absolutePath + "\n" + e }" }
                 val remaining = changedIndices.size - changedProcessed
                 repeat(remaining.coerceAtLeast(0)) {
                     failedChunks.incrementAndGet()
@@ -649,7 +648,7 @@ object WorldService {
                 )
             }
         }.onFailure { e ->
-            lgr.warn(e) { "读取region头失败: ${regionFile.absolutePath}" }
+            lgr.warn { "读取region头失败: ${regionFile.absolutePath + "\n" + e }" }
         }.getOrNull()
     }
 
@@ -1099,8 +1098,7 @@ object WorldService {
                 ReplaceOptions().upsert(true)
             )
         }.onFailure {
-            lgr.warn(it) {
-                "保存region surface缓存失败: world=${_id.toHexString()}, dim=${data.dimension}, " +
+            lgr.warn { "保存region surface缓存失败: world=${_id.toHexString() + "\n" + it }, dim=${data.dimension}, " +
                     "region=(${data.regionX},${data.regionZ})"
             }
         }
@@ -1121,8 +1119,7 @@ object WorldService {
                 )
             )
         }.onFailure {
-            lgr.warn(it) {
-                "删除region surface缓存失败: world=${_id.toHexString()}, dim=$dimensionCode, region=($regionX,$regionZ)"
+            lgr.warn { "删除region surface缓存失败: world=${_id.toHexString() + "\n" + it }, dim=$dimensionCode, region=($regionX,$regionZ)"
             }
         }
     }
@@ -1232,7 +1229,7 @@ object WorldService {
                 IndexOptions().name("idx_world_dimension")
             )
         }.onFailure {
-            lgr.warn(it) { "初始化 world_surface 索引失败" }
+            lgr.warn { "初始化 world_surface 索引失败" + "\n" + it }
         }
     }
 
@@ -1250,7 +1247,7 @@ object WorldService {
             lgr.info { "创建 world_surface 集合成功（zstd 压缩）" }
         }.onFailure { err ->
             if (isNamespaceExistsError(err)) return
-            lgr.warn(err) { "创建 zstd world_surface 失败，回退默认配置创建集合" }
+            lgr.warn { "创建 zstd world_surface 失败，回退默认配置创建集合" + "\n" + err }
             runCatching {
                 DB.createCollection(WORLD_SURFACE_COLLECTION)
                 lgr.info { "创建 world_surface 集合成功（默认压缩）" }
@@ -1368,3 +1365,4 @@ object WorldService {
         return id == "air" || id == "cave_air" || id == "void_air" || id == "barrier" || id == "structure_void"
     }
 }
+

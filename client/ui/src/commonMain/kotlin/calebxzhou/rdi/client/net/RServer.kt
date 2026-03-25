@@ -78,7 +78,7 @@ class RServer(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            lgr.warn(e) { "request failed: $method $path" }
+            lgr.warn { "request failed: $method $path" + "\n" + e }
             throw RequestError("无法连接服务器 请检查网络连接")
         }
     }
@@ -171,7 +171,7 @@ fun CoroutineScope.sse(
     } catch (cancel: CancellationException) {
         throw cancel
     } catch (t: Throwable) {
-        lgr.error(t) { "[SSE] Connection failed" }
+        lgr.error { "[SSE] Connection failed" + "\n" + t }
         onError(t)
         return@launch
     }
@@ -218,3 +218,4 @@ inline fun <reified T> CoroutineScope.rdiRequest(
         onDone()
     }
 }
+

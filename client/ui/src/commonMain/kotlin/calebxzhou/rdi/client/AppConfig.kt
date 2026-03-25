@@ -58,8 +58,9 @@ data class AppConfig(
                 CommonConfig.updateProxyConfig(config.proxyConfig)
                 configFile.writeText(Toml.encodeToString(serializer(), config))
             } catch (e: Exception) {
-                lgr.warn(e) { "save config failed" }
+                lgr.warn { "save config failed" + "\n" + e }
             }
         }
     }
 }
+

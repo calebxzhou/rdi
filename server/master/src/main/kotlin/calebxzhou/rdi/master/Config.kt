@@ -78,7 +78,7 @@ data class AppConfig(
                 try {
                     Toml.decodeFromString(serializer(), configFile.readText())
                 } catch (e: Exception) {
-                    lgr.warn(e) { "read config failed, use default and save" }
+                    lgr.warn { "read config failed, use default and save" + "\n" + e }
                     AppConfig().also { save(it) }
                 }
             } else {
@@ -91,8 +91,9 @@ data class AppConfig(
             try {
                 configFile.writeText(Toml.encodeToString(serializer(), config))
             } catch (e: Exception) {
-                lgr.warn(e) { "save config failed" }
+                lgr.warn { "save config failed" + "\n" + e }
             }
         }
     }
 }
+

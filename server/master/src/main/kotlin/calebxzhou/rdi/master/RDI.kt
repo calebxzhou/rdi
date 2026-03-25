@@ -137,7 +137,7 @@ fun startServer() {
                 keyStore = createKeyStoreFromPem(certFile, keyFile)
                 lgr.info { "SSL enabled with cert: $certPath, key: ${keyFile.absolutePath}" }
             } catch (e: Exception) {
-                lgr.error(e) { "Failed to load SSL certificate, starting HTTP only" }
+                lgr.error { "Failed to load SSL certificate, starting HTTP only" + "\n" + e }
             }
         }
     }

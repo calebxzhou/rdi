@@ -73,7 +73,7 @@ object PlayerService {
         return try {
             server.makeRequest<RAccount.Dto>("player/${uid}/info").data ?: RAccount.DEFAULT.dto
         } catch (e: Exception) {
-            lgr.warn(e){"获取玩家信息失败"}
+            lgr.warn { "获取玩家信息失败" + "\n" + e }
             RAccount.DEFAULT.dto
         }
     }
@@ -85,7 +85,7 @@ object PlayerService {
             server.makeRequest<List<RAccount.Dto>>("player/infos", params = mapOf("ids" to idsParam)).data
                 ?: emptyList()
         } catch (e: Exception) {
-            lgr.warn(e) { "批量获取玩家信息失败" }
+            lgr.warn { "批量获取玩家信息失败" + "\n" + e }
             emptyList()
         }
     }
