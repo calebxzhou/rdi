@@ -31,7 +31,6 @@ dependencies {
     // Source: https://mvnrepository.com/artifact/org.mongodb/bson-kotlinx
     implementation("org.mongodb:bson-kotlinx:5.6.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-    implementation("com.electronwill.night-config:toml:3.8.3")
     implementation("net.peanuuutz.tomlkt:tomlkt:0.5.0")
 
     implementation("io.ktor:ktor-client-core:${ktorVersion}")
