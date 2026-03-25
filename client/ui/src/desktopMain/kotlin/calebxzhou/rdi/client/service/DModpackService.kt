@@ -1,7 +1,9 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.*
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.ui.loadResourceBytes
 import calebxzhou.rdi.common.exception.ModpackException
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.service.CurseForgeService.loadInfoCurseForge
@@ -30,6 +32,7 @@ import javax.imageio.IIOImage
 import javax.imageio.ImageIO
 import javax.imageio.ImageWriteParam
 
+private val lgr by Loggers
 
 // ==================== Upload-only code (desktop-only) ====================
 
@@ -54,6 +57,7 @@ suspend fun parseUploadPayload(
     val prepared = try {
         prepareModpackSource(file)
     } catch (e: Exception) {
+        lgr.warn { "处理整合包失败: ${file.absolutePath + "\n" + e }" }
         onError(e.message ?: "处理整合包失败")
         return null
     }
@@ -62,14 +66,21 @@ suspend fun parseUploadPayload(
         val msg = "无效的整合包文件：缺少 overrides 目录"
         onError(msg)
         onProgress(msg)
-        prepared.rootDir.deleteRecursively()
+        prepared.rootDir.deleteRecursivelyNoSymlink()
         return null
     }
     val embeddedMods = collectEmbeddedModFiles(prepared.rootDir)
-    val embeddedMatches = matchEmbeddedModsAll(
-        files = embeddedMods,
-        onProgress = onProgress
-    )
+    val embeddedMatches = try {
+        matchEmbeddedModsAll(
+            files = embeddedMods,
+            onProgress = onProgress
+        )
+    } catch (e: Exception) {
+        lgr.warn { "匹配整合包内置mod失败: ${file.absolutePath + "\n" + e }" }
+        onError(e.message ?: "匹配整合包内置mod失败")
+        prepared.rootDir.deleteRecursivelyNoSymlink()
+        return null
+    }
     if (embeddedMatches.removeFiles.isNotEmpty()) {
         embeddedMatches.removeFiles.forEach { it.delete() }
     }
@@ -77,9 +88,9 @@ suspend fun parseUploadPayload(
         val loaded = try {
             ModrinthService.loadModpack(prepared.rootDir).getOrThrow()
         } catch (e: Exception) {
-            e.printStackTrace()
+            lgr.warn { "解析Modrinth整合包失败: ${file.absolutePath + "\n" + e }" }
             onError(e.message ?: "解析整合包失败")
-            prepared.rootDir.deleteRecursively()
+            prepared.rootDir.deleteRecursivelyNoSymlink()
             return null
         }
         val mcVersion = loaded.mcVersion
@@ -104,15 +115,16 @@ suspend fun parseUploadPayload(
     if (packType != PackType.CURSEFORGE) {
         onError("无效的整合包文件：缺少 manifest.json 或 modrinth.index.json")
         onProgress("无效的整合包文件：缺少 manifest.json 或 modrinth.index.json")
-        prepared.rootDir.deleteRecursively()
+        prepared.rootDir.deleteRecursivelyNoSymlink()
         return null
     }
     val modpackData = try {
         loadCurseForgeFromDir(prepared.rootDir)
     } catch (e: Exception) {
+        lgr.warn { "解析CurseForge整合包失败: ${file.absolutePath + "\n" + e }" }
         onError(e.message ?: "解析整合包失败")
         onProgress(e.message ?: "解析整合包失败")
-        prepared.rootDir.deleteRecursively()
+        prepared.rootDir.deleteRecursivelyNoSymlink()
         return null
     }
 
@@ -126,14 +138,14 @@ suspend fun parseUploadPayload(
         if (mcVersion == null) {
             onError("不支持的MC版本: ${modpackData.manifest.minecraft.version}")
             onProgress("不支持的MC版本: ${modpackData.manifest.minecraft.version}")
-            prepared.rootDir.deleteRecursively()
+            prepared.rootDir.deleteRecursivelyNoSymlink()
             return null
         }
         val modloader = ModLoader.from(modpackData.manifest.minecraft.modLoaders.firstOrNull()?.id.orEmpty())
         if (modloader == null) {
             onError("不支持的Mod加载器: ${modpackData.manifest.minecraft.modLoaders.firstOrNull()?.id.orEmpty()}")
             onProgress("不支持的Mod加载器: ${modpackData.manifest.minecraft.modLoaders.firstOrNull()?.id.orEmpty()}")
-            prepared.rootDir.deleteRecursively()
+            prepared.rootDir.deleteRecursivelyNoSymlink()
             return null
         }
         ParsedUploadPayload(
@@ -147,8 +159,10 @@ suspend fun parseUploadPayload(
             )
         )
     } catch (e: Exception) {
+        lgr.warn { "解析CurseForge整合包mod列表失败: ${file.absolutePath + "\n" + e }" }
         onError("解析整合包失败: ${e.message}")
         onProgress("解析整合包失败: ${e.message}")
+        prepared.rootDir.deleteRecursivelyNoSymlink()
         null
     }
 }
@@ -226,12 +240,20 @@ private suspend fun matchEmbeddedModsAll(
 ): EmbeddedMergedResult {
     if (files.isEmpty()) return EmbeddedMergedResult(emptyList(), emptySet())
     onProgress("发现整合包内置mod: ${files.size} 个，先匹配Modrinth")
-    val mrResult = runCatching { matchEmbeddedModsMR(files) }
-        .getOrDefault(EmbeddedMatchResult(emptyList(), emptySet()))
+    val mrResult = try {
+        matchEmbeddedModsMR(files)
+    } catch (e: Exception) {
+        lgr.warn { "Modrinth匹配内置mod失败" + "\n" + e }
+        throw ModpackException("Modrinth匹配内置mod失败: ${e.message}")
+    }
     val remaining = files.filterNot { it in mrResult.removeFiles }
     onProgress("Modrinth匹配完成：${mrResult.mods.size} 个，开始匹配CurseForge")
-    val cfResult = runCatching { matchEmbeddedModsCF(remaining) }
-        .getOrDefault(EmbeddedMatchResult(emptyList(), emptySet()))
+    val cfResult = try {
+        matchEmbeddedModsCF(remaining)
+    } catch (e: Exception) {
+        lgr.warn { "CurseForge匹配内置mod失败" + "\n" + e }
+        throw ModpackException("CurseForge匹配内置mod失败: ${e.message}")
+    }
     onProgress("匹配完成：MR ${mrResult.mods.size} 个，CF ${cfResult.mods.size} 个，处理结果中，请等一分钟...")
     val mergedMods = (mrResult.mods + cfResult.mods)
         .distinctBy { "${it.platform}:${it.projectId}:${it.fileId}:${it.hash}" }
@@ -297,10 +319,11 @@ private fun loadCurseForgeFromDir(rootDir: File): CurseForgeModpackData {
         throw ModpackException("整合包缺少目录：overrides")
     }
     val manifestJson = manifestFile.readText(Charsets.UTF_8)
-    val manifest = runCatching {
+    val manifest = try {
         calebxzhou.rdi.common.serdesJson.decodeFromString<CurseForgePackManifest>(manifestJson)
-    }.getOrElse {
-        throw ModpackException("manifest.json 解析失败: ${it.message}")
+    } catch (e: Exception) {
+        lgr.warn { "manifest.json解析失败: ${manifestFile.absolutePath + "\n" + e }" }
+        throw ModpackException("manifest.json 解析失败: ${e.message}")
     }
     return CurseForgeModpackData(
         manifest = manifest,
@@ -420,7 +443,6 @@ private fun writeProcessedEntry(
     skipCacheDirectory: Boolean = true
 ) {
     if (shouldSkipEntry(relativeLower, isDirectory, skipCacheDirectory = skipCacheDirectory)) return
-    if (relativeLower.endsWith(".ogg") && size != null && size > OGG_MAX_SIZE_BYTES) return
 
     if (isDirectory) {
         addDirectoryEntry(relative, out, addedDirs)
@@ -453,12 +475,10 @@ private fun writeProcessedEntry(
         }
         relativeLower.endsWith(".ogg") -> {
             val bytes = if (size != null) {
-                if (size > OGG_MAX_SIZE_BYTES) return
-                readAllBytes()
+                if (size > OGG_MAX_SIZE_BYTES) emptyOggBytes else readAllBytes()
             } else {
                 val raw = readAllBytes()
-                if (raw.size > OGG_MAX_SIZE_BYTES) return
-                raw
+                if (raw.size > OGG_MAX_SIZE_BYTES) emptyOggBytes else raw
             }
             out.write(bytes)
         }
@@ -479,7 +499,7 @@ private fun readResourcepackEntry(source: java.util.zip.ZipFile, entry: ZipEntry
             else -> input.readNBytes(entry.size.toInt())
         }
     }
-    if (relativeLower.endsWith(".ogg") && rawBytes.size > OGG_MAX_SIZE_BYTES) return null
+    if (relativeLower.endsWith(".ogg") && rawBytes.size > OGG_MAX_SIZE_BYTES) return emptyOggBytes
     val processed = if (relativeLower.endsWith(".png")) compressPngIfNeeded(rawBytes) else rawBytes
     if (processed.size > RESOURCEPACK_MAX_SIZE_BYTES) return null
     return processed
@@ -489,9 +509,10 @@ private val disallowedClientPaths = setOf("shaderpacks")
 private val allowedQuestLangFiles = setOf("en_us.snbt", "zh_cn.snbt")
 private const val QUEST_LANG_PREFIX = "config/ftbquests/quests/lang/"
 private const val RESOURCEPACK_MAX_SIZE_BYTES = 1024L * 1024
-private const val OGG_MAX_SIZE_BYTES = 128L * 1024
+private const val OGG_MAX_SIZE_BYTES = 512L * 1024
 private const val PNG_COMPRESSION_THRESHOLD_BYTES = 50 * 1024
 private const val PNG_COMPRESSION_JPEG_QUALITY = 0.5f
+private val emptyOggBytes by lazy { loadResourceBytes("assets/empty.ogg") }
 
 private fun isQuestLangEntryDisallowed(relativeLower: String, isDirectory: Boolean): Boolean {
     if (!relativeLower.startsWith(QUEST_LANG_PREFIX)) return false
@@ -504,7 +525,7 @@ private fun isQuestLangEntryDisallowed(relativeLower: String, isDirectory: Boole
 
 private fun readResourcepackFile(file: File, relativeLower: String): ByteArray? {
     if (file.length() > RESOURCEPACK_MAX_SIZE_BYTES) return null
-    if (relativeLower.endsWith(".ogg") && file.length() > OGG_MAX_SIZE_BYTES) return null
+    if (relativeLower.endsWith(".ogg") && file.length() > OGG_MAX_SIZE_BYTES) return emptyOggBytes
     val rawBytes = file.inputStream().use { input ->
         when {
             file.length() > Int.MAX_VALUE -> return null
@@ -549,7 +570,7 @@ private fun ensureZipParents(path: String, output: ZipOutputStream, addedDirs: M
 
 private fun compressPngIfNeeded(bytes: ByteArray): ByteArray {
     if (bytes.size <= PNG_COMPRESSION_THRESHOLD_BYTES) return bytes
-    return runCatching {
+    return try {
         val original = ImageIO.read(ByteArrayInputStream(bytes)) ?: return bytes
         val scaled = if (original.height > 720) {
             val targetHeight = 720
@@ -594,7 +615,10 @@ private fun compressPngIfNeeded(bytes: ByteArray): ByteArray {
         } finally {
             writer.dispose()
         }
-    }.getOrElse { bytes }
+    } catch (e: Exception) {
+        lgr.warn { "压缩资源包PNG失败" + "\n" + e }
+        throw e
+    }
 }
 
 suspend fun uploadModpack(
@@ -611,12 +635,14 @@ suspend fun uploadModpack(
     onDone: (String) -> Unit
 ) {
     onProgress("正在打包整合包...请等一两分钟")
-    val uploadZip = runCatching { buildZipFromDir(payload.sourceDir, payload.sourceName) }
-        .getOrElse {
-            payload.sourceDir.deleteRecursively()
-            onError("打包失败: ${it.message}")
-            return
-        }
+    val uploadZip = try {
+        buildZipFromDir(payload.sourceDir, payload.sourceName)
+    } catch (e: Exception) {
+        lgr.warn { "打包整合包失败: ${payload.sourceDir.absolutePath + "\n" + e }" }
+        payload.sourceDir.deleteRecursivelyNoSymlink()
+        onError("打包失败: ${e.message}")
+        return
+    }
 
     val totalBytes = uploadZip.length()
     val startTime = System.nanoTime()
@@ -655,9 +681,12 @@ suspend fun uploadModpack(
                 onDone = onDone
             )
         }
+    } catch (e: Exception) {
+        lgr.warn { "上传整合包失败: ${payload.sourceName + "\n" + e } $versionName" }
+        onError("上传失败: ${e.message ?: "未知错误"}")
     } finally {
         uploadZip.delete()
-        payload.sourceDir.deleteRecursively()
+        payload.sourceDir.deleteRecursivelyNoSymlink()
     }
 }
 
@@ -855,3 +884,4 @@ private suspend fun uploadNewVersion(
 }
 
 private enum class PackType { MODRINTH, CURSEFORGE, UNKNOWN }
+
