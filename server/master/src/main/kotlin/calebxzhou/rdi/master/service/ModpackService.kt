@@ -198,8 +198,7 @@ fun Route.modpackRoutes() {
                 post {
                     val ctx = call.modpackGuardContext()
                     ctx.requireAuthor()
-                    val verName = param("verName").trim()
-                    verName.validateVerName().getOrThrow()
+                    val verName = param("verName").validateVerName().getOrThrow()
 
                     // Check if version already exists
                     if (ctx.modpack.versions.any { it.name.equals(verName, ignoreCase = true) }) {
@@ -327,19 +326,22 @@ object ModpackService {
         return dbcl.find(`in`("_id", ids)).toList()
     }
 
-    fun String.validateVerName(): Result<Unit> {
+    fun String.validateVerName(): Result<String> {
         val trimmed = this.trim()
-
-        // Check if version name starts with 'v' or 'V'
-        if (trimmed.startsWith("v", ignoreCase = true)) {
-            throw RequestError("版本名不能以 v 或 V 开头")
+        val normalized = if (trimmed.startsWith("v", ignoreCase = true)) {
+            trimmed.drop(1).trimStart()
+        } else {
+            trimmed
         }
 
-        // Check if version name matches the valid name regex
-        if (!trimmed.matches(VALID_NAME_REGEX)) {
+        if (normalized.isBlank()) {
+            throw RequestError("版本名不能为空")
+        }
+
+        if (!normalized.matches(VALID_NAME_REGEX)) {
             throw RequestError("版本名只能包含字母 数字 点 汉字")
         }
-        return ok()
+        return ok(normalized)
     }
 
     suspend fun toModpackVoList(modpacks: List<Modpack>): List<Modpack.BriefVo> {
@@ -398,7 +400,7 @@ object ModpackService {
     }
 
     suspend fun Modpack.CreateWithVersionDto.createWithVersion(player: RAccount, zipBytes: ByteArray) {
-        verName.validateVerName().getOrNull()
+        val normalizedVerName = verName.validateVerName().getOrThrow()
         Modpack.OptionsDto(name,iconUrl,info,sourceUrl).validate()
         if (!player.hasMsid) throw RequestError("必须有微软账号才能传包")
         if (getModpackCount(player._id) >= MAX_MODPACK_PER_USER && !player.isDav) {
@@ -415,7 +417,7 @@ object ModpackService {
             sourceUrl = sourceUrl?.trim()?.ifBlank { null }
         )
         modpack.dir.mkdirs()
-        val version = prepareVersionUpload(modpack, verName, zipBytes, mods)
+        val version = prepareVersionUpload(modpack, normalizedVerName, zipBytes, mods)
         modpack.versions += version
         dbcl.insertOne(modpack)
         enqueueVersionBuild(player, modpack, version)
@@ -501,7 +503,7 @@ object ModpackService {
                     MailService.changeMail(mailId, newContent = it)
                 }
             }.onFailure { error ->
-                lgr.error(error) { "构建失败 ${modpack.name}:${version.name}" }
+                lgr.error { "构建失败 ${modpack.name + "\n" + error }:${version.name}" }
                 MailService.changeMail(
                     mailId,
                     "整合包构建失败：${modpack.name}",
@@ -1013,4 +1015,5 @@ object ModpackService {
         )
     }
 }
+
 
