@@ -6,7 +6,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 val ktorVersion = "3.4.0"
-val version = "5.11.2"
+val version = "5.11.4"
 project.version = version
 
 plugins {
@@ -100,7 +100,6 @@ kotlin {
 
                 runtimeOnly("org.hotswapagent:hotswap-agent-core:2.0.1")
                 implementation("com.github.oshi:oshi-core:6.10.0")
-                implementation("com.electronwill.night-config:toml:3.8.3")
                 implementation("ch.qos.logback:logback-classic:1.5.32")
                 implementation("io.github.oshai:kotlin-logging-jvm:8.0.01")
 
@@ -122,6 +121,7 @@ kotlin {
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
                 implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
                 implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
+                implementation("org.apache.maven:maven-artifact:3.9.11")
             }
         }
 
