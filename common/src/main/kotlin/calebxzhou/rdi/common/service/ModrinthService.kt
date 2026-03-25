@@ -246,7 +246,7 @@ object ModrinthService {
     }
 
     suspend fun List<Mod>.fillModrinthVo(projects: List<ModrinthProject>?): List<Mod> {
-        val modsNeedingVo = filter { it.vo == null && it.platform == "mr" }
+        val modsNeedingVo = filter { it.vo == null && it.platform.equals("mr", ignoreCase = true) }
         if (modsNeedingVo.isEmpty()) return this
 
         val projectIds = modsNeedingVo.map { it.projectId }.distinct()
@@ -254,7 +254,7 @@ object ModrinthService {
         val projectMap = projects.associateBy { it.id }
 
         forEach { mod ->
-            if (mod.vo == null && mod.platform == "mr") {
+            if (mod.vo == null && mod.platform.equals("mr", ignoreCase = true)) {
                 projectMap[mod.projectId]?.let { project ->
                     mod.vo = project.toCardVo(mod.file).copy(side = mod.side)
                 }
@@ -277,16 +277,21 @@ object ModrinthService {
             this.method = method
         }
 
+        if (!ModService.useMirror) {
+            return doRequest(OFFICIAL_URL)
+        }
+
         val mirrorResult = runCatching<HttpResponse> { doRequest(OFFICIAL_URL.ofMirrorUrl) }
         val mirrorResponse = mirrorResult.getOrNull()
         if (mirrorResponse != null && mirrorResponse.status.isSuccess()) {
             return mirrorResponse
         } else {
-            lgr.warn("Modrinth mirror fail，${mirrorResponse?.status},${mirrorResponse?.bodyAsText()}")
+            val bodyAsText = mirrorResponse?.bodyAsText()
+            lgr.warn { "Modrinth mirror fail，${mirrorResponse?.status},$bodyAsText" }
         }
 
         mirrorResult.exceptionOrNull()?.let {
-            lgr.warn("Modrinth mirror request failed, falling back to official API: ${it.message}")
+            lgr.warn { "Modrinth mirror request failed, falling back to official API: ${it.message}" }
         }
         val officialResponse = doRequest(OFFICIAL_URL)
         return officialResponse
@@ -328,9 +333,9 @@ object ModrinthService {
 
         val missing = hashes.filter { it !in response }
         if (missing.isNotEmpty()) {
-            lgr.info("Modrinth: ${response.size} matches, ${missing.size} hashes unmatched")
+            lgr.info { "Modrinth: ${response.size} matches, ${missing.size} hashes unmatched" }
         } else {
-            lgr.info("Modrinth: matched all ${response.size} hashes")
+            lgr.info { "Modrinth: matched all ${response.size} hashes" }
         }
 
         return response
@@ -357,3 +362,4 @@ object ModrinthService {
         return response
     }
 }
+

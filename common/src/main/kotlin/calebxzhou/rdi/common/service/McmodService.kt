@@ -42,13 +42,13 @@ Priority: u=0, i
                 .select(".result-item>.head>a").firstOrNull()
                 ?.attr("href")
                 ?: let {
-                    lgr.warn("mcmod未找到mod信息，关键词：$modId $modName")
+                    lgr.warn { "mcmod未找到mod信息，关键词：$modId $modName" }
                     return null
                 }
             val cacheFile = mcmodCacheFile(modUrl)
             val cachedBody = cacheFile?.takeIf { it.exists() }?.let { file ->
                 runCatching { file.readText(StandardCharsets.UTF_8) }
-                    .onFailure { err -> lgr.warn("读取mcmod缓存失败: ${file.absolutePath}", err) }
+                    .onFailure { err -> lgr.warn { "读取mcmod缓存失败: ${file.absolutePath}\n$err" } }
                     .getOrNull()
             }
             val cacheExpired = cacheFile?.let { !it.exists() || System.currentTimeMillis() - it.lastModified() > MCMOD_CACHE_TTL_MS } ?: true
@@ -69,20 +69,20 @@ Priority: u=0, i
 
                 if (!modResponse.success) {
                     if (!cachedBody.isNullOrBlank()) {
-                        lgr.warn("mcmod详情页请求失败: HTTP ${modResponse.statusCode()} url=$modUrl，使用本地缓存")
+                        lgr.warn { "mcmod详情页请求失败: HTTP ${modResponse.statusCode()} url=$modUrl，使用本地缓存" }
                         cachedBody
                     } else {
-                        lgr.warn("mcmod详情页请求失败: HTTP ${modResponse.statusCode()} url=$modUrl")
+                        lgr.warn { "mcmod详情页请求失败: HTTP ${modResponse.statusCode()} url=$modUrl" }
                         return null
                     }
                 } else {
                     val networkBody = modResponse.body()
                     if (networkBody.isNullOrBlank()) {
                         if (!cachedBody.isNullOrBlank()) {
-                            lgr.warn("mcmod详情页返回空内容，url=$modUrl，使用本地缓存")
+                            lgr.warn { "mcmod详情页返回空内容，url=$modUrl，使用本地缓存" }
                             cachedBody
                         } else {
-                            lgr.warn("mcmod详情页返回空内容，url=$modUrl")
+                            lgr.warn { "mcmod详情页返回空内容，url=$modUrl" }
                             return null
                         }
                     } else {
@@ -91,7 +91,7 @@ Priority: u=0, i
                                 file.parentFile?.mkdirs()
                                 file.writeText(networkBody, StandardCharsets.UTF_8)
                             }.onFailure { err ->
-                                lgr.warn("mcmod详情页缓存写入失败: ${file.absolutePath}", err)
+                                lgr.warn { "mcmod详情页缓存写入失败: ${file.absolutePath}\n$err" }
                             }
                         }
                         networkBody
@@ -100,7 +100,7 @@ Priority: u=0, i
             }
 
             if (modBody.isNullOrBlank()) {
-                lgr.warn("mcmod详情页内容为空，url=$modUrl")
+                lgr.warn { "mcmod详情页内容为空，url=$modUrl" }
                 return null
             }
 

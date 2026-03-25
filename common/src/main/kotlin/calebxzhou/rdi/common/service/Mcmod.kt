@@ -13,7 +13,7 @@ object Mcmod {
             Mcmod.headers.forEach { (name, value) -> header(name, value) }
         }.bodyAsText()
         val resultItems = Jsoup.parse(resp).select(".result-item")
-        lgr.info("搜到了${resultItems.size}个")
+        lgr.info { "搜到了${resultItems.size}个" }
         // Variable to store the first href
         var firstHref: String? = resultItems.firstOrNull()?.select(".head a")?.attr("href")
 
@@ -21,12 +21,12 @@ object Mcmod {
             // Extract the registration name
             val registrationNameElement = item.select(".body p").first()
             val registrationName = registrationNameElement?.text()?.trim()?.substringAfter("注册名: ")
-            lgr.info("注册名 $registrationName ")
+            lgr.info { "注册名 $registrationName " }
             // Check if the registration name matches the target
             if (registrationName == id.toString()) {
                 // Extract the href attribute from the <a> tag in the head section
                 val href = item.select(".head a").attr("href")
-                lgr.info("找到了更合适的 $id $href")
+                lgr.info { "找到了更合适的 $id $href" }
                 return href
             }
         }

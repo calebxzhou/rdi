@@ -61,14 +61,14 @@ private suspend fun fetchAllPages(baseUrl: String) {
     val mcVer = extractMcVer(baseUrl)
 
     // Phase 1: Download all HTML pages
-    lgr.info("=== 阶段1: 下载HTML ===")
+    lgr.info { "=== 阶段1: 下载HTML ===" }
     val totalPages = downloadAllHtmlPages(baseUrl, mcVer)
 
     // Phase 2: Parse all HTML to JSON
-    lgr.info("=== 阶段2: 解析HTML到JSON ===")
+    lgr.info { "=== 阶段2: 解析HTML到JSON ===" }
     parseAllHtmlToJson(mcVer, totalPages)
 
-    lgr.info("$mcVer 完成")
+    lgr.info { "$mcVer 完成" }
 }
 
 private suspend fun downloadAllHtmlPages(baseUrl: String, mcVer: String): Int {
@@ -80,7 +80,7 @@ private suspend fun downloadAllHtmlPages(baseUrl: String, mcVer: String): Int {
 
     // Need to fetch first page to get total pages count (unless we already have all JSONs)
     if (firstJsonFile.exists()) {
-        lgr.info("跳过已存在: ${firstJsonFile.name}")
+        lgr.info { "跳过已存在: ${firstJsonFile.name}" }
         // Try to infer total pages from existing files
         val existingJsonFiles = mcmodDataDir.listFiles { f ->
             f.name.startsWith("${mcVer}_") && f.name.endsWith(".json")
@@ -97,21 +97,21 @@ private suspend fun downloadAllHtmlPages(baseUrl: String, mcVer: String): Int {
             totalPages = max(pageInfo.totalPages, totalPages)
         }
     } else if (firstHtmlFile.exists()) {
-        lgr.info("HTML已存在: ${firstHtmlFile.name}")
+        lgr.info { "HTML已存在: ${firstHtmlFile.name}" }
         val doc = Jsoup.parse(firstHtmlFile.readText(), baseUrl)
         val pageInfo = parsePageInfo(doc)
         totalPages = max(pageInfo.totalPages, pageInfo.currentPage)
     } else {
         val firstHtml = downloadPageHtml(buildPageUrl(baseUrl, null)) ?: return 0
         firstHtmlFile.writeText(firstHtml)
-        lgr.info("已下载: ${firstHtmlFile.name}")
+        lgr.info { "已下载: ${firstHtmlFile.name}" }
 
         val doc = Jsoup.parse(firstHtml, baseUrl)
         val pageInfo = parsePageInfo(doc)
         totalPages = max(pageInfo.totalPages, pageInfo.currentPage)
     }
 
-    lgr.info("共 ${totalPages} 页")
+    lgr.info { "共 ${totalPages} 页" }
 
     // Download remaining pages sequentially with 100ms delay
     for (page in 2..totalPages) {
@@ -119,19 +119,19 @@ private suspend fun downloadAllHtmlPages(baseUrl: String, mcVer: String): Int {
         val htmlFile = getHtmlFile(mcVer, page)
         
         if (jsonFile.exists()) {
-            lgr.info("跳过已存在: ${jsonFile.name}")
+            lgr.info { "跳过已存在: ${jsonFile.name}" }
             continue
         }
         
         if (htmlFile.exists()) {
-            lgr.info("HTML已存在: ${htmlFile.name}")
+            lgr.info { "HTML已存在: ${htmlFile.name}" }
             continue
         }
         
         val pageUrl = buildPageUrl(baseUrl, page)
         val html = downloadPageHtml(pageUrl) ?: continue
         htmlFile.writeText(html)
-        lgr.info("已下载: ${htmlFile.name} ($page/$totalPages)")
+        lgr.info { "已下载: ${htmlFile.name} ($page/$totalPages)" }
         
         delay(100)
     }
@@ -145,19 +145,19 @@ private fun parseAllHtmlToJson(mcVer: String, totalPages: Int) {
         val htmlFile = getHtmlFile(mcVer, page)
 
         if (jsonFile.exists()) {
-            lgr.info("跳过已存在: ${jsonFile.name}")
+            lgr.info { "跳过已存在: ${jsonFile.name}" }
             continue
         }
 
         if (!htmlFile.exists()) {
-            lgr.warn("HTML文件不存在: ${htmlFile.name}")
+            lgr.warn { "HTML文件不存在: ${htmlFile.name}" }
             continue
         }
 
         val doc = Jsoup.parse(htmlFile.readText(), "https://www.mcmod.cn/")
         val modInfos = extractModInfos(doc)
         jsonFile.writeText(modInfos.json)
-        lgr.info("已解析: ${htmlFile.name} -> ${jsonFile.name} (${modInfos.size}条)")
+        lgr.info { "已解析: ${htmlFile.name} -> ${jsonFile.name} (${modInfos.size}条)" }
     }
 }
 
@@ -192,23 +192,23 @@ private suspend fun downloadPageHtml(url: String, maxRetries: Int = 10): String?
         if (response.status.value == 429) {
             retryCount++
             if (retryCount > maxRetries) {
-                lgr.warn("请求mcmod列表页失败: HTTP 429 重试次数已达上限 url=$url")
+                lgr.warn { "请求mcmod列表页失败: HTTP 429 重试次数已达上限 url=$url" }
                 return null
             }
             val waitTime = 500L * retryCount // Backoff: 1s, 2s, 3s...
-            lgr.warn("HTTP 429 限流，等待 ${waitTime}ms 后重试 ($retryCount/$maxRetries)")
+            lgr.warn { "HTTP 429 限流，等待 ${waitTime}ms 后重试 ($retryCount/$maxRetries)" }
             delay(waitTime)
             continue
         }
 
         if (response.status.value !in 200..299) {
-            lgr.warn("请求mcmod列表页失败: HTTP ${response.status.value} url=$url")
+            lgr.warn { "请求mcmod列表页失败: HTTP ${response.status.value} url=$url" }
             return null
         }
 
         val body = response.bodyAsText()
         if (body.isBlank()) {
-            lgr.warn("mcmod列表页返回空内容，url=$url")
+            lgr.warn { "mcmod列表页返回空内容，url=$url" }
             return null
         }
         return body
@@ -258,7 +258,7 @@ private fun extractModInfos(document: Document): List<McmodModBriefInfo> {
 
     val blocks = document.select(".modlist-block")
     if (blocks.isEmpty()) {
-        lgr.warn("该页面没有找到modlist-block")
+        lgr.warn { "该页面没有找到modlist-block" }
     }
 
     for (block in blocks) {
@@ -266,7 +266,7 @@ private fun extractModInfos(document: Document): List<McmodModBriefInfo> {
         val href = link.attr("href").trim()
         val pageId = CLASS_ID_REGEX.find(href)?.groupValues?.getOrNull(1)?.toIntOrNull()
         if (pageId == null) {
-            lgr.warn("无法从链接解析pageId: $href")
+            lgr.warn { "无法从链接解析pageId: $href" }
             continue
         }
 
@@ -302,10 +302,10 @@ private fun extractModInfos(document: Document): List<McmodModBriefInfo> {
             nameCn = nameCn,
             intro = intro
         )
-        lgr.info("$name $nameCn $pageId")
+        lgr.info { "$name $nameCn $pageId" }
         result += info
     }
 
-    lgr.info("页面解析完成，共 ${result.size} 个mod")
+    lgr.info { "页面解析完成，共 ${result.size} 个mod" }
     return result
 }
