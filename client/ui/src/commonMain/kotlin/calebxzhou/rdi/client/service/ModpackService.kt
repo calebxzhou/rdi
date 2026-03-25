@@ -14,6 +14,7 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.service.ModService
+import calebxzhou.rdi.common.util.ok
 import calebxzhou.rdi.common.util.str
 import io.ktor.http.*
 import kotlinx.coroutines.async
@@ -229,8 +230,11 @@ object ModpackService {
         val versionDir = getVersionDir(modpackId, verName)
         if (!versionDir.exists()) return false
         versionDir.resolve("mods").takeIf { it.exists() } ?: return false
-        versionDir.resolve("config").takeIf { it.exists() } ?: return false
         return true
+    }
+
+    suspend fun fetchSourceIntro(url: String) : Result<String>{
+        return ok("")
     }
 }
 
