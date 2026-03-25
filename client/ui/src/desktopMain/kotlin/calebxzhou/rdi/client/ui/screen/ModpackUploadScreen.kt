@@ -148,6 +148,28 @@ fun ModpackUploadScreen(
         }
     }
 
+    fun startUpload(currentPayload: UploadPayload, name: String, version: String) {
+        errorText = null
+        uploadStep = UploadStep.Uploading
+        scope.launch(Dispatchers.IO) {
+            uploadModpack(
+                payload = currentPayload,
+                mods = mods,
+                modpackName = name,
+                versionName = version,
+                iconUrl = iconUrl,
+                sourceUrl = sourceUrl,
+                info = infoText,
+                updateModpackId = updateModpackId,
+                onProgress = { scope.launch { parseProgress = it } },
+                onError = { scope.launch { errorText = it } },
+                onDone = { summary ->
+                    scope.launch { uploadStep = UploadStep.Done(summary) }
+                }
+            )
+        }
+    }
+
     // When mods finish loading, check if download is needed and auto-download in background
     LaunchedEffect(modsLoaded, payload) {
         if (!modsLoaded || payload == null || isDownloading) return@LaunchedEffect
@@ -294,24 +316,7 @@ fun ModpackUploadScreen(
                             errorText = "版本号不能为空"
                             return@CircleIconButton
                         }
-                        uploadStep = UploadStep.Uploading
-                        scope.launch(Dispatchers.IO) {
-                            uploadModpack(
-                                payload = currentPayload,
-                                mods = mods,
-                                modpackName = name,
-                                versionName = version,
-                                iconUrl = iconUrl,
-                                sourceUrl = sourceUrl,
-                                info = infoText,
-                                updateModpackId = updateModpackId,
-                                onProgress = { scope.launch { parseProgress = it } },
-                                onError = { scope.launch { errorText = it } },
-                                onDone = { summary ->
-                                    scope.launch { uploadStep = UploadStep.Done(summary) }
-                                }
-                            )
-                        }
+                        startUpload(currentPayload, name, version)
                     }
                 }
 
@@ -490,10 +495,31 @@ fun ModpackUploadScreen(
             }
 
             is UploadStep.Uploading -> {
+                val currentPayload = payload
                 TitleRow(
                     title = "上传整合包",
                     onBack = onBack
-                ) {}
+                ) {
+                    if (!errorText.isNullOrBlank() && currentPayload != null) {
+                        CircleIconButton(
+                            icon = "\uF2F9",
+                            tooltip = "重试上传",
+                            bgColor = MaterialColor.YELLOW_900.color
+                        ) {
+                            val name = modpackName.trim()
+                            val version = versionName.trim()
+                            if (name.isBlank()) {
+                                errorText = "整合包名称不能为空"
+                                return@CircleIconButton
+                            }
+                            if (version.isBlank()) {
+                                errorText = "版本号不能为空"
+                                return@CircleIconButton
+                            }
+                            startUpload(currentPayload, name, version)
+                        }
+                    }
+                }
                 Text("正在上传整合包，请耐心等待...")
                 Space8h()
                 parseProgress?.takeIf { it.isNotBlank() }?.let {
