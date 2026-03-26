@@ -302,7 +302,9 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             title = "游玩 $name",
             mcVer = modpack.mcVer,
             versionId = versionId,
-            playArg = playArg
+            playArg = playArg,
+            extraMods = extraMods,
+            manageHostExtraMods = true
         )
     )
 }

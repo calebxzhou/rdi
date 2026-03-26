@@ -40,6 +40,7 @@ data class Mod(
     ) {
     }
 }
+val EXTRA_MOD_PREFIX = $$"X$_"
 val Mod.isPlatformCf get() = platform=="cf"
 val Mod.isPlatformMr get() = platform=="mr"
 val Mod.normalizedProjectId get() = projectId.trim()

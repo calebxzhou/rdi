@@ -270,6 +270,8 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
                 title = args.title,
                 mcVer = args.mcVer,
                 versionId = args.versionId,
+                extraMods = args.extraMods,
+                manageHostExtraMods = args.manageHostExtraMods,
                 jvmArgs = arrayOf("-Drdi.play=${args.playArg.encodeBase64}"),
                 onBack = {
                     val callback = McPlayStore.onBack
