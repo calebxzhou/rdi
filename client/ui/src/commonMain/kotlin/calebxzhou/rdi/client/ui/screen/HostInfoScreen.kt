@@ -93,6 +93,16 @@ fun HostInfoScreen(
     var removeExtraModConfirm by remember { mutableStateOf<Mod?>(null) }
     var hydratedExtraMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
     var extraModsLoadVersion by remember { mutableStateOf(0) }
+    var configFilesLoading by remember { mutableStateOf(false) }
+    var configContentLoading by remember { mutableStateOf(false) }
+    var configSaving by remember { mutableStateOf(false) }
+    var configFiles by remember { mutableStateOf<List<Host.ConfigFileEntry>>(emptyList()) }
+    var selectedConfigPath by remember { mutableStateOf<String?>(null) }
+    var configEditorText by remember { mutableStateOf("") }
+    var configOriginalText by remember { mutableStateOf("") }
+    var configSyntaxErrorMessage by remember { mutableStateOf<String?>(null) }
+    var configStatusMessage by remember { mutableStateOf<String?>(null) }
+    var configEditorOpen by remember { mutableStateOf(false) }
 
     val memberTabIndex = 0
     val extraModsTabIndex = 1
@@ -152,6 +162,117 @@ fun HostInfoScreen(
         }
     }
 
+    fun loadConfigFile(path: String) {
+        val switchingFile = selectedConfigPath != path
+        selectedConfigPath = path
+        configStatusMessage = "正在读取 $path"
+        configSyntaxErrorMessage = null
+        if (switchingFile) {
+            configEditorText = ""
+            configOriginalText = ""
+        }
+        configContentLoading = true
+        scope.rdiRequest<Host.ConfigFileContentVo>(
+            path = "host/$hostId/config/file",
+            params = mapOf("path" to path),
+            onOk = { response ->
+                val file = response.data ?: run {
+                    errorMessage = "读取配置文件失败"
+                    return@rdiRequest
+                }
+                selectedConfigPath = file.path
+                configEditorText = file.content
+                configOriginalText = file.content
+                configSyntaxErrorMessage = validateCodeContent(
+                    text = file.content,
+                    language = CodeLanguage.fromPath(file.path)
+                )?.takeIf { !it.isValid }?.message
+                configStatusMessage = "已打开 ${file.path}"
+            },
+            onErr = { errorMessage = it.message ?: "读取配置文件失败" },
+            onDone = { configContentLoading = false }
+        )
+    }
+
+    fun loadConfigFiles(preferredPath: String? = selectedConfigPath) {
+        configFilesLoading = true
+        scope.rdiRequest<List<Host.ConfigFileEntry>>(
+            path = "host/$hostId/config/files",
+            onOk = { response ->
+                val files = response.data ?: emptyList()
+                configFiles = files
+                if (files.isEmpty()) {
+                    configEditorOpen = false
+                    selectedConfigPath = null
+                    configEditorText = ""
+                    configOriginalText = ""
+                    configSyntaxErrorMessage = null
+                    configStatusMessage = "当前没有可编辑配置文件"
+                    return@rdiRequest
+                }
+
+                when {
+                    preferredPath != null && files.any { it.path == preferredPath } && selectedConfigPath == null -> {
+                        loadConfigFile(preferredPath)
+                    }
+
+                    selectedConfigPath == null -> {
+                        loadConfigFile(files.first().path)
+                    }
+
+                    selectedConfigPath != null && files.none { it.path == selectedConfigPath } -> {
+                        if (configEditorText == configOriginalText) {
+                            loadConfigFile(files.first().path)
+                        } else {
+                            configStatusMessage = "当前文件已不在配置列表中，请先保存或还原内容"
+                        }
+                    }
+                }
+            },
+            onErr = { errorMessage = it.message ?: "加载配置文件列表失败" },
+            onDone = { configFilesLoading = false }
+        )
+    }
+
+    fun saveConfigFile() {
+        val path = selectedConfigPath ?: return
+        configSaving = true
+        scope.rdiRequest<Host.ConfigFileContentVo>(
+            path = "host/$hostId/config/file",
+            method = HttpMethod.Put,
+            body = serdesJson.encodeToString(
+                Host.ConfigFileSaveDto(
+                    path = path,
+                    content = configEditorText
+                )
+            ),
+            onOk = { response ->
+                val saved = response.data ?: run {
+                    errorMessage = "保存配置文件失败"
+                    return@rdiRequest
+                }
+                selectedConfigPath = saved.path
+                configOriginalText = saved.content
+                configEditorText = saved.content
+                configSyntaxErrorMessage = null
+                configStatusMessage = "已保存 ${saved.path}"
+                configFiles = configFiles.map { entry ->
+                    if (entry.path == saved.path) {
+                        entry.copy(size = saved.size, updateTime = saved.updateTime)
+                    } else {
+                        entry
+                    }
+                }
+                if (configFiles.none { it.path == saved.path }) {
+                    configFiles = (configFiles + Host.ConfigFileEntry(saved.path, saved.size, saved.updateTime))
+                        .sortedBy { it.path.lowercase() }
+                }
+            },
+            onErr = { errorMessage = it.message ?: "保存配置文件失败" },
+            onDone = { configSaving = false }
+        )
+    }
+
     fun reload() {
         loading = true
         errorMessage = null
@@ -186,6 +307,12 @@ fun HostInfoScreen(
     }
 
     LaunchedEffect(hostId) {
+        configFiles = emptyList()
+        selectedConfigPath = null
+        configEditorText = ""
+        configOriginalText = ""
+        configSyntaxErrorMessage = null
+        configStatusMessage = null
         reload()
     }
     LaunchedEffect(okMessage) {
@@ -199,6 +326,7 @@ fun HostInfoScreen(
     val meAdmin = host?.let { it.isAdmin(loggedAccount) || loggedAccount.isDav } ?: false
     val meOwner = host?.let { it.ownerId == loggedAccount._id || loggedAccount.isDav } ?: false
     val canManageExtraMods = meAdmin || meOwner
+    val canManageConfigFiles = meAdmin || meOwner
     val extraMods = when {
         hydratedExtraMods.isNotEmpty() -> hydratedExtraMods
         host?.extraMods?.isNotEmpty() == true -> host.extraMods
@@ -208,10 +336,17 @@ fun HostInfoScreen(
         ?.firstOrNull { it.name == host?.packVer }
         ?.mods
         .orEmpty()
+    val configDirty = selectedConfigPath != null && configEditorText != configOriginalText
 
     LaunchedEffect(extraMods) {
         val currentKeys = extraMods.map(::extraModKey).toSet()
         selectedExtraModKeys = selectedExtraModKeys.intersect(currentKeys)
+    }
+
+    LaunchedEffect(selectedTab, host?._id, canManageConfigFiles) {
+        if (selectedTab == configTabIndex && host != null && canManageConfigFiles && configFiles.isEmpty() && !configFilesLoading) {
+            loadConfigFiles()
+        }
     }
 
     DisposableEffect(selectedTab, hostId) {
@@ -756,7 +891,27 @@ fun HostInfoScreen(
                             }
 
                             configTabIndex -> {
-                                Text("配置文件功能开发中", color = MaterialColor.GRAY_700.color)
+                                if (!canManageConfigFiles) {
+                                    Text("仅地图管理员可编辑配置文件", color = MaterialColor.GRAY_700.color)
+                                } else {
+                                    HostConfigEditor(
+                                        files = configFiles,
+                                        selectedPath = selectedConfigPath,
+                                        loadingFiles = configFilesLoading,
+                                        statusMessage = configStatusMessage,
+                                        onSelectFile = { path ->
+                                            if (configDirty && path != selectedConfigPath) {
+                                                errorMessage = "当前配置有未保存修改，请先保存或还原"
+                                            } else {
+                                                configEditorOpen = true
+                                                loadConfigFile(path)
+                                            }
+                                        },
+                                        onReloadList = {
+                                            loadConfigFiles()
+                                        }
+                                    )
+                                }
                             }
 
                             infoTabIndex -> {
@@ -1026,6 +1181,44 @@ fun HostInfoScreen(
             }
         }
     }
+
+    HostConfigEditorOverlay(
+        visible = configEditorOpen,
+        selectedPath = selectedConfigPath,
+        editorText = configEditorText,
+        loadingContent = configContentLoading,
+        saving = configSaving,
+        dirty = configDirty,
+        validationErrorMessage = configSyntaxErrorMessage,
+        onClose = { configEditorOpen = false },
+        onReload = {
+            val path = selectedConfigPath
+            if (path == null) {
+                errorMessage = "请先选择配置文件"
+            } else {
+                loadConfigFile(path)
+            }
+        },
+        onSave = {
+            if (selectedConfigPath == null) {
+                errorMessage = "请先选择配置文件"
+            } else if (configSyntaxErrorMessage != null) {
+                errorMessage = configSyntaxErrorMessage
+            } else {
+                saveConfigFile()
+            }
+        },
+        onEditorChange = {
+            configEditorText = it
+            configSyntaxErrorMessage = validateCodeContent(
+                text = it,
+                language = CodeLanguage.fromPath(selectedConfigPath)
+            )?.takeIf { validation -> !validation.isValid }?.message
+        },
+        onValidationChange = { validation ->
+            configSyntaxErrorMessage = validation?.takeIf { !it.isValid }?.message
+        }
+    )
 
     installConfirmTask?.let { task ->
         ConfirmDialog(

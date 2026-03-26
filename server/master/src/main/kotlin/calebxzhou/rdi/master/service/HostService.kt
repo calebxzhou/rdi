@@ -30,6 +30,8 @@ import calebxzhou.rdi.master.service.HostService.changeVersion
 import calebxzhou.rdi.master.service.HostService.createHost
 import calebxzhou.rdi.master.service.HostService.delMember
 import calebxzhou.rdi.master.service.HostService.delete
+import calebxzhou.rdi.master.service.HostService.listConfigFiles
+import calebxzhou.rdi.master.service.HostService.readConfigFile
 import calebxzhou.rdi.master.service.HostService.deleteExtraMods
 import calebxzhou.rdi.master.service.HostService.forceStop
 import calebxzhou.rdi.master.service.HostService.graceStop
@@ -42,6 +44,7 @@ import calebxzhou.rdi.master.service.HostService.needOwner
 import calebxzhou.rdi.master.service.HostService.quit
 import calebxzhou.rdi.master.service.HostService.restart
 import calebxzhou.rdi.master.service.HostService.sendCommand
+import calebxzhou.rdi.master.service.HostService.saveConfigFile
 import calebxzhou.rdi.master.service.HostService.setRole
 import calebxzhou.rdi.master.service.HostService.start
 import calebxzhou.rdi.master.service.HostService.status
@@ -191,6 +194,20 @@ fun Route.hostRoutes() = route("/host") {
                 response(data = call.hostContext().host.extraMods)
             }
         }
+        route("/config") {
+            get("/files") {
+                val ctx = call.hostContext().needAdmin
+                response(data = ctx.listConfigFiles())
+            }
+            get("/file") {
+                val ctx = call.hostContext().needAdmin
+                response(data = ctx.readConfigFile(param("path")))
+            }
+            put("/file") {
+                val ctx = call.hostContext().needAdmin
+                response(data = ctx.saveConfigFile(call.receive()))
+            }
+        }
         /*post("/modpack/{modpackId}/{verName}") {
             call.hostContext().needAdmin.changeModpack(idParam("modpackId"), param("verName"))
             ok()
@@ -300,6 +317,9 @@ object HostService {
     private const val SHUTDOWN_THRESHOLD = 20
     private const val HOSTS_PER_PAGE = 100
     private const val HOST_WORKDIR_LIMIT_BYTES: Long = 1L * 1024 * 1024 * 1024
+    private const val HOST_CONFIG_FILE_MAX_BYTES: Long = 8 * 1024
+    private const val HOST_CONFIG_FILE_LIST_MAX_BYTES: Long = 8 * 1024
+    private val editableConfigExtensions = setOf("json", "toml", "txt", "json5", "properties")
 
     private val idleMonitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var idleMonitorJob: Job? = null
@@ -1568,6 +1588,91 @@ object HostService {
         dbcl.find(eq("worldId", worldId)).firstOrNull()
 
     suspend fun getById(id: ObjectId): Host? = dbcl.find(eq("_id", id)).firstOrNull()
+
+    private fun Host.configDir(): File = dir.resolve("config")
+
+    private fun File.isEditableConfigFile(): Boolean =
+        isFile &&
+                !Files.isSymbolicLink(toPath()) &&
+                extension.lowercase() in editableConfigExtensions
+
+    private fun Host.resolveConfigFile(relativePath: String): File {
+        val normalizedPath = relativePath.trim().replace('\\', '/')
+        if (normalizedPath.isBlank()) throw RequestError("配置文件路径不能为空")
+        if (normalizedPath.startsWith('/')) throw RequestError("非法配置文件路径")
+
+        val configRoot = configDir().toPath().normalize()
+        val target = configRoot.resolve(normalizedPath).normalize()
+        if (!target.startsWith(configRoot)) throw RequestError("非法配置文件路径")
+
+        val targetFile = target.toFile()
+        if (targetFile.extension.lowercase() !in editableConfigExtensions) {
+            throw RequestError("仅支持编辑json toml txt json5 properties文件")
+        }
+        if (targetFile.exists() && Files.isSymbolicLink(targetFile.toPath())) {
+            throw RequestError("不允许编辑软链接配置文件")
+        }
+        return targetFile
+    }
+
+    private fun File.checkConfigFileSize() {
+        if (length() > HOST_CONFIG_FILE_MAX_BYTES) {
+            throw RequestError("配置文件过大，最大允许1MB")
+        }
+    }
+
+    private fun File.canListAsConfigFile(): Boolean =
+        isEditableConfigFile() && length() <= HOST_CONFIG_FILE_LIST_MAX_BYTES
+
+    suspend fun HostContext.listConfigFiles(): List<Host.ConfigFileEntry> {
+        val configDir = host.configDir()
+        if (!configDir.exists()) return emptyList()
+        if (!configDir.isDirectory) throw RequestError("主机配置目录异常")
+
+        return configDir.walkTopDown()
+            .filter { it.canListAsConfigFile() }
+            .map { file ->
+                Host.ConfigFileEntry(
+                    path = file.relativeTo(configDir).invariantSeparatorsPath,
+                    size = file.length(),
+                    updateTime = file.lastModified()
+                )
+            }
+            .sortedBy { it.path.lowercase() }
+            .toList()
+    }
+
+    suspend fun HostContext.readConfigFile(path: String): Host.ConfigFileContentVo {
+        val file = host.resolveConfigFile(path)
+        if (!file.exists() || !file.isFile) throw RequestError("配置文件不存在")
+        if (!file.isEditableConfigFile()) throw RequestError("该文件不支持编辑")
+        file.checkConfigFileSize()
+
+        return Host.ConfigFileContentVo(
+            path = file.relativeTo(host.configDir()).invariantSeparatorsPath,
+            content = file.readText(),
+            size = file.length(),
+            updateTime = file.lastModified()
+        )
+    }
+
+    suspend fun HostContext.saveConfigFile(payload: Host.ConfigFileSaveDto): Host.ConfigFileContentVo {
+        val file = host.resolveConfigFile(payload.path)
+        val bytes = payload.content.toByteArray(Charsets.UTF_8)
+        if (bytes.size > HOST_CONFIG_FILE_MAX_BYTES) {
+            throw RequestError("配置文件内容过大，最大允许1MB")
+        }
+
+        file.parentFile?.mkdirs()
+        file.writeText(payload.content)
+
+        return Host.ConfigFileContentVo(
+            path = file.relativeTo(host.configDir()).invariantSeparatorsPath,
+            content = payload.content,
+            size = file.length(),
+            updateTime = file.lastModified()
+        )
+    }
 
     private fun modIdentity(mod: Mod): String {
         return buildString {

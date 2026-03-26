@@ -135,4 +135,25 @@ data class Host(
         val gameRules: Map<String, String>? = null
     )
 
+    @Serializable
+    data class ConfigFileEntry(
+        val path: String,
+        val size: Long,
+        val updateTime: Long
+    )
+
+    @Serializable
+    data class ConfigFileContentVo(
+        val path: String,
+        val content: String,
+        val size: Long,
+        val updateTime: Long
+    )
+
+    @Serializable
+    data class ConfigFileSaveDto(
+        val path: String,
+        val content: String
+    )
+
 }

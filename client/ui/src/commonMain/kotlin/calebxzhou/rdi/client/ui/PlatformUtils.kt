@@ -52,6 +52,12 @@ expect fun openMsaVerificationUrl(url: String)
 expect suspend fun pickSaveFile(suggestedName: String, extension: String): File?
 
 /**
+ * Pick a local Minecraft save directory.
+ * Desktop: opens a directory chooser. Android: returns null.
+ */
+expect suspend fun pickLocalMinecraftWorldDir(): String?
+
+/**
  * Check whether the OS supports creating symlinks.
  * Desktop: delegates to canCreateSymlink().
  * Android: always returns true (no symlink needed).

@@ -9,6 +9,7 @@ import androidx.compose.material.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -17,8 +18,12 @@ import androidx.navigation.toRoute
 import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.model.BSSkinData
 import calebxzhou.rdi.client.UIFontFamily
+import calebxzhou.rdi.client.service.LOCAL_WORLD_BIRD_VIEW_ROUTE_ID
+import calebxzhou.rdi.client.service.WorldBirdViewSourceSpec
+import calebxzhou.rdi.client.service.WorldBirdViewStore
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
+import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 
 /**
@@ -48,6 +53,7 @@ fun AppNavigation(
 ) {
     MaterialTheme(typography = AppTypography) {
         val navController = rememberNavController()
+        val scope = rememberCoroutineScope()
         val openTaskView: (calebxzhou.rdi.common.model.Task, Boolean, (() -> Unit)?, (() -> Unit)?) -> Unit = { task, autoClose, onDone, onBack ->
             TaskStore.current = task
             TaskStore.autoClose = autoClose
@@ -239,14 +245,29 @@ fun AppNavigation(
                 WorldListScreen(
                     onBack = { navController.navigateAbsolute(Menu) },
                     onOpenBirdView = { worldId ->
+                        WorldBirdViewStore.current = WorldBirdViewSourceSpec.Remote(worldId)
                         navController.navigate(WorldBirdView(worldId))
+                    },
+                    onOpenLocalBirdView = {
+                        scope.launch {
+                            val rootPath = pickLocalMinecraftWorldDir() ?: return@launch
+                            WorldBirdViewStore.current = WorldBirdViewSourceSpec.Local(rootPath)
+                            navController.navigate(WorldBirdView(LOCAL_WORLD_BIRD_VIEW_ROUTE_ID))
+                        }
                     }
                 )
             }
             composable<WorldBirdView> {
                 val route = it.toRoute<WorldBirdView>()
+                val sourceSpec = when (route.worldId) {
+                    LOCAL_WORLD_BIRD_VIEW_ROUTE_ID -> {
+                        (WorldBirdViewStore.current as? WorldBirdViewSourceSpec.Local)
+                            ?: WorldBirdViewSourceSpec.Remote(route.worldId)
+                    }
+                    else -> WorldBirdViewSourceSpec.Remote(route.worldId)
+                }
                 WorldBirdViewScreen(
-                    worldId = route.worldId,
+                    sourceSpec = sourceSpec,
                     onBack = { navController.navigateAbsolute(WorldList) }
                 )
             }

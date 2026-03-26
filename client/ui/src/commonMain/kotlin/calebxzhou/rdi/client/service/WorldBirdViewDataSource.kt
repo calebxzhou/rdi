@@ -1,0 +1,101 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.model.World
+import io.ktor.http.HttpMethod
+import io.ktor.http.encodeURLPathPart
+
+interface WorldBirdViewDataSource {
+    val sourceKey: String
+    val supportsBuildAllSurfaceCaches: Boolean
+
+    suspend fun listDimensions(): List<String>
+
+    suspend fun querySurface(
+        dimension: String,
+        scale: World.Scale,
+        regionsRaw: String? = null,
+        chunksRaw: String? = null
+    ): World.SurfaceQueryDto
+
+    suspend fun buildAllSurfaceCaches(): String
+}
+
+sealed interface WorldBirdViewSourceSpec {
+    val sourceKey: String
+
+    data class Remote(
+        val worldId: String
+    ) : WorldBirdViewSourceSpec {
+        override val sourceKey: String = "remote:$worldId"
+    }
+
+    data class Local(
+        val rootPath: String
+    ) : WorldBirdViewSourceSpec {
+        override val sourceKey: String = "local:$rootPath"
+    }
+}
+
+object WorldBirdViewStore {
+    var current: WorldBirdViewSourceSpec? = null
+}
+
+const val LOCAL_WORLD_BIRD_VIEW_ROUTE_ID = "__local__"
+
+fun createWorldBirdViewDataSource(spec: WorldBirdViewSourceSpec): WorldBirdViewDataSource? {
+    return when (spec) {
+        is WorldBirdViewSourceSpec.Remote -> RemoteWorldBirdViewDataSource(spec.worldId)
+        is WorldBirdViewSourceSpec.Local -> createLocalWorldBirdViewDataSource(spec.rootPath)
+    }
+}
+
+expect fun createLocalWorldBirdViewDataSource(rootPath: String): WorldBirdViewDataSource?
+
+private class RemoteWorldBirdViewDataSource(
+    private val worldId: String
+) : WorldBirdViewDataSource {
+    override val sourceKey: String = "remote:$worldId"
+    override val supportsBuildAllSurfaceCaches: Boolean = true
+
+    override suspend fun listDimensions(): List<String> {
+        val response = server.makeRequest<List<String>>("world/$worldId/dimensions")
+        if (!response.ok) throw RequestError(response.msg)
+        return response.data.orEmpty().distinct()
+    }
+
+    override suspend fun querySurface(
+        dimension: String,
+        scale: World.Scale,
+        regionsRaw: String?,
+        chunksRaw: String?
+    ): World.SurfaceQueryDto {
+        val response = server.makeRequest<World.SurfaceQueryDto>(
+            path = "world/$worldId/surface/${dimension.encodeURLPathPart()}",
+            params = buildMap {
+                put("scale", scale.level)
+                regionsRaw?.takeIf { it.isNotBlank() }?.let { put("regions", it) }
+                chunksRaw?.takeIf { it.isNotBlank() }?.let { put("chunks", it) }
+            }
+        )
+        if (!response.ok) throw RequestError(response.msg)
+        return response.data ?: World.SurfaceQueryDto(
+            scale = scale.level,
+            palette = listOf("minecraft:air"),
+            chunks = emptyList(),
+            missing = emptyList(),
+            regions = emptyList(),
+            missingRegions = emptyList()
+        )
+    }
+
+    override suspend fun buildAllSurfaceCaches(): String {
+        val response = server.makeRequest<Unit>(
+            path = "world/$worldId/surface/build",
+            method = HttpMethod.Post
+        )
+        if (!response.ok) throw RequestError(response.msg)
+        return response.msg.ifBlank { "已提交地图缓存构建，请到邮件查看进度" }
+    }
+}

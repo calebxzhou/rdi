@@ -20,24 +20,26 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import calebxzhou.rdi.client.net.rdiRequest
-import calebxzhou.rdi.client.net.rdiRequestU
+import calebxzhou.rdi.client.service.WorldBirdViewSourceSpec
+import calebxzhou.rdi.client.service.createWorldBirdViewDataSource
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.WorldMap
 import calebxzhou.rdi.common.model.BlockColors
 import calebxzhou.rdi.common.model.World
-import io.ktor.http.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import kotlin.math.*
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WorldBirdViewScreen(
-    worldId: String,
+    sourceSpec: WorldBirdViewSourceSpec,
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val source = remember(sourceSpec.sourceKey) { createWorldBirdViewDataSource(sourceSpec) }
+    val sourceKey = source?.sourceKey ?: sourceSpec.sourceKey
     var scale by remember { mutableStateOf(World.Scale.L2) }
     var zoomLevel by remember { mutableStateOf(World.Scale.L2.level.toFloat()) }
     var centerChunkXFloat by remember { mutableStateOf(0f) }
@@ -154,46 +156,56 @@ fun WorldBirdViewScreen(
     }
 
     fun loadDimensions() {
-        scope.rdiRequest<List<String>>(
-            path = "world/$worldId/dimensions",
-            onErr = {
-                dimensions = emptyList()
-                error = "加载维度失败: ${it.message}"
-            },
-            onOk = { response ->
-                val loaded = response.data.orEmpty().distinct()
+        val activeSource = source ?: run {
+            dimensions = emptyList()
+            error = "当前平台不支持打开本地存档"
+            return
+        }
+        scope.launch {
+            try {
+                val loaded = activeSource.listDimensions().distinct()
                 dimensions = loaded
                 if (loaded.isEmpty()) {
                     error = "该地图没有可用维度数据"
-                    return@rdiRequest
+                    return@launch
                 }
                 if (selectedDimension !in loaded) {
                     selectedDimension = loaded.first()
                 }
+                error = null
+            } catch (t: Throwable) {
+                dimensions = emptyList()
+                error = "加载维度失败: ${t.message}"
             }
-        )
+        }
     }
 
     fun requestBuildAllSurfaceCaches() {
-        scope.rdiRequestU(
-            path = "world/$worldId/surface/build",
-            onErr = {
-                error = "提交地图缓存构建失败: ${it.message ?: "请求失败"}"
-            },
-            onOk = { response ->
+        val activeSource = source ?: run {
+            error = "当前平台不支持打开本地存档"
+            return
+        }
+        scope.launch {
+            try {
+                val message = activeSource.buildAllSurfaceCaches()
                 clearSurfaceCaches()
-                error = response.msg.ifBlank { "已提交地图缓存构建，请到邮件查看进度" }
+                error = message
+            } catch (t: Throwable) {
+                error = "提交地图缓存构建失败: ${t.message ?: "请求失败"}"
             }
-        )
+        }
     }
 
     fun requestChunkRange(range: ChunkRange): Boolean {
         if (loadingChunkRanges.any { it == range }) return false
 
+        val activeSource = source ?: run {
+            error = "当前平台不支持打开本地存档"
+            return false
+        }
         val requestScaleLevel = scale.level
         val chunkCache = chunkCacheOf(requestScaleLevel)
         val knownMissing = knownMissingOf(requestScaleLevel)
-        val encodedDimension = selectedDimension.encodeURLPathPart()
         val requestKey = buildString {
             append("chunk:")
             append(selectedDimension)
@@ -210,28 +222,13 @@ fun WorldBirdViewScreen(
         }
         if (loadingJobs.containsKey(requestKey)) return false
         loadingChunkRanges += range
-        val job = scope.rdiRequest<World.SurfaceQueryDto>(
-            path = "world/$worldId/surface/$encodedDimension",
-            params = mapOf(
-                "scale" to requestScaleLevel,
-                "chunks" to "${range.minX}..${range.maxX}/${range.minZ}..${range.maxZ}"
-            ),
-            onDone = {
-                loadingChunkRanges.remove(range)
-                loadingJobs.remove(requestKey)
-                refreshActiveLoadCount()
-                loadEpoch++
-                sweepPhase++
-            },
-            onErr = { throwable ->
-                if (throwable is CancellationException) return@rdiRequest
-                loadingChunkRanges.remove(range)
-                loadingJobs.remove(requestKey)
-                refreshActiveLoadCount()
-                error = "加载俯视图失败: ${throwable.message ?: "请求失败"}"
-            },
-            onOk = { response ->
-                val dto = response.data ?: return@rdiRequest
+        val job = scope.launch {
+            try {
+                val dto = activeSource.querySurface(
+                    dimension = selectedDimension,
+                    scale = World.Scale.fromLevel(requestScaleLevel),
+                    chunksRaw = "${range.minX}..${range.maxX}/${range.minZ}..${range.maxZ}"
+                )
                 val paletteColors = IntArray(dto.palette.size) { paletteIndex ->
                     val blockId = dto.palette.getOrElse(paletteIndex) { "minecraft:air" }
                     blockColorCache.getOrPut(blockId) {
@@ -280,8 +277,17 @@ fun WorldBirdViewScreen(
                     cacheVersion++
                 }
                 error = null
+            } catch (throwable: Throwable) {
+                if (throwable is CancellationException) return@launch
+                error = "加载俯视图失败: ${throwable.message ?: "请求失败"}"
+            } finally {
+                loadingChunkRanges.remove(range)
+                loadingJobs.remove(requestKey)
+                refreshActiveLoadCount()
+                loadEpoch++
+                sweepPhase++
             }
-        )
+        }
         loadingJobs[requestKey] = job
         refreshActiveLoadCount()
         return true
@@ -290,10 +296,13 @@ fun WorldBirdViewScreen(
     fun requestRegionRange(range: RegionRange): Boolean {
         if (loadingRegionRanges.any { it == range }) return false
 
+        val activeSource = source ?: run {
+            error = "当前平台不支持打开本地存档"
+            return false
+        }
         val requestScaleLevel = scale.level
         val regionCache = regionCacheOf(requestScaleLevel)
         val knownMissingRegions = knownMissingRegionsOf(requestScaleLevel)
-        val encodedDimension = selectedDimension.encodeURLPathPart()
         val requestKey = buildString {
             append("region:")
             append(selectedDimension)
@@ -310,28 +319,13 @@ fun WorldBirdViewScreen(
         }
         if (loadingJobs.containsKey(requestKey)) return false
         loadingRegionRanges += range
-        val job = scope.rdiRequest<World.SurfaceQueryDto>(
-            path = "world/$worldId/surface/$encodedDimension",
-            params = mapOf(
-                "scale" to requestScaleLevel,
-                "regions" to "${range.minX}..${range.maxX}/${range.minZ}..${range.maxZ}"
-            ),
-            onDone = {
-                loadingRegionRanges.remove(range)
-                loadingJobs.remove(requestKey)
-                refreshActiveLoadCount()
-                loadEpoch++
-                sweepPhase++
-            },
-            onErr = { throwable ->
-                if (throwable is CancellationException) return@rdiRequest
-                loadingRegionRanges.remove(range)
-                loadingJobs.remove(requestKey)
-                refreshActiveLoadCount()
-                error = "加载俯视图失败: ${throwable.message ?: "请求失败"}"
-            },
-            onOk = { response ->
-                val dto = response.data ?: return@rdiRequest
+        val job = scope.launch {
+            try {
+                val dto = activeSource.querySurface(
+                    dimension = selectedDimension,
+                    scale = World.Scale.fromLevel(requestScaleLevel),
+                    regionsRaw = "${range.minX}..${range.maxX}/${range.minZ}..${range.maxZ}"
+                )
                 val paletteColors = IntArray(dto.palette.size) { paletteIndex ->
                     val blockId = dto.palette.getOrElse(paletteIndex) { "minecraft:air" }
                     blockColorCache.getOrPut(blockId) {
@@ -383,14 +377,23 @@ fun WorldBirdViewScreen(
                     cacheVersion++
                 }
                 error = null
+            } catch (throwable: Throwable) {
+                if (throwable is CancellationException) return@launch
+                error = "加载俯视图失败: ${throwable.message ?: "请求失败"}"
+            } finally {
+                loadingRegionRanges.remove(range)
+                loadingJobs.remove(requestKey)
+                refreshActiveLoadCount()
+                loadEpoch++
+                sweepPhase++
             }
-        )
+        }
         loadingJobs[requestKey] = job
         refreshActiveLoadCount()
         return true
     }
 
-    LaunchedEffect(worldId) {
+    LaunchedEffect(sourceKey) {
         clearSurfaceCaches()
         error = null
         setCenter(0f, 0f)
@@ -414,7 +417,7 @@ fun WorldBirdViewScreen(
         }
     }
 
-    LaunchedEffect(worldId, selectedDimension, scale, zoomLevel, centerChunkXFloat, centerChunkZFloat, viewportSize, dimensions, dragging, loadEpoch) {
+    LaunchedEffect(sourceKey, selectedDimension, scale, zoomLevel, centerChunkXFloat, centerChunkZFloat, viewportSize, dimensions, dragging, loadEpoch) {
         if (dimensions.isEmpty()) return@LaunchedEffect
         if (dragging) return@LaunchedEffect
         val visibleRange = computeVisibleChunkRange(
@@ -490,7 +493,9 @@ fun WorldBirdViewScreen(
                 val blocksPerPixel = ((2f.pow(zoomLevel) * 100f).roundToInt() / 100f)
                 Text("比例尺 1:${blocksPerPixel}")
                 Space8w()
-                //CircleIconButton("\uDB83\uDCBD", "构建地图", ) { requestBuildAllSurfaceCaches() }
+                if (source?.supportsBuildAllSurfaceCaches == true) {
+                    CircleIconButton("\uDB83\uDCBD", "构建地图缓存") { requestBuildAllSurfaceCaches() }
+                }
             }
             Spacer(modifier = Modifier.height(12.dp))
 
@@ -530,7 +535,7 @@ fun WorldBirdViewScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .clipToBounds()
-                        .pointerInput(worldId, selectedDimension) {
+                        .pointerInput(sourceKey, selectedDimension) {
                             awaitPointerEventScope {
                                 while (true) {
                                     val event = awaitPointerEvent()
@@ -543,7 +548,7 @@ fun WorldBirdViewScreen(
                                 }
                             }
                         }
-                        .pointerInput(worldId, selectedDimension) {
+                        .pointerInput(sourceKey, selectedDimension) {
                             detectTransformGestures { centroid, pan, zoom, _ ->
                                 if (pan != Offset.Zero) {
                                     panByPixels(pan)
@@ -555,7 +560,7 @@ fun WorldBirdViewScreen(
                                 updateHoverChunk(centroid)
                             }
                         }
-                        .pointerInput(worldId, selectedDimension) {
+                        .pointerInput(sourceKey, selectedDimension) {
                             awaitPointerEventScope {
                                 while (true) {
                                     val event = awaitPointerEvent()

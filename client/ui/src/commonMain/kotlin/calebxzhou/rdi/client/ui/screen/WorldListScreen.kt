@@ -17,7 +17,6 @@ import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.WorldCard
-import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.model.World
 import io.ktor.http.*
 
@@ -28,7 +27,8 @@ import io.ktor.http.*
 @Composable
 fun WorldListScreen(
     onBack: (() -> Unit)? = null,
-    onOpenBirdView: (String) -> Unit = {}
+    onOpenBirdView: (String) -> Unit = {},
+    onOpenLocalBirdView: (() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     var worlds by remember { mutableStateOf<List<World.Vo>>(emptyList()) }
@@ -71,26 +71,31 @@ fun WorldListScreen(
                 errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
                 val canOperate = selectedWorld != null
                 CircleIconButton(
-                    "\uDB85\uDDC6", "俯视图[开发中]", enabled = DEBUG,
-                    
+                    "\uDB85\uDDC6", "俯视图", enabled = canOperate,
                 ) {
-                   // selectedWorld?.let { onOpenBirdView(it.id.toHexString()) }
+                    selectedWorld?.let { onOpenBirdView(it.id.toHexString()) }
                 }
-
+                if (isDesktop && onOpenLocalBirdView != null) {
+                    Space8w()
+                    CircleIconButton(
+                        "\uF07C",
+                        "打开本地存档"
+                    ) {
+                        onOpenLocalBirdView()
+                    }
+                }
                 Space8w()
                 CircleIconButton(
                     icon = "\uDB80\uDD67",
                     tooltip = "上传存档(开发中)",
-                    enabled = DEBUG,
-                    
+                    enabled = false,
                 ) {
                 }
                 Space8w()
                 CircleIconButton(
                     icon = "\uDB80\uDD62",
                     tooltip = "下载存档(开发中)",
-                    enabled = DEBUG,
-                    
+                    enabled = false,
                 ) {
 
                 }

@@ -71,6 +71,18 @@ actual suspend fun pickSaveFile(suggestedName: String, extension: String): File?
         file
     }
 
+actual suspend fun pickLocalMinecraftWorldDir(): String? =
+    withContext(Dispatchers.IO) {
+        val chooser = JFileChooser().apply {
+            dialogTitle = "选择本地存档目录"
+            fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
+            isAcceptAllFileFilterUsed = true
+        }
+        val result = chooser.showOpenDialog(null)
+        if (result != JFileChooser.APPROVE_OPTION) return@withContext null
+        chooser.selectedFile?.takeIf { it.isDirectory }?.absolutePath
+    }
+
 actual fun checkCanCreateSymlink(): Boolean {
     return calebxzhou.mykotutils.std.canCreateSymlink()
 }

@@ -81,6 +81,8 @@ actual suspend fun pickSaveFile(suggestedName: String, extension: String): File?
     return file
 }
 
+actual suspend fun pickLocalMinecraftWorldDir(): String? = null
+
 actual fun checkCanCreateSymlink(): Boolean = true // Android doesn't need symlinks
 
 actual suspend fun runDesktopUpdateFlow(
