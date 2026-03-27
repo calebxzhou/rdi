@@ -447,8 +447,11 @@ fun CircleIconButton(
                     }
                 }
             }
-
-            SimpleTooltip(inlineText, tooltipAnchorPosition) { drawButton() }
+            if(!showText){
+                SimpleTooltip(inlineText, tooltipAnchorPosition) { drawButton() }
+            }else{
+                drawButton()
+            }
         }
         return
     }
@@ -587,12 +590,86 @@ fun ImageIconButton(
     tooltipAnchorPosition: TooltipAnchorPosition = TooltipAnchorPosition.Below,
     size: Int = 36,
     contentPadding: PaddingValues = ButtonDefaults.TextButtonContentPadding,
-    bgColor: Color = Color.White,
+    bgColor: Color = MaterialTheme.colors.primary,
     enabled: Boolean = true,
     longPressDelay: Long = 0L,
+    showText: Boolean = true,
     onClick: () -> Unit = {}
 ) {
-    if (tooltip != null) {
+    val inlineText = tooltip?.takeIf { it.isNotBlank() }
+    if (showText && longPressDelay <= 0L && inlineText != null) {
+        BoxWithConstraints {
+            val density = LocalDensity.current
+            val textMeasurer = rememberTextMeasurer()
+            val labelStyle = MaterialTheme.typography.body2
+            val labelWidthPx = remember(inlineText, labelStyle) {
+                textMeasurer.measure(
+                    text = AnnotatedString(inlineText),
+                    style = labelStyle,
+                    maxLines = 1,
+                    softWrap = false
+                ).size.width
+            }
+            val availableWidthPx = if (maxWidth == Dp.Infinity) {
+                Int.MAX_VALUE
+            } else {
+                with(density) { maxWidth.roundToPx() }
+            }
+            val iconBoxPx = with(density) { size.dp.roundToPx() }
+            val gapPx = with(density) { 8.dp.roundToPx() }
+            val horizontalPaddingPx = with(density) { 28.dp.roundToPx() }
+            val requiredWidthPx = iconBoxPx + gapPx + labelWidthPx + horizontalPaddingPx
+            val canShowInlineText = availableWidthPx >= requiredWidthPx
+
+            val drawButton = @Composable {
+                if (canShowInlineText) {
+                    TextButton(
+                        onClick = onClick,
+                        shape = RoundedCornerShape(percent = 50),
+                        modifier = Modifier.height(size.dp),
+                        contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
+                        colors = ButtonDefaults.buttonColors(backgroundColor = bgColor),
+                        enabled = enabled
+                    ) {
+                        RowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            androidx.compose.foundation.Image(
+                                bitmap = iconBitmap(icon),
+                                contentDescription = inlineText,
+                                modifier = Modifier.size((size * 2 / 3).dp)
+                            )
+                            Text(
+                                text = inlineText,
+                                style = labelStyle,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip
+                            )
+                        }
+                    }
+                } else {
+                    TextButton(
+                        onClick = onClick,
+                        shape = CircleShape,
+                        modifier = Modifier.size(size.dp),
+                        contentPadding = contentPadding,
+                        colors = ButtonDefaults.buttonColors(backgroundColor = bgColor),
+                        enabled = enabled
+                    ) {
+                        androidx.compose.foundation.Image(
+                            bitmap = iconBitmap(icon),
+                            contentDescription = inlineText,
+                            modifier = Modifier.size((size * 2 / 3).dp)
+                        )
+                    }
+                }
+            }
+
+            SimpleTooltip(inlineText, tooltipAnchorPosition) { drawButton() }
+        }
+        return
+    }
+
+    if (tooltip != null && !showText) {
         SimpleTooltip(tooltip, tooltipAnchorPosition) {
             TextButton(
                 onClick = onClick,
