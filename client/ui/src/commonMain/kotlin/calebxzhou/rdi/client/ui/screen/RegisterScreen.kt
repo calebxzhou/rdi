@@ -292,7 +292,7 @@ fun RegisterScreen(
                             style = MaterialTheme.typography.h6
                         )
                         Text(
-                            "复制给你的朋友，让他在账号设置页面，点邀请按钮，粘贴此注册码，提交后你就能登录了",
+                            "1.寻找一位已绑定微软MC账号的RDI玩家或服主\n2.让对方打开设置页面，点邀请按钮，粘贴此注册码\n3.提交后 方可登录",
                             style = MaterialTheme.typography.body2
                         )
                         OutlinedTextField(
