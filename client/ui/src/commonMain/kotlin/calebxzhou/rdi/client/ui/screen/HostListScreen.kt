@@ -108,42 +108,49 @@ fun HostListScreen(
             val nonPlayableHosts = remember(hosts) { hosts.filter { !it.playable } }
             @Composable
             fun renderHostCard(host: Host.BriefVo) {
-                host.HostCard(onClickPlay = {
-                    scope.launch {
-                        val res = server.makeRequest<Host.DetailVo>("host/${host._id}/detail")
-                        val detail = res.data
-                            ?: run {
-                                errorMessage = "获取地图信息失败: ${res.msg}"
+                host.HostCard(
+                    onClickPlay = {
+                        scope.launch {
+                            val res = server.makeRequest<Host.DetailVo>("host/${host._id}/detail")
+                            val detail = res.data
+                                ?: run {
+                                    errorMessage = "获取地图信息失败: ${res.msg}"
+                                    return@launch
+                                }
+                            val args = try {
+                                detail.startPlay()
+                            } catch (e: Exception) {
+                                errorMessage = e.message ?: "无法开始游玩"
                                 return@launch
                             }
-                        val args = try {
-                            detail.startPlay()
-                        } catch (e: Exception) {
-                            errorMessage = e.message ?: "无法开始游玩"
-                            return@launch
-                        }
-                        when (args) {
-                            is StartPlayResult.Ready -> {
-                                if (onOpenMcPlay != null) {
-                                    onOpenMcPlay(args.args)
-                                } else {
-                                    errorMessage = "暂不支持在此页面游玩"
+                            when (args) {
+                                is StartPlayResult.Ready -> {
+                                    LocalCredentials.read().updateLastPlayHost(
+                                        id = detail._id.toHexString(),
+                                        name = detail.name
+                                    )
+                                    if (onOpenMcPlay != null) {
+                                        onOpenMcPlay(args.args)
+                                    } else {
+                                        errorMessage = "暂不支持在此页面游玩"
+                                    }
+                                }
+
+                                is StartPlayResult.NeedInstall -> {
+                                    installConfirmTask = args.task
+                                }
+
+                                is StartPlayResult.NeedMc -> {
+                                    errorMessage = "未安装MC版本资源：${args.ver.mcVer}，请先下载"
+                                    onOpenMcVersions?.invoke(args.ver)
                                 }
                             }
-
-                            is StartPlayResult.NeedInstall -> {
-                                installConfirmTask = args.task
-                            }
-
-                            is StartPlayResult.NeedMc -> {
-                                errorMessage = "未安装MC版本资源：${args.ver.mcVer}，请先下载"
-                                onOpenMcVersions?.invoke(args.ver)
-                            }
                         }
+                    },
+                    onClick = {
+                        onOpenHostInfo?.invoke(host._id.toHexString())
                     }
-                }, onClick = {
-                    onOpenHostInfo?.invoke(host._id.toHexString())
-                })
+                )
             }
 
             LazyVerticalGrid(

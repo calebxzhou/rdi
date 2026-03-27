@@ -24,6 +24,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import calebxzhou.mykotutils.std.secondsToHumanDateTime
+import calebxzhou.rdi.client.auth.LocalCredentials
+import calebxzhou.rdi.client.auth.updateLastPlayHost
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
@@ -416,6 +418,10 @@ fun HostInfoScreen(
                             }
                             when (args) {
                                 is StartPlayResult.Ready -> {
+                                    LocalCredentials.read().updateLastPlayHost(
+                                        id = host._id.toHexString(),
+                                        name = host.name
+                                    )
                                     if (onOpenMcPlay != null) {
                                         onOpenMcPlay(args.args)
                                     } else {

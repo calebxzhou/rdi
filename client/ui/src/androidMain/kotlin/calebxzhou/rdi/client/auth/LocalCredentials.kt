@@ -10,10 +10,12 @@ import kotlinx.serialization.json.Json
 @Serializable
 private data class AndroidCredentialsData(
     var loginInfos: MutableMap<String, LoginInfo> = hashMapOf(),
+    var lastPlayHost: LastPlayHostInfo? = null,
 )
 
 actual class LocalCredentials actual constructor() {
     actual var loginInfos: MutableMap<String, LoginInfo> = hashMapOf()
+    actual var lastPlayHost: LastPlayHostInfo? = null
 
     actual val lastLogged: LoginInfo?
         get() = loginInfos.values.maxByOrNull { it.lastLoggedTime }
@@ -22,7 +24,10 @@ actual class LocalCredentials actual constructor() {
     actual fun save() {
         val prefs = appContext?.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             ?: throw IllegalStateException("LocalCredentials not initialized. Call LocalCredentials.init(context) first.")
-        val data = AndroidCredentialsData(loginInfos)
+        val data = AndroidCredentialsData(
+            loginInfos = loginInfos,
+            lastPlayHost = lastPlayHost
+        )
         prefs.edit().putString(KEY_CREDENTIALS, json.encodeToString(data)).commit()
     }
 
@@ -46,6 +51,7 @@ actual class LocalCredentials actual constructor() {
                 val data = json.decodeFromString<AndroidCredentialsData>(raw)
                 LocalCredentials().apply {
                     loginInfos = data.loginInfos
+                    lastPlayHost = data.lastPlayHost
                 }
             } else {
                 LocalCredentials()

@@ -10,16 +10,21 @@ import java.io.File
 @Serializable
 private data class DesktopCredentialsData(
     var loginInfos: MutableMap<String, LoginInfo> = hashMapOf(),
+    var lastPlayHost: LastPlayHostInfo? = null,
 )
 
 actual class LocalCredentials actual constructor() {
     actual var loginInfos: MutableMap<String, LoginInfo> = hashMapOf()
+    actual var lastPlayHost: LastPlayHostInfo? = null
 
     actual val lastLogged: LoginInfo?
         get() = loginInfos.values.maxByOrNull { it.lastLoggedTime }
 
     actual fun save() {
-        val data = DesktopCredentialsData(loginInfos)
+        val data = DesktopCredentialsData(
+            loginInfos = loginInfos,
+            lastPlayHost = lastPlayHost
+        )
         file.writeText(serdesJson.encodeToString(data))
     }
 
@@ -34,6 +39,7 @@ actual class LocalCredentials actual constructor() {
             val data = serdesJson.decodeFromString<DesktopCredentialsData>(file.readText())
             LocalCredentials().apply {
                 loginInfos = data.loginInfos
+                lastPlayHost = data.lastPlayHost
             }
         } catch (e: Exception) {
             e.printStackTrace()
