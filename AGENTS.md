@@ -12,6 +12,8 @@ this project is minecraft multiplayer platform, player can upload modpacks to cr
   - tests in `src/test/kotlin`.
 - UI assets/icons are under `client/ui/src/main/resources/assets`.
 - when you reads or writes file content via powershell, use absolute path to avoid permission issues.
+- use CircleIconButton as more as possible when you are making buttons. do not forget @OptIn(ExperimentalMaterial3Api::class)
+- must let me confirm if deleting any files
 ## Build, Test, and Development Commands
 if you are an ai you are not needed to execute gradle commands unless explictly declared
 Run commands inside each module directory (there is no repo-root wrapper).
