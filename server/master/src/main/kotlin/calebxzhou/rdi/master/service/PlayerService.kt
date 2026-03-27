@@ -251,16 +251,26 @@ object PlayerService {
         if (getInvitedCount() >= 5 && !this.isDav) throw RequestError("最多邀请5个玩家")
 
         val invReg = runCatching {
-            serdesJson.decodeFromString<RAccount.RegisterDto>(CryptoManager.decrypt(regCode))
+            serdesJson.decodeFromString<RAccount.RegisterDto>(CryptoManager.decrypt(regCode.trim()))
         }.getOrElse {
             it.printStackTrace();throw RequestError("无效的注册码") }
-        invReg.validate().getOrElse { throw RequestError("受邀者信息错误：${it.message}") }
+        val normalizedInvReg = invReg.copy(
+            name = invReg.name.trim(),
+            qq = invReg.qq.trim()
+        )
+        normalizedInvReg.validate().getOrElse { throw RequestError("受邀者信息错误：${it.message}") }
+        if (hasQQ(normalizedInvReg.qq)) {
+            throw RequestError("QQ被占用")
+        }
+        if (hasName(normalizedInvReg.name)) {
+            throw RequestError("昵称被占用")
+        }
 
         val account = RAccount(
             _id = ObjectId(),
-            name = invReg.name,
-            pwd = invReg.pwd,
-            qq = invReg.qq,
+            name = normalizedInvReg.name,
+            pwd = normalizedInvReg.pwd,
+            qq = normalizedInvReg.qq,
             inviter = this._id,
             cloth = RAccount.Cloth() // Use default cloth for invited users
         )
