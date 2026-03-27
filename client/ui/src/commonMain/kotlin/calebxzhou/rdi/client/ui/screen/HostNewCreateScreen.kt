@@ -335,8 +335,9 @@ fun HostNewCreateScreen(
                             CircularProgressIndicator()
                         }
                     }
+                    Text("使用已下载的整合包创建地图。")
                     if (!loadingLocalPacks && localDirs.isEmpty()) {
-                        Text("未找到本地已安装整合包，请先到版本管理安装整合包。", color = MaterialColor.GRAY_700.color)
+                        Text("请先到“整合包管理界面”下载想玩的整合包，方可创建地图。", color = MaterialColor.GRAY_700.color)
                     }
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 280.dp),

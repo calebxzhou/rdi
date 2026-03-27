@@ -11,8 +11,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.PlayerModel
@@ -26,14 +27,17 @@ import org.bson.types.ObjectId
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MenuScreen(
-    onOpenMcVersions: () -> Unit,
+    onOpenModpackLocalManage: () -> Unit,
+    onOpenMcVersionManage: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMail: () -> Unit,
     onOpenHostLobby: () -> Unit,
+    onOpenHostInfo: (String) -> Unit,
     onOpenWardrobe: () -> Unit,
     onOpenWorldList: () -> Unit,
     onBack: () -> Unit
 ) {
+    val lastPlayHost = remember { LocalCredentials.read().lastPlayHost }
     var onlinePlayerIds by remember { mutableStateOf<List<ObjectId>>(emptyList()) }
 
     LaunchedEffect(Unit) {
@@ -47,81 +51,87 @@ fun MenuScreen(
     MainColumn {
         BoxWithConstraints(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             val compact = maxWidth < 980.dp || maxHeight > maxWidth
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                RowV {
-                    Text("${periodOfDay}好，")
-                    HeadButton(loggedAccount._id)
-                }
-                Space8h()
-                FlowRow(
-                    modifier = Modifier.widthIn(max = 460.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 28.dp else 72.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("在线${onlinePlayerIds.size}人")
-                    Space8w()
-                    onlinePlayerIds.forEach {
-                        HeadButton(it, showName = false, avatarSize = 12.dp)
+                    RowV {
+                        Text("${periodOfDay}好，")
+                        HeadButton(loggedAccount._id)
                     }
+                    FlowRow(
+                        modifier = Modifier.widthIn(max = 320.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("在线${onlinePlayerIds.size}人")
+                        Space8w()
+                        onlinePlayerIds.forEach {
+                            HeadButton(it, showName = false, avatarSize = 12.dp)
+                        }
+                    }
+                    PlayerPreviewCard(
+                        modifier = Modifier.size(320.dp),
+                        onClick = onOpenWardrobe
+                    )
                 }
-                Space8h()
-                RowV {
+
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.widthIn(min = if (compact) 180.dp else 220.dp)
+                ) {
                     CircleIconButton(
                         "\uDB81\uDC25",
-                        "退出登录",
+                        "退出",
                         bgColor = MaterialColor.RED_900.color,
-                        contentPadding = PaddingValues(),
-                        showText = false
+                        contentPadding = PaddingValues()
                     ) {
                         loggedAccount = RAccount.DEFAULT
                         onBack.invoke()
                     }
-                    Space8w()
                     CircleIconButton(
                         "\uEB51",
-                        "设置",
-                        showText = false
+                        "设置"
                     ) {
                         onOpenSettings()
                     }
-                    Space8w()
-                    ImageIconButton("grass_block", "版本管理", bgColor = Color.LightGray ) {
-                        onOpenMcVersions?.invoke()
+                    ImageIconButton("grass_block", "MC资源", bgColor = MaterialColor.GREEN_200.color) {
+                        onOpenMcVersionManage()
                     }
-                    Space8w()
-                    CircleIconButton("\uEB1C", "信箱", bgColor = Color.LightGray, iconColor = Color.Black,
-                        showText = false) {
+                    ImageIconButton("chest", "整合包", bgColor = MaterialColor.AMBER_200.color) {
+                        onOpenModpackLocalManage()
+                    }
+                    CircleIconButton("\uEB1C", "信箱") {
                         onOpenMail.invoke()
                     }
-                    Space8w()
-                    CircleIconButton("\uDB85\uDC5C", "区块数据管理",
-                        showText = false) {
-                        onOpenWorldList?.invoke()
+                    CircleIconButton("\uDB85\uDC5C", "存档") {
+                        onOpenWorldList.invoke()
                     }
-                    Space8w()
                     CircleIconButton(
                         "\uF04B",
-                        "多人游玩",
+                        "地图",
                         bgColor = MaterialColor.GREEN_900.color,
-                        contentPadding = PaddingValues(start = 2.dp),
-                        showText = false
+                        contentPadding = PaddingValues(start = 2.dp)
                     ) {
-                        onOpenHostLobby?.invoke()
+                        onOpenHostLobby.invoke()
+                    }
+                    lastPlayHost?.let { host ->
+                        CircleIconButton(
+                            icon = "\uF04B",
+                            tooltip = "继续游玩地图:${host.name}",
+                            bgColor = MaterialColor.GREEN_900.color
+                        ) {
+                            onOpenHostInfo(host.id)
+                        }
                     }
                 }
-
-
-                PlayerPreviewCard(
-                    modifier = Modifier
-                        .size(320.dp),
-                    onClick = onOpenWardrobe
-                )
-
-
             }
         }
-
-
     }
 }
 

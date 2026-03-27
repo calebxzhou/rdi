@@ -1,20 +1,40 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.*
-import androidx.compose.material.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material.AlertDialog
+import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Text
+import androidx.compose.material.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.Const
-import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.auth.LocalCredentials
+import calebxzhou.rdi.client.auth.updateLastPlayHost
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.StartPlayResult
 import calebxzhou.rdi.client.service.startPlay
-import calebxzhou.rdi.client.ui.*
+import calebxzhou.rdi.client.ui.CircleIconButton
+import calebxzhou.rdi.client.ui.MainColumn
+import calebxzhou.rdi.client.ui.McPlayArgs
+import calebxzhou.rdi.client.ui.Space8w
+import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
@@ -29,11 +49,49 @@ import org.bson.types.ObjectId
 @Composable
 fun HostListScreen(
     onBack: (() -> Unit),
+    onOpenHostAll: (() -> Unit)? = null,
     onOpenHostInfo: ((String) -> Unit)? = null,
     onOpenHostCreate: (() -> Unit)? = null,
     onOpenMcVersions: ((McVersion?) -> Unit)? = null,
     onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
     onOpenTask: ((Task) -> Unit)? = null
+) {
+    HostBrowserScreen(
+        title = "我的地图",
+        emptyStateText = "暂无你的地图，点击右上角创建或等待朋友邀请",
+        listPathForPage = { pageIndex -> "host/my/$pageIndex" },
+        onBack = onBack,
+        onOpenHostInfo = onOpenHostInfo,
+        onOpenMcVersions = onOpenMcVersions,
+        onOpenMcPlay = onOpenMcPlay,
+        onOpenTask = onOpenTask
+    ) {
+        Text("显示你创建/受邀的地图")
+        Space8w()
+        onOpenHostAll?.let {
+            CircleIconButton("\uF0C0", "地图大厅") {
+                it()
+            }
+            Space8w()
+        }
+        CircleIconButton("\uDB81\uDC90", "创建新地图") {
+            onOpenHostCreate?.invoke()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun HostBrowserScreen(
+    title: String,
+    emptyStateText: String,
+    listPathForPage: (Int) -> String,
+    onBack: (() -> Unit),
+    onOpenHostInfo: ((String) -> Unit)? = null,
+    onOpenMcVersions: ((McVersion?) -> Unit)? = null,
+    onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
+    onOpenTask: ((Task) -> Unit)? = null,
+    headerActions: @Composable RowScope.() -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var hosts by remember { mutableStateOf<List<Host.BriefVo>>(emptyList()) }
@@ -44,7 +102,6 @@ fun HostListScreen(
     var reachedEnd by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
 
-    val snackbarHostState = remember { SnackbarHostState() }
     fun resetList() {
         page = 0
         reachedEnd = false
@@ -54,7 +111,7 @@ fun HostListScreen(
     suspend fun loadPage(pageIndex: Int) {
         if (loadingMore || reachedEnd) return
         loadingMore = true
-        val response = server.makeRequest<List<Host.BriefVo>>("host/list/$pageIndex")
+        val response = server.makeRequest<List<Host.BriefVo>>(listPathForPage(pageIndex))
         val data = response.data ?: emptyList()
         if (data.isEmpty()) {
             reachedEnd = true
@@ -84,21 +141,21 @@ fun HostListScreen(
                 }
             }
     }
+
     MainColumn {
-        // Header / Toolbar
-        TitleRow("地图大厅", onBack = onBack) {
+        TitleRow(title, onBack = onBack) {
             errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
-            Space8w()
-            CircleIconButton("\uDB81\uDC90","创建地图", ){
-                onOpenHostCreate?.invoke()
+            if (errorMessage != null) {
+                Space8w()
             }
+            headerActions()
         }
         Spacer(modifier = Modifier.height(16.dp))
 
         if (hosts.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = "暂无可展示的地图",
+                    text = emptyStateText,
                     style = MaterialTheme.typography.h6,
                     color = Color.Gray
                 )
@@ -106,6 +163,7 @@ fun HostListScreen(
         } else {
             val playableHosts = remember(hosts) { hosts.filter { it.playable } }
             val nonPlayableHosts = remember(hosts) { hosts.filter { !it.playable } }
+
             @Composable
             fun renderHostCard(host: Host.BriefVo) {
                 host.HostCard(
@@ -172,25 +230,16 @@ fun HostListScreen(
 
                 if (nonPlayableHosts.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text("以下地图由于不在线或已启用白名单，无法游玩", style = MaterialTheme.typography.subtitle1, color = Color.Gray)
+                        Text(
+                            "以下地图由于不在线或已启用白名单，无法游玩",
+                            style = MaterialTheme.typography.subtitle1,
+                            color = Color.Gray
+                        )
                     }
                     items(nonPlayableHosts) { host ->
                         renderHostCard(host)
                     }
                 }
-
-                    /*calebxzhou.rdi.client.ui.component.HostCard(
-                        host = host,
-                        onClick = {
-                            HostInfoFragment(host._id).go()
-                        },
-                        onPlayClick = {
-                            scope.launch {
-                                val res = server.makeRequest<Host>("host/${host._id}")
-                                res.data?.startPlay()
-                            }
-                        }
-                    )*/
 
                 if (loadingMore) {
                     item {
@@ -207,6 +256,7 @@ fun HostListScreen(
             }
         }
     }
+
     installConfirmTask?.let { task ->
         AlertDialog(
             onDismissRequest = { installConfirmTask = null },

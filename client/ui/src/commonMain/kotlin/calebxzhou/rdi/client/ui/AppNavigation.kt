@@ -124,10 +124,12 @@ fun AppNavigation(
             }
             composable<Menu> {
                 MenuScreen(
-                    onOpenMcVersions = { navController.navigate(RMcVersion(null)) },
+                    onOpenModpackLocalManage = { navController.navigate(ModpackLocalManage) },
+                    onOpenMcVersionManage = { navController.navigate(RMcVersion(null)) },
                     onOpenSettings = { navController.navigate(Setting) },
                     onOpenMail = { navController.navigate(Mail) },
                     onOpenHostLobby = { navController.navigate(HostList) },
+                    onOpenHostInfo = { hostId -> navController.navigate(HostInfo(hostId)) },
                     onOpenWardrobe = { navController.navigate(Wardrobe) },
                     onOpenWorldList = { navController.navigate(WorldList) },
                     onBack = {
@@ -194,6 +196,7 @@ fun AppNavigation(
             composable<HostList> {
                 HostListScreen(
                     onBack = { navController.navigateAbsolute(Menu) },
+                    onOpenHostAll = { navController.navigate(HostAll) },
                     onOpenHostInfo = { hostId ->
                         navController.navigate(HostInfo(hostId))
                     },
@@ -213,29 +216,77 @@ fun AppNavigation(
                     }
                 )
             }
-            composable<HostInfo> {
-                val route = it.toRoute<HostInfo>()
-                HostInfoScreen(
-                    hostId = ObjectId(route.hostId),
+            composable<ModpackLocalManage> {
+                ModpackLocalManageScreen(
+                    onBack = { navController.navigateAbsolute(Menu) },
+                    onOpenTask = { task ->
+                        openTaskView(task, false, null) {
+                            navController.navigateAbsolute(ModpackLocalManage)
+                        }
+                    },
+                    onOpenPlay = { args ->
+                        openMcPlay(args) { navController.navigateAbsolute(ModpackLocalManage) }
+                    },
+                    onOpenModpackList = { navController.navigate(ModpackList) }
+                )
+            }
+            composable<HostAll> {
+                HostAllScreen(
                     onBack = { navController.navigateAbsolute(HostList) },
-                    onOpenModpackInfo = { modpackId ->
-                        navController.navigate(ModpackInfo(modpackId, fromHostId = route.hostId))
+                    onOpenHostInfo = { hostId ->
+                        navController.navigate(HostInfo(hostId, fromAllHosts = true))
                     },
                     onOpenMcPlay = { args ->
-                        openMcPlay(args) { navController.navigateAbsolute(HostInfo(route.hostId)) }
+                        openMcPlay(args) { navController.navigateAbsolute(HostAll) }
                     },
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(RMcVersion(mcVer?.mcVer))
                     },
                     onOpenTask = { task ->
                         openTaskView(task, false, null) {
-                            navController.navigateAbsolute(HostInfo(route.hostId))
+                            navController.navigateAbsolute(HostAll)
+                        }
+                    }
+                )
+            }
+            composable<HostInfo> {
+                val route = it.toRoute<HostInfo>()
+                HostInfoScreen(
+                    hostId = ObjectId(route.hostId),
+                    onBack = {
+                        if (route.fromAllHosts) {
+                            navController.navigateAbsolute(HostAll)
+                        } else {
+                            navController.navigateAbsolute(HostList)
+                        }
+                    },
+                    onOpenModpackInfo = { modpackId ->
+                        navController.navigate(
+                            ModpackInfo(
+                                modpackId = modpackId,
+                                fromHostId = route.hostId,
+                                fromAllHosts = route.fromAllHosts
+                            )
+                        )
+                    },
+                    onOpenMcPlay = { args ->
+                        openMcPlay(args) {
+                            navController.navigateAbsolute(HostInfo(route.hostId, route.fromAllHosts))
+                        }
+                    },
+                    onOpenMcVersions = { mcVer ->
+                        navController.navigate(RMcVersion(mcVer?.mcVer))
+                    },
+                    onOpenTask = { task ->
+                        openTaskView(task, false, null) {
+                            navController.navigateAbsolute(HostInfo(route.hostId, route.fromAllHosts))
                         }
                     },
                     onOpenHostEdit = { host ->
                         navController.navigate(
                             HostCreate(
-                                hostId = host._id.toHexString()
+                                hostId = host._id.toHexString(),
+                                fromAllHosts = route.fromAllHosts
                             )
                         )
                     }
@@ -277,7 +328,7 @@ fun AppNavigation(
                     route,
                     onBack = {
                         if (route.hostId != null) {
-                            navController.navigateAbsolute(HostInfo(route.hostId))
+                            navController.navigateAbsolute(HostInfo(route.hostId, route.fromAllHosts))
                         } else {
                             navController.navigateAbsolute(HostList)
                         }
@@ -337,7 +388,7 @@ fun AppNavigation(
                     modpackId = route.modpackId,
                     onBack = {
                         if (route.fromHostId != null) {
-                            navController.navigateAbsolute(HostInfo(route.fromHostId))
+                            navController.navigateAbsolute(HostInfo(route.fromHostId, route.fromAllHosts))
                         } else {
                             navController.navigateAbsolute(ModpackList)
                         }
@@ -350,7 +401,9 @@ fun AppNavigation(
                     },
                     onOpenTask = { task ->
                         openTaskView(task, false, null) {
-                            navController.navigateAbsolute(ModpackInfo(route.modpackId, route.fromHostId))
+                            navController.navigateAbsolute(
+                                ModpackInfo(route.modpackId, route.fromHostId, route.fromAllHosts)
+                            )
                         }
                     }
                 )
@@ -366,11 +419,7 @@ fun AppNavigation(
                         openTaskView(task, false, null) {
                             navController.navigateAbsolute(RMcVersion(route.mcVer))
                         }
-                    },
-                    onOpenPlay = { args ->
-                        openMcPlay(args) { navController.navigateAbsolute(RMcVersion(route.mcVer)) }
-                    },
-                    onOpenModpackList = { navController.navigate(ModpackList) }
+                    }
                 )
             }
         }

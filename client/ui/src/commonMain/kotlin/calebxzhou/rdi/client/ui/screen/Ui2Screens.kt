@@ -15,16 +15,23 @@ object Wardrobe
 )
 @Serializable data class HostCreate(
     val hostId: String? = null,
+    val fromAllHosts: Boolean = false,
 )
 @Serializable object ModpackList
-@Serializable data class ModpackInfo(val modpackId: String, val fromHostId: String? = null)
+@Serializable data class ModpackInfo(
+    val modpackId: String,
+    val fromHostId: String? = null,
+    val fromAllHosts: Boolean = false
+)
 @Serializable object ModpackUpload
 @Serializable object Login
 @Serializable object Menu
 @Serializable data class Register(val msa: Boolean)
 @Serializable object Setting
+@Serializable object ModpackLocalManage
 @Serializable object HostList
-@Serializable data class HostInfo(val hostId: String)
+@Serializable object HostAll
+@Serializable data class HostInfo(val hostId: String, val fromAllHosts: Boolean = false)
 @Serializable object Mail
 @Serializable data class MailDetail(val mailId: String)
 @Serializable object WorldList
