@@ -6,6 +6,7 @@ import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.CONF
 import calebxzhou.rdi.client.model.firstLoaderDir
 import calebxzhou.rdi.client.model.loaderManifest
+import calebxzhou.rdi.client.net.SERVER_NODES
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.McPlayArgs
@@ -288,10 +289,10 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         val verDir = ModpackService.getVersionDir(version.modpackId,version.name)
         ModpackService.installRdiCore(modpack.mcVer,modpack.modloader,verDir)
     }
-    val bgp = CONF.carrier != 0
+    val gameAddr = SERVER_NODES[CONF.carrier]?.gameAddr?:SERVER_NODES[0]
     val versionId = "${modpack.id.str}_${version.name}"
     val playArg = "${server.hqUrl}\n" +
-            "${if (bgp) server.bgpIp else server.ip}:${server.gamePort}\n"+
+            "${gameAddr}\n"+
             "${name}\n"+
             "$port\n"+
             "${loggedAccount.uuid}\n"+

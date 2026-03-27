@@ -5,6 +5,7 @@ import calebxzhou.mykotutils.std.*
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.loadResourceBytes
 import calebxzhou.rdi.common.exception.ModpackException
+import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.service.CurseForgeService.loadInfoCurseForge
 import calebxzhou.rdi.common.service.CurseForgeService.mapMods
@@ -45,15 +46,11 @@ data class UploadPayload(
     val sourceVersion: String
 )
 
-data class ParsedUploadPayload(
-    val payload: UploadPayload
-)
-
 suspend fun parseUploadPayload(
     file: File,
     onProgress: (String) -> Unit,
     onError: (String) -> Unit
-): ParsedUploadPayload? {
+): UploadPayload? {
     val prepared = try {
         prepareModpackSource(file)
     } catch (e: Exception) {
@@ -69,102 +66,84 @@ suspend fun parseUploadPayload(
         prepared.rootDir.deleteRecursivelyNoSymlink()
         return null
     }
-    val embeddedMods = collectEmbeddedModFiles(prepared.rootDir)
+    return try {
+        when (packType) {
+            PackType.MODRINTH -> inspectModrinthUploadPayload(prepared.rootDir)
+            PackType.CURSEFORGE -> inspectCurseForgeUploadPayload(prepared.rootDir)
+            PackType.UNKNOWN -> {
+                onError("无效的整合包文件：缺少 manifest.json 或 modrinth.index.json")
+                onProgress("无效的整合包文件：缺少 manifest.json 或 modrinth.index.json")
+                prepared.rootDir.deleteRecursivelyNoSymlink()
+                null
+            }
+        }
+    } catch (e: Exception) {
+        lgr.warn { "解析整合包基础信息失败: ${file.absolutePath + "\n" + e }" }
+        onError(e.message ?: "解析整合包失败")
+        onProgress(e.message ?: "解析整合包失败")
+        prepared.rootDir.deleteRecursivelyNoSymlink()
+        null
+    }
+}
+
+suspend fun loadUploadPayloadMods(
+    payload: UploadPayload,
+    onProgress: (String) -> Unit,
+    onError: (String) -> Unit
+): MutableList<Mod>? {
+    val sourceDir = payload.sourceDir
+    val packType = detectPackType(sourceDir)
+    if (packType == PackType.UNKNOWN) {
+        val msg = "无效的整合包文件：缺少 manifest.json 或 modrinth.index.json"
+        onError(msg)
+        onProgress(msg)
+        return null
+    }
+
+    val embeddedMods = collectEmbeddedModFiles(sourceDir)
     val embeddedMatches = try {
         matchEmbeddedModsAll(
             files = embeddedMods,
             onProgress = onProgress
         )
     } catch (e: Exception) {
-        lgr.warn { "匹配整合包内置mod失败: ${file.absolutePath + "\n" + e }" }
+        lgr.warn { "匹配整合包内置mod失败: ${sourceDir.absolutePath + "\n" + e }" }
         onError(e.message ?: "匹配整合包内置mod失败")
-        prepared.rootDir.deleteRecursivelyNoSymlink()
         return null
     }
+
+    val resolvedMods = try {
+        when (packType) {
+            PackType.MODRINTH -> {
+                val loaded = ModrinthService.loadModpack(sourceDir).getOrThrow()
+                (loaded.mods + embeddedMatches.mods)
+                    .distinctBy { "${it.platform}:${it.projectId}:${it.fileId}:${it.hash}" }
+                    .toMutableList()
+            }
+
+            PackType.CURSEFORGE -> {
+                val modpackData = loadCurseForgeFromDir(sourceDir)
+                val baseMods = modpackData.manifest.files.mapMods()
+                (baseMods + embeddedMatches.mods)
+                    .distinctBy { "${it.platform}:${it.projectId}:${it.fileId}:${it.hash}" }
+                    .toMutableList()
+            }
+
+            PackType.UNKNOWN -> mutableListOf()
+        }
+    } catch (e: Exception) {
+        lgr.warn { "解析整合包mod列表失败: ${sourceDir.absolutePath + "\n" + e }" }
+        onError("解析整合包失败: ${e.message}")
+        onProgress("解析整合包失败: ${e.message}")
+        return null
+    }
+
     if (embeddedMatches.removeFiles.isNotEmpty()) {
         embeddedMatches.removeFiles.forEach { it.delete() }
     }
-    if (packType == PackType.MODRINTH) {
-        val loaded = try {
-            ModrinthService.loadModpack(prepared.rootDir).getOrThrow()
-        } catch (e: Exception) {
-            lgr.warn { "解析Modrinth整合包失败: ${file.absolutePath + "\n" + e }" }
-            onError(e.message ?: "解析整合包失败")
-            prepared.rootDir.deleteRecursivelyNoSymlink()
-            return null
-        }
-        val mcVersion = loaded.mcVersion
-        val modloader = loaded.modloader
-        val versionName = loaded.index.versionId.ifBlank { "1.0" }
-        val mods = (loaded.mods + embeddedMatches.mods)
-            .distinctBy { "${it.platform}:${it.projectId}:${it.fileId}:${it.hash}" }
-            .toMutableList()
-        ModService.run { mods.postProcessModSides() }
-        return ParsedUploadPayload(
-            UploadPayload(
-                sourceDir = prepared.rootDir,
-                mods = mods,
-                mcVersion = mcVersion,
-                modloader = modloader,
-                sourceName = loaded.index.name,
-                sourceVersion = versionName
-            )
-        )
-    }
-
-    if (packType != PackType.CURSEFORGE) {
-        onError("无效的整合包文件：缺少 manifest.json 或 modrinth.index.json")
-        onProgress("无效的整合包文件：缺少 manifest.json 或 modrinth.index.json")
-        prepared.rootDir.deleteRecursivelyNoSymlink()
-        return null
-    }
-    val modpackData = try {
-        loadCurseForgeFromDir(prepared.rootDir)
-    } catch (e: Exception) {
-        lgr.warn { "解析CurseForge整合包失败: ${file.absolutePath + "\n" + e }" }
-        onError(e.message ?: "解析整合包失败")
-        onProgress(e.message ?: "解析整合包失败")
-        prepared.rootDir.deleteRecursivelyNoSymlink()
-        return null
-    }
-
-    return try {
-        val baseMods = modpackData.manifest.files.mapMods()
-        val mods = (baseMods + embeddedMatches.mods)
-            .distinctBy { "${it.platform}:${it.projectId}:${it.fileId}:${it.hash}" }
-            .toMutableList()
-        ModService.run { mods.postProcessModSides() }
-        val mcVersion = McVersion.from(modpackData.manifest.minecraft.version)
-        if (mcVersion == null) {
-            onError("不支持的MC版本: ${modpackData.manifest.minecraft.version}")
-            onProgress("不支持的MC版本: ${modpackData.manifest.minecraft.version}")
-            prepared.rootDir.deleteRecursivelyNoSymlink()
-            return null
-        }
-        val modloader = ModLoader.from(modpackData.manifest.minecraft.modLoaders.firstOrNull()?.id.orEmpty())
-        if (modloader == null) {
-            onError("不支持的Mod加载器: ${modpackData.manifest.minecraft.modLoaders.firstOrNull()?.id.orEmpty()}")
-            onProgress("不支持的Mod加载器: ${modpackData.manifest.minecraft.modLoaders.firstOrNull()?.id.orEmpty()}")
-            prepared.rootDir.deleteRecursivelyNoSymlink()
-            return null
-        }
-        ParsedUploadPayload(
-            UploadPayload(
-                sourceDir = prepared.rootDir,
-                mods = mods,
-                mcVersion = mcVersion,
-                modloader = modloader,
-                sourceName = modpackData.manifest.name,
-                sourceVersion = modpackData.manifest.version.ifBlank { "1.0" }
-            )
-        )
-    } catch (e: Exception) {
-        lgr.warn { "解析CurseForge整合包mod列表失败: ${file.absolutePath + "\n" + e }" }
-        onError("解析整合包失败: ${e.message}")
-        onProgress("解析整合包失败: ${e.message}")
-        prepared.rootDir.deleteRecursivelyNoSymlink()
-        null
-    }
+    ModService.run { resolvedMods.postProcessModSides() }
+    payload.mods = resolvedMods
+    return resolvedMods
 }
 
 private data class EmbeddedMatchResult(
@@ -331,6 +310,66 @@ private fun loadCurseForgeFromDir(rootDir: File): CurseForgeModpackData {
     )
 }
 
+private fun inspectModrinthUploadPayload(rootDir: File): UploadPayload {
+    val indexFile = findFile(rootDir, "modrinth.index.json")
+        ?: throw ModpackException("整合包缺少文件：modrinth.index.json")
+    val indexJson = indexFile.readText(Charsets.UTF_8)
+    val index = runCatching {
+        calebxzhou.rdi.common.serdesJson.decodeFromString<ModrinthModpackIndex>(indexJson)
+    }.getOrElse { err ->
+        throw ModpackException("modrinth.index.json 解析失败: ${err.message}")
+    }
+
+    if (!index.game.equals("minecraft", ignoreCase = true)) {
+        throw ModpackException("不支持的游戏类型: ${index.game}")
+    }
+    if (index.formatVersion <= 0) {
+        throw ModpackException("不支持的整合包格式版本: ${index.formatVersion}")
+    }
+
+    val mcVersionText = index.dependencies["minecraft"]?.trim().orEmpty()
+    if (mcVersionText.isBlank()) {
+        throw ModpackException("整合包缺少 minecraft 版本")
+    }
+    val mcVersion = McVersion.from(mcVersionText)
+    if (mcVersion == null || !mcVersion.enabled) {
+        throw ModpackException("不支持的MC版本: $mcVersionText")
+    }
+
+    val loaderKey = index.dependencies.keys.firstOrNull { ModLoader.from(it) != null }
+        ?: throw ModpackException("不支持的Mod加载器: 未知")
+    val modloader = ModLoader.from(loaderKey)
+        ?: throw ModpackException("不支持的Mod加载器: $loaderKey")
+
+    return UploadPayload(
+        sourceDir = rootDir,
+        mods = mutableListOf(),
+        mcVersion = mcVersion,
+        modloader = modloader,
+        sourceName = index.name,
+        sourceVersion = index.versionId.ifBlank { "1.0" }
+    )
+}
+
+private fun inspectCurseForgeUploadPayload(rootDir: File): UploadPayload {
+    val modpackData = loadCurseForgeFromDir(rootDir)
+    val mcVersionText = modpackData.manifest.minecraft.version
+    val mcVersion = McVersion.from(mcVersionText)
+        ?: throw ModpackException("不支持的MC版本: $mcVersionText")
+    val modloaderText = modpackData.manifest.minecraft.modLoaders.firstOrNull()?.id.orEmpty()
+    val modloader = ModLoader.from(modloaderText)
+        ?: throw ModpackException("不支持的Mod加载器: $modloaderText")
+
+    return UploadPayload(
+        sourceDir = rootDir,
+        mods = mutableListOf(),
+        mcVersion = mcVersion,
+        modloader = modloader,
+        sourceName = modpackData.manifest.name,
+        sourceVersion = modpackData.manifest.version.ifBlank { "1.0" }
+    )
+}
+
 private fun collectEmbeddedModFiles(rootDir: File): List<File> {
     return rootDir.walkTopDown()
         .filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
@@ -415,6 +454,7 @@ private fun shouldSkipEntry(
     if (disallowedClientPaths.any { relativeLower.startsWith(it) }) return true
     if (relativeLower.startsWith("kubejs/probe/")) return true
     if (skipCacheDirectory && containsCacheDirectory(relativeLower)) return true
+    if (relativeLower.startsWith("config/") && relativeLower.removePrefix("config/").isExcludedConfigPath()) return true
     if (relativeLower.contains("yes_steve_model") || relativeLower.contains("史蒂夫模型")) return true
     if (relativeLower.endsWith(".mca") && relativeLower.contains("/saves/")) return true
     if (isQuestLangEntryDisallowed(relativeLower, isDirectory)) return true

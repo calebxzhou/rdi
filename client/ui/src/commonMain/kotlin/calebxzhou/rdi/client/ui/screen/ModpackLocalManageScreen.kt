@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -28,12 +29,20 @@ import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.ModpackService.startInstall
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.*
+import calebxzhou.rdi.client.ui.comp.CodeEditor
+import calebxzhou.rdi.client.ui.comp.CodeEditorValidation
+import calebxzhou.rdi.client.ui.comp.CodeLanguage
 import calebxzhou.rdi.client.ui.comp.ModpackManageCard
+import calebxzhou.rdi.client.ui.comp.validateCodeContent
+import calebxzhou.rdi.common.isExcludedConfigPath
+import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Task
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
+import java.nio.file.Files
 
 private data class PersonalDataCopyEntry(
     val key: String,
@@ -50,6 +59,25 @@ private val personalDataCopyEntries = listOf(
     PersonalDataCopyEntry("waypoints", "旅行地图坐标点", "waypoints"),
     PersonalDataCopyEntry("xaero", "Xaero小地图坐标点", "xaero"),
     PersonalDataCopyEntry("options", "键位画质设置", "options.txt", isDirectory = false)
+)
+
+private const val MAX_LOCAL_CONFIG_FILE_BYTES = 2L * 1024 * 1024
+private val localConfigEditableExtensions = setOf(
+    "cfg",
+    "conf",
+    "ini",
+    "json",
+    "json5",
+    "js",
+    "lang",
+    "list",
+    "properties",
+    "snbt",
+    "toml",
+    "txt",
+    "yaml",
+    "yml",
+    "zs"
 )
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -70,6 +98,17 @@ fun ModpackLocalManageScreen(
     var copyDataSourcePack by remember { mutableStateOf<ModpackLocalDir?>(null) }
     var copyDataTargetVersionId by remember { mutableStateOf<String?>(null) }
     var copyDataSelectedKeys by remember { mutableStateOf(personalDataCopyEntries.map { it.key }.toSet()) }
+    var configEditorPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
+    var localConfigFilesLoading by remember { mutableStateOf(false) }
+    var localConfigContentLoading by remember { mutableStateOf(false) }
+    var localConfigSaving by remember { mutableStateOf(false) }
+    var localConfigFiles by remember { mutableStateOf<List<Host.ConfigFileEntry>>(emptyList()) }
+    var selectedLocalConfigPath by remember { mutableStateOf<String?>(null) }
+    var localConfigEditorText by remember { mutableStateOf("") }
+    var localConfigOriginalText by remember { mutableStateOf("") }
+    var localConfigSyntaxErrorMessage by remember { mutableStateOf<String?>(null) }
+    var localConfigStatusMessage by remember { mutableStateOf<String?>(null) }
+    val localConfigDirty = selectedLocalConfigPath != null && localConfigEditorText != localConfigOriginalText
 
     fun copyPersonalData(sourceDir: java.io.File, targetDir: java.io.File, selectedKeys: Set<String>) {
         personalDataCopyEntries.filter { it.key in selectedKeys }.forEach { entry ->
@@ -89,6 +128,139 @@ fun ModpackLocalManageScreen(
         copyDataSourcePack = null
         copyDataTargetVersionId = null
         copyDataSelectedKeys = personalDataCopyEntries.map { it.key }.toSet()
+    }
+
+    fun resetLocalConfigEditorState(clearPack: Boolean = false) {
+        if (clearPack) {
+            configEditorPack = null
+        }
+        localConfigFilesLoading = false
+        localConfigContentLoading = false
+        localConfigSaving = false
+        localConfigFiles = emptyList()
+        selectedLocalConfigPath = null
+        localConfigEditorText = ""
+        localConfigOriginalText = ""
+        localConfigSyntaxErrorMessage = null
+        localConfigStatusMessage = null
+    }
+
+    fun loadLocalConfigFile(packdir: ModpackLocalDir, relativePath: String) {
+        val versionId = packdir.versionId
+        localConfigContentLoading = true
+        localConfigStatusMessage = "正在读取 $relativePath"
+        localConfigSyntaxErrorMessage = null
+        selectedLocalConfigPath = relativePath
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = resolveLocalConfigFile(packdir.dir, relativePath)
+                    file.readText()
+                }
+            }
+            if (configEditorPack?.versionId != versionId) return@launch
+            result.onSuccess { content ->
+                selectedLocalConfigPath = relativePath
+                localConfigEditorText = content
+                localConfigOriginalText = content
+                localConfigSyntaxErrorMessage = validateCodeContent(
+                    text = content,
+                    language = CodeLanguage.fromPath(relativePath)
+                )?.takeIf { !it.isValid }?.message
+                localConfigStatusMessage = "已打开 $relativePath"
+            }.onFailure {
+                errorMessage = it.message ?: "读取配置文件失败"
+            }
+            localConfigContentLoading = false
+        }
+    }
+
+    fun loadLocalConfigFiles(packdir: ModpackLocalDir, preferredPath: String? = selectedLocalConfigPath) {
+        val versionId = packdir.versionId
+        configEditorPack = packdir
+        localConfigFilesLoading = true
+        localConfigStatusMessage = "正在扫描配置文件..."
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { collectLocalConfigFiles(packdir.dir) }
+            }
+            if (configEditorPack?.versionId != versionId) return@launch
+            result.onSuccess { files ->
+                localConfigFiles = files
+                if (files.isEmpty()) {
+                    selectedLocalConfigPath = null
+                    localConfigEditorText = ""
+                    localConfigOriginalText = ""
+                    localConfigSyntaxErrorMessage = null
+                    localConfigStatusMessage = "当前整合包没有可编辑配置文件"
+                    return@onSuccess
+                }
+
+                when {
+                    preferredPath != null && files.any { it.path == preferredPath } && selectedLocalConfigPath == null -> {
+                        loadLocalConfigFile(packdir, preferredPath)
+                    }
+
+                    selectedLocalConfigPath == null -> {
+                        loadLocalConfigFile(packdir, files.first().path)
+                    }
+
+                    selectedLocalConfigPath != null && files.none { it.path == selectedLocalConfigPath } -> {
+                        if (!localConfigDirty) {
+                            loadLocalConfigFile(packdir, files.first().path)
+                        } else {
+                            localConfigStatusMessage = "当前文件已不在配置列表中，请先保存或还原内容"
+                        }
+                    }
+
+                    else -> {
+                        localConfigStatusMessage = "已加载${files.size}个配置文件"
+                    }
+                }
+            }.onFailure {
+                errorMessage = it.message ?: "加载配置文件列表失败"
+                localConfigStatusMessage = null
+            }
+            localConfigFilesLoading = false
+        }
+    }
+
+    fun saveLocalConfigFile(packdir: ModpackLocalDir) {
+        val relativePath = selectedLocalConfigPath ?: run {
+            errorMessage = "请先选择配置文件"
+            return
+        }
+        val versionId = packdir.versionId
+        localConfigSaving = true
+        localConfigStatusMessage = "正在保存 $relativePath"
+        scope.launch {
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    val file = resolveLocalConfigFile(packdir.dir, relativePath)
+                    file.writeText(localConfigEditorText)
+                    Host.ConfigFileEntry(
+                        path = relativePath,
+                        size = file.length(),
+                        updateTime = file.lastModified()
+                    )
+                }
+            }
+            if (configEditorPack?.versionId != versionId) return@launch
+            result.onSuccess { saved ->
+                localConfigOriginalText = localConfigEditorText
+                localConfigSyntaxErrorMessage = null
+                localConfigStatusMessage = "已保存 ${saved.path}"
+                localConfigFiles = localConfigFiles.map { entry ->
+                    if (entry.path == saved.path) saved else entry
+                }
+                if (localConfigFiles.none { it.path == saved.path }) {
+                    localConfigFiles = (localConfigFiles + saved).sortedBy { it.path.lowercase() }
+                }
+            }.onFailure {
+                errorMessage = it.message ?: "保存配置文件失败"
+            }
+            localConfigSaving = false
+        }
     }
 
     fun reload() {
@@ -272,6 +444,18 @@ fun ModpackLocalManageScreen(
                             reinstallConfirmPack = selected
                         }
                         CircleIconButton(
+                            "\uE713",
+                            "配置文件",
+                            size = size,
+                            enabled = selected != null,
+                            bgColor = MaterialColor.DEEP_PURPLE_700.color
+                        ) {
+                            val packdir = selected ?: return@CircleIconButton
+                            resetLocalConfigEditorState()
+                            configEditorPack = packdir
+                            loadLocalConfigFiles(packdir)
+                        }
+                        CircleIconButton(
                             "\uE8C8",
                             "复制数据",
                             size = size,
@@ -315,7 +499,7 @@ fun ModpackLocalManageScreen(
                                     title = "单机 - ${packdir.vo.name} ${packdir.verName}",
                                     mcVer = packdir.vo.mcVer,
                                     versionId = packdir.versionId,
-                                    "${server.hqUrl}\n${server.ip}:${server.gamePort}\ntest\n25565"
+                                    "${server.hqUrl}\nlocalhost\ntest\n25565"
                                 )
                                 onOpenPlay?.invoke(playArgs)
                             }
@@ -337,6 +521,165 @@ fun ModpackLocalManageScreen(
                                 }
                             }
 
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    configEditorPack?.let { packdir ->
+        Dialog(
+            onDismissRequest = { resetLocalConfigEditorState(clearPack = true) },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .fillMaxHeight(0.88f),
+                shape = MaterialTheme.shapes.medium,
+                color = MaterialTheme.colors.surface,
+                elevation = 10.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .widthIn(min = 320.dp, max = 420.dp)
+                            .fillMaxHeight()
+                    ) {
+                        HostConfigEditor(
+                            files = localConfigFiles,
+                            selectedPath = selectedLocalConfigPath,
+                            loadingFiles = localConfigFilesLoading,
+                            statusMessage = localConfigStatusMessage,
+                            onSelectFile = { path ->
+                                if (localConfigDirty && path != selectedLocalConfigPath) {
+                                    errorMessage = "当前配置文件有未保存修改，请先保存或还原"
+                                } else {
+                                    loadLocalConfigFile(packdir, path)
+                                }
+                            },
+                            onReloadList = { loadLocalConfigFiles(packdir) }
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        TitleRow(
+                            title = "配置文件 ${packdir.vo.name} ${packdir.verName}",
+                            onBack = { resetLocalConfigEditorState(clearPack = true) }
+                        ) {
+                            Text(
+                                text = when {
+                                    localConfigSaving -> "保存中..."
+                                    localConfigContentLoading -> "读取中..."
+                                    localConfigSyntaxErrorMessage != null -> localConfigSyntaxErrorMessage.orEmpty()
+                                    localConfigDirty -> "有未保存修改"
+                                    localConfigStatusMessage != null -> localConfigStatusMessage.orEmpty()
+                                    else -> ""
+                                },
+                                color = when {
+                                    localConfigSyntaxErrorMessage != null -> MaterialColor.RED_800.color
+                                    localConfigDirty -> MaterialColor.ORANGE_900.color
+                                    else -> MaterialColor.GRAY_700.color
+                                },
+                                style = MaterialTheme.typography.caption,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.widthIn(max = 420.dp)
+                            )
+                            Space8w()
+                            CircleIconButton(
+                                icon = "\uDB81\uDC50",
+                                tooltip = "还原",
+                                enabled = selectedLocalConfigPath != null && !localConfigContentLoading && !localConfigSaving,
+                                showText = false
+                            ) {
+                                val path = selectedLocalConfigPath ?: run {
+                                    errorMessage = "请先选择配置文件"
+                                    return@CircleIconButton
+                                }
+                                loadLocalConfigFile(packdir, path)
+                            }
+                            Space8w()
+                            CircleIconButton(
+                                icon = "\uF0C7",
+                                tooltip = "保存",
+                                enabled = selectedLocalConfigPath != null && localConfigDirty && !localConfigContentLoading &&
+                                    !localConfigSaving && localConfigSyntaxErrorMessage == null,
+                                showText = false,
+                                bgColor = MaterialColor.GREEN_900.color
+                            ) {
+                                if (localConfigSyntaxErrorMessage != null) {
+                                    errorMessage = localConfigSyntaxErrorMessage
+                                } else {
+                                    saveLocalConfigFile(packdir)
+                                }
+                            }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(bottom = 4.dp)
+                        ) {
+                            when {
+                                localConfigContentLoading -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        CircularProgressIndicator()
+                                    }
+                                }
+
+                                selectedLocalConfigPath == null -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(8.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("请选择左侧配置文件", color = MaterialColor.GRAY_700.color)
+                                    }
+                                }
+
+                                else -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color(0xFFFDFDFD), MaterialTheme.shapes.medium)
+                                            .padding(1.dp)
+                                    ) {
+                                        CodeEditor(
+                                            text = localConfigEditorText,
+                                            enabled = !localConfigSaving,
+                                            language = CodeLanguage.fromPath(selectedLocalConfigPath),
+                                            modifier = Modifier.fillMaxSize(),
+                                            onValueChange = {
+                                                localConfigEditorText = it
+                                                localConfigSyntaxErrorMessage = validateCodeContent(
+                                                    text = it,
+                                                    language = CodeLanguage.fromPath(selectedLocalConfigPath)
+                                                )?.takeIf { validation -> !validation.isValid }?.message
+                                            },
+                                            onValidationChange = { validation: CodeEditorValidation? ->
+                                                localConfigSyntaxErrorMessage = validation?.takeIf { !it.isValid }?.message
+                                            }
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -519,4 +862,46 @@ fun ModpackLocalManageScreen(
             }
         }
     }
+}
+
+private fun collectLocalConfigFiles(packDir: File): List<Host.ConfigFileEntry> {
+    val discovered = linkedMapOf<String, Host.ConfigFileEntry>()
+    val rootDir = packDir.resolve("config")
+    if (!rootDir.exists() || !rootDir.isDirectory || Files.isSymbolicLink(rootDir.toPath())) {
+        return emptyList()
+    }
+    rootDir.walkTopDown()
+        .onEnter { dir -> !Files.isSymbolicLink(dir.toPath()) }
+        .filter { it.isEditableLocalConfigFile() }
+        .forEach { file ->
+            val relativePath = file.relativeTo(rootDir).path.replace('\\', '/')
+            if (relativePath.isExcludedConfigPath()) return@forEach
+            discovered[relativePath] = Host.ConfigFileEntry(
+                path = relativePath,
+                size = file.length(),
+                updateTime = file.lastModified()
+            )
+        }
+
+    return discovered.values.sortedBy { it.path.lowercase() }
+}
+
+private fun resolveLocalConfigFile(packDir: File, relativePath: String): File {
+    val normalizedRelative = relativePath.replace('\\', '/').trimStart('/')
+    val canonicalBase = packDir.resolve("config").canonicalFile
+    val resolved = canonicalBase.resolve(normalizedRelative).canonicalFile
+    val canonicalBasePath = canonicalBase.path
+    val resolvedPath = resolved.path
+    val withinBase = resolvedPath == canonicalBasePath ||
+        resolvedPath.startsWith(canonicalBasePath + File.separator)
+    if (!withinBase) {
+        throw IllegalArgumentException("非法配置文件路径: $relativePath")
+    }
+    return resolved
+}
+
+private fun File.isEditableLocalConfigFile(): Boolean {
+    if (!exists() || !isFile) return false
+    if (length() > MAX_LOCAL_CONFIG_FILE_BYTES) return false
+    return extension.lowercase() in localConfigEditableExtensions
 }

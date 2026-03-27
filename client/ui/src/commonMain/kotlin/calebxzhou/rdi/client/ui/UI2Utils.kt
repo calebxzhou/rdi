@@ -590,7 +590,7 @@ fun ImageIconButton(
     tooltipAnchorPosition: TooltipAnchorPosition = TooltipAnchorPosition.Below,
     size: Int = 36,
     contentPadding: PaddingValues = ButtonDefaults.TextButtonContentPadding,
-    bgColor: Color = MaterialTheme.colors.primary,
+    bgColor: Color = Color.White,
     enabled: Boolean = true,
     longPressDelay: Long = 0L,
     showText: Boolean = true,

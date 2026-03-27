@@ -3,6 +3,7 @@ package calebxzhou.rdi.common.service
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.murmur2
 import calebxzhou.mykotutils.std.openChineseZip
+import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.common.exception.ModpackException
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.net.json
@@ -142,7 +143,6 @@ object CurseForgeService {
                     slug = meta.canonicalSlug,
                     fileId = record.fileId,
                     hash = record.fingerprint,
-
                     ).apply {
                     file = record.file
                     vo = (slugBriefInfo[meta.normalizedSlug]?.toVo(record.file)

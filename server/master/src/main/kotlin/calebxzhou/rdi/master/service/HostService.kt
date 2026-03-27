@@ -6,6 +6,7 @@ import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.mykotutils.std.readAllString
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.model.ModrinthVersionInfo
@@ -1105,7 +1106,7 @@ object HostService {
                 .forEach { mod ->
                     val source = DL_MOD_DIR.resolve(mod.fileName)
                     if (!source.exists()) {
-                        throw RequestError("主机额外Mod文件缺失: ${mod.fileName}")
+                        throw RequestError("地图附加Mod文件缺失:${mod.slug} 请重新上传")
                     }
                     this += Mount()
                         .withType(MountType.BIND)
@@ -1634,7 +1635,7 @@ object HostService {
                 val relativePath = file.relativeTo(configDir).invariantSeparatorsPath
                 relativePath to file
             }
-            .filterNot { (relativePath, _) -> relativePath.startsWith("yes_steve_model/builtin") }
+            .filterNot { (relativePath, _) -> relativePath.isExcludedConfigPath() }
             .filter { (_, file) -> file.canListAsConfigFile() }
             .map { (relativePath, file) ->
                 Host.ConfigFileEntry(
@@ -1791,11 +1792,11 @@ object HostService {
                 .filter { projectIdentity(it) in duplicateExistingIds }
                 .map { it.slug.trim().ifBlank { projectIdentity(it) } }
                 .distinct()
-            throw RequestError("主机已有这些mod: ${duplicateExistingSlugs.joinToString()}")
+            throw RequestError("地图已有这些mod: ${duplicateExistingSlugs.joinToString()}")
         }
         val duplicateExistingSlugs = duplicateExistingSlugLabels(mods, host.extraMods + baseVersion.mods)
         if (duplicateExistingSlugs.isNotEmpty()) {
-            throw RequestError("主机已有这些同slug mod: ${duplicateExistingSlugs.joinToString()}")
+            throw RequestError("地图已有这些同名mod: ${duplicateExistingSlugs.joinToString()}")
         }
 
         val mailId = MailService.sendSystemMail(

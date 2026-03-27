@@ -56,6 +56,7 @@ import calebxzhou.rdi.client.CodeFontFamily
 import calebxzhou.rdi.client.ui.MaterialColor
 import kotlinx.serialization.json.Json
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.yield
 import net.peanuuutz.tomlkt.Toml
 import kotlin.math.max
 import kotlin.math.min
@@ -277,7 +278,7 @@ fun CodeEditor(
             TextRange(clampedTarget)
         }
         editorValue = buildEditorValue(
-            text = editorValue.text,
+            text = editorValue.annotatedString.text,
             selection = selection,
             language = language,
             composition = editorValue.composition
@@ -343,6 +344,77 @@ fun CodeEditor(
             } ?: Spacer(modifier = Modifier.weight(1f))
         }
 
+        fun handleEditorKeyEvent(event: androidx.compose.ui.input.key.KeyEvent): Boolean {
+            if (event.type != KeyEventType.KeyDown) return false
+
+            val extendSelection = event.isShiftPressed
+            val caret = editorValue.selection.end
+            val shortcutPressed = event.isCtrlPressed || event.isMetaPressed
+
+            when (event.key) {
+                Key.MoveHome -> {
+                    val target = if (shortcutPressed) 0 else lineStartOffset(editorValue.text, caret)
+                    moveCaret(target, extendSelection)
+                    scope.launch {
+                        yield()
+                        moveCaret(target, extendSelection)
+                    }
+                    if (shortcutPressed) {
+                        scope.launch { verticalScroll.scrollTo(0) }
+                    }
+                    return true
+                }
+
+                Key.MoveEnd -> {
+                    val target = if (shortcutPressed) editorValue.text.length else caretLineEndOffset(editorValue.text, caret)
+                    moveCaret(target, extendSelection)
+                    scope.launch {
+                        yield()
+                        moveCaret(target, extendSelection)
+                    }
+                    if (shortcutPressed) {
+                        scope.launch { verticalScroll.scrollTo(verticalScroll.maxValue) }
+                    }
+                    return true
+                }
+
+                Key.PageUp -> {
+                    moveCaret(moveCaretByLines(editorValue.text, caret, -pageLineCount), extendSelection)
+                    scrollByPage(-1)
+                    return true
+                }
+
+                Key.PageDown -> {
+                    moveCaret(moveCaretByLines(editorValue.text, caret, pageLineCount), extendSelection)
+                    scrollByPage(1)
+                    return true
+                }
+            }
+
+            if (event.key == Key.Tab && enabled) {
+                replaceSelection(TAB_SPACES)
+                return true
+            }
+
+            if (!shortcutPressed) return false
+
+            return when (event.key) {
+                Key.Z -> {
+                    if (event.isShiftPressed) {
+                        enabled && canRedo && applyHistory(historyIndex + 1)
+                    } else {
+                        enabled && canUndo && applyHistory(historyIndex - 1)
+                    }
+                }
+
+                Key.Y -> enabled && canRedo && applyHistory(historyIndex + 1)
+                Key.C -> copySelection()
+                Key.X -> cutSelection()
+                Key.V -> pasteClipboard()
+                else -> false
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -352,78 +424,8 @@ fun CodeEditor(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(end = 12.dp)
+                    .padding(end = 12.dp, bottom = 12.dp)
                     .verticalScroll(verticalScroll)
-                    .onPreviewKeyEvent { event ->
-                        if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
-
-                        val extendSelection = event.isShiftPressed
-                        val caret = editorValue.selection.end
-                        val shortcutPressed = event.isCtrlPressed || event.isMetaPressed
-
-                        when (event.key) {
-                            Key.MoveHome -> {
-                                val target = if (shortcutPressed) {
-                                    0
-                                } else {
-                                    lineStartOffset(editorValue.text, caret)
-                                }
-                                moveCaret(target, extendSelection)
-                                if (shortcutPressed) {
-                                    scope.launch { verticalScroll.scrollTo(0) }
-                                }
-                                return@onPreviewKeyEvent true
-                            }
-
-                            Key.MoveEnd -> {
-                                val target = if (shortcutPressed) {
-                                    editorValue.text.length
-                                } else {
-                                    lineEndOffset(editorValue.text, caret)
-                                }
-                                moveCaret(target, extendSelection)
-                                if (shortcutPressed) {
-                                    scope.launch { verticalScroll.scrollTo(verticalScroll.maxValue) }
-                                }
-                                return@onPreviewKeyEvent true
-                            }
-
-                            Key.PageUp -> {
-                                moveCaret(moveCaretByLines(editorValue.text, caret, -pageLineCount), extendSelection)
-                                scrollByPage(-1)
-                                return@onPreviewKeyEvent true
-                            }
-
-                            Key.PageDown -> {
-                                moveCaret(moveCaretByLines(editorValue.text, caret, pageLineCount), extendSelection)
-                                scrollByPage(1)
-                                return@onPreviewKeyEvent true
-                            }
-                        }
-
-                        if (event.key == Key.Tab && enabled) {
-                            replaceSelection(TAB_SPACES)
-                            return@onPreviewKeyEvent true
-                        }
-
-                        if (!shortcutPressed) return@onPreviewKeyEvent false
-
-                        when (event.key) {
-                            Key.Z -> {
-                                if (event.isShiftPressed) {
-                                    enabled && canRedo && applyHistory(historyIndex + 1)
-                                } else {
-                                    enabled && canUndo && applyHistory(historyIndex - 1)
-                                }
-                            }
-
-                            Key.Y -> enabled && canRedo && applyHistory(historyIndex + 1)
-                            Key.C -> copySelection()
-                            Key.X -> cutSelection()
-                            Key.V -> pasteClipboard()
-                            else -> false
-                        }
-                    }
             ) {
                 Text(
                     text = lineNumberText,
@@ -449,10 +451,12 @@ fun CodeEditor(
                 ) {
                     BoxWithConstraints(
                         modifier = Modifier
-                            .fillMaxWidth()
                             .padding(horizontal = 12.dp, vertical = 10.dp)
                     ) {
-                        Column {
+                        val minContentWidth = maxWidth
+                        Column(
+                            modifier = Modifier.widthIn(min = minContentWidth)
+                        ) {
                             BasicTextField(
                                 value = editorValue,
                                 onValueChange = { nextValue ->
@@ -479,8 +483,9 @@ fun CodeEditor(
                                 textStyle = editorTextStyle,
                                 cursorBrush = SolidColor(MaterialColor.BLUE_700.color),
                                 modifier = Modifier
-                                    .widthIn(min = 10.dp)
+                                    .widthIn(min = minContentWidth)
                                     .padding(bottom = 10.dp)
+                                    .onPreviewKeyEvent(::handleEditorKeyEvent)
                             )
                             if (editorValue.text.endsWith('\n')) {
                                 Spacer(modifier = Modifier.height(20.dp))
@@ -494,11 +499,25 @@ fun CodeEditor(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
+                    .padding(bottom = 12.dp)
                     .width(12.dp)
             ) {
                 PlatformVerticalScrollbar(
                     scrollState = verticalScroll,
                     modifier = Modifier.fillMaxHeight()
+                )
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = gutterWidth + 1.dp, end = 12.dp)
+                    .fillMaxWidth()
+                    .height(12.dp)
+            ) {
+                PlatformHorizontalScrollbar(
+                    scrollState = horizontalScroll,
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         }
@@ -717,6 +736,11 @@ private fun lineEndOffset(text: String, offset: Int): Int {
     val clampedOffset = offset.coerceIn(0, text.length)
     val nextNewline = text.indexOf('\n', clampedOffset)
     return if (nextNewline == -1) text.length else nextNewline
+}
+
+private fun caretLineEndOffset(text: String, offset: Int): Int {
+    val lineEnd = lineEndOffset(text, offset)
+    return if (lineEnd > 0 && text.getOrNull(lineEnd - 1) == '\r') lineEnd - 1 else lineEnd
 }
 
 private fun moveCaretByLines(text: String, offset: Int, lineDelta: Int): Int {

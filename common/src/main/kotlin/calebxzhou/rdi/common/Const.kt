@@ -12,3 +12,14 @@ val VALID_NAME_REGEX =
 
 val UNKNOWN_PLAYER_ID = ObjectId(ByteArray(12))
 var DEBUG = System.getProperty("rdi.debug").toBoolean()
+
+val CONFIG_EXCLUDE_PATH_PREFIX = listOf("yes_steve_model/builtin")
+
+fun String.isExcludedConfigPath(): Boolean {
+    val normalizedPath = replace('\\', '/').trim('/').lowercase()
+    if (normalizedPath.isEmpty()) return false
+    return CONFIG_EXCLUDE_PATH_PREFIX.any { prefix ->
+        val normalizedPrefix = prefix.replace('\\', '/').trim('/').lowercase()
+        normalizedPath == normalizedPrefix || normalizedPath.startsWith("$normalizedPrefix/")
+    }
+}

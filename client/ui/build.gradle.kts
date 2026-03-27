@@ -6,7 +6,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 val ktorVersion = "3.4.0"
-val version = "5.11.5"
+val version = "5.11.6"
 project.version = version
 
 plugins {

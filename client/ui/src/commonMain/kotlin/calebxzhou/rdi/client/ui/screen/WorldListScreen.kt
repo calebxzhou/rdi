@@ -17,6 +17,7 @@ import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.WorldCard
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.model.World
 import io.ktor.http.*
 
@@ -71,7 +72,7 @@ fun WorldListScreen(
                 errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
                 val canOperate = selectedWorld != null
                 CircleIconButton(
-                    "\uDB85\uDDC6", "俯视图", enabled = canOperate,
+                    "\uDB85\uDDC6", "俯视图开发中", enabled = canOperate && DEBUG,
                 ) {
                     selectedWorld?.let { onOpenBirdView(it.id.toHexString()) }
                 }

@@ -331,7 +331,25 @@ object ModService {
             add(downloadCFModsTask(cfMods))
             add(downloadMRModsTask(mrMods))
         }
-        return Task.Sequence("下载Mod", tasks)
+        return Task.Sequence("下载${mods.size}个Mod", tasks)
+    }
+
+    fun isDownloadedModFileValid(mod: Mod): Boolean {
+        val targetPath = mod.targetPath
+        if (!targetPath.exists()) return false
+
+        val expectedHash = mod.hash.trim().lowercase()
+        return runCatching {
+            when (mod.platform.lowercase()) {
+                "cf" -> {
+                    val expectedFingerprint = expectedHash.toLongOrNull()
+                    expectedFingerprint != null && targetPath.murmur2Hash() == expectedFingerprint
+                }
+
+                "mr" -> targetPath.sha1Hex() == expectedHash
+                else -> true
+            }
+        }.getOrDefault(false)
     }
 
     fun downloadCFModsTask(mods: List<Mod>): Task {
@@ -483,35 +501,55 @@ object ModService {
         val expectedHash = mod.hash
         var lastError: Throwable? = null
 
-        // Try each URL in order until one succeeds
-        for ((index, url) in urls.withIndex()) {
-            val result = runCatching {
-                val downloadedPath = targetPath.downloadFileFrom(
-                    if(useMirror) url.ofMirrorUrl else url,
-                    onProgress = onProgress
-                ).getOrElse { throw it }
+        suspend fun attemptDownload(url: String, label: String): Result<Path> = runCatching {
+            val downloadedPath = targetPath.downloadFileFrom(
+                url,
+                onProgress = onProgress
+            ).getOrElse { throw it }
 
-                // Verify SHA1 hash after download
-                if (expectedHash.isNotBlank()) {
-                    val actualHash = downloadedPath.sha1Hex()
-                    if (actualHash != expectedHash) {
-                        throw IllegalStateException(
-                            "Downloaded mod ${mod.slug} SHA1 mismatch: expected $expectedHash, got $actualHash"
-                        )
+            if (expectedHash.isNotBlank()) {
+                val actualHash = downloadedPath.sha1Hex()
+                if (actualHash != expectedHash) {
+                    throw IllegalStateException(
+                        "Downloaded mod ${mod.slug} SHA1 mismatch: expected $expectedHash, got $actualHash"
+                    )
+                }
+            }
+            downloadedPath
+        }.onFailure { err ->
+            if (label == "mirror") {
+                lgr.warn { "Mirror download failed for ${mod.slug + "\n" + err }, will retry official" }
+            }
+        }
+
+        // Try each URL in order until one succeeds
+        for ((index, officialUrl) in urls.withIndex()) {
+            val candidateUrls = buildList {
+                if (useMirror) {
+                    val mirrorUrl = officialUrl.ofMirrorUrl
+                    if (mirrorUrl != officialUrl) {
+                        add("mirror" to mirrorUrl)
                     }
                 }
-                downloadedPath
+                add("official" to officialUrl)
+            }
+
+            var result: Result<Path> = Result.failure(IllegalStateException("No download URL available"))
+            for ((label, url) in candidateUrls) {
+                result = attemptDownload(url, label)
+                if (result.isSuccess) {
+                    lgr.debug { "Successfully downloaded ${mod.slug} from $label URL #${index + 1}" }
+                    return result
+                }
             }
 
             if (result.isSuccess) {
-                lgr.debug { "Successfully downloaded ${mod.slug} from URL #${index + 1}" }
                 return result
             }
 
             lastError = result.exceptionOrNull()
-            lgr.warn { "Download failed for ${mod.slug + "\n" + lastError } from URL #${index + 1}: $url" }
+            lgr.warn { "Download failed for ${mod.slug + "\n" + lastError } from URL #${index + 1}: $officialUrl" }
 
-            // If there are more URLs to try, continue
             if (index < urls.lastIndex) {
                 lgr.info { "Trying next URL for ${mod.slug}..." }
             }
@@ -534,6 +572,9 @@ object ModService {
         }
         return digest.digest().joinToString("") { "%02x".format(it) }
     }
+
+    private fun String.isSha1String(): Boolean =
+        length == 40 && all { it.isDigit() || it.lowercaseChar() in 'a'..'f' }
 
     private fun Path.murmur2Hash(seed: Int = 1): Long {
         val m = 0x5bd1e995

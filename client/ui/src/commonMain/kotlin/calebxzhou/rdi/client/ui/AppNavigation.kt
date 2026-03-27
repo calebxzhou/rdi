@@ -344,6 +344,7 @@ fun AppNavigation(
                         autoClose = TaskStore.autoClose,
                         onBack = {
                             val back = TaskStore.onBack ?: { navController.navigateAbsolute(Menu) }
+                            TaskStore.current = null
                             TaskStore.onBack = null
                             TaskStore.onDone = null
                             TaskStore.autoClose = false
@@ -352,8 +353,6 @@ fun AppNavigation(
                         onDone = {
                             TaskStore.onDone?.invoke()
                             TaskStore.onDone = null
-                            TaskStore.onBack = null
-                            TaskStore.autoClose = false
                         }
                     )
                 } else {

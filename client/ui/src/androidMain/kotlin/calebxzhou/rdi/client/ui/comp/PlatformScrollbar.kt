@@ -20,3 +20,11 @@ actual fun PlatformVerticalScrollbar(
 ) {
     // No-op on Android — native touch scrolling is sufficient
 }
+
+@Composable
+actual fun PlatformHorizontalScrollbar(
+    scrollState: ScrollState,
+    modifier: Modifier
+) {
+    // No-op on Android — native touch scrolling is sufficient
+}

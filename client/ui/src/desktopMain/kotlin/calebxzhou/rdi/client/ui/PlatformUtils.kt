@@ -13,6 +13,7 @@ import calebxzhou.rdi.client.ui.screen.HostList
 import calebxzhou.rdi.client.ui.screen.McPlayView
 import calebxzhou.rdi.client.ui.screen.ModpackList
 import calebxzhou.rdi.client.ui.screen.ModpackUpload
+import calebxzhou.rdi.client.ui.screen.TaskView
 import calebxzhou.rdi.common.hwspec.HwSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -310,6 +311,13 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
                     launchSingleTop = true
                     restoreState = false
                 }
+            },
+            onOpenTask = { task, autoClose, onDone ->
+                TaskStore.current = task
+                TaskStore.autoClose = autoClose
+                TaskStore.onDone = onDone
+                TaskStore.onBack = { navController.popBackStack() }
+                navController.navigate(TaskView)
             },
             updateModpackId = preset?.updateModpackId,
             updateModpackName = preset?.updateModpackName

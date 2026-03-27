@@ -205,9 +205,9 @@ fun TaskScreen(
                             row = item,
                             progress = progress,
                             done = done,
-                            expanded = expandState[pathKey(item.keyPath)] ?: true,
+                            expanded = expandState[pathKey(item.keyPath)] ?: item.defaultExpanded,
                             onToggle = {
-                                val current = expandState[key] ?: true
+                                val current = expandState[key] ?: item.defaultExpanded
                                 expandState = expandState.toMutableMap().apply {
                                     this[key] = !current
                                 }
@@ -261,7 +261,8 @@ private data class TaskTreeRowState(
     val keyPath: List<String>,
     val name: String,
     val level: Int,
-    val isGroup: Boolean
+    val isGroup: Boolean,
+    val defaultExpanded: Boolean
 )
 
 private fun buildTaskRows(
@@ -276,11 +277,12 @@ private fun buildTaskRows(
         keyPath = keyPath,
         name = task.name,
         level = level,
-        isGroup = isGroup
+        isGroup = isGroup,
+        defaultExpanded = task.defaultExpandedInTaskTree()
     )
     if (isGroup) {
         val key = pathKey(keyPath)
-        val expanded = expandState[key] ?: true
+        val expanded = expandState[key] ?: task.defaultExpandedInTaskTree()
         if (expanded) {
             val children = when (task) {
                 is Task.Group -> task.subTasks
@@ -658,7 +660,7 @@ private fun initExpandState(
 ) {
     if (task is Task.Group || task is Task.Sequence) {
         val key = pathKey(path)
-        expandState[key] = true
+        expandState[key] = task.defaultExpandedInTaskTree()
         if (!progressStates.containsKey(key)) {
             progressStates[key] = mutableStateOf(null)
         }
@@ -707,6 +709,13 @@ private val snapshotLock = ReentrantLock()
 private fun emitOnMain(block: () -> Unit) {
     UiUpdateBatcher.post(block)
 }
+
+private fun Task.defaultExpandedInTaskTree(): Boolean = when (this) {
+    is Task.Group -> subTasks.size <= 10
+    is Task.Sequence -> subTasks.size <= 10
+    else -> true
+}
+
 //批量更新ui 一秒60次防止卡住
 private object UiUpdateBatcher {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

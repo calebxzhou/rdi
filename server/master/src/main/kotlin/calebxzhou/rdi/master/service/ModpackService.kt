@@ -6,6 +6,7 @@ import calebxzhou.mykotutils.std.sha1
 import calebxzhou.mykotutils.std.toFixed
 import calebxzhou.rdi.common.VALID_NAME_REGEX
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.ModService
@@ -748,6 +749,9 @@ object ModpackService {
                     }
                     //不要缓存
                     if (relativeLower.contains("cache")) {
+                        return@forEach
+                    }
+                    if (relativeLower.startsWith("config/") && relativeLower.removePrefix("config/").isExcludedConfigPath()) {
                         return@forEach
                     }
                     if (relativeLower.contains("yes_steve_model") || relativeLower.contains("史蒂夫模型")) {

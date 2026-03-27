@@ -12,15 +12,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.client.service.*
 import calebxzhou.rdi.client.ui.*
+import calebxzhou.rdi.client.ui.ModpackUploadResumeState
+import calebxzhou.rdi.client.ui.ModpackUploadResumeStore
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.client.ui.comp.ModCard
-import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.Mod
-import calebxzhou.rdi.common.model.TaskProgress
-import calebxzhou.rdi.common.service.BackgroundTaskRunner.start
+import calebxzhou.rdi.common.model.Task
 import calebxzhou.rdi.common.service.ModService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -34,44 +35,48 @@ import javax.swing.filechooser.FileNameExtensionFilter
  *
  * Flow:
  * 1. Show title row with "select file" button; rest of screen is blank.
- * 2. After user selects a file/dir, parse manifest → fill basic info immediately,
- *    then load mods info in background. Show 3 tabs: Basic Info, Mods, Test.
- * 3. When mods are loaded, if any need downloading, auto-download them in background
- *    and show progress in title row.
- * 4. "Upload version" mode: modpack name is read-only.
+ * 2. After user selects a file/dir, immediately read mods info and check local downloads.
+ * 3. If all mods are already ready, enter edit/test/upload step directly.
+ * 4. If some mods are missing, keep the screen on step 1 and let user click 下一步 to open task screen.
+ * 5. "Upload version" mode: modpack name is read-only.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModpackUploadScreen(
     onBack: () -> Unit,
+    onOpenTask: (Task, Boolean, (() -> Unit)?) -> Unit = { _, _, _ -> },
     updateModpackId: ObjectId? = null,
     updateModpackName: String? = null
 ) {
     val scope = rememberCoroutineScope()
     val modsGridState = rememberLazyGridState()
+    val restoredState = remember {
+        ModpackUploadResumeStore.state.also { ModpackUploadResumeStore.state = null }
+    }
+    var shouldPersistState by remember { mutableStateOf(true) }
+    val latestShouldPersist by rememberUpdatedState(shouldPersistState)
 
     // --- State: file selection & parsing ---
-    var payload by remember { mutableStateOf<UploadPayload?>(null) }
-    var parseProgress by remember { mutableStateOf<String?>(null) }
-    var errorText by remember { mutableStateOf<String?>(null) }
-    var modsLoaded by remember { mutableStateOf(false) }
+    var payload by remember { mutableStateOf(restoredState?.payload) }
+    var selectedSourceName by remember { mutableStateOf(restoredState?.selectedSourceName) }
+    var parseProgress by remember { mutableStateOf(restoredState?.parseProgress) }
+    var errorText by remember { mutableStateOf(restoredState?.errorText) }
+    var isResolvingMods by remember { mutableStateOf(false) }
 
-    // --- State: download progress ---
-    var downloadProgress by remember { mutableStateOf<TaskProgress?>(null) }
-    var isDownloading by remember { mutableStateOf(false) }
-    var downloadFailed by remember { mutableStateOf(false) }
+    // --- State: download task ---
+    var pendingDownloadMods by remember { mutableStateOf(restoredState?.pendingDownloadMods ?: emptyList()) }
 
     // --- State: editable fields (basic info tab) ---
-    var modpackName by remember { mutableStateOf("") }
-    var versionName by remember { mutableStateOf("") }
-    var iconUrl by remember { mutableStateOf("") }
-    var sourceUrl by remember { mutableStateOf("") }
-    var infoText by remember { mutableStateOf("") }
-    var mcVersionText by remember { mutableStateOf("") }
-    var modloaderText by remember { mutableStateOf("") }
+    var modpackName by remember { mutableStateOf(restoredState?.modpackName ?: "") }
+    var versionName by remember { mutableStateOf(restoredState?.versionName ?: "") }
+    var iconUrl by remember { mutableStateOf(restoredState?.iconUrl ?: "") }
+    var sourceUrl by remember { mutableStateOf(restoredState?.sourceUrl ?: "") }
+    var infoText by remember { mutableStateOf(restoredState?.infoText ?: "") }
+    var mcVersionText by remember { mutableStateOf(restoredState?.mcVersionText ?: "") }
+    var modloaderText by remember { mutableStateOf(restoredState?.modloaderText ?: "") }
 
     // --- State: mods list ---
-    var mods by remember { mutableStateOf<List<Mod>>(emptyList()) }
+    var mods by remember { mutableStateOf(restoredState?.mods ?: emptyList()) }
 
     // --- State: tabs ---
     var selectedTab by remember { mutableStateOf(0) }
@@ -86,11 +91,45 @@ fun ModpackUploadScreen(
     val testedModsSignature = tester?.testedModsSignature?.collectAsState()
     val testConsoleState = remember { ConsoleState(4000) }
 
+    fun persistIdleState(
+        savedPendingDownloadMods: List<Mod> = pendingDownloadMods,
+        savedParseProgress: String? = parseProgress,
+        savedErrorText: String? = errorText
+    ) {
+        if (!latestShouldPersist || uploadStep != UploadStep.Idle) return
+        ModpackUploadResumeStore.state = ModpackUploadResumeState(
+            payload = payload,
+            selectedSourceName = selectedSourceName,
+            parseProgress = savedParseProgress,
+            errorText = savedErrorText,
+            pendingDownloadMods = savedPendingDownloadMods,
+            modpackName = modpackName,
+            versionName = versionName,
+            iconUrl = iconUrl,
+            sourceUrl = sourceUrl,
+            infoText = infoText,
+            mcVersionText = mcVersionText,
+            modloaderText = modloaderText,
+            mods = mods
+        )
+    }
+
     // Cleanup tester on dispose
     DisposableEffect(Unit) {
         onDispose {
             tester?.dispose(scope)
+            if (latestShouldPersist && uploadStep == UploadStep.Idle) {
+                persistIdleState()
+            } else if (!latestShouldPersist) {
+                ModpackUploadResumeStore.state = null
+            }
         }
+    }
+
+    fun exitUploadScreen() {
+        shouldPersistState = false
+        ModpackUploadResumeStore.state = null
+        onBack()
     }
 
     // Reset error when tab changes
@@ -100,49 +139,116 @@ fun ModpackUploadScreen(
 
     // Scroll mods grid to top when switching to mods tab
     LaunchedEffect(selectedTab) {
-        if (selectedTab == 1 && modsLoaded) {
+        if (selectedTab == 1 && mods.isNotEmpty()) {
             modsGridState.scrollToItem(0)
         }
     }
 
     fun modsNeedDownload(source: List<Mod>): List<Mod> =
-        source.filter { mod -> !DL_MOD_DIR.resolve(mod.fileName).exists() }
+        source.filterNot(ModService::isDownloadedModFileValid)
 
-    fun startModsDownload(targetMods: List<Mod>) {
-        if (isDownloading) return
+    fun resetSelectedPayload(nextPayload: UploadPayload, sourceName: String) {
+        val oldPayload = payload
+        if (oldPayload?.sourceDir != nextPayload.sourceDir) {
+            runCatching { oldPayload?.sourceDir?.deleteRecursivelyNoSymlink() }
+        }
+        tester?.dispose(scope)
+        tester = null
+        payload = nextPayload
+        selectedSourceName = sourceName
+        modpackName = updateModpackName ?: nextPayload.sourceName.take(16)
+        versionName = nextPayload.sourceVersion
+        iconUrl = ""
+        sourceUrl = ""
+        infoText = ""
+        mcVersionText = nextPayload.mcVersion.mcVer
+        modloaderText = nextPayload.modloader.name
+        mods = emptyList()
+        pendingDownloadMods = emptyList()
+        selectedTab = 0
+        parseProgress = null
+        errorText = null
+        isResolvingMods = false
+        uploadStep = UploadStep.Idle
+    }
+
+    fun enterEditing(currentPayload: UploadPayload) {
+        currentPayload.mods = mods.toMutableList()
+        tester?.dispose(scope)
+        tester = ModpackTester(currentPayload)
+        selectedTab = 0
+        parseProgress = null
+        isResolvingMods = false
+        pendingDownloadMods = emptyList()
+        errorText = null
+        uploadStep = UploadStep.Editing
+    }
+
+    fun openModsDownloadTask(currentPayload: UploadPayload, targetMods: List<Mod>) {
         if (targetMods.isEmpty()) {
-            downloadFailed = false
+            errorText = null
             return
         }
-        isDownloading = true
-        downloadFailed = false
         errorText = null
+        onOpenTask(
+            ModService.downloadModsTask(targetMods),
+            true
+        ) {
+            val remaining = modsNeedDownload(mods)
+            errorText = null
+            pendingDownloadMods = remaining
+            persistIdleState(
+                savedPendingDownloadMods = remaining,
+                savedParseProgress = null,
+                savedErrorText = null
+            )
+        }
+    }
+
+    fun handleNextStep(currentPayload: UploadPayload) {
+        val remaining = modsNeedDownload(mods)
+        pendingDownloadMods = remaining
+        if (remaining.isEmpty()) {
+            errorText = null
+            enterEditing(currentPayload)
+        } else {
+            openModsDownloadTask(currentPayload, remaining)
+        }
+    }
+
+    fun loadModsAfterSelection(currentPayload: UploadPayload) {
+        if (isResolvingMods) return
+        isResolvingMods = true
+        pendingDownloadMods = emptyList()
+        errorText = null
+        parseProgress = "正在读取Mod信息..."
         scope.launch(Dispatchers.IO) {
-            try {
-                val task = ModService.downloadModsTask(targetMods)
-                task.start { progress ->
-                    scope.launch {
-                        downloadProgress = progress
-                    }
+            val resolvedMods = loadUploadPayloadMods(
+                payload = currentPayload,
+                onProgress = { msg ->
+                    scope.launch { parseProgress = msg }
+                },
+                onError = { msg ->
+                    scope.launch { errorText = msg }
                 }
-                val remaining = modsNeedDownload(targetMods)
+            ) ?: run {
                 scope.launch {
-                    if (remaining.isNotEmpty()) {
-                        errorText = "下载未完成，仍有${remaining.size}个Mod未下载"
-                        downloadFailed = true
-                    } else {
-                        downloadFailed = false
-                    }
-                    downloadProgress = null
-                    isDownloading = false
+                    isResolvingMods = false
+                    parseProgress = null
                 }
-            } catch (e: Exception) {
-                val remaining = modsNeedDownload(targetMods)
-                scope.launch {
-                    errorText = "下载失败: ${e.message}"
-                    downloadFailed = remaining.isNotEmpty()
-                    downloadProgress = null
-                    isDownloading = false
+                return@launch
+            }
+
+            val pendingMods = modsNeedDownload(resolvedMods)
+            scope.launch {
+                mods = resolvedMods
+                currentPayload.mods = resolvedMods.toMutableList()
+                isResolvingMods = false
+                parseProgress = null
+                if (pendingMods.isEmpty()) {
+                    enterEditing(currentPayload)
+                } else {
+                    pendingDownloadMods = pendingMods
                 }
             }
         }
@@ -170,42 +276,34 @@ fun ModpackUploadScreen(
         }
     }
 
-    // When mods finish loading, check if download is needed and auto-download in background
-    LaunchedEffect(modsLoaded, payload) {
-        if (!modsLoaded || payload == null || isDownloading) return@LaunchedEffect
-        val pendingMods = modsNeedDownload(mods)
-        if (pendingMods.isNotEmpty()) {
-            startModsDownload(pendingMods)
-        }
-    }
-
     MainColumn {
         when (uploadStep) {
             is UploadStep.Idle -> {
                 // === STEP 1: File selection ===
+                val currentPayload = payload
+                val isProcessing = parseProgress != null || isResolvingMods
+                val needsDownload = pendingDownloadMods.isNotEmpty()
+                val canProceed = currentPayload != null && mods.isNotEmpty() && !isProcessing
                 TitleRow(
                     title = updateModpackName?.let { "为整合包$it 上传新版" } ?: "上传整合包",
-                    onBack = onBack
+                    onBack = ::exitUploadScreen
                 ) {
-                    downloadProgress?.let { progress ->
-                        val percentText = progress.fraction?.let { fraction ->
-                            val pct = (fraction.coerceIn(0f, 1f) * 100f).toInt()
-                            " $pct%"
-                        } ?: ""
-                        Text("${progress.message}$percentText")
-                        Space8w()
-                    }
                     errorText?.let {
                         Text(it, color = MaterialTheme.colors.error)
                     }
                     Space8w()
-                    if (downloadFailed && !isDownloading) {
-                        CircleIconButton(
-                            icon = "\uF2F9",
-                            tooltip = "重试下载失败的Mod",
-                            bgColor = MaterialColor.YELLOW_900.color,
-                        ) {
-                            startModsDownload(modsNeedDownload(mods))
+                    currentPayload?.let {
+                        Text(selectedSourceName ?: it.sourceName)
+                        Space8w()
+                        if (canProceed) {
+                            CircleIconButton(
+                                "\uF054",
+                                "下一步",
+                                bgColor = MaterialColor.GREEN_900.color,
+                                enabled = !isProcessing
+                            ) {
+                                handleNextStep(it)
+                            }
                         }
                         Space8w()
                     }
@@ -213,7 +311,6 @@ fun ModpackUploadScreen(
                         Text(it)
                         Space8w()
                     }
-                    val isProcessing = parseProgress != null || isDownloading
                     CircleIconButton(
                         "\uF07C",
                         "选择整合包文件/目录",
@@ -236,28 +333,26 @@ fun ModpackUploadScreen(
                             ) ?: return@launch
 
                             scope.launch {
-                                val p = parsed.payload
-                                payload = p
-                                modpackName = updateModpackName ?: p.sourceName.take(16)
-                                versionName = p.sourceVersion
-                                mcVersionText = p.mcVersion.mcVer
-                                modloaderText = p.modloader.name
-                                mods = p.mods
-                                modsLoaded = true
-                                parseProgress = null
-                                tester = ModpackTester(p)
-                                uploadStep = UploadStep.Editing
+                                resetSelectedPayload(parsed, file.name)
+                                loadModsAfterSelection(parsed)
                             }
                         }
                     }
                 }
-                // Rest of screen is blank (step 1)
-                if (payload == null && parseProgress == null) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("点击右上角按钮选择整合包文件或目录")
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val hint = when {
+                        currentPayload == null && parseProgress == null -> "点击右上角按钮选择整合包文件或目录"
+                        isResolvingMods || !parseProgress.isNullOrBlank() -> parseProgress ?: "正在处理整合包..."
+                        currentPayload != null && mods.isNotEmpty() && !needsDownload -> "Mod已准备好，点击右上角下一步进入编辑"
+                        needsDownload -> "共有${pendingDownloadMods.size}个Mod未下载，点击右上角下一步开始下载"
+                        currentPayload != null -> "正在整理整合包信息..."
+                        else -> ""
+                    }
+                    if (hint.isNotBlank()) {
+                        Text(hint)
                     }
                 }
             }
@@ -269,31 +364,12 @@ fun ModpackUploadScreen(
 
                 TitleRow(
                     title = updateModpackName?.let { "为整合包$it 上传新版" } ?: "确认整合包信息",
-                    onBack = onBack
+                    onBack = ::exitUploadScreen
                 ) {
-                    downloadProgress?.let { progress ->
-                        val percentText = progress.fraction?.let { fraction ->
-                            val pct = (fraction.coerceIn(0f, 1f) * 100f).toInt()
-                            " $pct%"
-                        } ?: ""
-                        Text("${progress.message}$percentText")
-                        Space8w()
-                    }
                     errorText?.let {
                         Text(it, color = MaterialTheme.colors.error)
                     }
                     Space8w()
-                    if (downloadFailed && !isDownloading) {
-                        CircleIconButton(
-                            icon = "\uF2F9",
-                            tooltip = "重试下载失败的Mod",
-                            bgColor = MaterialColor.YELLOW_900.color,
-                            
-                        ) {
-                            startModsDownload(modsNeedDownload(mods))
-                        }
-                        Space8w()
-                    }
                     CircleIconButton("\uF058", "确认上传") {
                         //if(!DEBUG){
                             if (currentTester != null) {
@@ -336,15 +412,8 @@ fun ModpackUploadScreen(
                     )
                     Tab(
                         selected = selectedTab == 2,
-                        onClick = {
-                            if (!isDownloading) {
-                                selectedTab = 2
-                            } else {
-                                errorText = "请等待Mod下载完成后再进行测试"
-                            }
-                        },
-                        enabled = !isDownloading,
-                        text = { Text("运行测试${if (isDownloading) "(请先等待Mod下载完成)" else ""}") }
+                        onClick = { selectedTab = 2 },
+                        text = { Text("运行测试") }
                     )
                 }
                 Space8h()
@@ -498,7 +567,7 @@ fun ModpackUploadScreen(
                 val currentPayload = payload
                 TitleRow(
                     title = "上传整合包",
-                    onBack = onBack
+                    onBack = ::exitUploadScreen
                 ) {
                     if (!errorText.isNullOrBlank() && currentPayload != null) {
                         CircleIconButton(
@@ -534,10 +603,10 @@ fun ModpackUploadScreen(
                 val summary = (uploadStep as UploadStep.Done).summary
                 TitleRow(
                     title = "上传完成",
-                    onBack = onBack
+                    onBack = ::exitUploadScreen
                 ) {
                     CircleIconButton("\uF00C", "完成") {
-                        onBack()
+                        exitUploadScreen()
                     }
                 }
                 Text(summary)

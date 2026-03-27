@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import calebxzhou.rdi.client.net.SERVER_NODES
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
@@ -611,7 +612,6 @@ private fun CarrierSelector(
     selected: Int,
     onSelect: (Int) -> Unit
 ) {
-    val carriers = listOf("电信", "移动", "联通", "教育网", "广电")
 
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -626,7 +626,7 @@ private fun CarrierSelector(
             horizontalArrangement = Arrangement.spacedBy(16.dp),  // space between options
             verticalArrangement = Arrangement.spacedBy(8.dp)      // space between rows when wrapped
         ) {
-            carriers.forEachIndexed { index, name ->
+            SERVER_NODES.values.forEach { (index, name) ->
                 // Each radio + label is now one self-contained item
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
