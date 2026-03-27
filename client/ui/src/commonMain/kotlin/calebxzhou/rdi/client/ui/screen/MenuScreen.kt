@@ -49,9 +49,10 @@ fun MenuScreen(
     }
 
     MainColumn {
-        BoxWithConstraints(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val compact = maxWidth < 980.dp || maxHeight > maxWidth
             Row(
+                modifier = Modifier.align(Alignment.Center),
                 horizontalArrangement = Arrangement.spacedBy(if (compact) 28.dp else 72.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -120,14 +121,21 @@ fun MenuScreen(
                     ) {
                         onOpenHostLobby.invoke()
                     }
-                    lastPlayHost?.let { host ->
-                        CircleIconButton(
-                            icon = "\uF04B",
-                            tooltip = "继续游玩地图:${host.name}",
-                            bgColor = MaterialColor.GREEN_900.color
-                        ) {
-                            onOpenHostInfo(host.id)
-                        }
+
+                }
+            }
+            RowV(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 24.dp)
+            ) {
+                lastPlayHost?.let { host ->
+                    CircleIconButton(
+                        icon = "\uF04B",
+                        tooltip = "继续游玩地图:${host.name}",
+                        bgColor = MaterialColor.GREEN_900.color
+                    ) {
+                        onOpenHostInfo(host.id)
                     }
                 }
             }
