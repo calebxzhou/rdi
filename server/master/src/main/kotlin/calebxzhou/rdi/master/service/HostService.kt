@@ -1630,10 +1630,15 @@ object HostService {
         if (!configDir.isDirectory) throw RequestError("主机配置目录异常")
 
         return configDir.walkTopDown()
-            .filter { it.canListAsConfigFile() }
             .map { file ->
+                val relativePath = file.relativeTo(configDir).invariantSeparatorsPath
+                relativePath to file
+            }
+            .filterNot { (relativePath, _) -> relativePath.startsWith("yes_steve_model/builtin") }
+            .filter { (_, file) -> file.canListAsConfigFile() }
+            .map { (relativePath, file) ->
                 Host.ConfigFileEntry(
-                    path = file.relativeTo(configDir).invariantSeparatorsPath,
+                    path = relativePath,
                     size = file.length(),
                     updateTime = file.lastModified()
                 )
