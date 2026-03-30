@@ -61,36 +61,41 @@ fun McVersionScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.TopCenter
             ) {
-                Column(
+                BoxWithConstraints(
                     modifier = Modifier
                         .fillMaxWidth()
                         .widthIn(max = 1040.dp)
                         .padding(bottom = 16.dp)
                 ) {
-                    Text("若下载不成功，可尝试从网盘下载，然后手动导入。")
-                    if (requiredMcVer != null) {
-                        Text(
-                            text = "请先下载所需版本：${requiredMcVer.mcVer}",
-                            color = MaterialTheme.colors.error
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                    }
-                    LazyVerticalGrid(
-                        columns = GridCells.Fixed(2),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp),
-                        verticalArrangement = Arrangement.spacedBy(20.dp),
+                    val portrait = maxHeight > maxWidth
+                    Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        items(McVersion.entries) { mcver ->
-                            McVersionCard(
-                                mcver = mcver,
-                                highlight = requiredMcVer == mcver,
-                                onOpenTask = onOpenTask,
-                                onOpenFclDialog = { text, dirName ->
-                                    fclDialogText = text
-                                    fclDialogDirName = dirName
-                                }
+                        Text("若下载不成功，可尝试从网盘下载，然后手动导入。（需要手机号登录，免费）")
+                        if (requiredMcVer != null) {
+                            Text(
+                                text = "请先下载所需版本：${requiredMcVer.mcVer}",
+                                color = MaterialTheme.colors.error
                             )
+                            Spacer(modifier = Modifier.height(6.dp))
+                        }
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(if (portrait) 1 else 2),
+                            horizontalArrangement = Arrangement.spacedBy(20.dp),
+                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                            modifier = Modifier.fillMaxSize()
+                        ) {
+                            items(McVersion.entries) { mcver ->
+                                McVersionCard(
+                                    mcver = mcver,
+                                    highlight = requiredMcVer == mcver,
+                                    onOpenTask = onOpenTask,
+                                    onOpenFclDialog = { text, dirName ->
+                                        fclDialogText = text
+                                        fclDialogDirName = dirName
+                                    }
+                                )
+                            }
                         }
                     }
                 }

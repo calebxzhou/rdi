@@ -2,11 +2,9 @@ package calebxzhou.rdi.client
 
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.CONF
-import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.ProxyConfig
 import calebxzhou.rdi.common.service.ModService
-import calebxzhou.rdi.lgr
 import kotlinx.serialization.Serializable
 import net.peanuuutz.tomlkt.Toml
 import java.io.File
@@ -28,11 +26,7 @@ data class AppConfig(
     companion object {
         private val lgr by Loggers
         private val configFile: File
-            get() = runCatching {
-                ClientDirs.dlPacksDir.parentFile.resolve("config.toml")
-            }.getOrElse {
-                File("config.toml")
-            }
+            get() = platformAppConfigFile()
         fun load(): AppConfig {
             return if (configFile.exists()) {
                 try {
@@ -56,9 +50,10 @@ data class AppConfig(
                 CONF = config
                 ModService.useMirror = config.useMirror
                 CommonConfig.updateProxyConfig(config.proxyConfig)
+                configFile.parentFile?.mkdirs()
                 configFile.writeText(Toml.encodeToString(serializer(), config))
             } catch (e: Exception) {
-                lgr.warn { "save config failed" + "\n" + e }
+                lgr.warn (e){ "save config failed\n" }
             }
         }
     }

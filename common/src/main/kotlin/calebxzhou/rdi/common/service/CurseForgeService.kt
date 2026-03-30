@@ -1,7 +1,6 @@
 package calebxzhou.rdi.common.service
 
 import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.murmur2
 import calebxzhou.mykotutils.std.openChineseZip
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.common.exception.ModpackException

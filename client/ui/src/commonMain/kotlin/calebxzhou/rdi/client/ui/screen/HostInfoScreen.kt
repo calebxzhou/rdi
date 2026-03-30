@@ -686,116 +686,136 @@ fun HostInfoScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Text(
-                                            text = "可以在整合包之外再添加更多Mod。",
-                                            color = MaterialColor.GRAY_700.color,
-                                            modifier = Modifier.weight(1f)
-                                        )
-                                        FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Text(
-                                                text = "已选择${selectedExtraMods.size}个",
-                                                color = MaterialColor.GRAY_700.color
-                                            )
-                                            Checkbox(selectAllExtraMods, onCheckedChange = {
-                                                selectAllExtraMods = it
-                                                selectedExtraModKeys = if(it)  extraMods.map(::extraModKey).toSet() else emptySet()
-                                            })
-                                            Text("全选")
-                                            CircleIconButton(
-                                                icon = "\uF019",
-                                                tooltip = "下载",
-                                                enabled = selectedExtraMods.isNotEmpty(),
-                                                bgColor = MaterialColor.GREEN_900.color,
-                                            ) {
-                                                val task = ModService.downloadModsTask(selectedExtraMods)
-                                                if (onOpenTask != null) {
-                                                    onOpenTask(task)
-                                                } else {
-                                                    errorMessage = "暂不支持在此页面下载Mod"
-                                                }
-                                            }
-                                            if (canManageExtraMods) {
+                                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                        val compactToolbar = maxWidth < 560.dp
+                                        val actionRow: @Composable () -> Unit = {
+                                            FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text(
+                                                    text = "已选择${selectedExtraMods.size}个",
+                                                    color = MaterialColor.GRAY_700.color
+                                                )
+                                                Checkbox(selectAllExtraMods, onCheckedChange = {
+                                                    selectAllExtraMods = it
+                                                    selectedExtraModKeys = if (it) extraMods.map(::extraModKey).toSet() else emptySet()
+                                                })
+                                                Text("全选")
                                                 CircleIconButton(
-                                                    icon = "\uEA81",
-                                                    tooltip = "删除",
+                                                    icon = "\uF019",
+                                                    tooltip = "下载",
                                                     enabled = selectedExtraMods.isNotEmpty(),
-                                                    bgColor = MaterialColor.RED_900.color,
+                                                    bgColor = MaterialColor.GREEN_900.color,
                                                 ) {
-                                                    removeExtraModConfirm = selectedExtraMods.firstOrNull()
-                                                }
-                                                CircleIconButton(
-                                                    icon = "\uF067",
-                                                    tooltip = if (addExtraModLoading) {
-                                                        addExtraModLoadingText.ifBlank { "匹配中..." }
+                                                    val task = ModService.downloadModsTask(selectedExtraMods)
+                                                    if (onOpenTask != null) {
+                                                        onOpenTask(task)
                                                     } else {
-                                                        "附加Mod"
-                                                    },
-                                                    enabled = !addExtraModLoading,
-                                                    bgColor = MaterialColor.PURPLE_700.color,
-                                                ) {
-                                                    if (!isDesktop) {
-                                                        errorMessage = "当前平台暂不支持选择本地Mod文件"
-                                                        return@CircleIconButton
+                                                        errorMessage = "暂不支持在此页面下载Mod"
                                                     }
-                                                    val hostMcVersion = modpackDetail?.mcVer
-                                                    if (hostMcVersion == null) {
-                                                        errorMessage = "无法获取当前整合包的MC版本"
-                                                        return@CircleIconButton
+                                                }
+                                                if (canManageExtraMods) {
+                                                    CircleIconButton(
+                                                        icon = "\uEA81",
+                                                        tooltip = "删除",
+                                                        enabled = selectedExtraMods.isNotEmpty(),
+                                                        bgColor = MaterialColor.RED_900.color,
+                                                    ) {
+                                                        removeExtraModConfirm = selectedExtraMods.firstOrNull()
                                                     }
-                                                    scope.launch {
-                                                        val files = selectHostExtraModFiles() ?: return@launch
-                                                        resetAddExtraModDialog()
-                                                        addExtraModLoading = true
-                                                        addExtraModLoadingText = "正在匹配Mod..."
-                                                        val matchResult = try {
-                                                            matchHostExtraModFiles(files, hostMcVersion) { progress ->
-                                                                addExtraModLoadingText = progress
+                                                    CircleIconButton(
+                                                        icon = "\uF067",
+                                                        tooltip = if (addExtraModLoading) {
+                                                            addExtraModLoadingText.ifBlank { "匹配中..." }
+                                                        } else {
+                                                            "附加Mod"
+                                                        },
+                                                        enabled = !addExtraModLoading,
+                                                        bgColor = MaterialColor.PURPLE_700.color,
+                                                    ) {
+                                                        if (!isDesktop) {
+                                                            errorMessage = "当前平台暂不支持选择本地Mod文件"
+                                                            return@CircleIconButton
+                                                        }
+                                                        val hostMcVersion = modpackDetail?.mcVer
+                                                        if (hostMcVersion == null) {
+                                                            errorMessage = "无法获取当前整合包的MC版本"
+                                                            return@CircleIconButton
+                                                        }
+                                                        scope.launch {
+                                                            val files = selectHostExtraModFiles() ?: return@launch
+                                                            resetAddExtraModDialog()
+                                                            addExtraModLoading = true
+                                                            addExtraModLoadingText = "正在匹配Mod..."
+                                                            val matchResult = try {
+                                                                matchHostExtraModFiles(files, hostMcVersion) { progress ->
+                                                                    addExtraModLoadingText = progress
+                                                                }
+                                                            } catch (e: Exception) {
+                                                                errorMessage = e.message ?: "匹配Mod失败"
+                                                                addExtraModLoading = false
+                                                                addExtraModLoadingText = ""
+                                                                return@launch
                                                             }
-                                                        } catch (e: Exception) {
-                                                            errorMessage = e.message ?: "匹配Mod失败"
+                                                            rejectedExtraModFiles = matchResult.rejectedFiles
+                                                            val matchedMods = matchResult.matchedMods.map { mod ->
+                                                                if (
+                                                                    mod.platform.equals("cf", ignoreCase = true) &&
+                                                                    mod.side == Mod.Side.UNKNOWN
+                                                                ) {
+                                                                    mod.copy(side = Mod.Side.SERVER).also {
+                                                                        it.vo = mod.vo
+                                                                        it.file = mod.file
+                                                                    }
+                                                                } else {
+                                                                    mod
+                                                                }
+                                                            }
+                                                            val dedupeResult = filterExtraModsForAdding(
+                                                                candidateMods = matchedMods,
+                                                                existingMods = extraMods + baseVersionMods
+                                                            )
+                                                            pendingExtraMods = dedupeResult.acceptedMods
+                                                            rejectedExtraModFiles = matchResult.rejectedFiles + dedupeResult.rejectedMessages
                                                             addExtraModLoading = false
                                                             addExtraModLoadingText = ""
-                                                            return@launch
-                                                        }
-                                                        rejectedExtraModFiles = matchResult.rejectedFiles
-                                                    val matchedMods = matchResult.matchedMods.map { mod ->
-                                                        if (mod.platform.equals(
-                                                                "cf",
-                                                                ignoreCase = true
-                                                            ) && mod.side == Mod.Side.UNKNOWN
-                                                        ) {
-                                                                mod.copy(side = Mod.Side.SERVER).also {
-                                                                    it.vo = mod.vo
-                                                                    it.file = mod.file
+                                                            if (pendingExtraMods.isEmpty()) {
+                                                                if (rejectedExtraModFiles.isEmpty()) {
+                                                                    errorMessage = "没有在网上搜索到这些Mod的信息"
+                                                                    return@launch
                                                                 }
-                                                        } else {
-                                                            mod
-                                                        }
-                                                    }
-                                                    val dedupeResult = filterExtraModsForAdding(
-                                                        candidateMods = matchedMods,
-                                                        existingMods = extraMods + baseVersionMods
-                                                    )
-                                                    pendingExtraMods = dedupeResult.acceptedMods
-                                                    rejectedExtraModFiles = matchResult.rejectedFiles + dedupeResult.rejectedMessages
-                                                    addExtraModLoading = false
-                                                    addExtraModLoadingText = ""
-                                                    if (pendingExtraMods.isEmpty()) {
-                                                        if (rejectedExtraModFiles.isEmpty()) {
-                                                            errorMessage = "没有在网上搜索到这些Mod的信息"
-                                                            return@launch
-                                                        }
+                                                                showAddExtraModDialog = true
+                                                                return@launch
+                                                            }
                                                             showAddExtraModDialog = true
-                                                            return@launch
                                                         }
-                                                        showAddExtraModDialog = true
                                                     }
                                                 }
+                                            }
+                                        }
+
+                                        if (compactToolbar) {
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "可以在整合包之外再添加更多Mod。",
+                                                    color = MaterialColor.GRAY_700.color,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                )
+                                                actionRow()
+                                            }
+                                        } else {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "可以在整合包之外再添加更多Mod。",
+                                                    color = MaterialColor.GRAY_700.color,
+                                                    modifier = Modifier.weight(1f)
+                                                )
+                                                actionRow()
                                             }
                                         }
                                     }

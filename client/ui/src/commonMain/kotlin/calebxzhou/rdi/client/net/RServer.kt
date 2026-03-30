@@ -25,20 +25,23 @@ val server
     get() = RServer.now
 var loggedAccount: RAccount = RAccount.DEFAULT
 val lgr by Loggers
+var BACKUP_NODE = false
+
 data class ServerNode(
     val id: Int,
     val name: String,
     val gameAddr: String,
 )
 val SERVER_NODES = listOf(
-    ServerNode(0,"电信专用优化","rdi.calebxzhou.cn:65230"),
-    ServerNode(1,"广东互通","frp-leg.com:65230"),
-    ServerNode(2,"浙江互通","frp-try.com:65230"),
-    ServerNode(3,"河北互通","frp-own.com:65230"),
-    ServerNode(4,"西安互通","frp-arm.com:55230"),
-    ServerNode(5,"重庆互通","frp-fox.com:65230"),
-    ServerNode(10,"国际出口","frp-pet.com:65230"),
+    ServerNode(0, "电信专用优化", if(DEBUG)"${RServer.OFFICIAL_DEBUG.ip}:65230" else "rdi.calebxzhou.cn:65230"),
+    ServerNode(1, "广东互通", "frp-leg.com:65230"),
+    ServerNode(2, "浙江互通", "frp-try.com:65230"),
+    ServerNode(3, "河北互通", "frp-own.com:65230"),
+    ServerNode(4, "西安互通", "frp-arm.com:55230"),
+    ServerNode(5, "重庆互通", "frp-fox.com:65230"),
+    ServerNode(10, "国际出口", "frp-pet.com:65230"),
 ).associateBy { it.id }
+
 class RServer(
     var ip: String,
     val httpPort: Int,
@@ -46,16 +49,22 @@ class RServer(
 ) {
     var noHttps = System.getProperty("rdi.noHttps").toBoolean()
 
-    val hqUrl get() = "${if(noHttps) "http" else "https"}://${ip}:${if(noHttps) httpPort else httpsPort}"
+    val hqUrl get() = "${if (noHttps) "http" else "https"}://${ip}:${if (noHttps) httpPort else httpsPort}"
 
     companion object {
         val OFFICIAL_DEBUG = RServer(
-            "localhost", 65231,65331
+            "localhost", 65231, 65331
         )
         val OFFICIAL_NNG = RServer(
             "rdi.calebxzhou.cn", 65231, 65331
         )
-        val now: RServer get() = if (DEBUG) OFFICIAL_DEBUG else OFFICIAL_NNG
+        val OFFICIAL_NNG2 = RServer(
+            "bkrdi.calebxzhou.cn", 443, 443
+        )
+        val now: RServer
+            get() = if (DEBUG) OFFICIAL_DEBUG
+            else if (BACKUP_NODE) OFFICIAL_NNG2
+            else OFFICIAL_NNG
 
     }
 
@@ -188,6 +197,7 @@ fun CoroutineScope.sse(
         return@launch
     }
 }
+
 inline fun CoroutineScope.rdiRequestU(
     path: String,
     method: HttpMethod = HttpMethod.Post,

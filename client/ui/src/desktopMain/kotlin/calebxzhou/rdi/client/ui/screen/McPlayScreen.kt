@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import calebxzhou.mykotutils.std.encodeBase64
+import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.startDesktop
 import calebxzhou.rdi.client.service.syncHostExtraMods
@@ -33,6 +35,7 @@ fun McPlayScreen(
     title:String,
     mcVer: McVersion,
     versionId: String,
+    playArg: String? = null,
     extraMods: List<Mod> = emptyList(),
     manageHostExtraMods: Boolean = false,
     vararg jvmArgs: String,
@@ -42,7 +45,6 @@ fun McPlayScreen(
     val consoleState = McPlayStore.consoleState
     var process by remember { mutableStateOf(McPlayStore.process?.takeIf { it.isAlive }) }
     var preparing by remember { mutableStateOf(false) }
-    val isRunning = process?.isAlive == true
     fun onProcessExit() {
         process = null
         McPlayStore.process = null
@@ -62,7 +64,14 @@ fun McPlayScreen(
                     }
                     consoleState.append("[RDI] 地图附加Mod已同步")
                 }
-                val started = GameService.startDesktop(mcVer, versionId, *jvmArgs) { line ->
+                val launchJvmArgs = buildList {
+                    addAll(jvmArgs.filterNot { it.startsWith("-Drdi.play=") })
+                    playArg?.let { rawPlayArg ->
+                        val proxiedPlayArg = rawPlayArg.withGameAddr(LocalMcProxy.gameAddr)
+                        add("-Drdi.play=${proxiedPlayArg.encodeBase64}")
+                    }
+                }
+                val started = GameService.startDesktop(mcVer, versionId, *launchJvmArgs.toTypedArray()) { line ->
                     scope.launch {
                         consoleState.append(line)
                         if (line.startsWith("启动失败") || line.startsWith("已退出")) {
@@ -80,7 +89,7 @@ fun McPlayScreen(
             }
         }
     }
-    LaunchedEffect(versionId, jvmArgs) {
+    LaunchedEffect(versionId, playArg, jvmArgs) {
         if (process?.isAlive != true && !preparing) {
             startProcess()
         }
@@ -112,4 +121,11 @@ private fun appendSyncProgress(consoleState: calebxzhou.rdi.client.ui.comp.Conso
         ?.let { fraction -> " ${(fraction * 100).toInt()}%" }
         .orEmpty()
     consoleState.append("[RDI] ${progress.message}$suffix")
+}
+
+private fun String.withGameAddr(gameAddr: String): String {
+    val lines = split(Regex("\\r?\\n")).toMutableList()
+    require(lines.size >= 2) { "RDI参数错误，请重新启动地图" }
+    lines[1] = gameAddr
+    return lines.joinToString("\n")
 }

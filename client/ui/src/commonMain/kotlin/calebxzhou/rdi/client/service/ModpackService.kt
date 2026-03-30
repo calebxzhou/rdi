@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.service
 
 import calebxzhou.mykotutils.std.humanFileSize
+import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.openChineseZip
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.CONF
@@ -9,6 +10,7 @@ import calebxzhou.rdi.client.model.loaderManifest
 import calebxzhou.rdi.client.net.SERVER_NODES
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.proxy.LocalMcProxy.gameAddr
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.isDesktop
 import calebxzhou.rdi.common.exception.RequestError
@@ -81,9 +83,8 @@ object ModpackService {
         val prepareVersionDirTask = Task.Leaf("准备安装目录") { ctx ->
             if (versionDir.exists()) {
                 ctx.emitProgress(TaskProgress("清理旧版本文件...", null))
-                if (!versionDir.deleteRecursively()) {
-                    throw IllegalStateException("无法清理旧版本目录: ${versionDir.absolutePath}")
-                }
+                runCatching { versionDir.deleteRecursivelyNoSymlink() }
+                    .getOrElse { throw IllegalStateException("无法清理旧版本目录: ${versionDir.absolutePath}", it) }
             }
             if (!versionDir.exists()) {
                 versionDir.mkdirs()
@@ -97,19 +98,26 @@ object ModpackService {
             val copyBuffer = ByteArray(ioBufferSize)
             ctx.emitProgress(TaskProgress("扫描压缩包内容...", 0f))
             clientPack.openChineseZip().use { zip ->
-                val entries = zip.entries().asSequence().toList()
-                val fileEntries = entries.filterNot { it.isDirectory }
-                val knownTotalBytes = fileEntries.mapNotNull { entry ->
-                    entry.size.takeIf { it > 0L }
-                }.sum()
+                var fileEntryCount = 0
+                var knownTotalBytes = 0L
+                val scanEntries = zip.entries()
+                while (scanEntries.hasMoreElements()) {
+                    val entry = scanEntries.nextElement()
+                    if (entry.isDirectory) continue
+                    fileEntryCount += 1
+                    entry.size.takeIf { it > 0L }?.let { knownTotalBytes += it }
+                }
                 var extractedFiles = 0
                 var extractedBytes = 0L
                 var lastEmitTs = 0L
                 val createdDirs = hashSetOf(versionDir.absolutePath)
+                val extractEntries = zip.entries()
 
-                fileEntries.forEachIndexed { index, entry ->
+                while (extractEntries.hasMoreElements()) {
+                    val entry = extractEntries.nextElement()
+                    if (entry.isDirectory) continue
                     val relativePath = entry.name.trimStart('/')
-                    if (relativePath.isBlank()) return@forEachIndexed
+                    if (relativePath.isBlank()) continue
                     val destination = versionDir.resolve(relativePath)
                     destination.parentFile?.let { parent ->
                         val parentPath = parent.absolutePath
@@ -130,14 +138,14 @@ object ModpackService {
                     }
                     extractedFiles += 1
                     val now = System.currentTimeMillis()
-                    val shouldEmit = now - lastEmitTs >= 120L || index == fileEntries.lastIndex
+                    val shouldEmit = now - lastEmitTs >= 120L || extractedFiles == fileEntryCount
                     if (shouldEmit) {
                         val fraction = if (knownTotalBytes > 0L) {
                             (extractedBytes.toFloat() / knownTotalBytes.toFloat()).coerceIn(0f, 1f)
                         } else {
-                            extractedFiles.toFloat() / fileEntries.size.coerceAtLeast(1)
+                            extractedFiles.toFloat() / fileEntryCount.coerceAtLeast(1)
                         }
-                        ctx.emitProgress(TaskProgress("解压中 $extractedFiles/${fileEntries.size}", fraction))
+                        ctx.emitProgress(TaskProgress("解压中 $extractedFiles/${fileEntryCount.coerceAtLeast(1)}", fraction))
                         lastEmitTs = now
                     }
                 }
@@ -166,11 +174,17 @@ object ModpackService {
         }
 
         val writeOptionsTask = Task.Leaf("写入配置文件") { ctx ->
-            """
-            lang:zh_cn
-            darkMojangStudiosBackground:true
-            forceUnicodeFont:true
-            """.trimIndent().let { versionDir.resolve("options.txt").writeText(it) }
+            val optionsFile = versionDir.resolve("options.txt")
+            optionsFile.writeText(
+                mergeMinecraftOptions(
+                    original = optionsFile.takeIf(File::exists)?.readText().orEmpty(),
+                    overrides = linkedMapOf(
+                        "lang" to "zh_cn",
+                        "darkMojangStudiosBackground" to "true",
+                        "forceUnicodeFont" to "true"
+                    )
+                )
+            )
             try {
                 versionDir.resolve(versionDir.name+".json").writeText(mcVersion.loaderManifest.copy(id=versionDir.name).json)
             } catch (e: FileNotFoundException) {
@@ -239,6 +253,36 @@ object ModpackService {
     }
 }
 
+private fun mergeMinecraftOptions(
+    original: String,
+    overrides: Map<String, String>
+): String {
+    if (original.isBlank()) {
+        return overrides.entries.joinToString("\n") { (key, value) -> "$key:$value" }
+    }
+
+    val lineSeparator = if ("\r\n" in original) "\r\n" else "\n"
+    val updatedKeys = linkedSetOf<String>()
+    val mergedLines = original.lineSequence().map { line ->
+        val delimiterIndex = line.indexOf(':')
+        if (delimiterIndex <= 0) {
+            return@map line
+        }
+        val key = line.substring(0, delimiterIndex)
+        val overrideValue = overrides[key] ?: return@map line
+        updatedKeys += key
+        "$key:$overrideValue"
+    }.toMutableList()
+
+    overrides.forEach { (key, value) ->
+        if (key !in updatedKeys) {
+            mergedLines += "$key:$value"
+        }
+    }
+
+    return mergedLines.joinToString(lineSeparator)
+}
+
 // ---- Types and functions moved from desktopMain for cross-platform use ----
 
 sealed class StartPlayResult {
@@ -285,11 +329,14 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
     if (GameService.started) {
         throw RequestError("mc运行中，如需切换要玩的地图，请先关闭mc")
     }
+    var gameAddr = "127.0.0.1:55667"
     if(!isDesktop){
         val verDir = ModpackService.getVersionDir(version.modpackId,version.name)
         ModpackService.installRdiCore(modpack.mcVer,modpack.modloader,verDir)
+        //安卓端暂时不支持本地代理
+        gameAddr = (SERVER_NODES[CONF.carrier]?:SERVER_NODES[0])?.gameAddr!!
     }
-    val gameAddr = SERVER_NODES[CONF.carrier]?.gameAddr?:SERVER_NODES[0]
+    //val gameAddr = SERVER_NODES[CONF.carrier]?.gameAddr?:SERVER_NODES[0]
     val versionId = "${modpack.id.str}_${version.name}"
     val playArg = "${server.hqUrl}\n" +
             "${gameAddr}\n"+

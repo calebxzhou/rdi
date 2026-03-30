@@ -1,0 +1,148 @@
+package calebxzhou.rdi.client.proxy
+
+import io.netty.bootstrap.Bootstrap
+import io.netty.buffer.Unpooled
+import io.netty.channel.Channel
+import io.netty.channel.ChannelFutureListener
+import io.netty.channel.ChannelHandlerContext
+import io.netty.channel.ChannelInboundHandlerAdapter
+import io.netty.channel.ChannelOption
+import io.netty.channel.EventLoopGroup
+import io.netty.channel.socket.nio.NioSocketChannel
+import io.netty.util.ReferenceCountUtil
+
+class LocalMcProxyFrontendHandler(
+    private val backendGroup: EventLoopGroup
+) : ChannelInboundHandlerAdapter() {
+    private var backendChannel: Channel? = null
+    private val pendingBuffer = mutableListOf<Any>()
+    private var firstMinecraftFrameHandled = false
+
+    override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
+        if (!firstMinecraftFrameHandled) {
+            firstMinecraftFrameHandled = true
+            val endpoint = LocalMcProxy.currentEndpointFromCarrier()
+            connectToBackend(ctx, endpoint)
+            forwardToBackend(ctx, msg)
+            ctx.pipeline().remove(MinecraftFrameDecoder::class.java)
+            LocalMcProxy.reportLog(
+                "bridge ${ctx.channel().remoteAddress()} -> ${endpoint.host}:${endpoint.port}"
+            )
+            return
+        }
+        forwardToBackend(ctx, msg)
+    }
+
+    override fun channelInactive(ctx: ChannelHandlerContext) {
+        if (backendChannel?.isActive == true) {
+            closeOnFlush(backendChannel!!)
+        }
+        releasePendingBuffer()
+    }
+
+    override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
+        LocalMcProxy.reportLog("frontend exception: ${cause.message ?: cause.javaClass.simpleName}")
+        closeOnFlush(ctx.channel())
+    }
+
+    private fun connectToBackend(
+        ctx: ChannelHandlerContext,
+        endpoint: ProxyEndpoint
+    ) {
+        val frontendChannel = ctx.channel()
+        if (!frontendChannel.isActive) {
+            return
+        }
+
+        val bootstrap = Bootstrap()
+            .group(backendGroup)
+            .channel(NioSocketChannel::class.java)
+            .option(ChannelOption.AUTO_READ, true)
+            .option(ChannelOption.TCP_NODELAY, true)
+            .option(ChannelOption.SO_KEEPALIVE, true)
+            .handler(LocalMcProxyBackendHandler(frontendChannel))
+
+        val future = bootstrap.connect(endpoint.host, endpoint.port)
+        backendChannel = future.channel()
+
+        future.addListener { connectFuture ->
+            if (!frontendChannel.isActive) {
+                if (connectFuture.isSuccess) {
+                    future.channel().close()
+                }
+                releasePendingBuffer()
+                return@addListener
+            }
+
+            if (connectFuture.isSuccess) {
+                flushPendingBuffer(ctx)
+            } else {
+                LocalMcProxy.reportLog(
+                    "backend connect failed ${endpoint.host}:${endpoint.port}: ${connectFuture.cause()?.message ?: "unknown"}"
+                )
+                releasePendingBuffer()
+                frontendChannel.close()
+            }
+        }
+    }
+
+    private fun forwardToBackend(ctx: ChannelHandlerContext, msg: Any) {
+        val frontendChannel = ctx.channel()
+        if (!frontendChannel.isActive) {
+            ReferenceCountUtil.release(msg)
+            return
+        }
+
+        if (backendChannel?.isActive == true) {
+            backendChannel?.writeAndFlush(msg)?.addListener { future ->
+                if (!future.isSuccess) {
+                    LocalMcProxy.reportLog(
+                        "backend write failed: ${future.cause()?.message ?: "unknown"}"
+                    )
+                    frontendChannel.close()
+                }
+            }
+        } else {
+            pendingBuffer += msg
+        }
+    }
+
+    private fun flushPendingBuffer(ctx: ChannelHandlerContext) {
+        if (pendingBuffer.isEmpty()) {
+            return
+        }
+        val compositeBuf = ctx.alloc().compositeBuffer(pendingBuffer.size)
+        pendingBuffer.forEach { bufferedMsg ->
+            if (bufferedMsg is io.netty.buffer.ByteBuf) {
+                compositeBuf.addComponent(true, bufferedMsg)
+            } else {
+                ReferenceCountUtil.release(bufferedMsg)
+            }
+        }
+        pendingBuffer.clear()
+        if (compositeBuf.isReadable) {
+            backendChannel?.writeAndFlush(compositeBuf)?.addListener { future ->
+                if (!future.isSuccess) {
+                    LocalMcProxy.reportLog(
+                        "backend write failed: ${future.cause()?.message ?: "unknown"}"
+                    )
+                    ctx.channel().close()
+                }
+            }
+        } else {
+            compositeBuf.release()
+        }
+    }
+
+    private fun releasePendingBuffer() {
+        pendingBuffer.forEach(ReferenceCountUtil::release)
+        pendingBuffer.clear()
+    }
+
+    private fun closeOnFlush(ch: Channel) {
+        if (ch.isActive) {
+            ch.writeAndFlush(Unpooled.EMPTY_BUFFER)
+                .addListener(ChannelFutureListener.CLOSE)
+        }
+    }
+}

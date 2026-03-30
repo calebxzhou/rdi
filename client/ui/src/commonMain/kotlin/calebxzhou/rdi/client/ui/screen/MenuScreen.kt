@@ -50,78 +50,76 @@ fun MenuScreen(
 
     MainColumn {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val compact = maxWidth < 980.dp || maxHeight > maxWidth
-            Row(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalArrangement = Arrangement.spacedBy(if (compact) 28.dp else 72.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            val portrait = maxHeight > maxWidth
+            val compact = maxWidth < 980.dp || portrait
+            if (portrait) {
+                val buttonAreaWidth = 128.dp
+                val playerCardSize = minOf(
+                    maxWidth - buttonAreaWidth - 32.dp,
+                    maxHeight * 0.42f,
+                    320.dp
+                ).coerceAtLeast(200.dp)
+
+                MenuAccountSummary(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = 20.dp),
+                    onlinePlayerIds = onlinePlayerIds
+                )
+
+                PlayerPreviewCard(
+                    modifier = Modifier
+                        .size(playerCardSize)
+                        .align(Alignment.CenterStart)
+                        .padding(start = 16.dp)
+                        .offset(y = 56.dp),
+                    onClick = onOpenWardrobe
+                )
+
+                MenuActionButtons(
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 12.dp, top = 136.dp, bottom = 96.dp)
+                        .widthIn(min = 92.dp, max = buttonAreaWidth),
+                    compact = true,
+                    onOpenModpackLocalManage = onOpenModpackLocalManage,
+                    onOpenMcVersionManage = onOpenMcVersionManage,
+                    onOpenSettings = onOpenSettings,
+                    onOpenMail = onOpenMail,
+                    onOpenHostLobby = onOpenHostLobby,
+                    onOpenWorldList = onOpenWorldList,
+                    onBack = onBack
+                )
+            } else {
+                Row(
+                    modifier = Modifier.align(Alignment.Center),
+                    horizontalArrangement = Arrangement.spacedBy(if (compact) 28.dp else 72.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    RowV {
-                        Text("${periodOfDay}好，")
-                        HeadButton(loggedAccount._id)
-                    }
-                    FlowRow(
-                        modifier = Modifier.widthIn(max = 320.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Text("在线${onlinePlayerIds.size}人")
-                        Space8w()
-                        onlinePlayerIds.forEach {
-                            HeadButton(it, showName = false, avatarSize = 12.dp)
-                        }
+                        MenuAccountSummary(
+                            onlinePlayerIds = onlinePlayerIds
+                        )
+                        PlayerPreviewCard(
+                            modifier = Modifier.size(320.dp),
+                            onClick = onOpenWardrobe
+                        )
                     }
-                    PlayerPreviewCard(
-                        modifier = Modifier.size(320.dp),
-                        onClick = onOpenWardrobe
+
+                    MenuActionButtons(
+                        modifier = Modifier.widthIn(min = if (compact) 180.dp else 220.dp),
+                        compact = compact,
+                        onOpenModpackLocalManage = onOpenModpackLocalManage,
+                        onOpenMcVersionManage = onOpenMcVersionManage,
+                        onOpenSettings = onOpenSettings,
+                        onOpenMail = onOpenMail,
+                        onOpenHostLobby = onOpenHostLobby,
+                        onOpenWorldList = onOpenWorldList,
+                        onBack = onBack
                     )
-                }
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.widthIn(min = if (compact) 180.dp else 220.dp)
-                ) {
-                    CircleIconButton(
-                        "\uDB81\uDC25",
-                        "退出",
-                        bgColor = MaterialColor.RED_900.color,
-                        contentPadding = PaddingValues()
-                    ) {
-                        loggedAccount = RAccount.DEFAULT
-                        onBack.invoke()
-                    }
-                    CircleIconButton(
-                        "\uEB51",
-                        "设置"
-                    ) {
-                        onOpenSettings()
-                    }
-                    ImageIconButton("grass_block", "MC资源", bgColor = MaterialColor.GREEN_200.color) {
-                        onOpenMcVersionManage()
-                    }
-                    ImageIconButton("chest", "整合包", bgColor = MaterialColor.AMBER_200.color) {
-                        onOpenModpackLocalManage()
-                    }
-                    CircleIconButton("\uEB1C", "信箱") {
-                        onOpenMail.invoke()
-                    }
-                    CircleIconButton("\uDB85\uDC5C", "存档") {
-                        onOpenWorldList.invoke()
-                    }
-                    CircleIconButton(
-                        "\uF04B",
-                        "地图",
-                        bgColor = MaterialColor.GREEN_900.color,
-                        contentPadding = PaddingValues(start = 2.dp)
-                    ) {
-                        onOpenHostLobby.invoke()
-                    }
-
                 }
             }
             RowV(
@@ -144,6 +142,90 @@ fun MenuScreen(
 }
 
 @Composable
+private fun MenuAccountSummary(
+    onlinePlayerIds: List<ObjectId>,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        RowV {
+            Text("${periodOfDay}好，")
+            HeadButton(loggedAccount._id)
+        }
+        FlowRow(
+            modifier = Modifier.widthIn(max = 320.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text("在线${onlinePlayerIds.size}人")
+            Space8w()
+            onlinePlayerIds.forEach {
+                HeadButton(it, showName = false, avatarSize = 12.dp)
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MenuActionButtons(
+    modifier: Modifier = Modifier,
+    compact: Boolean,
+    onOpenModpackLocalManage: () -> Unit,
+    onOpenMcVersionManage: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenMail: () -> Unit,
+    onOpenHostLobby: () -> Unit,
+    onOpenWorldList: () -> Unit,
+    onBack: () -> Unit
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(if (compact) 10.dp else 12.dp),
+        modifier = modifier
+    ) {
+        CircleIconButton(
+            "\uDB81\uDC25",
+            "退出",
+            bgColor = MaterialColor.RED_900.color,
+            contentPadding = PaddingValues()
+        ) {
+            loggedAccount = RAccount.DEFAULT
+            onBack()
+        }
+        CircleIconButton(
+            "\uEB51",
+            "设置"
+        ) {
+            onOpenSettings()
+        }
+        ImageIconButton("grass_block", "MC资源", bgColor = MaterialColor.GREEN_200.color) {
+            onOpenMcVersionManage()
+        }
+        ImageIconButton("chest", "整合包", bgColor = MaterialColor.AMBER_200.color) {
+            onOpenModpackLocalManage()
+        }
+        CircleIconButton("\uEB1C", "信箱") {
+            onOpenMail()
+        }
+        CircleIconButton("\uDB85\uDC5C", "存档") {
+            onOpenWorldList()
+        }
+        CircleIconButton(
+            "\uF04B",
+            "地图",
+            bgColor = MaterialColor.GREEN_900.color,
+            contentPadding = PaddingValues(start = 2.dp)
+        ) {
+            onOpenHostLobby()
+        }
+    }
+}
+
+@Composable
 private fun PlayerPreviewCard(
     modifier: Modifier,
     onClick: () -> Unit
@@ -161,7 +243,8 @@ private fun PlayerPreviewCard(
             animateWalk = true,
             showOuterLayer = true,
             isSlim = loggedAccount.cloth.isSlim,
-            maxRenderSide = 128
+            maxRenderSide = 128,
+            noControl = true
         )
     }
 }

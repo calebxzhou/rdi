@@ -5,7 +5,6 @@ import calebxzhou.rdi.client.AppConfig
 import java.io.File
 
 fun main() {
-    CONF = AppConfig.load()
     //redirect new ui
     calebxzhou.rdi.client.main()
 }

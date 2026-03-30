@@ -2,6 +2,7 @@ package calebxzhou.rdi.master.service
 
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
+import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.mykotutils.std.readAllString
 import calebxzhou.rdi.common.DL_MOD_DIR
@@ -320,7 +321,7 @@ object HostService {
     private const val HOST_WORKDIR_LIMIT_BYTES: Long = 1L * 1024 * 1024 * 1024
     private const val HOST_CONFIG_FILE_MAX_BYTES: Long = 8 * 1024
     private const val HOST_CONFIG_FILE_LIST_MAX_BYTES: Long = 8 * 1024
-    private val editableConfigExtensions = setOf("json", "toml", "txt", "json5", "properties")
+    private val editableConfigExtensions = setOf("json", "toml", "txt", "json5", "properties","yaml","yml")
 
     private val idleMonitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var idleMonitorJob: Job? = null
@@ -491,9 +492,7 @@ object HostService {
             .filter { it.isFile && !Files.isSymbolicLink(it.toPath()) }
             .sumOf { it.length() }
         if (totalSize > HOST_WORKDIR_LIMIT_BYTES) {
-            val sizeMb = totalSize / (1024 * 1024)
-            throw RequestError("地图目录超过 1GB (${sizeMb}MB)，请删除不必要文件后再启动")
-        }
+            throw RequestError("地图目录超过 3GB (${totalSize.humanFileSize}MB)，请删除不必要文件后再启动") }
     }
 
     val HostContext.needMember get() = requireRole(Role.MEMBER)

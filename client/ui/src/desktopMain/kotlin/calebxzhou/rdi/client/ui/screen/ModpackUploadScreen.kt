@@ -61,6 +61,7 @@ fun ModpackUploadScreen(
     var selectedSourceName by remember { mutableStateOf(restoredState?.selectedSourceName) }
     var parseProgress by remember { mutableStateOf(restoredState?.parseProgress) }
     var errorText by remember { mutableStateOf(restoredState?.errorText) }
+    var errorDialogVersion by remember { mutableIntStateOf(if (restoredState?.errorText != null) 1 else 0) }
     var isResolvingMods by remember { mutableStateOf(false) }
 
     // --- State: download task ---
@@ -130,6 +131,11 @@ fun ModpackUploadScreen(
         shouldPersistState = false
         ModpackUploadResumeStore.state = null
         onBack()
+    }
+
+    fun showError(message: String) {
+        errorText = message
+        errorDialogVersion += 1
     }
 
     // Reset error when tab changes
@@ -229,7 +235,7 @@ fun ModpackUploadScreen(
                     scope.launch { parseProgress = msg }
                 },
                 onError = { msg ->
-                    scope.launch { errorText = msg }
+                    scope.launch { showError(msg) }
                 }
             ) ?: run {
                 scope.launch {
@@ -268,7 +274,7 @@ fun ModpackUploadScreen(
                 info = infoText,
                 updateModpackId = updateModpackId,
                 onProgress = { scope.launch { parseProgress = it } },
-                onError = { scope.launch { errorText = it } },
+                onError = { scope.launch { showError(it) } },
                 onDone = { summary ->
                     scope.launch { uploadStep = UploadStep.Done(summary) }
                 }
@@ -277,6 +283,11 @@ fun ModpackUploadScreen(
     }
 
     MainColumn {
+        errorText?.let {
+            key(errorDialogVersion) {
+                AlertErr(it)
+            }
+        }
         when (uploadStep) {
             is UploadStep.Idle -> {
                 // === STEP 1: File selection ===
@@ -288,10 +299,6 @@ fun ModpackUploadScreen(
                     title = updateModpackName?.let { "为整合包$it 上传新版" } ?: "上传整合包",
                     onBack = ::exitUploadScreen
                 ) {
-                    errorText?.let {
-                        Text(it, color = MaterialTheme.colors.error)
-                    }
-                    Space8w()
                     currentPayload?.let {
                         Text(selectedSourceName ?: it.sourceName)
                         Space8w()
@@ -317,7 +324,7 @@ fun ModpackUploadScreen(
                         enabled = !isProcessing
                     ) {
                         val file = pickModpackFile(
-                            onError = { msg -> errorText = msg }
+                            onError = ::showError
                         ) ?: return@CircleIconButton
                         errorText = null
                         parseProgress = "已选择: ${file.name}，正在读取..."
@@ -328,7 +335,7 @@ fun ModpackUploadScreen(
                                     scope.launch { parseProgress = msg }
                                 },
                                 onError = { msg ->
-                                    scope.launch { errorText = msg; parseProgress = null }
+                                    scope.launch { showError(msg); parseProgress = null }
                                 }
                             ) ?: return@launch
 
@@ -366,8 +373,9 @@ fun ModpackUploadScreen(
                     title = updateModpackName?.let { "为整合包$it 上传新版" } ?: "确认整合包信息",
                     onBack = ::exitUploadScreen
                 ) {
-                    errorText?.let {
-                        Text(it, color = MaterialTheme.colors.error)
+                    Text("上传此包的服务端可大幅提高成功率。")
+                    CircleIconButton("","我有服务端"){
+
                     }
                     Space8w()
                     CircleIconButton("\uF058", "确认上传") {
@@ -377,7 +385,7 @@ fun ModpackUploadScreen(
                                 val currentTestStatus = testStatus?.value
                                 val currentTestedSig = testedModsSignature?.value
                                 if (currentTestStatus != TestStatus.PASSED || currentTestedSig != signatureNow) {
-                                    errorText = "请先在 运行测试 页完成测试并通过"
+                                    showError("请先在运行测试页完成测试并通过")
                                     return@CircleIconButton
                                 }
                             }
@@ -385,11 +393,11 @@ fun ModpackUploadScreen(
                         val name = modpackName.trim()
                         val version = versionName.trim()
                         if (name.isBlank()) {
-                            errorText = "整合包名称不能为空"
+                            showError("整合包名称不能为空")
                             return@CircleIconButton
                         }
                         if (version.isBlank()) {
-                            errorText = "版本号不能为空"
+                            showError("版本号不能为空")
                             return@CircleIconButton
                         }
                         startUpload(currentPayload, name, version)
@@ -529,7 +537,7 @@ fun ModpackUploadScreen(
                                     bgColor = MaterialColor.GREEN_900.color
                                 ) {
                                     if (currentTester.isRunning()) {
-                                        errorText = "测试服务器已经在运行中"
+                                        showError("测试服务器已经在运行中")
                                         return@CircleIconButton
                                     }
                                     testConsoleState.clear()
@@ -537,7 +545,7 @@ fun ModpackUploadScreen(
                                         uiScope = scope,
                                         getMods = { mods },
                                         setMods = { updatedMods -> mods = updatedMods },
-                                        onError = { errorText = it },
+                                        onError = {it?.let { showError(it) }},
                                         appendLog = { line -> testConsoleState.append(line) }
                                     )
                                 }
@@ -578,11 +586,11 @@ fun ModpackUploadScreen(
                             val name = modpackName.trim()
                             val version = versionName.trim()
                             if (name.isBlank()) {
-                                errorText = "整合包名称不能为空"
+                                showError("整合包名称不能为空")
                                 return@CircleIconButton
                             }
                             if (version.isBlank()) {
-                                errorText = "版本号不能为空"
+                                showError("版本号不能为空")
                                 return@CircleIconButton
                             }
                             startUpload(currentPayload, name, version)
@@ -593,9 +601,6 @@ fun ModpackUploadScreen(
                 Space8h()
                 parseProgress?.takeIf { it.isNotBlank() }?.let {
                     Text(it)
-                }
-                errorText?.let {
-                    Text(it, color = MaterialTheme.colors.error)
                 }
             }
 

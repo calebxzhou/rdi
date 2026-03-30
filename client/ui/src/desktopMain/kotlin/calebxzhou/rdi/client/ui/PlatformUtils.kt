@@ -4,7 +4,6 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.runtime.Composable
 import androidx.navigation.compose.composable
-import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.mykotutils.std.readAllString
 import calebxzhou.rdi.RDIClient
@@ -283,9 +282,9 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
                 title = args.title,
                 mcVer = args.mcVer,
                 versionId = args.versionId,
+                playArg = args.playArg,
                 extraMods = args.extraMods,
                 manageHostExtraMods = args.manageHostExtraMods,
-                jvmArgs = arrayOf("-Drdi.play=${args.playArg.encodeBase64}"),
                 onBack = {
                     val callback = McPlayStore.onBack
                     McPlayStore.onBack = null

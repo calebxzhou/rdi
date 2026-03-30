@@ -6,7 +6,7 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 val ktorVersion = "3.4.0"
-val version = "5.11.6"
+val version = "5.11.7"
 project.version = version
 
 plugins {
@@ -62,6 +62,7 @@ kotlin {
                 implementation("io.github.oshai:kotlin-logging-jvm:8.0.01")
                 implementation("calebxzhou.mykotutils:std:0.1")
                 implementation("calebxzhou.mykotutils:log:0.1")
+                implementation("io.netty:netty-all:4.2.7.Final")
                 implementation("org.mongodb:bson:5.6.4")
                 implementation("org.mongodb:bson-kotlinx:5.6.4")
                 implementation("org.jetbrains.androidx.navigation:navigation-compose:2.9.2")
@@ -102,6 +103,7 @@ kotlin {
                 implementation("com.github.oshi:oshi-core:6.10.0")
                 implementation("ch.qos.logback:logback-classic:1.5.32")
                 implementation("io.github.oshai:kotlin-logging-jvm:8.0.01")
+                implementation("org.yaml:snakeyaml:2.6")
 
 
                 implementation("calebxzhou.mykotutils:std:0.1")
@@ -134,6 +136,7 @@ kotlin {
         val androidMain by getting {
             dependencies {
                 implementation(project(":common"))
+                implementation("io.netty:netty-all:4.2.7.Final")
                 implementation("io.ktor:ktor-client-android:$ktorVersion")
                 implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
                 implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
@@ -141,6 +144,7 @@ kotlin {
                 implementation("androidx.activity:activity-compose:1.12.4")
                 // Use slf4j-simple on Android instead of logback (logback uses Class.getModule() which doesn't exist on Android)
                 implementation("org.slf4j:slf4j-simple:2.0.17")
+                implementation("org.yaml:snakeyaml:2.6")
                 // JNA AAR includes Android native .so files (regular JAR only has desktop natives)
                 implementation("net.java.dev.jna:jna:5.18.1@aar")
                 // JNA Platform JAR (interfaces only, safe for Android if excluded JNA JAR)
@@ -157,6 +161,11 @@ kotlin {
                 if (name.contains("android", ignoreCase = true) || name.contains("Android")) {
                     exclude(group = "ch.qos.logback", module = "logback-classic")
                     exclude(group = "ch.qos.logback", module = "logback-core")
+                    exclude(group = "io.netty", module = "netty-codec-native-quic")
+                    exclude(group = "io.netty", module = "netty-transport-native-epoll")
+                    exclude(group = "io.netty", module = "netty-transport-native-io_uring")
+                    exclude(group = "io.netty", module = "netty-transport-native-kqueue")
+                    exclude(group = "io.netty", module = "netty-resolver-dns-native-macos")
                 }
             }
         }
@@ -222,6 +231,7 @@ android {
                 "META-INF/ASL2.0",
                 "META-INF/AL2.0",
                 "META-INF/LGPL2.1",
+                "META-INF/license/**",
                 "META-INF/*.kotlin_module",
                 "META-INF/versions/**",
                 "META-INF/io.netty.versions.properties",
@@ -354,7 +364,7 @@ registerCopyTask("出core2-release", listOf("\\\\rdi\\rdi55\\ihq\\client-libs\\l
 
 tasks.register<Zip>("makeShipPack") {
     val shipDir = File(System.getProperty("user.home"), "Documents/rdi5ship")
-    val filesNeed = listOf("lib", "双击启动.cmd", "fonts", "jre")
+    val filesNeed = listOf("lib", "双击启动.cmd", "fonts", "jre","mcb")
 
     group = "distribution"
     description = "Create shipping zip in Documents/rdi5ship."
@@ -366,6 +376,7 @@ tasks.register<Zip>("makeShipPack") {
     from(File(shipDir, "lib")) { into("lib") }
     from(File(shipDir, "fonts")) { into("fonts") }
     from(File(shipDir, "jre")) { into("jre") }
+    from(File(shipDir, "mcb")) { into("mc") }
     from(shipDir) { include("双击启动.cmd") }
 
     doFirst {

@@ -25,8 +25,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.service.ClientDirs
@@ -34,7 +32,6 @@ import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.checkLauncherInstalled
 import calebxzhou.rdi.client.ui.openUrl
 import calebxzhou.rdi.client.ui.screen.Login
-import calebxzhou.rdi.client.ui.screen.LoginScreen
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.DL_MOD_DIR
 
@@ -55,6 +52,13 @@ class MainActivity : ComponentActivity() {
         // User returned from settings, app continues
     }
 
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        // Notification permission result handled, service can still run either way
+    }
+
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val shouldResetFromProcessRestore = savedInstanceState != null && !processActivityBootstrapped
         processActivityBootstrapped = true
@@ -74,12 +78,10 @@ class MainActivity : ComponentActivity() {
         //insetsController.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
 
         // Optional: make icons dark if your background is light (when bar reappears)
-         insetsController.isAppearanceLightStatusBars = true
-
+        insetsController.isAppearanceLightStatusBars = true
         requestStoragePermissions()
-        calebxzhou.rdi.common.net.httpCacheDir = cacheDir.resolve("http")
-        calebxzhou.rdi.client.ui.AndroidPlatform.appContext = applicationContext
-        calebxzhou.rdi.client.service.ClientDirs.init(getExternalFilesDir(null) ?: filesDir)
+        requestNotificationPermission()
+        AndroidBootstrap.initialize(this)
         LocalCredentials.init(this)
         DL_MOD_DIR = ClientDirs.dlModsDir
         setContent {
@@ -115,6 +117,17 @@ class MainActivity : ComponentActivity() {
 
             }
         }
+
+    }
+
+    private fun requestNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     private fun requestStoragePermissions() {
@@ -140,4 +153,7 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+
+
 }

@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.ui
 
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.foundation.layout.Column
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.MaterialTheme
@@ -7,9 +9,12 @@ import androidx.compose.material.Text
 import androidx.compose.material.TextButton
 import androidx.compose.material.Typography
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -17,6 +22,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.model.BSSkinData
+import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.UIFontFamily
 import calebxzhou.rdi.client.service.LOCAL_WORLD_BIRD_VIEW_ROUTE_ID
 import calebxzhou.rdi.client.service.WorldBirdViewSourceSpec
@@ -78,7 +84,10 @@ fun AppNavigation(
         if (showFclLaunchDialog.value) {
             val args = fclLaunchArgs.value
             if (args != null) {
-                val jvmArg = "-Drdi.play=${args.playArg.encodeBase64}"
+                var jvmArg by remember(args.playArg) { mutableStateOf("") }
+                LaunchedEffect(args.playArg) {
+                    jvmArg = "-Drdi.play=${args.playArg.withGameAddr(LocalMcProxy.gameAddr).encodeBase64}"
+                }
                 AlertDialog(
                     onDismissRequest = { showFclLaunchDialog.value = false },
                     title = { Text("在FCL中启动游戏") },
@@ -111,7 +120,14 @@ fun AppNavigation(
             }
         }
 
-        NavHost(navController = navController, startDestination = startDestination) {
+        NavHost(
+            navController = navController,
+            startDestination = startDestination,
+            enterTransition = { EnterTransition.None },
+            exitTransition = { ExitTransition.None },
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { ExitTransition.None }
+        ) {
             composable<Login> {
                 LoginScreen(
                     onLoginSuccess = {
@@ -423,4 +439,11 @@ fun AppNavigation(
             }
         }
     }
+}
+
+private fun String.withGameAddr(gameAddr: String): String {
+    val lines = split(Regex("\\r?\\n")).toMutableList()
+    require(lines.size >= 2) { "RDI参数错误，请重新启动地图" }
+    lines[1] = gameAddr
+    return lines.joinToString("\n")
 }

@@ -14,10 +14,12 @@ import calebxzhou.mykotutils.std.decodeBase64
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.screen.*
+import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.model.Task
@@ -36,7 +38,9 @@ import java.util.zip.ZipFile
 val VERTICAL_MODE= System.getProperty("rdi.ui.vertical").toBoolean()
 lateinit var ScreenSize: Pair<Dp, Dp>
 fun main() {
+    clearIncompleteModDownloadsOnStartup()
     clearPackProcDirOnStartup()
+    LocalMcProxy.start(::println)
     application {
         if(DEBUG){
             System.setProperty("javax.net.ssl.trustStoreType", "Windows-ROOT")
@@ -74,7 +78,10 @@ fun main() {
             position = WindowPosition(Alignment.Center)
         )
         Window(
-            onCloseRequest = ::exitApplication,
+            onCloseRequest = {
+                LocalMcProxy.stop()
+                exitApplication()
+            },
             title = "RDI ${Const.VERSION_NUMBER}",
             icon = windowIcon,
             state = windowState
@@ -98,6 +105,21 @@ private fun clearPackProcDirOnStartup()= GlobalScope.launch {
     runCatching {
         packProcDir.deleteRecursivelyNoSymlink()
         packProcDir.mkdirs()
+    }
+}
+
+private fun clearIncompleteModDownloadsOnStartup() {
+    runCatching {
+        DL_MOD_DIR.mkdirs()
+        DL_MOD_DIR.listFiles()
+            ?.filter { it.name.contains(".downloading.") }
+            ?.forEach { file ->
+                if (file.isDirectory) {
+                    file.deleteRecursivelyNoSymlink()
+                } else {
+                    file.delete()
+                }
+            }
     }
 }
 

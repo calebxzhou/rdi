@@ -28,11 +28,17 @@ import calebxzhou.rdi.common.hwspec.HwSpec
 import java.io.File
 
 /**
- * Android implementation requires a Context. We store a reference
- * from MainActivity initialization.
+ * Android implementation requires an application Context.
+ * It is initialized from Application and reinforced by entrypoints.
  */
 object AndroidPlatform {
     lateinit var appContext: Context
+
+    fun initialize(context: Context) {
+        appContext = context.applicationContext
+    }
+
+    fun isInitialized(): Boolean = ::appContext.isInitialized
 }
 
 actual val isDesktop: Boolean = false

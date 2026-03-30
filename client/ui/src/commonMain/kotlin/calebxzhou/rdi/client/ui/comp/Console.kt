@@ -22,10 +22,10 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.CodeFontFamily
+import calebxzhou.rdi.client.ui.AlertErr
+import calebxzhou.rdi.client.ui.AlertOk
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
-import calebxzhou.rdi.client.ui.alertErr
-import calebxzhou.rdi.client.ui.alertOk
 import calebxzhou.rdi.client.ui.pickSaveFile
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -218,11 +218,11 @@ fun Console(
 
     // Success/Error dialogs
     if (showSuccess) {
-        alertOk("日志已成功导出")
+        AlertOk("日志已成功导出")
         showSuccess = false
     }
     showError?.let { error ->
-        alertErr("导出失败: $error")
+        AlertErr("导出失败: $error")
         showError = null
     }
 }

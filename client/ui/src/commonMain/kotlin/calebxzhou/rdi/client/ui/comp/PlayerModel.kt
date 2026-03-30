@@ -56,7 +56,8 @@ fun PlayerModel(
     isSlim: Boolean? = null,
     maxRenderSide: Int = 256,
     enableTaa: Boolean = true,
-    taaLowResThreshold: Int = 1440
+    taaLowResThreshold: Int = 1440,
+    noControl: Boolean = false
 ) {
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var orbitYawDeg by remember(skin, cape) { mutableStateOf(DEFAULT_ORBIT_YAW_DEG) }
@@ -187,41 +188,43 @@ fun PlayerModel(
                 contentScale = ContentScale.Fit,
                 filterQuality = FilterQuality.None
             )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(8.dp)
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircleIconButton(
-                        icon = "\uDB83\uDD98",
-                        tooltip = if (autoRotateEnabled) "自动旋转：开" else "自动旋转：关",
-                        bgColor = if (autoRotateEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
-                        size = 30,
-                        showText = false
-                    ) {
-                        autoRotateEnabled = !autoRotateEnabled
-                    }
+            if (!noControl) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(8.dp)
+                ) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircleIconButton(
+                            icon = "\uDB83\uDD98",
+                            tooltip = if (autoRotateEnabled) "自动旋转：开" else "自动旋转：关",
+                            bgColor = if (autoRotateEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
+                            size = 30,
+                            showText = false
+                        ) {
+                            autoRotateEnabled = !autoRotateEnabled
+                        }
 
-                    CircleIconButton(
-                        icon = "\uEE1D",
-                        tooltip = if (walkEnabled) "走路动画：开" else "走路动画：关",
-                        bgColor = if (walkEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
-                        size = 30,
-                        showText = false
-                    ) {
-                        walkEnabled = !walkEnabled
-                    }
-                    CircleIconButton(
-                        icon = "\uDB81\uDC50",
-                        tooltip = "重置视角",
-                        bgColor = MaterialColor.BLUE_900.color,
-                        size = 30,
-                        showText = false
-                    ) {
-                        orbitYawDeg = DEFAULT_ORBIT_YAW_DEG
-                        orbitPitchDeg = 0f
-                        dragging = false
+                        CircleIconButton(
+                            icon = "\uEE1D",
+                            tooltip = if (walkEnabled) "走路动画：开" else "走路动画：关",
+                            bgColor = if (walkEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
+                            size = 30,
+                            showText = false
+                        ) {
+                            walkEnabled = !walkEnabled
+                        }
+                        CircleIconButton(
+                            icon = "\uDB81\uDC50",
+                            tooltip = "重置视角",
+                            bgColor = MaterialColor.BLUE_900.color,
+                            size = 30,
+                            showText = false
+                        ) {
+                            orbitYawDeg = DEFAULT_ORBIT_YAW_DEG
+                            orbitPitchDeg = 0f
+                            dragging = false
+                        }
                     }
                 }
             }
@@ -241,7 +244,8 @@ fun PlayerModel(
     isSlim: Boolean? = null,
     maxRenderSide: Int = 256,
     enableTaa: Boolean = true,
-    taaLowResThreshold: Int = 640
+    taaLowResThreshold: Int = 640,
+    noControl: Boolean = false
 ) {
     val skin = produceState<ImageBitmap?>(initialValue = null, skinUrl) {
         value = withContext(Dispatchers.IO) {
@@ -276,7 +280,8 @@ fun PlayerModel(
         isSlim = isSlim,
         maxRenderSide = maxRenderSide,
         enableTaa = enableTaa,
-        taaLowResThreshold = taaLowResThreshold
+        taaLowResThreshold = taaLowResThreshold,
+        noControl = noControl
     )
 }
 

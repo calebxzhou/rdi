@@ -115,17 +115,17 @@ fun FlowRowV(
 }
 
 @Composable
-fun alertOk(msg: String) {
+fun AlertOk(msg: String) {
     createAlertDialog(title = "成功", icon = "\uF058", msg = msg, accentColor = MaterialColor.GREEN_900.color)
 }
 
 @Composable
-fun alertWarn(msg: String) {
+fun AlertWarn(msg: String) {
     createAlertDialog(title = "警告", icon = "\uEA6C", msg = msg, accentColor = Color(0xFFE0A800))
 }
 
 @Composable
-fun alertErr(msg: String) {
+fun AlertErr(msg: String) {
     createAlertDialog(title = "错误", icon = "\uEA87", msg = msg, accentColor = Color(0xFFD64545))
 }
 

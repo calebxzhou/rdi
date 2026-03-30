@@ -25,6 +25,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.ui.window.Dialog
 import calebxzhou.rdi.client.Const
+import calebxzhou.rdi.client.net.BACKUP_NODE
 import calebxzhou.rdi.client.ui.Space8w
 import calebxzhou.rdi.common.DEBUG
 
@@ -248,6 +249,7 @@ fun LoginScreen(
                         }
                         Button(
                             onClick = {
+                                BACKUP_NODE=false
                                 attemptLogin()
                             },
                             enabled = !submitting && updateCheckComplete
@@ -282,6 +284,25 @@ fun LoginScreen(
 
                 }
                 Text("版本 "+Const.VERSION_NUMBER,style = MaterialTheme.typography.caption,)
+                if(!isDesktop){
+                    Text("请授予RDI文件管理与通知权限，以保证正常下载整合包与游玩地图（给过权限了请忽略这段文字）",style = MaterialTheme.typography.caption,)
+                }
+            }
+
+            Button(
+                onClick = {
+                    BACKUP_NODE=true
+                    attemptLogin()
+                },
+                enabled = !submitting && updateCheckComplete,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(
+                        end = if (isPortrait) 16.dp else 24.dp,
+                        bottom = if (isPortrait) 56.dp else 64.dp
+                    )
+            ) {
+                Text(if (submitting) "登录中..." else "备用节点登录")
             }
         }
 

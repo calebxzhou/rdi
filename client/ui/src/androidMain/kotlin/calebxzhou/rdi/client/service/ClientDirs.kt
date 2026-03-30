@@ -1,15 +1,22 @@
 package calebxzhou.rdi.client.service
 
+import android.content.Context
 import java.io.File
 
 actual object ClientDirs {
     /**
-     * Must be initialized from MainActivity via [init] before use.
+     * Must be initialized from an Android entrypoint before use.
      * Uses context.getExternalFilesDir(dirName).
      */
     private lateinit var baseDir: File
 
     private val fclMinecraftDir = File("/storage/emulated/0/FCL/.minecraft")
+
+    fun ensureInit(context: Context) {
+        if (!::baseDir.isInitialized) {
+            init(context.getExternalFilesDir(null) ?: context.filesDir)
+        }
+    }
 
     fun init(externalFilesDir: File) {
         baseDir = externalFilesDir
