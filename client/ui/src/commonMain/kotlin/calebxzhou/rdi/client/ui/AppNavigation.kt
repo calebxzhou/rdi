@@ -142,6 +142,7 @@ fun AppNavigation(
                 MenuScreen(
                     onOpenModpackLocalManage = { navController.navigate(ModpackLocalManage) },
                     onOpenMcVersionManage = { navController.navigate(RMcVersion(null)) },
+                    onOpenSponsor = { navController.navigate(Sponsor) },
                     onOpenSettings = { navController.navigate(Setting) },
                     onOpenMail = { navController.navigate(Mail) },
                     onOpenHostLobby = { navController.navigate(HostList) },
@@ -153,6 +154,11 @@ fun AppNavigation(
                             popUpTo(Menu) { inclusive = true }
                         }
                     }
+                )
+            }
+            composable<Sponsor> {
+                SponsorScreen(
+                    onBack = { navController.navigateAbsolute(Menu) }
                 )
             }
             composable<Register> {

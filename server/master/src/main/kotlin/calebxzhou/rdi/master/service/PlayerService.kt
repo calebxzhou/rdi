@@ -10,9 +10,7 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.MojangPlayerProfile
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
-import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.common.serdesJson
-import calebxzhou.rdi.common.service.CryptoManager
 import calebxzhou.rdi.common.service.MojangApi
 import calebxzhou.rdi.common.service.MojangApi.dashless
 import calebxzhou.rdi.common.util.ok
@@ -27,7 +25,6 @@ import calebxzhou.rdi.master.service.PlayerService.changeCloth
 import calebxzhou.rdi.master.service.PlayerService.changeProfile
 import calebxzhou.rdi.master.service.PlayerService.clearCloth
 import calebxzhou.rdi.master.service.PlayerService.getInvitedPlayers
-import calebxzhou.rdi.master.service.PlayerService.inviteRegister
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.Filters.`in`
 import com.mongodb.client.model.Updates
@@ -77,7 +74,7 @@ fun Route.playerRoutes() {
             response(data = emptyList<RAccount.Dto>())
         }
         post("/register") {
-            PlayerService.register(call.receive())
+            PlayerService.registerMsa(call.receive())
             ok()
         }
         post("/jwt") {
@@ -132,10 +129,6 @@ fun Route.playerRoutes() {
                 ok()
             }
             route("/invite") {
-                post {
-                    call.player().inviteRegister(call.receive())
-                    ok()
-                }
                 get {
                     call.player().getInvitedPlayers().map { it.dto }.let { response(data = it) }
                 }
@@ -187,15 +180,10 @@ object PlayerService {
         val account = get(usr)
         return if (account == null || account.pwd != pwd) null else account
     }
-
+    @Deprecated("remove later")
     suspend fun RAccount.getInvitedPlayers(): List<RAccount> {
         return accountCol.find(eq(RAccount::inviter.name, _id)).toList()
     }
-
-    suspend fun RAccount.getInvitedCount(): Long {
-        return accountCol.countDocuments(eq(RAccount::inviter.name, _id))
-    }
-
     suspend fun RAccount.clearCloth() {
         accountCol.updateOne(uidFilter, Updates.unset(RAccount::cloth.name))
     }
@@ -246,56 +234,27 @@ object PlayerService {
         return ok(msprof)
     }
 
-    suspend fun RAccount.inviteRegister(regCode: String) {
-        if (!hasMsid) throw RequestError("你需要先绑定微软账号")
-        if (getInvitedCount() >= 5 && !this.isDav) throw RequestError("最多邀请5个玩家")
-
-        val invReg = runCatching {
-            serdesJson.decodeFromString<RAccount.RegisterDto>(CryptoManager.decrypt(regCode.trim()))
-        }.getOrElse {
-            it.printStackTrace();throw RequestError("无效的注册码") }
-        val normalizedInvReg = invReg.copy(
-            name = invReg.name.trim(),
-            qq = invReg.qq.trim()
-        )
-        normalizedInvReg.validate().getOrElse { throw RequestError("受邀者信息错误：${it.message}") }
-        if (hasQQ(normalizedInvReg.qq)) {
-            throw RequestError("QQ被占用")
+    suspend fun registerMsa(dto: RAccount.RegisterDto) {
+        if (dto.msa==null) {
+            throw RequestError("没有微软账号信息")
         }
-        if (hasName(normalizedInvReg.name)) {
-            throw RequestError("昵称被占用")
-        }
-
-        val account = RAccount(
-            _id = ObjectId(),
-            name = normalizedInvReg.name,
-            pwd = normalizedInvReg.pwd,
-            qq = normalizedInvReg.qq,
-            inviter = this._id,
-            cloth = RAccount.Cloth() // Use default cloth for invited users
-        )
-        accountCol.insertOne(account)
+        addAccount(dto)
     }
-
-    suspend fun register(dto: RAccount.RegisterDto) {
+    suspend fun addAccount(dto: RAccount.RegisterDto): Result<RAccount>{
         dto.validate()
-        val msa = dto.msa ?: throw RequestError("无效的微软账号")
-        val msprof = msa.validate().getOrElse { throw RequestError("微软账号认证错误：${it.message}") }
-
-        val cloth = msprof.extractMSACloth()
-
-
+        val cloth = dto.msa?.validate()?.getOrElse {
+            throw RequestError("微软账号认证错误：${it.message}")
+        }?.extractMSACloth()?: RAccount.Cloth()
         val account = RAccount(
             _id = ObjectId(),
             name = dto.name,
             pwd = dto.pwd,
             qq = dto.qq,
-            msid = msa.uuid,
             cloth = cloth
         )
         accountCol.insertOne(account)
+        return ok(account)
     }
-
     private fun MojangPlayerProfile.extractMSACloth(): RAccount.Cloth {
         val msprof = this
         // Get skin: prefer ACTIVE, then first, then default

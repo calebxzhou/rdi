@@ -15,22 +15,29 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.ui.BottomSnakebar
+import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainBox
+import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.copyToClipboard
 import calebxzhou.rdi.client.ui.openMsaVerificationUrl
 import calebxzhou.rdi.client.ui.comp.PasswordField
+import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
+import calebxzhou.rdi.common.model.Request
 import calebxzhou.rdi.common.service.CryptoManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import io.ktor.http.HttpMethod
 import net.raphimc.minecraftauth.java.JavaAuthManager
 import net.raphimc.minecraftauth.msa.model.MsaDeviceCode
+import org.bson.types.ObjectId
 
 /**
  * calebxzhou @ 2026-02-08 16:59
@@ -59,6 +66,12 @@ fun RegisterScreen(
     var authManager by remember { mutableStateOf<JavaAuthManager?>(null) }
     var showRegisterCodeDialog by remember { mutableStateOf(false) }
     var registerCode by remember { mutableStateOf("") }
+    var showReceiptQueryDialog by remember { mutableStateOf(false) }
+    var receiptMailTitle by remember { mutableStateOf("") }
+    var receiptQueryLoading by remember { mutableStateOf(false) }
+    var receiptQueryError by remember { mutableStateOf<String?>(null) }
+    var receiptQueryResult by remember { mutableStateOf<String?>(null) }
+    var showReceiptResultDialog by remember { mutableStateOf(false) }
     LaunchedEffect(okMessage) {
         okMessage?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
@@ -258,7 +271,7 @@ fun RegisterScreen(
                                     errorMessage = null
 
                                     // Generate encrypted registration code
-                                    val dto = RAccount.RegisterDto(name, qq, pwd, null)
+                                    val dto = Request("register", RAccount.RegisterDto(name, qq, pwd, null))
                                     registerCode = CryptoManager.encrypt(dto.json)
 
                                     showRegisterCodeDialog = true
@@ -275,51 +288,72 @@ fun RegisterScreen(
         }
         BottomSnakebar(snackbarHostState)
 
+        if (!useMsa) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
+                contentAlignment = Alignment.BottomEnd
+            ) {
+                CircleIconButton(
+                    icon = "\uF002",
+                    tooltip = "注册进度查询",
+                    bgColor = MaterialColor.GREEN_900.color
+                ) {
+                    receiptQueryError = null
+                    showReceiptQueryDialog = true
+                }
+            }
+        }
+
         // Register Code Dialog
         if (showRegisterCodeDialog) {
             Dialog(onDismissRequest = { showRegisterCodeDialog = false }) {
                 Surface(
                     shape = MaterialTheme.shapes.medium,
                     color = MaterialTheme.colors.surface,
-                    modifier = Modifier.padding(16.dp).widthIn(max = 500.dp)
+                    modifier = Modifier.padding(16.dp).widthIn(max = 600.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(24.dp),
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            "注册码",
+                            "注册流程",
                             style = MaterialTheme.typography.h6
                         )
+                        val mailTitle = "rdi-opr-${ObjectId()}"
                         Text(
-                            "1.寻找一位已绑定微软MC账号的RDI玩家或服主\n2.让对方打开设置页面，点邀请按钮，粘贴此注册码\n3.提交后 方可登录",
+                            """登录QQ邮箱，向rdibot@qq.com发送邮件
+标题 $mailTitle
+内容 $registerCode
+发件人选择${qq}@qq.com（不要选abc@qq.com这种字母邮箱地址）
+发送后等60秒即可登录，可在本页查询注册进度""",
                             style = MaterialTheme.typography.body2
-                        )
-                        OutlinedTextField(
-                            value = registerCode,
-                            onValueChange = {},
-                            readOnly = true,
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 100.dp),
-                            maxLines = 5
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Button(
-                                onClick = {
-                                    copyToClipboard(registerCode)
-                                    scope.launch {
-                                        snackbarHostState.showSnackbar(
-                                            "已复制到剪贴板",
-                                            duration = SnackbarDuration.Short
-                                        )
-                                    }
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("复制")
+                            val copyBtn = @Composable { name: String, value: String ->
+                                Button(
+                                    onClick = {
+                                        copyToClipboard(value)
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar(
+                                                "已复制到剪贴板",
+                                                duration = SnackbarDuration.Short
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("复制$name")
+                                }
                             }
+                            copyBtn("收件人","rdibot@qq.com")
+                            copyBtn("标题",mailTitle)
+                            copyBtn("内容",registerCode)
                             OutlinedButton(
                                 onClick = { showRegisterCodeDialog = false },
                                 modifier = Modifier.weight(1f)
@@ -330,6 +364,101 @@ fun RegisterScreen(
                     }
                 }
             }
+        }
+
+        if (showReceiptQueryDialog) {
+            AlertDialog(
+                onDismissRequest = {
+                    if (!receiptQueryLoading) {
+                        showReceiptQueryDialog = false
+                    }
+                },
+                title = { Text("注册进度查询") },
+                text = {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("粘贴邮件标题，例如rdi-opr-xxxxxxxxxxxxxxxxxxxxxxxx")
+                        OutlinedTextField(
+                            value = receiptMailTitle,
+                            onValueChange = {
+                                receiptMailTitle = it
+                                receiptQueryError = null
+                            },
+                            label = { Text("邮件标题") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        receiptQueryError?.let {
+                            Text(it, color = MaterialTheme.colors.error)
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(
+                        enabled = !receiptQueryLoading,
+                        onClick = {
+                            val rawTitle = receiptMailTitle.trim()
+                            val prefix = "rdi-opr-"
+                            if (!rawTitle.startsWith(prefix)) {
+                                receiptQueryError = "标题必须以rdi-opr-开头"
+                                return@TextButton
+                            }
+                            val receiptId = rawTitle.removePrefix(prefix).trim()
+                            if (!ObjectId.isValid(receiptId)) {
+                                receiptQueryError = "标题里的回执ID无效"
+                                return@TextButton
+                            }
+                            receiptQueryLoading = true
+                            receiptQueryError = null
+                            scope.launch {
+                                runCatching {
+                                    kotlinx.coroutines.withContext(Dispatchers.IO) {
+                                        server.makeRequest<String>(
+                                            path = "receipt/$receiptId",
+                                            method = HttpMethod.Get
+                                        )
+                                    }
+                                }.onSuccess { resp ->
+                                    if (!resp.ok) {
+                                        receiptQueryError = resp.msg.ifBlank { "查询失败" }
+                                        return@onSuccess
+                                    }
+                                    receiptQueryResult = resp.data ?: ""
+                                    showReceiptQueryDialog = false
+                                    showReceiptResultDialog = true
+                                }.onFailure {
+                                    receiptQueryError = (it as? RequestError)?.message ?: it.message ?: "查询失败"
+                                }
+                                receiptQueryLoading = false
+                            }
+                        }
+                    ) {
+                        Text(if (receiptQueryLoading) "查询中..." else "查询")
+                    }
+                },
+                dismissButton = {
+                    TextButton(
+                        enabled = !receiptQueryLoading,
+                        onClick = { showReceiptQueryDialog = false }
+                    ) {
+                        Text("取消")
+                    }
+                }
+            )
+        }
+
+        if (showReceiptResultDialog) {
+            AlertDialog(
+                onDismissRequest = { showReceiptResultDialog = false },
+                title = { Text("注册进度") },
+                text = {
+                    Text(receiptQueryResult.orEmpty())
+                },
+                confirmButton = {
+                    TextButton(onClick = { showReceiptResultDialog = false }) {
+                        Text("关闭")
+                    }
+                }
+            )
         }
     }
 }

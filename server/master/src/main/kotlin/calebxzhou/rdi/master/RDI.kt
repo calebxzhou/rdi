@@ -101,8 +101,10 @@ fun main(): Unit = runBlocking {
     accountCol.createIndex(Indexes.ascending("name"), IndexOptions().unique(true))
 
     HostService.startIdleMonitor()
+    EmailService.startListener()
     Runtime.getRuntime().addShutdownHook(Thread {
         lgr.info { "Application shutdown initiated..." }
+        EmailService.shutdown()
         HostService.shutdown()
         lgr.info { "Application shutdown complete" }
     })
@@ -308,6 +310,7 @@ private fun Application.configureServer() {
     routing {
         playerRoutes()
         updateRoutes()
+        receiptRoutes()
         yggdrasilRoutes()
         /*get("/sponsors") {
                 call.respondText("""

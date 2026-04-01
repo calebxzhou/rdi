@@ -181,6 +181,7 @@ fun SettingScreen(
                                         onChangeProfile = { showChangeProfile = true }
                                     )
                                 }
+
                                 SettingCategory.Java -> {
                                     if (isDesktop) {
                                         JavaSettings(
@@ -194,6 +195,7 @@ fun SettingScreen(
                                         )
                                     }
                                 }
+
                                 SettingCategory.Network -> {
                                     NetworkSettings(
                                         useMirror = useMirror,
@@ -333,7 +335,7 @@ private fun AccountSettings(
             it.data?.let { invitedPlayers = it }
         }
     }
-    fun clearMsaState(){
+    fun clearMsaState() {
         startMsBind = false
         msaInfo = null
         msaDeviceCode = null
@@ -371,65 +373,48 @@ private fun AccountSettings(
         }
 
         Space8h()
-        if (loggedAccount.hasMsid) {
-
-            Text("已绑定微软MC账号，邀请你的朋友一起玩RDI。")
-            Space8h()
-
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text("已邀请：${invitedPlayers.size}/5人")
-                if (loading) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                }
-                invitedPlayers.forEach { player ->
-                    HeadButton(player.id)
-                }
-                if (invitedPlayers.size < 5 || loggedAccount.isDav) {
-                    CircleIconButton("\uF234", "邀请") {
-                        showInviteDialog = true
-                    }
-                }
-            }
-        } else {
-            if (!startMsBind){
-                RowV {
-                    Text("绑定微软MC账号，可获得更丰富的RDI体验 👉")
-                    Space8w()
-                    CircleIconButton("\uE70F", "绑定微软MC账号") {
-                        startMsBind = true
-                        scope.launch(Dispatchers.IO) {
-                            val manager = PlayerService.microsoftLogin { code ->
-                                msaDeviceCode = code
-                                openMsaVerificationUrl(code.directVerificationUri)
-                            }.getOrElse {
-                                it.printStackTrace()
-                                errMsg = "登录微软MC失败：${it.message}"
-                                return@launch
-                            }
-                            msaInfo = MsaAccountInfo(
-                                manager.minecraftProfile.upToDate.id,
-                                manager.minecraftProfile.upToDate.name,
-                                manager.minecraftToken.upToDate.token,
-                            )
-
+        if (!startMsBind) {
+            RowV {
+                Text("绑定微软MC正版号，可获得更丰富的RDI体验 👉")
+                Space8w()
+                CircleIconButton("\uE70F", "绑定微软MC账号") {
+                    startMsBind = true
+                    scope.launch(Dispatchers.IO) {
+                        val manager = PlayerService.microsoftLogin { code ->
+                            msaDeviceCode = code
+                            openMsaVerificationUrl(code.directVerificationUri)
+                        }.getOrElse {
+                            it.printStackTrace()
+                            errMsg = "登录微软MC失败：${it.message}"
+                            return@launch
                         }
+                        msaInfo = MsaAccountInfo(
+                            manager.minecraftProfile.upToDate.id,
+                            manager.minecraftProfile.upToDate.name,
+                            manager.minecraftToken.upToDate.token,
+                        )
+
                     }
                 }
             }
+        }else{
+            Text("已绑定微软MC正版号")
         }
+
         msaInfo?.let { info ->
             Text("读取信息成功！昵称：${info.name} MSID: ${info.uuid}")
             RowV {
                 Text("绑定后将不能修改，如果确定账号信息正确，")
                 Space8w()
-                CircleIconButton("\uDB82\uDE50", "ok", bgColor = MaterialColor.GREEN_900.color, enabled = !pendingBind) {
+                CircleIconButton(
+                    "\uDB82\uDE50",
+                    "ok",
+                    bgColor = MaterialColor.GREEN_900.color,
+                    enabled = !pendingBind
+                ) {
                     scope.rdiRequestU("player/bind-ms", body = info.json, onDone = {
                         clearMsaState()
-                        pendingBind=false
+                        pendingBind = false
                     }, onErr = {
                         errMsg = "绑定失败：${it.message}，请重试"
                     }) {
@@ -645,6 +630,7 @@ private fun CarrierSelector(
         }
     }
 }
+
 @Composable
 private fun ChangeProfileDialog(
     onDismiss: () -> Unit,
@@ -687,7 +673,8 @@ private fun ChangeProfileDialog(
             TextButton(
                 enabled = !submitting,
                 onClick = {
-                    val validation = calebxzhou.rdi.client.service.SettingsService.validateProfileChange(name, pwd, account.name)
+                    val validation =
+                        calebxzhou.rdi.client.service.SettingsService.validateProfileChange(name, pwd, account.name)
                     if (!validation.success) {
                         errorMessage = validation.errorMessage
                         return@TextButton

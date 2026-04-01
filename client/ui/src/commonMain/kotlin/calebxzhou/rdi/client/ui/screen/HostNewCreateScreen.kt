@@ -267,7 +267,7 @@ fun HostNewCreateScreen(
             method = HttpMethod.Post,
             body = body,
             onErr = { statusMessage = "创建失败: ${it.message}" },
-            onOk = { showResult = "已提交创建请求 完成后信箱通知你" },
+            onOk = { showResult = "已提交创建请求 请等半分钟 完成后信箱通知你" },
             onDone = { submitting = false }
         )
     }

@@ -29,6 +29,7 @@ import org.bson.types.ObjectId
 fun MenuScreen(
     onOpenModpackLocalManage: () -> Unit,
     onOpenMcVersionManage: () -> Unit,
+    onOpenSponsor: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMail: () -> Unit,
     onOpenHostLobby: () -> Unit,
@@ -135,6 +136,19 @@ fun MenuScreen(
                     ) {
                         onOpenHostInfo(host.id)
                     }
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(end = 24.dp, bottom = 24.dp)
+            ) {
+                CircleIconButton(
+                    icon = "\uF004",
+                    tooltip = "支持RDI",
+                    bgColor = MaterialColor.PINK_700.color
+                ) {
+                    onOpenSponsor()
                 }
             }
         }

@@ -1002,6 +1002,9 @@ object HostService {
         if (host.name.contains("公测") && !this.isDav) {
             throw RequestError("无权创建公测地图")
         }
+        if (findByOwnerAndModpack(playerId, host.modpackId) != null) {
+            throw RequestError("同一个整合包只能创建一张地图")
+        }
         val world = resolveWorld(host.saveWorld, host.worldId, host.modpackId)
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此包")
         val version = modpack.getVersion(host.packVer) ?: throw RequestError("无此版本")
@@ -1580,6 +1583,14 @@ object HostService {
     // List all hosts belonging to a team
     suspend fun getByOwner(uid: ObjectId): List<Host> =
         dbcl.find(eq("ownerId", uid)).toList()
+
+    suspend fun findByOwnerAndModpack(uid: ObjectId, modpackId: ObjectId): Host? =
+        dbcl.find(
+            and(
+                eq("ownerId", uid),
+                eq("modpackId", modpackId)
+            )
+        ).firstOrNull()
 
 
     suspend fun getByPort(port: Int): Host? = dbcl.find(eq("port", port)).firstOrNull()

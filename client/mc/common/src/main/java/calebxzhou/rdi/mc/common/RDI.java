@@ -1,8 +1,7 @@
 package calebxzhou.rdi.mc.common;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Base64;
-import java.util.UUID;
+import java.util.*;
 
 /**
  * calebxzhou @ 2026-01-06 19:34
@@ -67,4 +66,7 @@ public class RDI {
     public static String getTextureQueryUrl(UUID profileId, String authlibVer) {
         return IHQ_URL + "/mc-profile/" + profileId + "/clothes?authlibVer=" + authlibVer;
     }
+    public static boolean SHOW_FIRM_CHUNKS=false;
+    //维度id与永久子区块
+    public static Map<String, List<SectionPos>> FIRM_CHUNKS = new HashMap<>();
 }

@@ -26,6 +26,7 @@ object Wardrobe
 @Serializable object ModpackUpload
 @Serializable object Login
 @Serializable object Menu
+@Serializable object Sponsor
 @Serializable data class Register(val msa: Boolean)
 @Serializable object Setting
 @Serializable object ModpackLocalManage

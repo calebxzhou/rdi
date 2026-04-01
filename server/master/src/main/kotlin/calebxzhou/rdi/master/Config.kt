@@ -59,6 +59,29 @@ data class StorageConfig(
     val gameLibsDir: String? = null,
     val crashReportDir: String? = null
 )
+
+@Serializable
+data class ImapConfig(
+    val enabled: Boolean = false,
+    val host: String = "",
+    val port: Int = 993,
+    val username: String = "",
+    val password: String = "",
+    val folder: String = "INBOX",
+    val ssl: Boolean = true,
+    val startTls: Boolean = false,
+    val connectionTimeoutMillis: Int = 10000,
+    val timeoutMillis: Int = 10000,
+    val pollIntervalSeconds: Int = 5,
+    val operationSubject: String = "rdi-opr",
+    val markAsSeenAfterHandle: Boolean = true
+)
+
+@Serializable
+data class EmailConfig(
+    val imap: ImapConfig = ImapConfig()
+)
+
 @Serializable
 data class AppConfig(
     val database: DatabaseConfig = DatabaseConfig(),
@@ -68,6 +91,7 @@ data class AppConfig(
     val apiKey: ApiKeyConfig = ApiKeyConfig(),
     val jwt: JwtConfig = JwtConfig(),
     val storage: StorageConfig = StorageConfig(),
+    val email: EmailConfig = EmailConfig(),
 ) {
     companion object {
         private val configFile = File("config.toml")
