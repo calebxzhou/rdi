@@ -363,12 +363,13 @@ registerCopyTask("出core2-local")
 registerCopyTask("出core2-release", listOf("\\\\rdi\\rdi55\\ihq\\client-libs\\lib"))
 
 tasks.register<Zip>("makeShipPack") {
+    notCompatibleWithConfigurationCache("uses project file operations at execution time")
     val shipDir = File(System.getProperty("user.home"), "Documents/rdi5ship")
     val filesNeed = listOf("lib", "双击启动.cmd", "fonts", "jre","mcb")
 
     group = "distribution"
     description = "Create shipping zip in Documents/rdi5ship."
-    dependsOn("出core2-local")
+    //dependsOn("出core2-local")
 
     destinationDirectory.set(shipDir)
     archiveFileName.set("rdi5ship-${version}.zip")

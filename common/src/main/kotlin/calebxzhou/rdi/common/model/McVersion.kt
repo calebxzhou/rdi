@@ -20,9 +20,9 @@ enum class McVersion(
         mapOf(
             ModLoader.neoforge to ModLoader.Version(
                 ModLoader.neoforge,
-                "neoforge-21.1.219",
-                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.219/neoforge-21.1.219-installer.jar",
-                "832c9404c9305da6096829729bc8a94c0da60087"
+                "neoforge-21.1.222",
+                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.222/neoforge-21.1.222-installer.jar",
+                "37bdbc0c40427b8ee59e649c4f05855523b41274"
             )
         )
     ),
@@ -33,9 +33,9 @@ enum class McVersion(
         mapOf(
             ModLoader.forge to ModLoader.Version(
                 ModLoader.forge,
-                "1.20.1-forge-47.4.13",
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.4.13/forge-1.20.1-47.4.13-installer.jar",
-                "790949ee0cb4671175a806befa370d69008b4b4e"
+                "1.20.1-forge-47.4.18",
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.4.18/forge-1.20.1-47.4.18-installer.jar",
+                "f415f6645fc2c28b7fde826def84e93c9375de0d"
             )
         )
     ),
