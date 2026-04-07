@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-START_PARAMS="${START_PARAMS:-"-Xmx8G @libraries/net/neoforged/neoforge/21.1.217/unix_args.txt --universe /data --nogui"}"
+START_PARAMS="${START_PARAMS:-"-Xmx8G @libraries/net/neoforged/neoforge/21.1.217/unix_args.txt --nogui"}"
 
 #ls -la /opt/server >&2
 chown -R rdi:rdi /home/rdi /opt/server /data
