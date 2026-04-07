@@ -23,6 +23,7 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import kotlin.random.Random
 
 /**
  * calebxzhou @ 2025-12-20 11:49
@@ -38,13 +39,19 @@ data class DownloadProgress(
 }
 
 private val lgr by Loggers
-private const val DEFAULT_DOWNLOAD_ATTEMPTS = 2
-private const val DEFAULT_MAX_RANGE_THREADS = 4
+private const val DEFAULT_DOWNLOAD_ATTEMPTS = 3
+private const val DEFAULT_MAX_RANGE_THREADS = 32
+private const val HTTP_MAX_REQUESTS = 128
+private const val HTTP_MAX_REQUESTS_PER_HOST = 32
+private const val HTTP_CONNECTION_POOL_SIZE = 64
 private const val MIN_MULTI_PART_DOWNLOAD_BYTES = 4L * 1024 * 1024
 private const val MIN_BYTES_PER_RANGE = 2L * 1024 * 1024
 private const val READ_TIMEOUT_MILLIS = 30_000L
 private const val ZERO_READ_BACKOFF_MILLIS = 100L
 private const val MAX_CONSECUTIVE_ZERO_READS = 100
+private const val RETRY_BACKOFF_BASE_MILLIS = 500L
+private const val RETRY_BACKOFF_MAX_MILLIS = 4_000L
+private const val RETRY_BACKOFF_JITTER_MILLIS = 250L
 
 val httpFileClient by lazy {
     HttpClient(OkHttp) {
@@ -56,10 +63,10 @@ val httpFileClient by lazy {
                 readTimeout(60, TimeUnit.SECONDS)
                 retryOnConnectionFailure(true)
                 dispatcher(Dispatcher().apply {
-                    maxRequests = 1024
-                    maxRequestsPerHost = 1024
+                    maxRequests = HTTP_MAX_REQUESTS
+                    maxRequestsPerHost = HTTP_MAX_REQUESTS_PER_HOST
                 })
-                connectionPool(ConnectionPool(1024, 1, TimeUnit.MINUTES))
+                connectionPool(ConnectionPool(HTTP_CONNECTION_POOL_SIZE, 1, TimeUnit.MINUTES))
                 proxySelector(DynamicProxySelector())
             }
         }
@@ -80,7 +87,9 @@ suspend fun Path.downloadFileFrom(
     onProgress: (DownloadProgress) -> Unit
 ): Result<Path> {
     lgr.info { "Start download file: $url -> $this" }
-    if (url.isBlank()) throw IllegalArgumentException("下载链接为空 无法下载到${this}")
+    if (url.isBlank()) {
+        return Result.failure(IllegalArgumentException("下载链接为空 无法下载到${this}"))
+    }
 
     val targetPath = this
 
@@ -91,59 +100,81 @@ suspend fun Path.downloadFileFrom(
         }
     }
 
-    return runCatching {
+    return try {
         var lastError: Throwable? = null
         val totalAttempts = maxAttempts.coerceAtLeast(1)
+        val tempPath = targetPath.createTempDownloadPath()
         repeat(totalAttempts) { attemptIndex ->
             val attemptNumber = attemptIndex + 1
-            val result = runCatching {
-                val tempPath = targetPath.createTempDownloadPath()
-                try {
-                    val strategy = resolveDownloadStrategy(url, headers, knownSize)
-                    when (strategy) {
-                        is DownloadStrategy.Single -> {
-                            downloadSingleStream(url, tempPath, onProgress, strategy.totalBytesHint, headers)
-                        }
-
-                        is DownloadStrategy.MultiRange -> {
-                            downloadByRanges(
-                                url = url,
-                                targetPath = tempPath,
-                                totalBytes = strategy.totalBytes,
-                                chunks = strategy.chunks,
-                                headers = headers,
-                                onProgress = onProgress,
-                            )
-                        }
+            try {
+                val existingTempBytes = fileSizeOrZero(tempPath)
+                val strategy = resolveDownloadStrategy(
+                    url = url,
+                    headers = headers,
+                    knownSize = knownSize,
+                    existingTempBytes = existingTempBytes
+                )
+                when (strategy) {
+                    is DownloadStrategy.Single -> {
+                        downloadSingleStream(
+                            url = url,
+                            targetPath = tempPath,
+                            onProgress = onProgress,
+                            knownSize = strategy.totalBytesHint,
+                            headers = headers,
+                            resumeFromBytes = existingTempBytes,
+                            supportsResume = strategy.supportsResume
+                        )
                     }
-                    moveDownloadedFile(tempPath, targetPath)
-                    this
-                } catch (cancel: CancellationException) {
+
+                    is DownloadStrategy.MultiRange -> {
+                        downloadByRanges(
+                            url = url,
+                            targetPath = tempPath,
+                            totalBytes = strategy.totalBytes,
+                            chunks = strategy.chunks,
+                            headers = headers,
+                            onProgress = onProgress,
+                            maxChunkAttempts = totalAttempts,
+                        )
+                    }
+                }
+                moveDownloadedFile(tempPath, targetPath)
+                return Result.success(targetPath)
+            } catch (cancel: CancellationException) {
+                deleteQuietly(tempPath)
+                throw cancel
+            } catch (t: Throwable) {
+                lastError = t
+                if (t is ResumeMismatchException || !t.isRetryableDownloadFailure()) {
                     deleteQuietly(tempPath)
-                    throw cancel
-                } catch (t: Throwable) {
-                    deleteQuietly(tempPath)
-                    throw t
                 }
             }
-            if (result.isSuccess) {
-                return@runCatching result.getOrThrow()
-            }
 
-            lastError = result.exceptionOrNull()
             val shouldRetry = attemptNumber < totalAttempts && lastError.isRetryableDownloadFailure()
             if (shouldRetry) {
-                lgr.warn { "Download attempt $attemptNumber/$maxAttempts failed for $url, retrying immediately: ${lastError?.message}" }
+                val retryDelayMillis = nextRetryDelayMillis(attemptNumber)
+                lgr.warn {
+                    "Download attempt $attemptNumber/$maxAttempts failed for $url, retrying in ${retryDelayMillis}ms: ${lastError?.message}"
+                }
+                delay(retryDelayMillis)
             } else {
-                throw (lastError ?: IOException("下载失败: $url"))
+                return Result.failure(lastError ?: IOException("下载失败: $url"))
             }
         }
-        throw (lastError ?: IOException("下载失败: $url"))
+        Result.failure(lastError ?: IOException("下载失败: $url"))
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (t: Throwable) {
+        Result.failure(t)
     }
 }
 
 private sealed interface DownloadStrategy {
-    data class Single(val totalBytesHint: Long) : DownloadStrategy
+    data class Single(
+        val totalBytesHint: Long,
+        val supportsResume: Boolean,
+    ) : DownloadStrategy
     data class MultiRange(
         val totalBytes: Long,
         val chunks: List<DownloadChunk>,
@@ -165,18 +196,31 @@ private data class ContentRangeInfo(
     val totalBytes: Long?,
 )
 
+private class ResumeMismatchException(message: String) : IOException(message)
+
 private class ProgressReporter(
     private val totalBytes: Long,
+    initialBytesDownloaded: Long = 0L,
     private val onProgress: (DownloadProgress) -> Unit,
 ) {
-    private val downloadedBytes = AtomicLong(0L)
+    private val downloadedBytes = AtomicLong(initialBytesDownloaded.coerceAtLeast(0L))
+    private val chunkBytes = HashMap<Int, Long>()
     private val lock = Any()
     private var lastReportTime = System.currentTimeMillis()
-    private var lastReportBytes = 0L
+    private var lastReportBytes = initialBytesDownloaded.coerceAtLeast(0L)
 
     fun addBytes(delta: Int) {
         if (delta <= 0) return
         val total = downloadedBytes.addAndGet(delta.toLong())
+        maybeEmit(total, force = false)
+    }
+
+    fun setChunkBytes(chunkIndex: Int, completedBytes: Long) {
+        val total = synchronized(lock) {
+            val safeCompleted = completedBytes.coerceAtLeast(0L)
+            val previous = chunkBytes.put(chunkIndex, safeCompleted) ?: 0L
+            downloadedBytes.addAndGet(safeCompleted - previous)
+        }
         maybeEmit(total, force = false)
     }
 
@@ -209,15 +253,30 @@ private suspend fun resolveDownloadStrategy(
     url: String,
     headers: Map<String, String>,
     knownSize: Long,
+    existingTempBytes: Long,
 ): DownloadStrategy {
     val sizeHint = fetchContentLength(url, headers) ?: knownSize.takeIf { it > 0L } ?: -1L
-    if (sizeHint < MIN_MULTI_PART_DOWNLOAD_BYTES) {
-        return DownloadStrategy.Single(sizeHint)
+    val needsResumeProbe = existingTempBytes > 0L && sizeHint > 0L
+    if (sizeHint < MIN_MULTI_PART_DOWNLOAD_BYTES && !needsResumeProbe) {
+        return DownloadStrategy.Single(
+            totalBytesHint = sizeHint,
+            supportsResume = false
+        )
     }
 
     val rangeProbe = probeRangeSupport(url, headers, sizeHint)
+    if (sizeHint < MIN_MULTI_PART_DOWNLOAD_BYTES) {
+        return DownloadStrategy.Single(
+            totalBytesHint = rangeProbe.totalBytes.takeIf { it > 0L } ?: sizeHint,
+            supportsResume = rangeProbe.supported && rangeProbe.totalBytes > 0L
+        )
+    }
+
     if (!rangeProbe.supported || rangeProbe.totalBytes <= 0L) {
-        return DownloadStrategy.Single(sizeHint)
+        return DownloadStrategy.Single(
+            totalBytesHint = sizeHint,
+            supportsResume = false
+        )
     }
 
     return DownloadStrategy.MultiRange(
@@ -307,24 +366,62 @@ private suspend fun downloadSingleStream(
     targetPath: Path,
     onProgress: (DownloadProgress) -> Unit,
     knownSize: Long = -1L,
-    headers: Map<String, String>
+    headers: Map<String, String>,
+    resumeFromBytes: Long = 0L,
+    supportsResume: Boolean = false,
 ): Long {
+    val shouldResume = supportsResume && resumeFromBytes > 0L
     return httpFileClient.prepareGet(url) {
         headers.forEach { (key, value) -> header(key, value) }
         header(HttpHeaders.AcceptEncoding, "identity")
+        if (shouldResume) {
+            header(HttpHeaders.Range, "bytes=${resumeFromBytes}-")
+        }
     }.execute { response ->
-        if (!response.status.isSuccess()) {
+        if (shouldResume && response.status != HttpStatusCode.PartialContent) {
+            throw ResumeMismatchException("Resume download failed: expected 206, got ${response.status} for ${url}")
+        }
+        if (!shouldResume && !response.status.isSuccess()) {
             throw IOException("Download failed: ${response.status} for ${url}")
         }
 
-        val totalBytes = response.contentLength() ?: knownSize.takeIf { it > 0L } ?: -1L
-        val reporter = ProgressReporter(totalBytes, onProgress)
+        val contentRange = if (shouldResume) {
+            parseContentRange(response.headers[HttpHeaders.ContentRange])
+                ?: throw ResumeMismatchException("Missing Content-Range for resumed download: ${url}")
+        } else null
+        if (shouldResume && contentRange?.startInclusive != resumeFromBytes) {
+            throw ResumeMismatchException(
+                "Unexpected resume range for ${url}: expected start $resumeFromBytes, got ${contentRange?.startInclusive}"
+            )
+        }
+
+        val totalBytes = contentRange?.totalBytes
+            ?: response.contentLength()
+            ?: knownSize.takeIf { it > 0L }
+            ?: -1L
+
+        if (shouldResume && totalBytes > 0L && resumeFromBytes >= totalBytes) {
+            onProgress(DownloadProgress(totalBytes, totalBytes, 0.0))
+            return@execute totalBytes
+        }
+
+        val initialBytesDownloaded = if (shouldResume) resumeFromBytes else 0L
+
+        val reporter = ProgressReporter(
+            totalBytes = totalBytes,
+            initialBytesDownloaded = initialBytesDownloaded,
+            onProgress = onProgress
+        )
         val channel: ByteReadChannel = response.body()
         val buffer = ByteArray(8192)
-        var bytesDownloaded = 0L
+        var bytesDownloaded = initialBytesDownloaded
 
         withContext(Dispatchers.IO) {
-            Files.newOutputStream(targetPath, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)
+            Files.newOutputStream(
+                targetPath,
+                StandardOpenOption.CREATE,
+                if (shouldResume) StandardOpenOption.APPEND else StandardOpenOption.TRUNCATE_EXISTING
+            )
                 .use { outputStream ->
                     var consecutiveZeroReads = 0
                     while (!channel.isClosedForRead) {
@@ -366,6 +463,7 @@ private suspend fun downloadByRanges(
     chunks: List<DownloadChunk>,
     headers: Map<String, String>,
     onProgress: (DownloadProgress) -> Unit,
+    maxChunkAttempts: Int,
 ): Long = coroutineScope {
     if (totalBytes <= 0L) {
         throw IOException("Invalid ranged download size for $url: $totalBytes")
@@ -373,20 +471,26 @@ private suspend fun downloadByRanges(
 
     withContext(Dispatchers.IO) {
         RandomAccessFile(targetPath.toFile(), "rw").use { file ->
-            file.setLength(totalBytes)
+            if (file.length() != totalBytes) {
+                file.setLength(totalBytes)
+            }
         }
     }
 
-    val reporter = ProgressReporter(totalBytes, onProgress)
+    val reporter = ProgressReporter(
+        totalBytes = totalBytes,
+        onProgress = onProgress
+    )
     val writtenByChunk = chunks.map { chunk ->
         async {
-            downloadRangeChunk(
+            downloadRangeChunkWithRetry(
                 url = url,
                 targetPath = targetPath,
                 expectedTotalBytes = totalBytes,
                 chunk = chunk,
                 headers = headers,
                 reporter = reporter,
+                maxAttempts = maxChunkAttempts,
             )
         }
     }.awaitAll()
@@ -397,6 +501,48 @@ private suspend fun downloadByRanges(
     }
     reporter.finish()
     totalWritten
+}
+
+private suspend fun downloadRangeChunkWithRetry(
+    url: String,
+    targetPath: Path,
+    expectedTotalBytes: Long,
+    chunk: DownloadChunk,
+    headers: Map<String, String>,
+    reporter: ProgressReporter,
+    maxAttempts: Int,
+): Long {
+    var lastError: Throwable? = null
+    val totalAttempts = maxAttempts.coerceAtLeast(1)
+    repeat(totalAttempts) { attemptIndex ->
+        val attemptNumber = attemptIndex + 1
+        reporter.setChunkBytes(chunk.index, 0L)
+        try {
+            return downloadRangeChunk(
+                url = url,
+                targetPath = targetPath,
+                expectedTotalBytes = expectedTotalBytes,
+                chunk = chunk,
+                headers = headers,
+                reporter = reporter,
+            )
+        } catch (cancel: CancellationException) {
+            reporter.setChunkBytes(chunk.index, 0L)
+            throw cancel
+        } catch (t: Throwable) {
+            lastError = t
+        }
+
+        val shouldRetry = attemptNumber < totalAttempts && lastError.isRetryableDownloadFailure()
+        if (shouldRetry) {
+            val retryDelayMillis = nextRetryDelayMillis(attemptNumber)
+            lgr.warn {
+                "Range chunk ${chunk.index} retry $attemptNumber/$totalAttempts for $url in ${retryDelayMillis}ms: ${lastError?.message}"
+            }
+            delay(retryDelayMillis)
+        }
+    }
+    throw (lastError ?: IOException("Range download failed for $url on chunk ${chunk.index}"))
 }
 
 private suspend fun downloadRangeChunk(
@@ -458,7 +604,7 @@ private suspend fun downloadRangeChunk(
                     writeBufferFully(outputChannel, buffer, bytesRead, writePosition)
                     writePosition += bytesRead
                     bytesDownloaded += bytesRead
-                    reporter.addBytes(bytesRead)
+                    reporter.setChunkBytes(chunk.index, bytesDownloaded)
                 }
             }
         }
@@ -509,8 +655,21 @@ private fun parseContentRange(raw: String?): ContentRangeInfo? {
 private fun Path.createTempDownloadPath(): Path {
     val absoluteTarget = toAbsolutePath()
     val parent = absoluteTarget.parent ?: throw IOException("无法确定下载目录: $absoluteTarget")
-    val tempName = "${absoluteTarget.fileName}.downloading.${System.nanoTime()}"
+    val tempName = "${absoluteTarget.fileName}.downloading"
     return parent.resolve(tempName)
+}
+
+private suspend fun fileSizeOrZero(path: Path): Long = withContext(Dispatchers.IO) {
+    runCatching {
+        if (Files.exists(path)) Files.size(path) else 0L
+    }.getOrElse { 0L }
+}
+
+private fun nextRetryDelayMillis(attemptNumber: Int): Long {
+    val exponential = (RETRY_BACKOFF_BASE_MILLIS * (1L shl (attemptNumber - 1).coerceAtLeast(0)))
+        .coerceAtMost(RETRY_BACKOFF_MAX_MILLIS)
+    val jitter = Random.nextLong(0L, RETRY_BACKOFF_JITTER_MILLIS + 1L)
+    return exponential + jitter
 }
 
 private suspend fun moveDownloadedFile(source: Path, target: Path) {
@@ -531,6 +690,9 @@ private suspend fun moveDownloadedFile(source: Path, target: Path) {
 private suspend fun deleteQuietly(path: Path) {
     withContext(Dispatchers.IO) {
         runCatching { Files.deleteIfExists(path) }
+            .onFailure { error ->
+                lgr.debug(error) { "Failed to delete temp download file: $path" }
+            }
     }
 }
 
