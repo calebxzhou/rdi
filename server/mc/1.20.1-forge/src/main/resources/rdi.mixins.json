@@ -10,12 +10,20 @@
   "mixins": [
     "AServerEntity",
     "mAllowChineseNameLogin",
+    "mBoundTickingBlockEntityGuard",
     "mChatMsg",
     "mChinesePlayerName",
+    "mGuardChunkTick",
+    "mGuardLevelTick",
+    "mGuardServerLevelTick",
+    "mLimitExecutor",
+    "mPackListener",
     "mPlusTimeout",
     "mSaveBandwidth",
     "mServerLoginPacketListener",
-    "mServerPlayer"
+    "mServerPlayer",
+    "mTickingEntity",
+    "mTickInvertServer"
   ],
   "client": [
   ]
