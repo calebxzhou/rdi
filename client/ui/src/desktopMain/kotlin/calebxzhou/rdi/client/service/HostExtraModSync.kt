@@ -3,27 +3,27 @@ package calebxzhou.rdi.client.service
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.EXTRA_MOD_PREFIX
 import calebxzhou.rdi.common.model.Mod
-import calebxzhou.rdi.common.model.Task
-import calebxzhou.rdi.common.model.TaskContext
-import calebxzhou.rdi.common.model.TaskProgress
-import calebxzhou.rdi.common.model.execute
+import calebxzhou.rdi.common.model.Task2
+import calebxzhou.rdi.common.model.Task2Context
+import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.service.ModService
+import calebxzhou.rdi.common.service.runInline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.LinkOption
 
-fun buildHostExtraModSyncTask(versionId: String, extraMods: List<Mod>): Task {
+fun buildHostExtraModSyncTask2(versionId: String, extraMods: List<Mod>): Task2 {
     val distinctMods = extraMods.distinctBy { it.fileName }
-    return Task.Sequence(
-        name = "同步地图附加Mod",
-        subTasks = buildList {
+    return Task2.Sequence(
+        title = "同步房间附加Mod",
+        children = buildList {
             if (distinctMods.isNotEmpty()) {
-                add(ModService.downloadModsTask(distinctMods))
+                add(ModService.downloadModsTask2(distinctMods))
             }
             add(
-                Task.Leaf("整理附加Mod链接") { ctx ->
+                Task2.Leaf("整理附加Mod链接") { ctx ->
                     syncHostExtraModLinks(versionId, distinctMods, ctx)
                 }
             )
@@ -34,17 +34,17 @@ fun buildHostExtraModSyncTask(versionId: String, extraMods: List<Mod>): Task {
 suspend fun syncHostExtraMods(
     versionId: String,
     extraMods: List<Mod>,
-    onProgress: (TaskProgress) -> Unit = {}
+    onProgress: (Task2Progress) -> Unit = {}
 ) = withContext(Dispatchers.IO) {
-    buildHostExtraModSyncTask(versionId, extraMods).execute(
-        TaskContext(emitProgress = onProgress)
+    buildHostExtraModSyncTask2(versionId, extraMods).runInline(
+        Task2Context(emitProgress = onProgress)
     )
 }
 
 private fun syncHostExtraModLinks(
     versionId: String,
     extraMods: List<Mod>,
-    ctx: TaskContext
+    ctx: Task2Context
 ) {
     val versionDir = GameService.versionListDir.resolve(versionId)
     require(versionDir.exists()) { "未找到整合包目录: ${versionDir.absolutePath}" }
@@ -57,12 +57,12 @@ private fun syncHostExtraModLinks(
         ?.forEach { file ->
             if (file.name !in expectedTargets) {
                 Files.deleteIfExists(file.toPath())
-                ctx.emitProgress(TaskProgress("移除旧附加Mod ${file.name}"))
+                ctx.emit(Task2Progress("移除旧附加Mod ${file.name}"))
             }
         }
 
     if (extraMods.isEmpty()) {
-        ctx.emitProgress(TaskProgress("没有附加Mod需要同步", 1f))
+        ctx.emit(Task2Progress("没有附加Mod需要同步", 1f))
         return
     }
 
@@ -74,7 +74,7 @@ private fun syncHostExtraModLinks(
             linkOrCopyMod(source, target)
         }
         val fraction = (index + 1).toFloat() / extraMods.size
-        ctx.emitProgress(TaskProgress("已同步附加Mod ${index + 1}/${extraMods.size}", fraction))
+        ctx.emit(Task2Progress("已同步附加Mod ${index + 1}/${extraMods.size}", fraction))
     }
 }
 

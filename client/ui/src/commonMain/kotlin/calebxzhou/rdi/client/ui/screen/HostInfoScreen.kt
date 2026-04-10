@@ -1,13 +1,8 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
@@ -26,25 +21,30 @@ import androidx.compose.ui.window.DialogProperties
 import calebxzhou.mykotutils.std.secondsToHumanDateTime
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.auth.updateLastPlayHost
+import calebxzhou.rdi.client.model.UiMod
+import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.sse
 import calebxzhou.rdi.client.service.StartPlayResult
+import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.service.startPlay
+import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.*
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.extension.isAdmin
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
-import calebxzhou.rdi.common.service.CurseForgeService.fillCurseForgeVo
 import calebxzhou.rdi.common.service.ModService
-import calebxzhou.rdi.common.service.ModrinthService.fillModrinthVo
 import calebxzhou.rdi.model.Role
 import io.ktor.client.plugins.sse.*
 import io.ktor.http.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
 
 /**
@@ -59,7 +59,7 @@ fun HostInfoScreen(
     onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
     onOpenMcVersions: ((McVersion?) -> Unit)? = null,
     onOpenHostEdit: ((Host.DetailVo) -> Unit)? = null,
-    onOpenTask: ((Task) -> Unit)? = null
+    onOpenTaskList: ((String) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -83,17 +83,23 @@ fun HostInfoScreen(
     var logStreamSseJob by remember { mutableStateOf<Job?>(null) }
     var showInviteDialog by remember { mutableStateOf(false) }
     var inviteQq by remember { mutableStateOf("") }
-    var installConfirmTask by remember { mutableStateOf<Task?>(null) }
+    var installConfirmTask by remember { mutableStateOf<Task2?>(null) }
     var showAddExtraModDialog by remember { mutableStateOf(false) }
     var addExtraModLoading by remember { mutableStateOf(false) }
     var selectAllExtraMods by remember { mutableStateOf(false) }
     var addExtraModLoadingText by remember { mutableStateOf("") }
     var addExtraModDialogError by remember { mutableStateOf<String?>(null) }
-    var pendingExtraMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
+    var pendingExtraUiMods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
     var rejectedExtraModFiles by remember { mutableStateOf<List<String>>(emptyList()) }
+    var privateThingsSubTab by remember { mutableStateOf(0) }
     var selectedExtraModKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var disabledMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
+    var selectAllModListMods by remember { mutableStateOf(false) }
+    var selectedModListKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var selectAllDisabledMods by remember { mutableStateOf(false) }
+    var selectedDisabledModKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var removeExtraModConfirm by remember { mutableStateOf<Mod?>(null) }
-    var hydratedExtraMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
+    var hydratedExtraUiMods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
     var extraModsLoadVersion by remember { mutableStateOf(0) }
     var configFilesLoading by remember { mutableStateOf(false) }
     var configContentLoading by remember { mutableStateOf(false) }
@@ -116,14 +122,14 @@ fun HostInfoScreen(
         addExtraModLoading = false
         addExtraModLoadingText = ""
         addExtraModDialogError = null
-        pendingExtraMods = emptyList()
+        pendingExtraUiMods = emptyList()
         rejectedExtraModFiles = emptyList()
     }
 
     fun refreshExtraMods(rawMods: List<Mod>, currentHostId: ObjectId?) {
         val loadVersion = extraModsLoadVersion + 1
         extraModsLoadVersion = loadVersion
-        hydratedExtraMods = emptyList()
+        hydratedExtraUiMods = emptyList()
         extraModsLoading = rawMods.isNotEmpty()
         if (rawMods.isEmpty()) return
         if (currentHostId == null) {
@@ -132,10 +138,12 @@ fun HostInfoScreen(
         }
         scope.launch {
             try {
-                val hydratedMods = hydrateExtraMods(rawMods)
+                val hydratedUiMods = withContext(Dispatchers.IO) {
+                    runCatching { rawMods.hydrateToUiMods() }
+                        .getOrDefault(rawMods.toUiMods())
+                }
                 if (hostDetail?._id == currentHostId && extraModsLoadVersion == loadVersion) {
-                    hydratedExtraMods = hydratedMods
-                    hostDetail = hostDetail?.copy(extraMods = hydratedMods)
+                    hydratedExtraUiMods = hydratedUiMods
                 }
             } finally {
                 if (hostDetail?._id == currentHostId && extraModsLoadVersion == loadVersion) {
@@ -151,13 +159,10 @@ fun HostInfoScreen(
         refreshExtraMods(updatedMods, currentHostId)
     }
 
-    fun updatePendingExtraModSide(mod: Mod, side: Mod.Side) {
-        pendingExtraMods = pendingExtraMods.map { existing ->
-            if (existing.platform == mod.platform && existing.projectId == mod.projectId && existing.fileId == mod.fileId) {
-                existing.copy(side = side).also {
-                    it.vo = existing.vo
-                    it.file = existing.file
-                }
+    fun updatePendingExtraModSide(uiMod: UiMod, side: Mod.Side) {
+        pendingExtraUiMods = pendingExtraUiMods.map { existing ->
+            if (existing.key == uiMod.key) {
+                existing.withSide(side)
             } else {
                 existing
             }
@@ -283,7 +288,7 @@ fun HostInfoScreen(
             onOk = { response ->
                 val detail = response.data
                 if (detail == null) {
-                    errorMessage = "无法加载地图信息"
+                    errorMessage = "无法加载房间信息"
                     loading = false
                     return@rdiRequest
                 }
@@ -302,13 +307,19 @@ fun HostInfoScreen(
                 )
             },
             onErr = {
-                errorMessage = "加载地图信息失败: ${it.message}"
+                errorMessage = "加载房间信息失败: ${it.message}"
             },
             onDone = { loading = false }
         )
     }
 
     LaunchedEffect(hostId) {
+        privateThingsSubTab = 0
+        hydratedExtraUiMods = emptyList()
+        selectedExtraModKeys = emptySet()
+        disabledMods = emptyList()
+        selectedModListKeys = emptySet()
+        selectedDisabledModKeys = emptySet()
         configFiles = emptyList()
         selectedConfigPath = null
         configEditorText = ""
@@ -329,9 +340,10 @@ fun HostInfoScreen(
     val meOwner = host?.let { it.ownerId == loggedAccount._id || loggedAccount.isDav } ?: false
     val canManageExtraMods = meAdmin || meOwner
     val canManageConfigFiles = meAdmin || meOwner
-    val extraMods = when {
-        hydratedExtraMods.isNotEmpty() -> hydratedExtraMods
-        host?.extraMods?.isNotEmpty() == true -> host.extraMods
+    val extraMods = host?.extraMods.orEmpty()
+    val extraUiMods = when {
+        hydratedExtraUiMods.isNotEmpty() -> hydratedExtraUiMods
+        extraMods.isNotEmpty() -> extraMods.toUiMods()
         else -> emptyList()
     }
     val baseVersionMods = modpackDetail?.versions
@@ -343,6 +355,28 @@ fun HostInfoScreen(
     LaunchedEffect(extraMods) {
         val currentKeys = extraMods.map(::extraModKey).toSet()
         selectedExtraModKeys = selectedExtraModKeys.intersect(currentKeys)
+    }
+
+    LaunchedEffect(extraMods, selectedExtraModKeys) {
+        selectAllExtraMods = extraMods.isNotEmpty() && selectedExtraModKeys.size == extraMods.size
+    }
+
+    LaunchedEffect(baseVersionMods) {
+        val currentKeys = baseVersionMods.map(::extraModKey).toSet()
+        selectedModListKeys = selectedModListKeys.intersect(currentKeys)
+    }
+
+    LaunchedEffect(baseVersionMods, selectedModListKeys) {
+        selectAllModListMods = baseVersionMods.isNotEmpty() && selectedModListKeys.size == baseVersionMods.size
+    }
+
+    LaunchedEffect(disabledMods) {
+        val currentKeys = disabledMods.map(::extraModKey).toSet()
+        selectedDisabledModKeys = selectedDisabledModKeys.intersect(currentKeys)
+    }
+
+    LaunchedEffect(disabledMods, selectedDisabledModKeys) {
+        selectAllDisabledMods = disabledMods.isNotEmpty() && selectedDisabledModKeys.size == disabledMods.size
     }
 
     LaunchedEffect(selectedTab, host?._id, canManageConfigFiles) {
@@ -391,11 +425,11 @@ fun HostInfoScreen(
 
     MainBox {
         MainColumn {
-            TitleRow(title = host?.name ?: "地图详情", onBack = onBack) {
+            TitleRow(title = host?.name ?: "房间详情", onBack = onBack) {
                 errorMessage?.let { ErrorText(it) }
                 Space8w()
                 host?.let { host ->
-                    SimpleTooltip("地图的创建者") {
+                    SimpleTooltip("房间的创建者") {
                         HeadButton(host.ownerId)
                     }
                     Space8w()
@@ -450,7 +484,7 @@ fun HostInfoScreen(
                             if (onOpenHostEdit != null) {
                                 onOpenHostEdit(host)
                             } else {
-                                errorMessage = "暂不支持编辑地图"
+                                errorMessage = "暂不支持编辑房间"
                             }
                         }
                         if (modpackDetail != null) {
@@ -466,7 +500,7 @@ fun HostInfoScreen(
                         Space8w()
                         CircleIconButton(
                             icon = "\uEA81",
-                            tooltip = "删除地图",
+                            tooltip = "删除房间",
                             bgColor = MaterialColor.RED_900.color,
                             showText = false
                         ) { showDeleteConfirm = true }
@@ -485,7 +519,7 @@ fun HostInfoScreen(
 
                 host == null -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(text = errorMessage ?: "无法加载地图信息", color = MaterialColor.RED_900.color)
+                        Text(text = errorMessage ?: "无法加载房间信息", color = MaterialColor.RED_900.color)
                     }
                 }
 
@@ -555,7 +589,7 @@ fun HostInfoScreen(
 
                         val tabs = listOf(
                             "\uEF69 成员(${host.members.size}/10)",
-                            "\uF02D 附加Mod(${extraMods.size})",
+                            "\uF02D 私货",
                             "\uDB80\uDD8D 后台",
                             "\uE5FC 配置",
                             "\uE615 信息"
@@ -682,64 +716,78 @@ fun HostInfoScreen(
                             extraModsTabIndex -> {
                                 val selectedExtraMods =
                                     extraMods.filter { extraModKey(it) in selectedExtraModKeys }
+                                val selectedModListMods =
+                                    baseVersionMods.filter { extraModKey(it) in selectedModListKeys }
+                                val selectedDisabledMods =
+                                    disabledMods.filter { extraModKey(it) in selectedDisabledModKeys }
                                 Column(
                                     modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                                        val compactToolbar = maxWidth < 560.dp
-                                        val actionRow: @Composable () -> Unit = {
-                                            FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                                Text(
-                                                    text = "已选择${selectedExtraMods.size}个",
-                                                    color = MaterialColor.GRAY_700.color
-                                                )
-                                                Checkbox(selectAllExtraMods, onCheckedChange = {
-                                                    selectAllExtraMods = it
-                                                    selectedExtraModKeys = if (it) extraMods.map(::extraModKey).toSet() else emptySet()
-                                                })
-                                                Text("全选")
-                                                CircleIconButton(
-                                                    icon = "\uF019",
-                                                    tooltip = "下载",
-                                                    enabled = selectedExtraMods.isNotEmpty(),
-                                                    bgColor = MaterialColor.GREEN_900.color,
-                                                ) {
-                                                    val task = ModService.downloadModsTask(selectedExtraMods)
-                                                    if (onOpenTask != null) {
-                                                        onOpenTask(task)
-                                                    } else {
-                                                        errorMessage = "暂不支持在此页面下载Mod"
-                                                    }
+                                    TabRow(
+                                        selectedTabIndex = privateThingsSubTab,
+                                        backgroundColor = Color.White,
+                                    ) {
+                                        Tab(
+                                            selected = privateThingsSubTab == 0,
+                                            onClick = { privateThingsSubTab = 0 },
+                                            text = { Text("附加mod") }
+                                        )
+                                        if(DEBUG){
+
+                                            Tab(
+                                                selected = privateThingsSubTab == 1,
+                                                onClick = { privateThingsSubTab = 1 },
+                                                text = { Text("mod总表（开发中）") }
+                                            )
+                                            Tab(
+                                                selected = privateThingsSubTab == 2,
+                                                onClick = { privateThingsSubTab = 2 },
+                                                text = { Text("已停用的mod（开发中）") }
+                                            )
+                                        }
+                                    }
+                                    when (privateThingsSubTab) {
+                                        0 -> HostExtraModsPane(
+                                            extraUiMods = extraUiMods,
+                                            selectedExtraMods = selectedExtraMods,
+                                            selectedExtraModKeys = selectedExtraModKeys,
+                                            selectAllExtraMods = selectAllExtraMods,
+                                            extraModsLoading = extraModsLoading,
+                                            canManageExtraMods = canManageExtraMods,
+                                            addExtraModLoading = addExtraModLoading,
+                                            addExtraModLoadingText = addExtraModLoadingText,
+                                            onToggleSelectAll = {
+                                                selectAllExtraMods = it
+                                                selectedExtraModKeys = if (it) extraMods.map(::extraModKey).toSet() else emptySet()
+                                            },
+                                            onToggleSelected = { mod, selected ->
+                                                val key = extraModKey(mod)
+                                                selectedExtraModKeys = if (selected) {
+                                                    selectedExtraModKeys + key
+                                                } else {
+                                                    selectedExtraModKeys - key
                                                 }
-                                                if (canManageExtraMods) {
-                                                    CircleIconButton(
-                                                        icon = "\uEA81",
-                                                        tooltip = "删除",
-                                                        enabled = selectedExtraMods.isNotEmpty(),
-                                                        bgColor = MaterialColor.RED_900.color,
-                                                    ) {
-                                                        removeExtraModConfirm = selectedExtraMods.firstOrNull()
-                                                    }
-                                                    CircleIconButton(
-                                                        icon = "\uF067",
-                                                        tooltip = if (addExtraModLoading) {
-                                                            addExtraModLoadingText.ifBlank { "匹配中..." }
-                                                        } else {
-                                                            "附加Mod"
-                                                        },
-                                                        enabled = !addExtraModLoading,
-                                                        bgColor = MaterialColor.PURPLE_700.color,
-                                                    ) {
-                                                        if (!isDesktop) {
-                                                            errorMessage = "当前平台暂不支持选择本地Mod文件"
-                                                            return@CircleIconButton
-                                                        }
-                                                        val hostMcVersion = modpackDetail?.mcVer
-                                                        if (hostMcVersion == null) {
-                                                            errorMessage = "无法获取当前整合包的MC版本"
-                                                            return@CircleIconButton
-                                                        }
+                                            },
+                                            onDownloadSelected = {
+                                                val runId = ClientTaskManager.submit(ModService.downloadModsTask2(selectedExtraMods))
+                                                if (onOpenTaskList != null) {
+                                                    onOpenTaskList(runId)
+                                                } else {
+                                                    okMessage = "已加入任务列表"
+                                                }
+                                            },
+                                            onRemoveSelected = {
+                                                removeExtraModConfirm = selectedExtraMods.firstOrNull()
+                                            },
+                                            onAddExtraMod = {
+                                                if (!isDesktop) {
+                                                    errorMessage = "当前平台暂不支持选择本地Mod文件"
+                                                } else {
+                                                    val hostMcVersion = modpackDetail?.mcVer
+                                                    if (hostMcVersion == null) {
+                                                        errorMessage = "无法获取当前整合包的MC版本"
+                                                    } else {
                                                         scope.launch {
                                                             val files = selectHostExtraModFiles() ?: return@launch
                                                             resetAddExtraModDialog()
@@ -756,28 +804,25 @@ fun HostInfoScreen(
                                                                 return@launch
                                                             }
                                                             rejectedExtraModFiles = matchResult.rejectedFiles
-                                                            val matchedMods = matchResult.matchedMods.map { mod ->
+                                                            val matchedUiMods = matchResult.matchedMods.map { mod ->
                                                                 if (
                                                                     mod.platform.equals("cf", ignoreCase = true) &&
                                                                     mod.side == Mod.Side.UNKNOWN
                                                                 ) {
-                                                                    mod.copy(side = Mod.Side.SERVER).also {
-                                                                        it.vo = mod.vo
-                                                                        it.file = mod.file
-                                                                    }
+                                                                    mod.toUiMod().withSide(Mod.Side.SERVER)
                                                                 } else {
-                                                                    mod
+                                                                    mod.toUiMod()
                                                                 }
                                                             }
                                                             val dedupeResult = filterExtraModsForAdding(
-                                                                candidateMods = matchedMods,
+                                                                candidateMods = matchedUiMods.map(UiMod::toMod),
                                                                 existingMods = extraMods + baseVersionMods
                                                             )
-                                                            pendingExtraMods = dedupeResult.acceptedMods
+                                                            pendingExtraUiMods = dedupeResult.acceptedMods.toUiMods()
                                                             rejectedExtraModFiles = matchResult.rejectedFiles + dedupeResult.rejectedMessages
                                                             addExtraModLoading = false
                                                             addExtraModLoadingText = ""
-                                                            if (pendingExtraMods.isEmpty()) {
+                                                            if (pendingExtraUiMods.isEmpty()) {
                                                                 if (rejectedExtraModFiles.isEmpty()) {
                                                                     errorMessage = "没有在网上搜索到这些Mod的信息"
                                                                     return@launch
@@ -788,79 +833,63 @@ fun HostInfoScreen(
                                                             showAddExtraModDialog = true
                                                         }
                                                     }
-                                                }
+                                                } 
                                             }
-                                        }
+                                        )
 
-                                        if (compactToolbar) {
-                                            Column(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "可以在整合包之外再添加更多Mod。",
-                                                    color = MaterialColor.GRAY_700.color,
-                                                    modifier = Modifier.fillMaxWidth()
-                                                )
-                                                actionRow()
+                                        1 -> HostModListPane(
+                                            baseVersionMods = baseVersionMods,
+                                            selectedModListMods = selectedModListMods,
+                                            selectedModListKeys = selectedModListKeys,
+                                            selectAllModListMods = selectAllModListMods,
+                                            onToggleSelectAll = {
+                                                selectAllModListMods = it
+                                                selectedModListKeys = if (it) {
+                                                    baseVersionMods.map(::extraModKey).toSet()
+                                                } else {
+                                                    emptySet()
+                                                }
+                                            },
+                                            onToggleSelected = { mod, selected ->
+                                                val key = extraModKey(mod)
+                                                selectedModListKeys = if (selected) {
+                                                    selectedModListKeys + key
+                                                } else {
+                                                    selectedModListKeys - key
+                                                }
+                                            },
+                                            onDisableSelected = {
+                                                // TODO implement disable selected modpack mods for host
+                                                errorMessage = "TODO: 停用选中的mod"
                                             }
-                                        } else {
-                                            Row(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "可以在整合包之外再添加更多Mod。",
-                                                    color = MaterialColor.GRAY_700.color,
-                                                    modifier = Modifier.weight(1f)
-                                                )
-                                                actionRow()
+                                        )
+
+                                        else -> HostDisabledModsPane(
+                                            disabledMods = disabledMods,
+                                            selectedDisabledMods = selectedDisabledMods,
+                                            selectedDisabledModKeys = selectedDisabledModKeys,
+                                            selectAllDisabledMods = selectAllDisabledMods,
+                                            onToggleSelectAll = {
+                                                selectAllDisabledMods = it
+                                                selectedDisabledModKeys = if (it) {
+                                                    disabledMods.map(::extraModKey).toSet()
+                                                } else {
+                                                    emptySet()
+                                                }
+                                            },
+                                            onToggleSelected = { mod, selected ->
+                                                val key = extraModKey(mod)
+                                                selectedDisabledModKeys = if (selected) {
+                                                    selectedDisabledModKeys + key
+                                                } else {
+                                                    selectedDisabledModKeys - key
+                                                }
+                                            },
+                                            onEnableSelected = {
+                                                // TODO implement enable selected disabled mods for host
+                                                errorMessage = "TODO: 启用选中的mod"
                                             }
-                                        }
-                                    }
-                                    if (extraModsLoading) {
-                                        Box(
-                                            modifier = Modifier.fillMaxSize(),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Column(
-                                                horizontalAlignment = Alignment.CenterHorizontally,
-                                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                CircularProgressIndicator()
-                                                Text("正在载入附加Mod信息...", color = MaterialColor.GRAY_700.color)
-                                            }
-                                        }
-                                    }
-                                    if (!extraModsLoading && extraMods.isEmpty()) {
-                                        Text("当前没有附加Mod", color = MaterialColor.GRAY_700.color)
-                                    } else if (!extraModsLoading) {
-                                        LazyVerticalGrid(
-                                            columns = GridCells.Adaptive(minSize = 360.dp),
-                                            modifier = Modifier.fillMaxSize(),
-                                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                            contentPadding = PaddingValues(bottom = 12.dp)
-                                        ) {
-                                            items(
-                                                items = extraMods,
-                                                key = { mod -> "${mod.platform}:${mod.projectId}:${mod.fileId}" }
-                                            ) { mod ->
-                                                SelectableExtraModCard(
-                                                    mod = mod,
-                                                    selected = extraModKey(mod) in selectedExtraModKeys,
-                                                    onSelectedChange = { selected ->
-                                                        val key = extraModKey(mod)
-                                                        selectedExtraModKeys = if (selected) {
-                                                            selectedExtraModKeys + key
-                                                        } else {
-                                                            selectedExtraModKeys - key
-                                                        }
-                                                    }
-                                                )
-                                            }
-                                        }
+                                        )
                                     }
                                 }
                             }
@@ -918,7 +947,7 @@ fun HostInfoScreen(
 
                             configTabIndex -> {
                                 if (!canManageConfigFiles) {
-                                    Text("仅地图管理员可编辑配置文件", color = MaterialColor.GRAY_700.color)
+                                    Text("仅房间管理员可编辑配置文件", color = MaterialColor.GRAY_700.color)
                                 } else {
                                     HostConfigEditor(
                                         files = configFiles,
@@ -985,7 +1014,7 @@ fun HostInfoScreen(
     if (showDeleteConfirm) {
         ConfirmDialog(
             title = "确认删除",
-            message = "确认删除地图吗？\n（仅删除成员列表。\n区块数据不会被删除，可导出或重复利用）",
+            message = "确认删除房间吗？\n（仅删除成员列表。\n存档不会被删除，可导出或重复利用）",
             onConfirm = {
                 scope.rdiRequestU(
                     path = "host/$hostId",
@@ -1005,7 +1034,7 @@ fun HostInfoScreen(
     if (showUpdateConfirm && modpackDetail != null) {
         ConfirmDialog(
             title = "确认更新",
-            message = "将更新地图当前的整合包《${modpackDetail!!.name}》到最新版本。",
+            message = "将更新房间当前的整合包《${modpackDetail!!.name}》到最新版本。",
             onConfirm = {
                 scope.rdiRequestU(
                     path = "host/$hostId/update",
@@ -1089,60 +1118,57 @@ fun HostInfoScreen(
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
-                        if (pendingExtraMods.isNotEmpty()) {
-                            "确认添加${pendingExtraMods.size}个附加Mod"
+                        if (pendingExtraUiMods.isNotEmpty()) {
+                            "确认添加${pendingExtraUiMods.size}个附加Mod"
                         } else {
                             "附加Mod添加失败"
                         },
                         style = MaterialTheme.typography.h6
                     )
                     Text(
-                        if (pendingExtraMods.isNotEmpty()) {
-                            "※在整合包以外添加Mod可能会导致地图无法运行，请自行保证Mod兼容性"
+                        if (pendingExtraUiMods.isNotEmpty()) {
+                            "※在整合包以外添加Mod可能会导致房间无法运行，请自行保证Mod兼容性"
                         } else {
                             "选中的Mod都无法添加，请查看下方错误信息。"
                         }
                     )
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 360.dp),
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        contentPadding = PaddingValues(bottom = 4.dp)
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        items(
-                            items = pendingExtraMods,
-                            key = { mod -> "${mod.platform}:${mod.projectId}:${mod.fileId}" }
-                        ) { mod ->
-                            PendingExtraModCard(
-                                mod = mod,
-                                enabled = !addExtraModLoading,
-                                onSideChange = { side -> updatePendingExtraModSide(mod, side) }
-                            )
-                        }
+                        ModGrid(
+                            mods = pendingExtraUiMods,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            emptyText = "当前没有待添加的附加Mod",
+                            onSideChange = if (addExtraModLoading) {
+                                null
+                            } else {
+                                { uiMod, side -> updatePendingExtraModSide(uiMod, side) }
+                            }
+                        )
                         if (rejectedExtraModFiles.isNotEmpty()) {
-                            item(span = { GridItemSpan(maxLineSpan) }) {
-                                val rejectedPreview = rejectedExtraModFiles.joinToString("\n") { "• $it" }
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .background(Color(255, 244, 244), RoundedCornerShape(16.dp))
-                                        .padding(16.dp),
-                                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    Text(
-                                        "以下mod无法添加",
-                                        color = MaterialColor.RED_900.color,
-                                        fontSize = 14.sp
-                                    )
-                                    Text(
-                                        rejectedPreview,
-                                        color = MaterialColor.RED_900.color,
-                                        fontSize = 13.sp
-                                    )
-                                }
+                            val rejectedPreview = rejectedExtraModFiles.joinToString("\n") { "• $it" }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(255, 244, 244), RoundedCornerShape(16.dp))
+                                    .padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    "以下mod无法添加",
+                                    color = MaterialColor.RED_900.color,
+                                    fontSize = 14.sp
+                                )
+                                Text(
+                                    rejectedPreview,
+                                    color = MaterialColor.RED_900.color,
+                                    fontSize = 13.sp
+                                )
                             }
                         }
                     }
@@ -1170,14 +1196,14 @@ fun HostInfoScreen(
                         }
                         Space8w()
                         TextButton(
-                            enabled = !addExtraModLoading && pendingExtraMods.isNotEmpty(),
+                            enabled = !addExtraModLoading && pendingExtraUiMods.isNotEmpty(),
                             onClick = {
                                 val dedupeResult = filterExtraModsForAdding(
-                                    candidateMods = pendingExtraMods,
+                                    candidateMods = pendingExtraUiMods.map(UiMod::toMod),
                                     existingMods = extraMods + baseVersionMods
                                 )
-                                if (dedupeResult.acceptedMods.size != pendingExtraMods.size) {
-                                    pendingExtraMods = dedupeResult.acceptedMods
+                                if (dedupeResult.acceptedMods.size != pendingExtraUiMods.size) {
+                                    pendingExtraUiMods = dedupeResult.acceptedMods.toUiMods()
                                     rejectedExtraModFiles = rejectedExtraModFiles + dedupeResult.rejectedMessages
                                     addExtraModDialogError = "已移除同slug的重复Mod，请确认后再添加"
                                     return@TextButton
@@ -1187,7 +1213,7 @@ fun HostInfoScreen(
                                 scope.rdiRequestU(
                                     path = "host/$hostId/mods",
                                     method = HttpMethod.Post,
-                                    body = serdesJson.encodeToString(pendingExtraMods),
+                                    body = serdesJson.encodeToString(pendingExtraUiMods.map(UiMod::toMod)),
                                     onOk = {
                                         okMessage = "已提交附加Mod添加任务，请在邮件中查看进度"
                                         showAddExtraModDialog = false
@@ -1249,13 +1275,14 @@ fun HostInfoScreen(
     installConfirmTask?.let { task ->
         ConfirmDialog(
             title = "未下载整合包",
-            message = "未下载此地图的整合包，是否立即下载？",
+            message = "未下载此房间的整合包，是否立即下载？",
             onConfirm = {
                 installConfirmTask = null
-                if (onOpenTask != null) {
-                    onOpenTask(task)
+                val runId = ClientTaskManager.submit(task)
+                if (onOpenTaskList != null) {
+                    onOpenTaskList(runId)
                 } else {
-                    errorMessage = "暂不支持在此页面下载"
+                    okMessage = "已加入任务列表"
                 }
             },
             onDismiss = { installConfirmTask = null }
@@ -1276,7 +1303,7 @@ fun HostInfoScreen(
             message = if (removeCount > 1) {
                 "确定删除已选择的${removeCount}个附加Mod吗？"
             } else {
-                "确定删除附加Mod《${mod.vo?.name ?: mod.slug}》吗？"
+                "确定删除附加Mod《${mod.displaySlugOrProject}》吗？"
             },
             onConfirm = {
                 scope.rdiRequest<List<Mod>>(
@@ -1320,7 +1347,7 @@ fun HostInfoScreen(
     transferConfirm?.let { memberId ->
         ConfirmDialog(
             title = "确认转让",
-            message = "确定将地图所有权转让给该成员吗？",
+            message = "确定将房间所有权转让给该成员吗？",
             onConfirm = {
                 scope.rdiRequestU(
                     path = "host/$hostId/transfer/$memberId",
@@ -1360,7 +1387,7 @@ fun HostInfoScreen(
     if (restartConfirm) {
         ConfirmDialog(
             title = "确认重启",
-            message = "确定重启该地图吗？",
+            message = "确定重启该房间吗？",
             onConfirm = {
                 scope.rdiRequestU(
                     path = "host/$hostId/restart",
@@ -1377,7 +1404,7 @@ fun HostInfoScreen(
     if (stopConfirm) {
         ConfirmDialog(
             title = "确认停止",
-            message = "确定停止该地图吗？",
+            message = "确定停止该房间吗？",
             onConfirm = {
                 scope.rdiRequestU(
                     path = "host/$hostId/stop",
@@ -1394,7 +1421,7 @@ fun HostInfoScreen(
     if (forceStopConfirm) {
         ConfirmDialog(
             title = "确认强制停止",
-            message = "确定强制停止该地图吗？",
+            message = "确定强制停止该房间吗？",
             onConfirm = {
                 scope.rdiRequestU(
                     path = "host/$hostId/force-stop",
@@ -1410,14 +1437,14 @@ fun HostInfoScreen(
 
     if (quitConfirm) {
         ConfirmDialog(
-            title = "退出地图",
-            message = "确定退出该地图吗？",
+            title = "退出房间",
+            message = "确定退出该房间吗？",
             onConfirm = {
                 scope.rdiRequestU(
                     path = "host/$hostId/quit",
                     method = HttpMethod.Put,
                     onOk = {
-                        okMessage = "已退出地图"
+                        okMessage = "已退出房间"
                         reload()
                     },
                     onErr = { errorMessage = it.message ?: "退出失败" }
@@ -1429,78 +1456,305 @@ fun HostInfoScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HostExtraModsPane(
+    extraUiMods: List<UiMod>,
+    selectedExtraMods: List<Mod>,
+    selectedExtraModKeys: Set<String>,
+    selectAllExtraMods: Boolean,
+    extraModsLoading: Boolean,
+    canManageExtraMods: Boolean,
+    addExtraModLoading: Boolean,
+    addExtraModLoadingText: String,
+    onToggleSelectAll: (Boolean) -> Unit,
+    onToggleSelected: (Mod, Boolean) -> Unit,
+    onDownloadSelected: () -> Unit,
+    onRemoveSelected: () -> Unit,
+    onAddExtraMod: () -> Unit
+) {
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val compactToolbar = maxWidth < 560.dp
+        val actionRow: @Composable () -> Unit = {
+            FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "已选择${selectedExtraMods.size}个",
+                    color = MaterialColor.GRAY_700.color
+                )
+                Checkbox(selectAllExtraMods, onCheckedChange = { onToggleSelectAll(it) })
+                Text("全选")
+                CircleIconButton(
+                    icon = "\uF019",
+                    tooltip = "下载",
+                    enabled = selectedExtraMods.isNotEmpty(),
+                    bgColor = MaterialColor.GREEN_900.color,
+                ) {
+                    onDownloadSelected()
+                }
+                if (canManageExtraMods) {
+                    CircleIconButton(
+                        icon = "\uEA81",
+                        tooltip = "删除",
+                        enabled = selectedExtraMods.isNotEmpty(),
+                        bgColor = MaterialColor.RED_900.color,
+                    ) {
+                        onRemoveSelected()
+                    }
+                    CircleIconButton(
+                        icon = "\uF067",
+                        tooltip = if (addExtraModLoading) {
+                            addExtraModLoadingText.ifBlank { "匹配中..." }
+                        } else {
+                            "附加Mod"
+                        },
+                        enabled = !addExtraModLoading,
+                        bgColor = MaterialColor.PURPLE_700.color,
+                    ) {
+                        onAddExtraMod()
+                    }
+                }
+            }
+        }
+
+        if (compactToolbar) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "可以在整合包之外再添加更多Mod。",
+                    color = MaterialColor.GRAY_700.color,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                actionRow()
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "可以在整合包之外再添加更多Mod。",
+                    color = MaterialColor.GRAY_700.color,
+                    modifier = Modifier.weight(1f)
+                )
+                actionRow()
+            }
+        }
+    }
+
+    if (extraModsLoading) {
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                CircularProgressIndicator()
+                Text("正在载入附加Mod信息...", color = MaterialColor.GRAY_700.color)
+            }
+        }
+    }
+
+    if (!extraModsLoading && extraUiMods.isEmpty()) {
+        Text("当前没有附加Mod", color = MaterialColor.GRAY_700.color)
+    } else if (!extraModsLoading) {
+        ModGrid(
+            mods = extraUiMods,
+            modifier = Modifier.fillMaxSize(),
+            selectedKeys = selectedExtraModKeys,
+            emptyText = "当前没有附加Mod",
+            onModClick = { uiMod ->
+                val selected = uiMod.key in selectedExtraModKeys
+                onToggleSelected(uiMod.mod, !selected)
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HostModListPane(
+    baseVersionMods: List<Mod>,
+    selectedModListMods: List<Mod>,
+    selectedModListKeys: Set<String>,
+    selectAllModListMods: Boolean,
+    onToggleSelectAll: (Boolean) -> Unit,
+    onToggleSelected: (Mod, Boolean) -> Unit,
+    onDisableSelected: () -> Unit
+) {
+    val uiMods by produceState(initialValue = baseVersionMods.toUiMods(), baseVersionMods) {
+        value = if (baseVersionMods.isEmpty()) {
+            emptyList()
+        } else {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    baseVersionMods.hydrateToUiMods()
+                }
+            }.getOrDefault(baseVersionMods.toUiMods())
+        }
+    }
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val compactToolbar = maxWidth < 560.dp
+        val actionRow: @Composable () -> Unit = {
+            FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "已选择${selectedModListMods.size}个",
+                    color = MaterialColor.GRAY_700.color
+                )
+                Checkbox(selectAllModListMods, onCheckedChange = { onToggleSelectAll(it) })
+                Text("全选")
+                CircleIconButton(
+                    icon = "\uF2ED",
+                    tooltip = "停用选中的mod",
+                    enabled = selectedModListMods.isNotEmpty(),
+                    bgColor = MaterialColor.RED_900.color,
+                ) {
+                    onDisableSelected()
+                }
+            }
+        }
+
+        if (compactToolbar) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "可以停用整合包中的mod",
+                    color = MaterialColor.GRAY_700.color,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                actionRow()
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "可以停用整合包中的mod",
+                    color = MaterialColor.GRAY_700.color,
+                    modifier = Modifier.weight(1f)
+                )
+                actionRow()
+            }
+        }
+    }
+
+    if (baseVersionMods.isEmpty()) {
+        Text("当前整合包版本没有可显示的Mod", color = MaterialColor.GRAY_700.color)
+    } else {
+        ModGrid(
+            mods = uiMods,
+            modifier = Modifier.fillMaxSize(),
+            selectedKeys = selectedModListKeys,
+            emptyText = "当前整合包版本没有可显示的Mod",
+            onModClick = { uiMod ->
+                val selected = uiMod.key in selectedModListKeys
+                onToggleSelected(uiMod.mod, !selected)
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HostDisabledModsPane(
+    disabledMods: List<Mod>,
+    selectedDisabledMods: List<Mod>,
+    selectedDisabledModKeys: Set<String>,
+    selectAllDisabledMods: Boolean,
+    onToggleSelectAll: (Boolean) -> Unit,
+    onToggleSelected: (Mod, Boolean) -> Unit,
+    onEnableSelected: () -> Unit
+) {
+    val uiMods by produceState(initialValue = disabledMods.toUiMods(), disabledMods) {
+        value = if (disabledMods.isEmpty()) {
+            emptyList()
+        } else {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    disabledMods.hydrateToUiMods()
+                }
+            }.getOrDefault(disabledMods.toUiMods())
+        }
+    }
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        val compactToolbar = maxWidth < 560.dp
+        val actionRow: @Composable () -> Unit = {
+            FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "已选择${selectedDisabledMods.size}个",
+                    color = MaterialColor.GRAY_700.color
+                )
+                Checkbox(selectAllDisabledMods, onCheckedChange = { onToggleSelectAll(it) })
+                Text("全选")
+                CircleIconButton(
+                    icon = "\uF0E2",
+                    tooltip = "启用选中的mod",
+                    enabled = selectedDisabledMods.isNotEmpty(),
+                    bgColor = MaterialColor.GREEN_900.color,
+                ) {
+                    onEnableSelected()
+                }
+            }
+        }
+
+        if (compactToolbar) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "可以重新启用已停用的mod",
+                    color = MaterialColor.GRAY_700.color,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                actionRow()
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = "可以重新启用已停用的mod",
+                    color = MaterialColor.GRAY_700.color,
+                    modifier = Modifier.weight(1f)
+                )
+                actionRow()
+            }
+        }
+    }
+
+    if (disabledMods.isEmpty()) {
+        Text("当前没有停用mod", color = MaterialColor.GRAY_700.color)
+    } else {
+        ModGrid(
+            mods = uiMods,
+            modifier = Modifier.fillMaxSize(),
+            selectedKeys = selectedDisabledModKeys,
+            emptyText = "当前没有停用mod",
+            onModClick = { uiMod ->
+                val selected = uiMod.key in selectedDisabledModKeys
+                onToggleSelected(uiMod.mod, !selected)
+            }
+        )
+    }
+}
+
 private data class RoleChange(
     val memberId: ObjectId,
     val newRole: Role
 )
 
-private suspend fun hydrateExtraMods(mods: List<Mod>): List<Mod> {
-    val hydratedMods = mods.map {
-        it.copy(
-            platform = it.platform,
-            projectId = it.projectId,
-            slug = it.slug,
-            fileId = it.fileId,
-            hash = it.hash,
-            side = it.side,
-            downloadUrls = it.downloadUrls.toList()
-        )
-    }
-    hydrateExtraModsByPlatform(hydratedMods.filter { it.platform.equals("cf", ignoreCase = true) }) {
-        it.fillCurseForgeVo()
-    }
-    hydrateExtraModsByPlatform(hydratedMods.filter { it.platform.equals("mr", ignoreCase = true) }) {
-        it.fillModrinthVo(null)
-    }
-    return hydratedMods
-}
-
-private suspend fun hydrateExtraModsByPlatform(
-    mods: List<Mod>,
-    fill: suspend (List<Mod>) -> List<Mod>
-) {
-    if (mods.isEmpty()) return
-
-    val batchSucceeded = runCatching { fill(mods) }.isSuccess
-    if (!batchSucceeded) {
-        mods.forEach { mod ->
-            runCatching { fill(listOf(mod)) }
-        }
-        return
-    }
-
-    mods.filter { it.vo == null }.forEach { mod ->
-        runCatching { fill(listOf(mod)) }
-    }
-}
-
-@Composable
-private fun PendingExtraModCard(
-    mod: Mod,
-    enabled: Boolean,
-    onSideChange: (Mod.Side) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(Color(255, 255, 255, 235), RoundedCornerShape(16.dp))
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        mod.vo?.ModCard(
-            currentSide = mod.side,
-            onSideChange = if (enabled) onSideChange else null
-        )
-    }
-}
-
 private fun extraModKey(mod: Mod): String = "${mod.platform}:${mod.projectId}:${mod.fileId}"
-
-private fun extraModPlatformName(mod: Mod): String = if (mod.platform.equals("mr", ignoreCase = true)) {
-    "Modrinth"
-} else {
-    "CurseForge"
-}
 
 private data class ExtraModAddFilterResult(
     val acceptedMods: List<Mod>,
@@ -1522,8 +1776,8 @@ private fun filterExtraModsForAdding(candidateMods: List<Mod>, existingMods: Lis
             return@forEach
         }
         when {
-            key in existingKeys -> rejectedMessages += "${mod.displaySlugOrProject}：主机或整合包中已存在同slug Mod"
-            !pendingKeys.add(key) -> rejectedMessages += "${mod.displaySlugOrProject}：本次选择中已有同slug Mod"
+            key in existingKeys -> rejectedMessages += "${mod.displaySlugOrProject}：主机或整合包中已存在同名Mod"
+            !pendingKeys.add(key) -> rejectedMessages += "${mod.displaySlugOrProject}：本次选择中已有同名Mod"
             else -> acceptedMods += mod
         }
     }
@@ -1536,46 +1790,4 @@ private fun filterExtraModsForAdding(candidateMods: List<Mod>, existingMods: Lis
 
 private fun extraModSlugIdentity(mod: Mod): String = mod.normalizedSlug.ifBlank {
     mod.normalizedProjectId.lowercase()
-}
-
-@Composable
-private fun SelectableExtraModCard(
-    mod: Mod,
-    selected: Boolean,
-    onSelectedChange: (Boolean) -> Unit
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(
-                if (selected) Color(243, 236, 255) else Color(255, 255, 255, 235),
-                RoundedCornerShape(16.dp)
-            )
-            .clickable { onSelectedChange(!selected) }
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        mod.vo?.ModCard(currentSide = mod.side) ?: Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = mod.slug.ifBlank { mod.projectId },
-                color = MaterialColor.GRAY_900.color,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "${extraModPlatformName(mod)} · ${mod.side.text}",
-                color = MaterialColor.BLUE_600.color,
-                fontSize = 13.sp
-            )
-            Text(
-                text = "暂时无法加载Mod详情",
-                color = MaterialColor.GRAY_700.color,
-                fontSize = 13.sp
-            )
-        }
-
-    }
 }

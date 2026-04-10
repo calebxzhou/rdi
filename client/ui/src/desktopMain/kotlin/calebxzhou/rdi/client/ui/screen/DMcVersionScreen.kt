@@ -4,12 +4,17 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.common.DL_MOD_DIR
+import calebxzhou.rdi.common.archive.TarZstArchiveWriter
+import calebxzhou.rdi.common.archive.forEachArchiveEntry
+import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.model.Task
-import calebxzhou.rdi.common.model.TaskProgress
-import calebxzhou.rdi.client.service.ModpackService.startInstall
+import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
+import calebxzhou.rdi.common.model.Task2
+import calebxzhou.rdi.common.model.Task2Progress
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.awt.FileDialog
+import java.awt.Frame
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
@@ -38,21 +43,28 @@ actual fun selectRdiPackFiles(): List<File>? {
 }
 
 private fun selectRdiModpackFile(): File? {
-    val chooser = JFileChooser().apply {
-        dialogTitle = "选择RDI整合包 (*.rdimodpack)"
-        fileSelectionMode = JFileChooser.FILES_ONLY
-        isMultiSelectionEnabled = false
-        currentDirectory = File("C:/Users/${System.getProperty("user.name")}/Downloads")
-        fileFilter = FileNameExtensionFilter("RDI整合包 (*.rdimodpack)", "rdimodpack")
+    val owner = Frame()
+    try {
+        val dialog = FileDialog(owner, "选择RDI整合包", FileDialog.LOAD).apply {
+            directory = File(System.getProperty("user.home"), "Downloads").absolutePath
+            file = "*.rdimodpack"
+            filenameFilter = java.io.FilenameFilter { dir, name ->
+                val target = File(dir, name)
+                target.isDirectory || name.endsWith(".rdimodpack", ignoreCase = true)
+            }
+        }
+        dialog.isVisible = true
+        val dir = dialog.directory ?: return null
+        val name = dialog.file ?: return null
+        return File(dir, name)
+            .takeIf { it.exists() && it.isFile && it.name.endsWith(".rdimodpack", ignoreCase = true) }
+    } finally {
+        owner.dispose()
     }
-    val result = chooser.showOpenDialog(null)
-    if (result != JFileChooser.APPROVE_OPTION) return null
-    return chooser.selectedFile
-        ?.takeIf { it.exists() && it.isFile && it.name.endsWith(".rdimodpack", ignoreCase = true) }
 }
 
-actual fun buildImportPackTask(zipFile: File): Task {
-    return Task.Leaf("导入 ${zipFile.name}") { ctx ->
+actual fun buildImportPackTask2(zipFile: File): Task2 {
+    return Task2.Leaf("导入 ${zipFile.name}") { ctx ->
         val targetRoot = ClientDirs.mcDir.canonicalFile
         val totalFiles = ZipFile(zipFile).use { zip ->
             zip.entries().asSequence().count { !it.isDirectory }
@@ -77,13 +89,58 @@ actual fun buildImportPackTask(zipFile: File): Task {
                         ).use { output -> input.copyTo(output) }
                     }
                     processed += 1
-                    ctx.emitProgress(
-                        TaskProgress("解压 ${entry.name}", processed.toFloat() / totalFiles)
+                    ctx.emit(
+                        Task2Progress("解压 ${entry.name}", processed.toFloat() / totalFiles)
                     )
                 }
             }
         }
-        ctx.emitProgress(TaskProgress("完成", 1f))
+        ctx.emit(Task2Progress("完成", 1f))
+    }
+}
+
+private fun findExportableModpackArchive(packdir: ModpackLocalDir): File? {
+    val baseName = "${packdir.vo.id}_${packdir.verName}"
+    return ClientDirs.dlPacksDir.resolve("$baseName.tar.zst").takeIf(File::exists)
+}
+
+private fun parseImportedModpackArchiveName(packArchiveName: String): Pair<org.bson.types.ObjectId, String> {
+    val normalizedName = File(packArchiveName).name
+    val suffix = ".tar.zst"
+    val baseName = normalizedName
+        .takeIf { it.endsWith(suffix, ignoreCase = true) }
+        ?.substring(0, normalizedName.length - suffix.length)
+        ?: throw IllegalStateException("整合包文件名无效：$normalizedName")
+    val sepIndex = baseName.indexOf('_')
+    if (sepIndex <= 0 || sepIndex >= baseName.lastIndex) {
+        throw IllegalStateException("整合包文件名无效：$normalizedName")
+    }
+    val modpackId = org.bson.types.ObjectId(baseName.substring(0, sepIndex))
+    val verName = baseName.substring(sepIndex + 1)
+    return modpackId to verName
+}
+
+private fun pickRdiModpackSaveFile(defaultName: String): File? {
+    val owner = Frame()
+    try {
+        val dialog = FileDialog(owner, "选择导出位置", FileDialog.SAVE).apply {
+            directory = File(System.getProperty("user.home")).absolutePath
+            file = defaultName
+            filenameFilter = java.io.FilenameFilter { _, name ->
+                name.endsWith(".rdimodpack", ignoreCase = true)
+            }
+        }
+        dialog.isVisible = true
+        val dir = dialog.directory ?: return null
+        val name = dialog.file ?: return null
+        val selected = File(dir, name)
+        return if (selected.name.endsWith(".rdimodpack", ignoreCase = true)) {
+            selected
+        } else {
+            File(selected.parentFile, "${selected.name}.rdimodpack")
+        }
+    } finally {
+        owner.dispose()
     }
 }
 
@@ -92,37 +149,21 @@ actual suspend fun exportRdiModpack(
     onProgress: (String) -> Unit
 ): Result<Unit> = withContext(Dispatchers.IO) {
     runCatching {
-        val packZip = ClientDirs.dlPacksDir.resolve("${packdir.vo.id}_${packdir.verName}.zip")
-        if (!packZip.exists()) {
-            throw IllegalStateException("整合包文件不存在，请先下载")
-        }
+        val packArchive = findExportableModpackArchive(packdir)
+            ?: throw IllegalStateException("整合包文件不存在，请先下载")
         val version = server.makeRequest<Modpack.Version>(
             "modpack/${packdir.vo.id}/version/${packdir.verName}"
         ).data ?: throw IllegalStateException("无法获取整合包版本信息")
 
-        val chooser = JFileChooser().apply {
-            dialogTitle = "选择导出位置"
-            fileSelectionMode = JFileChooser.FILES_ONLY
-            val safeName = packdir.vo.name.ifBlank { "modpack" }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            val defaultName = "${safeName}_${packdir.verName}.rdimodpack"
-            selectedFile = File(System.getProperty("user.home"), defaultName)
-            fileFilter = FileNameExtensionFilter("RDI整合包 (*.rdimodpack)", "rdimodpack")
-        }
-        val result = chooser.showSaveDialog(null)
-        if (result != JFileChooser.APPROVE_OPTION) return@runCatching
-
-        var outputFile = chooser.selectedFile
-        if (!outputFile.name.endsWith(".rdimodpack", ignoreCase = true)) {
-            outputFile = File(outputFile.parentFile, "${outputFile.name}.rdimodpack")
-        }
+        val safeName = packdir.vo.name.ifBlank { "modpack" }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val outputFile = pickRdiModpackSaveFile("${safeName}_${packdir.verName}.rdimodpack")
+            ?: return@runCatching
 
         val missingMods = mutableListOf<String>()
         val total = version.mods.size + 1
         var processed = 0
-        ZipOutputStream(FileOutputStream(outputFile)).use { zipOut ->
-            zipOut.putNextEntry(ZipEntry(packZip.name))
-            packZip.inputStream().use { it.copyTo(zipOut) }
-            zipOut.closeEntry()
+        TarZstArchiveWriter(outputFile).use { archive ->
+            archive.addFile(packArchive.name, packArchive.readBytes(), packArchive.lastModified())
             processed += 1
             onProgress("导出整合包 ${processed}/${total}")
 
@@ -132,9 +173,7 @@ actual suspend fun exportRdiModpack(
                     missingMods += mod.fileName
                     return@forEach
                 }
-                zipOut.putNextEntry(ZipEntry("mods/${mod.fileName}"))
-                modFile.inputStream().use { it.copyTo(zipOut) }
-                zipOut.closeEntry()
+                archive.addFile("mods/${mod.fileName}", modFile.readBytes(), modFile.lastModified())
                 processed += 1
                 onProgress("导出MOD ${processed}/${total}")
             }
@@ -147,60 +186,57 @@ actual suspend fun exportRdiModpack(
     }
 }
 
-actual suspend fun importRdiModpack(
+actual suspend fun importRdiModpackTask2(
     onProgress: (String) -> Unit
-): Task = withContext(Dispatchers.IO) {
+): Task2 = withContext(Dispatchers.IO) {
     val file = selectRdiModpackFile() ?: throw IllegalStateException("未选择整合包文件")
-    val packZipName: String
-    ZipFile(file).use { zip ->
-        val packEntry = zip.entries().asSequence()
-            .firstOrNull { !it.isDirectory && it.name.endsWith(".zip", ignoreCase = true) && !it.name.startsWith("mods/") }
-            ?: throw IllegalStateException("整合包内未找到modpack.zip")
+    var packArchiveName = ""
+    val total = (listArchiveEntries(file).count { !it.isDirectory && it.path.startsWith("mods/") } + 1).coerceAtLeast(1)
+    var processed = 0
+    var foundPackArchive = false
+    forEachArchiveEntry(file) { entry ->
+        if (entry.isDirectory || entry.bytes == null) return@forEachArchiveEntry
+        val normalizedPath = entry.path.replace('\\', '/').trimStart('/')
+        when {
+            !normalizedPath.startsWith("mods/") && normalizedPath.endsWith(".tar.zst", ignoreCase = true) -> {
+                packArchiveName = File(normalizedPath).name
+                val packTarget = ClientDirs.dlPacksDir.resolve(packArchiveName)
+                packTarget.parentFile?.mkdirs()
+                Files.newOutputStream(
+                    packTarget.toPath(),
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING
+                ).use { output -> output.write(entry.bytes) }
+                processed += 1
+                foundPackArchive = true
+                onProgress("导入整合包 ${processed}/${total}")
+            }
 
-        packZipName = File(packEntry.name).name
-        val packTarget = ClientDirs.dlPacksDir.resolve(packZipName)
-        packTarget.parentFile?.mkdirs()
-        val modEntries = zip.entries().asSequence()
-            .filter { !it.isDirectory && it.name.startsWith("mods/") }
-            .toList()
-        val total = modEntries.size + 1
-        var processed = 0
-        zip.getInputStream(packEntry).use { input ->
-            Files.newOutputStream(
-                packTarget.toPath(),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-            ).use { output -> input.copyTo(output) }
-        }
-        processed += 1
-        onProgress("导入整合包 ${processed}/${total}")
-
-        modEntries.forEach { entry ->
-            val filename = entry.name.substringAfter("mods/").trim()
-            if (filename.isBlank()) return@forEach
-            val target = DL_MOD_DIR.resolve(filename)
-            target.parentFile?.mkdirs()
-            zip.getInputStream(entry).use { input ->
+            normalizedPath.startsWith("mods/") -> {
+                val filename = normalizedPath.substringAfter("mods/").trim()
+                if (filename.isBlank()) return@forEachArchiveEntry
+                val target = DL_MOD_DIR.resolve(filename)
+                target.parentFile?.mkdirs()
                 Files.newOutputStream(
                     target.toPath(),
                     StandardOpenOption.CREATE,
                     StandardOpenOption.TRUNCATE_EXISTING
-                ).use { output -> input.copyTo(output) }
+                ).use { output -> output.write(entry.bytes) }
+                processed += 1
+                onProgress("导入MOD ${processed}/${total}")
             }
-            processed += 1
-            onProgress("导入MOD ${processed}/${total}")
         }
     }
+    if (!foundPackArchive || packArchiveName.isBlank()) {
+        throw IllegalStateException("整合包内未找到modpack.tar.zst")
+    }
 
-    val match = Regex("^([0-9a-fA-F]{24})_(.+)\\.zip$").find(packZipName)
-        ?: throw IllegalStateException("整合包文件名无效：$packZipName")
-    val (idStr, verName) = match.destructured
-    val modpackId = org.bson.types.ObjectId(idStr)
+    val (modpackId, verName) = parseImportedModpackArchiveName(packArchiveName)
     val modpackVo = server.makeRequest<Modpack.BriefVo>("modpack/${modpackId}/brief").data
         ?: throw IllegalStateException("未找到整合包信息")
     val version = server.makeRequest<Modpack.Version>("modpack/${modpackId}/version/${verName}").data
         ?: throw IllegalStateException("未找到整合包版本信息")
-    version.startInstall(modpackVo.mcVer, modpackVo.modloader, modpackVo.name)
+    version.startInstallTask2(modpackVo.mcVer, modpackVo.modloader, modpackVo.name)
 }
 
 actual suspend fun exportLogsPack(packdir: ModpackLocalDir): Result<Unit> = withContext(Dispatchers.IO) {

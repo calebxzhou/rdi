@@ -34,4 +34,5 @@ expect object ClientDirs {
 
     /** Asset objects directory */
     val assetObjectsDir: File
+    val toolsDir: File
 }

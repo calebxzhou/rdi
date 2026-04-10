@@ -1,22 +1,23 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.displaySlugOrProject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-/**
- * calebxzhou @ 2026-02-08 11:16
- */
 enum class TestStatus {
     NOT_RUN, RUNNING, PASSED, FAILED, STOPPED
 }
@@ -24,7 +25,7 @@ enum class TestStatus {
 private const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
 
 class ModpackTester(
-    private val payload: UploadPayload
+    private val loadedModpack: LoadedLocalModpack
 ) {
     private val _status = MutableStateFlow(TestStatus.NOT_RUN)
     val status: StateFlow<TestStatus> = _status.asStateFlow()
@@ -36,7 +37,7 @@ class ModpackTester(
     val testedModsSignature: StateFlow<String?> = _testedModsSignature.asStateFlow()
 
     private var crashTriggered = false
-    private var testProcess: Process? = null
+    private var testProcess: ServerTestProcessHandle? = null
     private var testWorkDir: File? = null
     private var autoFixedModKeys: Set<String> = emptySet()
     private var autoRenamedFiles: Set<String> = emptySet()
@@ -48,7 +49,7 @@ class ModpackTester(
         "Missing or unsupported mandatory dependencies"
     )
 
-    fun isRunning(): Boolean = testProcess?.isAlive == true
+    fun isRunning(): Boolean = testProcess?.isAlive() == true
 
     fun currentModsSignature(mods: List<Mod>): String =
         mods.asSequence()
@@ -89,7 +90,7 @@ class ModpackTester(
         onError: (String?) -> Unit,
         appendLog: (String) -> Unit
     ) {
-        val loaderVer = payload.mcVersion.loaderVersions[payload.modloader]
+        val loaderVer = loadedModpack.mcVersion.loaderVersions[loadedModpack.modloader]
         if (loaderVer == null) {
             uiScope.launch { onError("缺少加载器版本配置，无法启动测试服务器") }
             return
@@ -104,23 +105,23 @@ class ModpackTester(
             appendLog("[RDI] 启动测试服务器...")
         }
 
-        uiScope.launch(Dispatchers.IO) {
+        uiScope.launch {
             runCatching {
                 val workDir = createServerTestWorkDir(
-                    payload = payload,
+                    loadedModpack = loadedModpack,
                     mods = getMods(),
                     clientOnlyMarkedNames = autoRenamedFiles
                 )
                 testWorkDir = workDir
-                val process = GameService.startServerDesktop(
-                    mcVer = payload.mcVersion,
+                val process = GameService.startServerTestProcess(
+                    mcVer = loadedModpack.mcVersion,
                     loaderVer = loaderVer,
                     workDir = workDir
                 ) { line ->
                     uiScope.launch {
                         appendLog(line)
                         if (line.contains("Error: could not open")) {
-                            appendLog("${payload.mcVersion.mcVer}-${payload.modloader.name}文件不完整，请前往mc资源界面重新下载")
+                            appendLog("${loadedModpack.mcVersion.mcVer}-${loadedModpack.modloader.name}文件不完整，请前往mc资源界面重新下载")
                         }
                         val matched = passRegex.find(line)
                         if (matched != null) {
@@ -128,13 +129,13 @@ class ModpackTester(
                             val latestMods = getMods()
                             val normalizedMods = latestMods.map { mod ->
                                 if (mod.side == Mod.Side.UNKNOWN) {
-                                    mod.copy(side = Mod.Side.BOTH).apply { vo = mod.vo }
+                                    mod.toUiMod().withSide(Mod.Side.BOTH).toMod()
                                 } else mod
                             }
                             val changedUnknown = latestMods.count { it.side == Mod.Side.UNKNOWN }
                             if (changedUnknown > 0) {
                                 setMods(normalizedMods)
-                                appendLog("[RDI] 测试通过，已将 $changedUnknown 个未识别运行侧Mod标记为 BOTH")
+                                appendLog("[RDI] 测试通过，已将 $changedUnknown 个未识别运行侧Mod标记为BOTH")
                             }
                             _passSeconds.value = matched.groupValues.getOrNull(1)
                             _status.value = TestStatus.PASSED
@@ -164,7 +165,7 @@ class ModpackTester(
                     val fix = autoFixClientSideFromCrashReport(
                         mods = getMods(),
                         workDir = workDir,
-                        sourceDir = payload.sourceDir,
+                        sourceDir = loadedModpack.sourceDir,
                         alreadyFixed = autoFixedModKeys,
                         alreadyRenamed = autoRenamedFiles
                     )
@@ -199,8 +200,8 @@ class ModpackTester(
     private fun terminateProcessOnly(): Boolean {
         val process = testProcess ?: return false
         runCatching {
-            if (process.isAlive) process.destroy()
-            if (process.isAlive) process.destroyForcibly()
+            if (process.isAlive()) process.destroy()
+            if (process.isAlive()) process.destroyForcibly()
         }
         testProcess = null
         return true
@@ -211,6 +212,20 @@ class ModpackTester(
         terminateProcessOnly()
     }
 }
+
+internal expect class ServerTestProcessHandle {
+    fun isAlive(): Boolean
+    fun destroy()
+    fun destroyForcibly()
+    suspend fun waitFor(): Int
+}
+
+internal expect fun GameService.startServerTestProcess(
+    mcVer: McVersion,
+    loaderVer: ModLoader.Version,
+    workDir: File,
+    onLine: (String) -> Unit
+): ServerTestProcessHandle
 
 private fun modStableKey(mod: Mod): String =
     "${mod.platform}:${mod.projectId}:${mod.fileId}:${mod.hash}"
@@ -225,15 +240,15 @@ private fun updateModSideByKey(
     val idx = updated.indexOfFirst { modStableKey(it) == modKey }
     if (idx < 0) return mods
     val origin = updated[idx]
-    updated[idx] = origin.copy(side = newSide).apply { vo = origin.vo }
+    updated[idx] = origin.toUiMod().withSide(newSide).toMod()
     return updated
 }
 
-private fun createServerTestWorkDir(
-    payload: UploadPayload,
+private suspend fun createServerTestWorkDir(
+    loadedModpack: LoadedLocalModpack,
     mods: List<Mod>,
     clientOnlyMarkedNames: Set<String> = emptySet()
-): File {
+) = withContext(Dispatchers.IO) {
     val testDir = Files.createTempDirectory(ClientDirs.packProcDir.toPath(), "servertest-").toFile()
     val excludedOriginalNames = clientOnlyMarkedNames
         .mapNotNull { marked ->
@@ -248,10 +263,10 @@ private fun createServerTestWorkDir(
             Files.deleteIfExists(libsTarget.toPath())
             Files.createSymbolicLink(libsTarget.toPath(), libsSource.toPath())
         }.getOrElse {
-            throw IllegalStateException("创建测试目录 libraries 软链接失败: ${it.message}")
+            throw IllegalStateException("创建测试目录libraries软链接失败: ${it.message}")
         }
     }
-    val sourceDir = payload.sourceDir
+    val sourceDir = loadedModpack.sourceDir
     val overridesDir = sourceDir.resolve("overrides")
     if (overridesDir.exists() && overridesDir.isDirectory) {
         copyDirectoryContent(overridesDir, testDir)
@@ -292,7 +307,7 @@ private fun createServerTestWorkDir(
             runCatching { Files.deleteIfExists(file.toPath()) }
         }
     }
-    return testDir
+    testDir
 }
 
 private fun copyDirectoryContent(source: File, target: File) {
@@ -370,13 +385,9 @@ private fun autoFixClientSideFromCrashReport(
         byFile || bySlug
     } ?: return null
 
-    val modName = candidate.vo?.nameCn?.takeIf { it.isNotBlank() }
-        ?: candidate.vo?.name?.takeIf { it.isNotBlank() }
-        ?: candidate.slug
-
     return CrashAutoFixMatch(
         modKey = modStableKey(candidate),
-        modName = modName
+        modName = candidate.displaySlugOrProject
     )
 }
 
@@ -417,9 +428,7 @@ private fun findClientNoClassDefFailureFix(
         if (trimmed.startsWith("Mod File:", ignoreCase = true)) {
             sectionFile = trimmed.substringAfter(":").trim().substringAfterLast('/').substringAfterLast('\\')
         }
-        if (
-            trimmed.contains("java.lang.NoClassDefFoundError: net/minecraft/client", ignoreCase = true)
-        ) {
+        if (trimmed.contains("java.lang.NoClassDefFoundError: net/minecraft/client", ignoreCase = true)) {
             sectionClientNoClassDef = true
         }
     }
@@ -439,12 +448,9 @@ private fun findClientNoClassDefFailureFix(
             bySlug || byFile
         }
         if (matchedMod != null) {
-            val modName = matchedMod.vo?.nameCn?.takeIf { it.isNotBlank() }
-                ?: matchedMod.vo?.name?.takeIf { it.isNotBlank() }
-                ?: matchedMod.slug
             return CrashAutoFixMatch(
                 modKey = modStableKey(matchedMod),
-                modName = modName
+                modName = matchedMod.displaySlugOrProject
             )
         }
 

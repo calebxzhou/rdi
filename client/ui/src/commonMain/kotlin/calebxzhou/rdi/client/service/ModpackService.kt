@@ -2,7 +2,6 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
-import calebxzhou.mykotutils.std.openChineseZip
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.CONF
 import calebxzhou.rdi.client.model.firstLoaderDir
@@ -13,6 +12,10 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.proxy.LocalMcProxy.gameAddr
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.isDesktop
+import calebxzhou.rdi.common.DL_MOD_DIR
+import calebxzhou.rdi.common.archive.PackArchiveFormat
+import calebxzhou.rdi.common.archive.detectArchiveFormat
+import calebxzhou.rdi.common.archive.extractArchiveToDir
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
@@ -23,9 +26,30 @@ import io.ktor.http.*
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.io.files.FileNotFoundException
 import org.bson.types.ObjectId
 import java.io.File
+import java.nio.file.Files
+import java.util.Comparator
+import java.util.concurrent.atomic.AtomicBoolean
+
+enum class LocalModpackSourceType {
+    MODRINTH,
+    CURSEFORGE
+}
+
+data class LoadedLocalModpack(
+    val sourceType: LocalModpackSourceType,
+    val sourceDir: File,
+    val packName: String,
+    val packVersion: String,
+    val mcVersion: McVersion,
+    val modloader: ModLoader,
+    val mods: List<Mod>,
+    val embeddedModOriginalFileNames: Map<String, String> = emptyMap()
+)
 
 /**
  * Common modpack download/install service.
@@ -33,8 +57,127 @@ import java.io.File
  */
 object ModpackService {
 
+    fun modpackInstallTaskKey(modpackId: ObjectId, verName: String): String =
+        "modpack-install:${modpackId.toHexString()}:$verName"
+
+    suspend fun load(
+        file: File,
+        onProgress: (LoadProgress) -> Unit = {}
+    ): Result<LoadedLocalModpack> = loadLocalModpack(
+        file = file,
+        onProgress = onProgress
+    )
+
     fun getVersionDir(modpackId: ObjectId, verName: String): java.io.File {
         return ClientDirs.versionsDir.resolve("${modpackId}_${verName}")
+    }
+
+    private fun clientPackZipFile(modpackId: ObjectId, verName: String): File =
+        ClientDirs.dlPacksDir.resolve("${modpackId}_$verName.zip")
+
+    private fun clientPackTarZstFile(modpackId: ObjectId, verName: String): File =
+        ClientDirs.dlPacksDir.resolve("${modpackId}_$verName.tar.zst")
+
+    private fun clientPackTempFile(modpackId: ObjectId, verName: String): File =
+        ClientDirs.dlPacksDir.resolve("${modpackId}_$verName.download")
+
+    private fun normalizeInstalledClientPackPath(path: String): String? {
+        val normalized = path.replace('\\', '/').trimStart('/')
+        return normalized.removePrefix("overrides/").takeIf { it.isNotBlank() }
+    }
+
+    private fun findCachedClientPackFile(modpackId: ObjectId, verName: String, hash: String): File? =
+        listOf(
+            clientPackTarZstFile(modpackId, verName),
+            clientPackZipFile(modpackId, verName)
+        ).firstOrNull { it.exists() && it.sha1 == hash }
+
+    private suspend fun downloadClientPackArchive(
+        modpackId: ObjectId,
+        verName: String,
+        hash: String,
+        onProgress: (Task2Progress) -> Unit
+    ): File {
+        ClientDirs.dlPacksDir.mkdirs()
+        findCachedClientPackFile(modpackId, verName, hash)?.let { return it }
+        val tempFile = clientPackTempFile(modpackId, verName)
+        if (tempFile.exists()) tempFile.delete()
+        server.download("modpack/$modpackId/version/$verName/client", tempFile.absolutePath) { prog ->
+            val fraction = if (prog.totalBytes > 0) {
+                prog.bytesDownloaded.toFloat() / prog.totalBytes
+            } else {
+                null
+            }
+            val msg = if (prog.totalBytes > 0) {
+                "${prog.bytesDownloaded.humanFileSize}/${prog.totalBytes.humanFileSize}"
+            } else {
+                prog.bytesDownloaded.humanFileSize
+            }
+            onProgress(Task2Progress(msg, fraction))
+        }
+        if (tempFile.sha1 != hash) {
+            tempFile.delete()
+            throw IllegalStateException("客户端包下载损坏，请重试")
+        }
+        val target = when (tempFile.detectArchiveFormat()) {
+            PackArchiveFormat.TAR_ZST -> clientPackTarZstFile(modpackId, verName)
+            PackArchiveFormat.ZIP -> clientPackZipFile(modpackId, verName)
+        }
+        if (target.exists()) target.delete()
+        if (!tempFile.renameTo(target)) {
+            tempFile.copyTo(target, overwrite = true)
+            tempFile.delete()
+        }
+        val staleSibling = if (target == clientPackTarZstFile(modpackId, verName)) {
+            clientPackZipFile(modpackId, verName)
+        } else {
+            clientPackTarZstFile(modpackId, verName)
+        }
+        if (staleSibling.exists()) staleSibling.delete()
+        return target
+    }
+
+    suspend fun deleteLocalPack(
+        packdir: ModpackLocalDir,
+        deleteIncludedMods: Boolean
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        runCatching {
+            val currentVersion = if (deleteIncludedMods) {
+                server.makeRequest<Modpack.Version>("modpack/${packdir.vo.id}/version/${packdir.verName}").data
+                    ?: throw RequestError("未找到对应版本信息，无法删除关联Mod")
+            } else null
+            val currentModFileNames = currentVersion?.mods
+                ?.map { it.fileName }
+                ?.toSet()
+                .orEmpty()
+            val removableModFileNames = if (deleteIncludedMods && currentModFileNames.isNotEmpty()) {
+                val referencedByOthers = collectReferencedModFileNamesExcluding(
+                    packdir = packdir,
+                    fallbackPreserve = currentModFileNames
+                )
+                currentModFileNames - referencedByOthers
+            } else {
+                emptySet()
+            }
+
+            deleteLocalPackDir(packdir.dir)
+
+            removableModFileNames.forEach { fileName ->
+                val modFile = DL_MOD_DIR.resolve(fileName)
+                if (modFile.exists() && !modFile.delete()) {
+                    throw IllegalStateException("无法删除Mod文件: ${modFile.absolutePath}")
+                }
+            }
+        }
+    }
+
+    private fun deleteLocalPackDir(dir: File) {
+        if (!dir.exists()) return
+        Files.walk(dir.toPath()).use { paths ->
+            paths.sorted(Comparator.reverseOrder()).forEach { path ->
+                Files.deleteIfExists(path)
+            }
+        }
     }
 
     fun installVersion(
@@ -50,33 +193,18 @@ object ModpackService {
         val downloadModsTask = ModService.downloadModsTask(mods)
 
         val downloadClientPackTask = Task.Leaf("下载客户端整合包") { ctx ->
-            val file = ClientDirs.dlPacksDir.resolve("${modpackId}_$verName.zip")
             val hash = server.makeRequest<String>("modpack/$modpackId/version/$verName/client/hash").data
                 ?: throw IllegalStateException("客户端包hash为空")
-            if (file.exists() && file.sha1 == hash) {
+            val cached = findCachedClientPackFile(modpackId, verName, hash)
+            if (cached != null) {
                 ctx.emitProgress(TaskProgress("客户端整合包已存在", 1f))
-                clientPackFile = file
+                clientPackFile = cached
                 return@Leaf
             }
             ctx.emitProgress(TaskProgress("开始下载...", 0f))
-            server.download("modpack/$modpackId/version/$verName/client", file.absolutePath) { prog ->
-                val fraction = if (prog.totalBytes > 0) {
-                    prog.bytesDownloaded.toFloat() / prog.totalBytes
-                } else {
-                    null
-                }
-                val msg = if (prog.totalBytes > 0) {
-                    "${prog.bytesDownloaded.humanFileSize}/${prog.totalBytes.humanFileSize}"
-                } else {
-                    prog.bytesDownloaded.humanFileSize
-                }
-                ctx.emitProgress(TaskProgress(msg, fraction))
+            clientPackFile = downloadClientPackArchive(modpackId, verName, hash) { progress ->
+                ctx.emitProgress(TaskProgress(progress.message, progress.fraction))
             }
-            if (hash != file.sha1) {
-                file.delete()
-                throw IllegalStateException("客户端包下载损坏，请重试")
-            }
-            clientPackFile = file
             ctx.emitProgress(TaskProgress("下载完成", 1f))
         }
 
@@ -94,61 +222,14 @@ object ModpackService {
 
         val extractTask = Task.Leaf("解压客户端整合包") { ctx ->
             val clientPack = clientPackFile ?: throw IllegalStateException("客户端包未准备好")
-            val ioBufferSize = 64 * 1024
-            val copyBuffer = ByteArray(ioBufferSize)
             ctx.emitProgress(TaskProgress("扫描压缩包内容...", 0f))
-            clientPack.openChineseZip().use { zip ->
-                var fileEntryCount = 0
-                var knownTotalBytes = 0L
-                val scanEntries = zip.entries()
-                while (scanEntries.hasMoreElements()) {
-                    val entry = scanEntries.nextElement()
-                    if (entry.isDirectory) continue
-                    fileEntryCount += 1
-                    entry.size.takeIf { it > 0L }?.let { knownTotalBytes += it }
-                }
-                var extractedFiles = 0
-                var extractedBytes = 0L
-                var lastEmitTs = 0L
-                val createdDirs = hashSetOf(versionDir.absolutePath)
-                val extractEntries = zip.entries()
-
-                while (extractEntries.hasMoreElements()) {
-                    val entry = extractEntries.nextElement()
-                    if (entry.isDirectory) continue
-                    val relativePath = entry.name.trimStart('/')
-                    if (relativePath.isBlank()) continue
-                    val destination = versionDir.resolve(relativePath)
-                    destination.parentFile?.let { parent ->
-                        val parentPath = parent.absolutePath
-                        if (parentPath !in createdDirs) {
-                            parent.mkdirs()
-                            createdDirs += parentPath
-                        }
-                    }
-                    zip.getInputStream(entry).use { input ->
-                        destination.outputStream().buffered(ioBufferSize).use { output ->
-                            while (true) {
-                                val read = input.read(copyBuffer)
-                                if (read <= 0) break
-                                output.write(copyBuffer, 0, read)
-                                extractedBytes += read
-                            }
-                        }
-                    }
-                    extractedFiles += 1
-                    val now = System.currentTimeMillis()
-                    val shouldEmit = now - lastEmitTs >= 120L || extractedFiles == fileEntryCount
-                    if (shouldEmit) {
-                        val fraction = if (knownTotalBytes > 0L) {
-                            (extractedBytes.toFloat() / knownTotalBytes.toFloat()).coerceIn(0f, 1f)
-                        } else {
-                            extractedFiles.toFloat() / fileEntryCount.coerceAtLeast(1)
-                        }
-                        ctx.emitProgress(TaskProgress("解压中 $extractedFiles/${fileEntryCount.coerceAtLeast(1)}", fraction))
-                        lastEmitTs = now
-                    }
-                }
+            extractArchiveToDir(
+                archiveFile = clientPack,
+                targetDir = versionDir,
+                pathTransform = ::normalizeInstalledClientPackPath
+            ) { done, total, currentPath ->
+                val fraction = done.toFloat() / total.coerceAtLeast(1).toFloat()
+                ctx.emitProgress(TaskProgress("解压中 ${currentPath.substringAfterLast('/')}($done/$total)", fraction))
             }
             ctx.emitProgress(TaskProgress("解压完成", 1f))
         }
@@ -207,6 +288,75 @@ object ModpackService {
         )
     }
 
+    fun installVersionTask2(
+        mcVersion: McVersion,
+        modLoader: ModLoader,
+        modpackId: ObjectId,
+        verName: String,
+        mods: List<Mod>
+    ): Task2 {
+        var clientPackFile: File? = null
+        val downloadModsTask = ModService.downloadModsTask2(mods)
+
+        val downloadClientPackTask = Task2.Leaf("下载客户端整合包") { ctx ->
+            val hash = server.makeRequest<String>("modpack/$modpackId/version/$verName/client/hash").data
+                ?: throw IllegalStateException("客户端包hash为空")
+            val cached = findCachedClientPackFile(modpackId, verName, hash)
+            if (cached != null) {
+                ctx.emit(Task2Progress("客户端整合包已存在", 1f))
+                clientPackFile = cached
+            } else {
+                ctx.emit(Task2Progress("开始下载...", 0f))
+                clientPackFile = downloadClientPackArchive(modpackId, verName, hash) { progress ->
+                    ctx.emit(progress)
+                }
+                ctx.emit(Task2Progress("下载完成", 1f))
+            }
+        }
+        val localInstallTasks = createInstallClientZipTasks2(
+            mcVersion = mcVersion,
+            modLoader = modLoader,
+            modpackId = modpackId,
+            verName = verName,
+            mods = mods
+        ) {
+            clientPackFile ?: throw IllegalStateException("客户端包未准备好")
+        }
+
+        return Task2.Sequence(
+            title = "安装整合包 $verName",
+            children = listOf(
+                downloadModsTask,
+                downloadClientPackTask,
+                *localInstallTasks.toTypedArray()
+            )
+        )
+    }
+
+    fun installBuiltClientZipTask2(
+        mcVersion: McVersion,
+        modLoader: ModLoader,
+        modpackId: ObjectId,
+        verName: String,
+        mods: List<Mod>,
+        clientPackFile: File,
+        modpackName: String? = null,
+        embeddedModOriginalFileNames: Map<String, String> = emptyMap()
+    ): Task2 = Task2.Sequence(
+        title = buildString {
+            append("本地安装整合包")
+            if (!modpackName.isNullOrBlank()) append(" ").append(modpackName)
+        },
+        children = createInstallClientZipTasks2(
+            mcVersion = mcVersion,
+            modLoader = modLoader,
+            modpackId = modpackId,
+            verName = verName,
+            mods = mods,
+            embeddedModOriginalFileNames = embeddedModOriginalFileNames
+        ) { clientPackFile }
+    )
+
     fun installRdiCore(
         mcVersion: McVersion,
         modLoader: ModLoader,
@@ -241,6 +391,24 @@ object ModpackService {
         )
     }
 
+    fun Modpack.Version.startInstallTask2(
+        mcVersion: McVersion,
+        modLoader: ModLoader,
+        modpackName: String? = null
+    ): Task2 {
+        val title = buildString {
+            append("完整下载整合包")
+            if (!modpackName.isNullOrBlank()) append(" ").append(modpackName)
+            totalSize?.humanFileSize?.let { append(" ").append(it) }
+        }
+        return Task2.Sequence(
+            title = title,
+            children = listOf(
+                installVersionTask2(mcVersion, modLoader, modpackId, this@startInstallTask2.name, mods)
+            )
+        )
+    }
+
     fun isVersionInstalled(modpackId: ObjectId, verName: String): Boolean {
         val versionDir = getVersionDir(modpackId, verName)
         if (!versionDir.exists()) return false
@@ -250,6 +418,113 @@ object ModpackService {
 
     suspend fun fetchSourceIntro(url: String) : Result<String>{
         return ok("")
+    }
+
+    private suspend fun collectReferencedModFileNamesExcluding(
+        packdir: ModpackLocalDir,
+        fallbackPreserve: Set<String>
+    ): Set<String> = coroutineScope {
+        val otherLocalDirs = getLocalPackDirs().filter { it.versionId != packdir.versionId }
+        if (otherLocalDirs.isEmpty()) return@coroutineScope emptySet()
+        val failed = AtomicBoolean(false)
+        val references = otherLocalDirs.map { other ->
+            async {
+                runCatching {
+                    server.makeRequest<Modpack.Version>("modpack/${other.vo.id}/version/${other.verName}").data
+                        ?.mods
+                        ?.map { it.fileName }
+                        ?.toSet()
+                        .orEmpty()
+                }.getOrElse {
+                    failed.set(true)
+                    emptySet()
+                }
+            }
+        }.awaitAll().flatten().toSet()
+        if (failed.get()) fallbackPreserve else references
+    }
+
+    private fun createInstallClientZipTasks2(
+        mcVersion: McVersion,
+        modLoader: ModLoader,
+        modpackId: ObjectId,
+        verName: String,
+        mods: List<Mod>,
+        embeddedModOriginalFileNames: Map<String, String> = emptyMap(),
+        clientPackProvider: () -> File
+    ): List<Task2> {
+        val versionDir = getVersionDir(modpackId, verName)
+        val prepareVersionDirTask = Task2.Leaf("准备安装目录") { ctx ->
+            if (versionDir.exists()) {
+                ctx.emit(Task2Progress("清理旧版本文件...", null))
+                runCatching { versionDir.deleteRecursivelyNoSymlink() }
+                    .getOrElse { throw IllegalStateException("无法清理旧版本目录: ${versionDir.absolutePath}", it) }
+            }
+            if (!versionDir.exists()) {
+                versionDir.mkdirs()
+            }
+            ctx.emit(Task2Progress("目录已就绪", 1f))
+        }
+
+        val extractTask = Task2.Leaf("解压客户端整合包") { ctx ->
+            val clientPack = clientPackProvider()
+            ctx.emit(Task2Progress("扫描压缩包内容...", 0f))
+            extractArchiveToDir(
+                archiveFile = clientPack,
+                targetDir = versionDir,
+                pathTransform = ::normalizeInstalledClientPackPath
+            ) { done, total, currentPath ->
+                val fraction = done.toFloat() / total.coerceAtLeast(1).toFloat()
+                ctx.emit(Task2Progress("解压中 ${currentPath.substringAfterLast('/')}($done/$total)", fraction))
+            }
+            ctx.emit(Task2Progress("解压完成", 1f))
+        }
+
+        val copyModsTask = Task2.Leaf("复制mod文件") { ctx ->
+            val modsDir = versionDir.resolve("mods").apply { mkdirs() }
+            val modFiles = mods.map { mod ->
+                val file = ClientDirs.dlModsDir.resolve(mod.fileName)
+                if (!file.exists()) {
+                    throw IllegalStateException("缺少Mod文件: ${file.absolutePath}")
+                }
+                mod to file
+            }
+            modFiles.forEachIndexed { index, (mod, modFile) ->
+                val targetFileName = embeddedModOriginalFileNames[mod.fileName]
+                    ?.substringAfterLast('/')
+                    ?.substringAfterLast('\\')
+                    ?.takeIf { it.isNotBlank() }
+                    ?: modFile.name
+                val target = modsDir.resolve(targetFileName)
+                linkOrCopyMod(modFile, target)
+                val fraction = (index + 1).toFloat() / modFiles.size.coerceAtLeast(1)
+                ctx.emit(Task2Progress("已处理 ${index + 1}/${modFiles.size}", fraction))
+            }
+            installRdiCore(mcVersion, modLoader, modsDir)
+            ctx.emit(Task2Progress("完成", 1f))
+        }
+
+        val writeOptionsTask = Task2.Leaf("写入配置文件") { ctx ->
+            val optionsFile = versionDir.resolve("options.txt")
+            optionsFile.writeText(
+                mergeMinecraftOptions(
+                    original = optionsFile.takeIf(File::exists)?.readText().orEmpty(),
+                    overrides = linkedMapOf(
+                        "lang" to "zh_cn",
+                        "darkMojangStudiosBackground" to "true",
+                        "forceUnicodeFont" to "true"
+                    )
+                )
+            )
+            try {
+                versionDir.resolve(versionDir.name + ".json")
+                    .writeText(mcVersion.loaderManifest.copy(id = versionDir.name).json)
+            } catch (e: FileNotFoundException) {
+                throw RequestError("没有找到${mcVersion.mcVer}版本的${modLoader.name}，请先安装")
+            }
+            ctx.emit(Task2Progress("写入完成", 1f))
+        }
+        return listOf(prepareVersionDirTask, extractTask, copyModsTask, writeOptionsTask)
     }
 }
 
@@ -288,7 +563,7 @@ private fun mergeMinecraftOptions(
 sealed class StartPlayResult {
     data class Ready(val args: McPlayArgs) : StartPlayResult()
     data class NeedMc(val ver: McVersion) : StartPlayResult()
-    data class NeedInstall(val task: Task) : StartPlayResult()
+    data class NeedInstall(val task: Task2) : StartPlayResult()
 }
 
 data class ModpackLocalDir(
@@ -302,7 +577,7 @@ data class ModpackLocalDir(
 
 suspend fun Host.DetailVo.startPlay(): StartPlayResult {
     val statusResp = server.makeRequest<HostStatus>("host/${_id}/status")
-    val status = statusResp.data ?: throw RequestError("获取地图状态失败: ${statusResp.msg}")
+    val status = statusResp.data ?: throw RequestError("获取房间状态失败: ${statusResp.msg}")
 
     val versionResp = server.makeRequest<Modpack.Version>("modpack/${modpack.id}/version/$packVer")
     val version = versionResp.data ?: throw RequestError("获取整合包版本信息失败: ${versionResp.msg}")
@@ -311,7 +586,7 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         return StartPlayResult.NeedMc(modpack.mcVer)
     }
     if (!ModpackService.isVersionInstalled(modpack.id, packVer)) {
-        val task = with(ModpackService) { version.startInstall(modpack.mcVer, modpack.modloader, modpack.name) }
+        val task = with(ModpackService) { version.startInstallTask2(modpack.mcVer, modpack.modloader, modpack.name) }
         return StartPlayResult.NeedInstall(task)
     }
 
@@ -320,14 +595,14 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         HostStatus.STOPPED -> {
             val startResp = server.makeRequest<Unit>("host/${_id}/start", HttpMethod.Post)
             if (!startResp.ok) {
-                throw RequestError("启动地图失败: ${startResp.msg}")
+                throw RequestError("启动房间失败: ${startResp.msg}")
             }
         }
-        else -> throw RequestError("地图状态未知，无法游玩")
+        else -> throw RequestError("房间状态未知，无法游玩")
     }
 
     if (GameService.started) {
-        throw RequestError("mc运行中，如需切换要玩的地图，请先关闭mc")
+        throw RequestError("mc运行中，如需切换要玩的房间，请先关闭mc")
     }
     var gameAddr = "127.0.0.1:55667"
     if(!isDesktop){

@@ -49,7 +49,7 @@ fun WorldListScreen(
                 loading = false
             },
             onErr = {
-                errorMessage = "加载区块数据失败:${it.message}"
+                errorMessage = "加载存档失败:${it.message}"
                 worlds = emptyList()
             },
             onOk = {
@@ -134,7 +134,7 @@ fun WorldListScreen(
 
 
             if (!loading && worlds.isEmpty()) {
-                Text("没有区块数据。", color = Color.Gray)
+                Text("没有存档。", color = Color.Gray)
             }
 
             LazyVerticalGrid(
@@ -173,7 +173,7 @@ fun WorldListScreen(
         AlertDialog(
             onDismissRequest = { confirmCopy = null },
             title = { Text("确认复制") },
-            text = { Text("要给区块数据“${world.name}”复制一份一模一样的吗？") },
+            text = { Text("要给存档“${world.name}”复制一份一模一样的吗？") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmCopy = null
@@ -204,7 +204,7 @@ fun WorldListScreen(
         AlertDialog(
             onDismissRequest = { confirmDelete = null },
             title = { Text("确认删除") },
-            text = { Text("要永久删除区块数据“${world.name}”及其所有的回档点吗？无法恢复！") },
+            text = { Text("要永久删除存档“${world.name}”及其所有的回档点吗？无法恢复！") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmDelete = null

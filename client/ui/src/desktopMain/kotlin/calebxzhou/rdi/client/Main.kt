@@ -1,6 +1,14 @@
 package calebxzhou.rdi.client
 
+import androidx.compose.material.AlertDialog
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Text
+import androidx.compose.material.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.decodeToImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
@@ -17,29 +25,29 @@ import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.PlayerService
+import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.ui.AppNavigation
+import calebxzhou.rdi.client.ui.AppTypography
+import calebxzhou.rdi.client.ui.asIconText
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.model.RAccount
-import calebxzhou.rdi.common.model.Task
-import calebxzhou.rdi.common.model.TaskProgress
+import calebxzhou.rdi.common.model.Task2Entry
 import calebxzhou.rdi.common.serdesJson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.awt.Toolkit
-import java.awt.datatransfer.DataFlavor
-import java.awt.dnd.*
-import java.net.URI
-import java.nio.file.Files
-import java.nio.file.StandardOpenOption
-import java.util.zip.ZipFile
 
 val VERTICAL_MODE= System.getProperty("rdi.ui.vertical").toBoolean()
 lateinit var ScreenSize: Pair<Dp, Dp>
 fun main() {
     clearIncompleteModDownloadsOnStartup()
     clearPackProcDirOnStartup()
+    warmUpHwSpecCacheOnStartup()
+    initializeLoggedAccountOnStartup()
     LocalMcProxy.start(::println)
     application {
         if(DEBUG){
@@ -51,20 +59,6 @@ fun main() {
             }
         }
 
-        //账号信息
-        System.getProperty("rdi.account")?.let {
-            loggedAccount = serdesJson.decodeFromString(it.decodeBase64)
-        }
-        //JWT
-        System.getProperty("rdi.jwt")?.let {
-            loggedAccount.jwt = it
-        }
-        if (loggedAccount.jwt == null && loggedAccount != RAccount.DEFAULT) {
-            GlobalScope.launch {
-                val jwt = PlayerService.getJwt(loggedAccount.qq, loggedAccount.pwd)
-                loggedAccount.jwt = jwt
-            }
-        }
         // 设置窗口初始大小为屏幕的2/3，并居中显示
         val screen = remember { Toolkit.getDefaultToolkit().screenSize }
         ScreenSize = (screen.width * 2 / 3).dp to  (screen.height * 2 / 3).dp
@@ -77,35 +71,114 @@ fun main() {
             height = ScreenSize.second,
             position = WindowPosition(Alignment.Center)
         )
+        val taskEntries by ClientTaskManager.entries.collectAsState()
+        val activeTasks = remember(taskEntries) { taskEntries.filter(::isActiveTask) }
+        var showExitConfirm by remember { mutableStateOf(false) }
+
+        fun performExit(terminateTasks: Boolean) {
+            if (terminateTasks) {
+                activeTasks.forEach { entry ->
+                    ClientTaskManager.cancel(entry.runId, "应用关闭，任务已终止")
+                }
+            }
+            LocalMcProxy.stop()
+            exitApplication()
+        }
         Window(
             onCloseRequest = {
-                LocalMcProxy.stop()
-                exitApplication()
+                if (activeTasks.isNotEmpty()) {
+                    showExitConfirm = true
+                } else {
+                    performExit(false)
+                }
             },
             title = "RDI ${Const.VERSION_NUMBER}",
             icon = windowIcon,
             state = windowState
         ) {
-            val initScreenName = System.getProperty("rdi.init.screen")?.trim()
-            val startDestination: Any = when (initScreenName) {
-                "wd" -> Wardrobe
-                "mail" -> Mail
-                "hl" -> HostList
-                "wl" -> WorldList
-                "ml" -> ModpackList
-                else -> Login
+            MaterialTheme(typography = AppTypography) {
+                val initScreenName = System.getProperty("rdi.init.screen")?.trim()
+                val startDestination: Any = when (initScreenName) {
+                    "wd" -> Wardrobe
+                    "mail" -> Mail
+                    "hl" -> HostList
+                    "wl" -> WorldList
+                    "ml" -> ModpackList
+                    else -> Login
+                }
+                AppNavigation(startDestination = startDestination)
+                if (showExitConfirm) {
+                    AlertDialog(
+                        onDismissRequest = { showExitConfirm = false },
+                        title = { Text("仍有任务正在执行") },
+                        text = {
+                            Text(
+                                buildExitConfirmMessage(activeTasks)
+                            )
+                        },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    showExitConfirm = false
+                                    performExit(true)
+                                }
+                            ) {
+                                Text("结束任务并退出")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = { showExitConfirm = false }
+                            ) {
+                                Text("继续等待")
+                            }
+                        }
+                    )
+                }
             }
-            AppNavigation(startDestination = startDestination)
         }
     }
 }
 
-private fun clearPackProcDirOnStartup()= GlobalScope.launch {
-    val packProcDir = ClientDirs.packProcDir
-    runCatching {
-        packProcDir.deleteRecursivelyNoSymlink()
-        packProcDir.mkdirs()
+private fun initializeLoggedAccountOnStartup() {
+    System.getProperty("rdi.account")?.let {
+        loggedAccount = serdesJson.decodeFromString(it.decodeBase64)
     }
+    System.getProperty("rdi.jwt")?.let {
+        loggedAccount.jwt = it
+    }
+    if (loggedAccount.jwt == null && loggedAccount != RAccount.DEFAULT) {
+        GlobalScope.launch {
+            val jwt = PlayerService.getJwt(loggedAccount.qq, loggedAccount.pwd)
+            loggedAccount.jwt = jwt
+        }
+    }
+}
+
+private fun isActiveTask(entry: Task2Entry): Boolean = !entry.status.isTerminal
+
+private fun buildExitConfirmMessage(activeTasks: List<Task2Entry>): String {
+    val titles = activeTasks.take(3).joinToString("\n") { "• ${it.task.title}" }
+    val moreText = if (activeTasks.size > 3) "\n等${activeTasks.size}个任务" else ""
+    return if (titles.isBlank()) {
+        "${activeTasks.size}个任务运行中。\n要立刻终止任务并退出，还是等待任务完成？"
+    } else {
+        "${activeTasks.size}个任务运行中：\n$titles$moreText\n\n要立刻终止任务并退出，还是等待任务完成？"
+    }
+}
+
+private fun clearPackProcDirOnStartup() = GlobalScope.launch {
+    withContext(Dispatchers.IO) {
+        val packProcDir = ClientDirs.packProcDir
+        runCatching {
+            packProcDir.deleteRecursivelyNoSymlink()
+            packProcDir.mkdirs()
+        }
+    }
+}
+
+private fun warmUpHwSpecCacheOnStartup() = GlobalScope.launch(Dispatchers.IO) {
+    warmUpHwSpecCache()
 }
 
 private fun clearIncompleteModDownloadsOnStartup() {
@@ -120,142 +193,5 @@ private fun clearIncompleteModDownloadsOnStartup() {
                     file.delete()
                 }
             }
-    }
-}
-
-private fun installPackDropTarget(
-    window: java.awt.Window,
-    onOpenTask: (Task) -> Unit
-) {
-    val uriListFlavor = runCatching { DataFlavor("text/uri-list;class=java.lang.String") }.getOrNull()
-    val listener = object : DropTargetAdapter() {
-        override fun dragEnter(dtde: DropTargetDragEvent) {
-            if (supportsFileDrop(dtde.currentDataFlavors, uriListFlavor)) {
-                dtde.acceptDrag(DnDConstants.ACTION_COPY)
-            } else {
-                dtde.rejectDrag()
-            }
-        }
-
-        override fun dragOver(dtde: DropTargetDragEvent) {
-            if (supportsFileDrop(dtde.currentDataFlavors, uriListFlavor)) {
-                dtde.acceptDrag(DnDConstants.ACTION_COPY)
-            } else {
-                dtde.rejectDrag()
-            }
-        }
-
-        override fun drop(dtde: DropTargetDropEvent) {
-            val files = when {
-                dtde.isDataFlavorSupported(DataFlavor.javaFileListFlavor) -> {
-                    dtde.acceptDrop(DnDConstants.ACTION_COPY)
-                    dtde.transferable.getTransferData(DataFlavor.javaFileListFlavor) as? List<*>
-                }
-                uriListFlavor != null && dtde.isDataFlavorSupported(uriListFlavor) -> {
-                    dtde.acceptDrop(DnDConstants.ACTION_COPY)
-                    val data = dtde.transferable.getTransferData(uriListFlavor) as? String
-                    data?.lines()
-                        ?.map { it.trim() }
-                        ?.filter { it.isNotBlank() && !it.startsWith("#") }
-                        ?.mapNotNull { line ->
-                            runCatching { java.io.File(URI(line)) }.getOrNull()
-                        }
-                }
-                dtde.isDataFlavorSupported(DataFlavor.stringFlavor) -> {
-                    dtde.acceptDrop(DnDConstants.ACTION_COPY)
-                    val data = dtde.transferable.getTransferData(DataFlavor.stringFlavor) as? String
-                    data?.lines()
-                        ?.map { it.trim() }
-                        ?.filter { it.isNotBlank() && !it.startsWith("#") }
-                        ?.mapNotNull { line ->
-                            runCatching { java.io.File(URI(line)) }.getOrNull()
-                        }
-                }
-                else -> null
-            } ?: return
-            val packFiles = files.filterIsInstance<java.io.File>()
-                .filter { it.name.endsWith(".rdipack", ignoreCase = true) }
-            if (packFiles.isEmpty()) return
-            val task = if (packFiles.size == 1) {
-                buildImportPackTask(packFiles.first())
-            } else {
-                Task.Sequence(
-                    name = "导入整合包",
-                    subTasks = packFiles.map { buildImportPackTask(it) }
-                )
-            }
-            onOpenTask(task)
-        }
-    }
-    window.dropTarget = DropTarget(window, DnDConstants.ACTION_COPY, listener, true)
-    (window as? java.awt.Container)?.let { container ->
-        attachDropTargetRecursively(container, listener)
-    }
-    (window as? javax.swing.RootPaneContainer)?.let { root ->
-        attachDropTargetRecursively(root.contentPane, listener)
-        attachDropTargetRecursively(root.glassPane as? java.awt.Container, listener)
-    }
-}
-
-private fun supportsFileDrop(
-    flavors: Array<DataFlavor>,
-    uriListFlavor: DataFlavor?
-): Boolean {
-    return flavors.any { flavor ->
-        flavor == DataFlavor.javaFileListFlavor ||
-            (uriListFlavor != null && flavor == uriListFlavor) ||
-            flavor == DataFlavor.stringFlavor
-    }
-}
-
-private fun attachDropTargetRecursively(
-    container: java.awt.Container?,
-    listener: DropTargetAdapter
-) {
-    if (container == null) return
-    container.dropTarget = DropTarget(container, listener)
-    container.components.forEach { component ->
-        component.dropTarget = DropTarget(component, listener)
-        if (component is java.awt.Container) {
-            attachDropTargetRecursively(component, listener)
-        }
-    }
-}
-
-private fun buildImportPackTask(zipFile: java.io.File): Task {
-    return Task.Leaf("导入 ${zipFile.name}") { ctx ->
-        val targetRoot = ClientDirs.mcDir.canonicalFile
-        val totalFiles = ZipFile(zipFile).use { zip ->
-            zip.entries().asSequence().count { !it.isDirectory }
-        }.coerceAtLeast(1)
-        var processed = 0
-        ZipFile(zipFile).use { zip ->
-            zip.entries().asSequence().forEach { entry ->
-                val name = entry.name.replace('\\', '/').trimStart('/')
-                if (name.isEmpty()) return@forEach
-                val outFile = targetRoot.resolve(name)
-                val normalized = outFile.canonicalFile
-                if (!normalized.path.startsWith(targetRoot.path)) return@forEach
-                if (entry.isDirectory) {
-                    normalized.mkdirs()
-                } else {
-                    normalized.parentFile?.mkdirs()
-                    zip.getInputStream(entry).use { input ->
-                        Files.newOutputStream(
-                            normalized.toPath(),
-                            StandardOpenOption.CREATE,
-                            StandardOpenOption.TRUNCATE_EXISTING
-                        ).use { output ->
-                            input.copyTo(output)
-                        }
-                    }
-                    processed += 1
-                    ctx.emitProgress(
-                        TaskProgress("解压 ${entry.name}", processed.toFloat() / totalFiles)
-                    )
-                }
-            }
-        }
-        ctx.emitProgress(TaskProgress("完成", 1f))
     }
 }

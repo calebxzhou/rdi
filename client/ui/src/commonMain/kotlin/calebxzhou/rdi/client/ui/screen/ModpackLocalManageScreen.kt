@@ -22,12 +22,12 @@ import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
-import calebxzhou.rdi.client.service.ModpackService.startInstall
+import calebxzhou.rdi.client.service.ModpackService.modpackInstallTaskKey
+import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.CodeEditor
@@ -38,7 +38,6 @@ import calebxzhou.rdi.client.ui.comp.validateCodeContent
 import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.model.Task
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,9 +84,10 @@ private val localConfigEditableExtensions = setOf(
 @Composable
 fun ModpackLocalManageScreen(
     onBack: () -> Unit,
-    onOpenTask: ((Task) -> Unit)? = null,
     onOpenPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenModpackList: (() -> Unit)? = null
+    onOpenModpackList: (() -> Unit)? = null,
+    onOpenMcVersionManage: (() -> Unit)? = null,
+    onOpenTaskList: ((String) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
@@ -95,6 +95,8 @@ fun ModpackLocalManageScreen(
     var localDirs by remember { mutableStateOf<List<ModpackLocalDir>>(emptyList()) }
     var selectedPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
     var packActionMessage by remember { mutableStateOf<String?>(null) }
+    var deleteConfirmPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
+    var deleteIncludedMods by remember { mutableStateOf(false) }
     var reinstallConfirmPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
     var copyDataSourcePack by remember { mutableStateOf<ModpackLocalDir?>(null) }
     var copyDataTargetVersionId by remember { mutableStateOf<String?>(null) }
@@ -356,19 +358,10 @@ fun ModpackLocalManageScreen(
                     "删除",
                     size = size,
                     bgColor = MaterialColor.RED_900.color,
-                    longPressDelay = 5000L,
                     enabled = selected != null
                 ) {
-                    val packdir = selected ?: return@CircleIconButton
-                    scope.launch {
-                        val result = withContext(Dispatchers.IO) {
-                            runCatching { packdir.dir.deleteRecursivelyNoSymlink() }
-                        }
-                        if (result.isFailure) {
-                            errorMessage = "删除失败: ${result.exceptionOrNull()?.message}"
-                        }
-                        reload()
-                    }
+                    deleteConfirmPack = selected
+                    deleteIncludedMods = false
                 }
                 if (isDesktop) {
                     CircleIconButton(
@@ -381,20 +374,18 @@ fun ModpackLocalManageScreen(
                             val task = withContext(Dispatchers.IO) {
                                 runCatching {
                                     packActionMessage = "开始导入..."
-                                    importRdiModpack { msg -> packActionMessage = msg }
+                                    importRdiModpackTask2 { msg -> packActionMessage = msg }
                                 }
                             }.getOrElse {
                                 errorMessage = it.message ?: "导入失败"
                                 packActionMessage = null
                                 return@launch
                             }
-                            if (onOpenTask != null) {
-                                onOpenTask(task)
-                                reload()
-                                packActionMessage = "导入完成"
+                            val runId = ClientTaskManager.submit(task)
+                            if (onOpenTaskList != null) {
+                                onOpenTaskList(runId)
                             } else {
-                                errorMessage = "暂不支持在此页面下载"
-                                packActionMessage = null
+                                packActionMessage = "已加入任务列表"
                             }
                         }
                     }
@@ -520,6 +511,12 @@ fun ModpackLocalManageScreen(
         MainColumn {
             TitleRow("整合包管理", onBack) {
                 errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+                CircleIconButton(
+                    icon = "\uDB81\uDFA1",
+                    tooltip = "MC资源"
+                ) {
+                    onOpenMcVersionManage?.invoke()
+                }
                 CircleIconButton(
                     "\uDB86\uDDD8",
                     "下载整合包"
@@ -746,6 +743,53 @@ fun ModpackLocalManageScreen(
         }
     }
 
+    deleteConfirmPack?.let { packdir ->
+        AlertDialog(
+            onDismissRequest = { deleteConfirmPack = null },
+            title = { Text("确认删除") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        "确认删除整合包${packdir.vo.name} ${packdir.verName}吗\n" +
+                            "截图、单机存档等数据将消失，重要数据请备份"
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                deleteIncludedMods = !deleteIncludedMods
+                            },
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(
+                            checked = deleteIncludedMods,
+                            onCheckedChange = { deleteIncludedMods = it }
+                        )
+                        Text("一并删除包中含有的Mod")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmPack = null }) { Text("取消") }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleteConfirmPack = null
+                    scope.launch {
+                        val result = ModpackService.deleteLocalPack(
+                            packdir = packdir,
+                            deleteIncludedMods = deleteIncludedMods
+                        )
+                        if (result.isFailure) {
+                            errorMessage = "删除失败: ${result.exceptionOrNull()?.message}"
+                        }
+                        reload()
+                    }
+                }) { Text("确认") }
+            }
+        )
+    }
+
     reinstallConfirmPack?.let { packdir ->
         AlertDialog(
             onDismissRequest = { reinstallConfirmPack = null },
@@ -770,11 +814,14 @@ fun ModpackLocalManageScreen(
                             errorMessage = "未找到对应版本信息，可能已被删除"
                             return@launch
                         }
-                        val task = version.startInstall(packdir.vo.mcVer, packdir.vo.modloader, packdir.vo.name)
-                        if (onOpenTask != null) {
-                            onOpenTask(task)
+                        val runId = ClientTaskManager.submit(
+                            task = version.startInstallTask2(packdir.vo.mcVer, packdir.vo.modloader, packdir.vo.name),
+                            dedupeKey = modpackInstallTaskKey(version.modpackId, version.name)
+                        )
+                        if (onOpenTaskList != null) {
+                            onOpenTaskList(runId)
                         } else {
-                            errorMessage = "暂不支持在此页面下载"
+                            packActionMessage = "已加入任务列表"
                         }
                     }
                 }) { Text("确认重装") }

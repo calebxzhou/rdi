@@ -2,6 +2,7 @@ package calebxzhou.rdi.common
 
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
@@ -35,6 +36,9 @@ val serdesJson = Json {
 
 inline val <reified T> T.json: String
     get() = serdesJson.encodeToString<T>(this)
+
+inline fun <reified T> String.deser(): Result<T> = runCatching { serdesJson.decodeFromString<T>(this) }
+
 object ObjectIdSerializer : KSerializer<ObjectId> {
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("ObjectId", PrimitiveKind.STRING)
 

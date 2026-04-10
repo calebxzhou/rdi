@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client.ui.screen
 
 import calebxzhou.rdi.client.service.ModpackLocalDir
-import calebxzhou.rdi.common.model.Task
+import calebxzhou.rdi.common.model.Task2
 import java.io.File
 
 /**
@@ -12,9 +12,9 @@ import java.io.File
 
 expect fun selectRdiPackFiles(): List<File>?
 
-expect fun buildImportPackTask(zipFile: File): Task
+expect fun buildImportPackTask2(zipFile: File): Task2
 
-expect suspend fun importRdiModpack(onProgress: (String) -> Unit): Task
+expect suspend fun importRdiModpackTask2(onProgress: (String) -> Unit): Task2
 
 expect suspend fun exportRdiModpack(
     packdir: ModpackLocalDir,

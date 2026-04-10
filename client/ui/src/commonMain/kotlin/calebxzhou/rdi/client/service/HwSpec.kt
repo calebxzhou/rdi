@@ -3,12 +3,17 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.common.hwspec.HwSpec
 import calebxzhou.rdi.common.hwspec.HwSpec.*
+import calebxzhou.rdi.common.serdesJson
 import oshi.SystemInfo
 import oshi.util.EdidUtil
 
 /**
  * calebxzhou @ 2026-02-18 12:54
  */
+private val hwSpecCacheLock = Any()
+@Volatile
+private var cachedHwSpecJson: String? = null
+
 fun fetchHwSpec(): HwSpec{
     val systemInfo = SystemInfo()
     val hal = systemInfo.hardware
@@ -62,6 +67,19 @@ fun fetchHwSpec(): HwSpec{
         display,
         displayModes
     )
+}
+
+fun getCachedOrFetchHwSpecJson(): String {
+    cachedHwSpecJson?.let { return it }
+    return synchronized(hwSpecCacheLock) {
+        cachedHwSpecJson ?: serdesJson.encodeToString(fetchHwSpec()).also {
+            cachedHwSpecJson = it
+        }
+    }
+}
+
+fun warmUpHwSpecCache() {
+    runCatching { getCachedOrFetchHwSpecJson() }
 }
 
 expect fun getDisplayModes(): List<String>

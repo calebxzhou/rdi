@@ -166,7 +166,7 @@ fun WorldBirdViewScreen(
                 val loaded = activeSource.listDimensions().distinct()
                 dimensions = loaded
                 if (loaded.isEmpty()) {
-                    error = "该地图没有可用维度数据"
+                    error = "该房间没有可用维度数据"
                     return@launch
                 }
                 if (selectedDimension !in loaded) {
@@ -191,7 +191,7 @@ fun WorldBirdViewScreen(
                 clearSurfaceCaches()
                 error = message
             } catch (t: Throwable) {
-                error = "提交地图缓存构建失败: ${t.message ?: "请求失败"}"
+                error = "提交房间缓存构建失败: ${t.message ?: "请求失败"}"
             }
         }
     }
@@ -494,7 +494,7 @@ fun WorldBirdViewScreen(
                 Text("比例尺 1:${blocksPerPixel}")
                 Space8w()
                 if (source?.supportsBuildAllSurfaceCaches == true) {
-                    CircleIconButton("\uDB83\uDCBD", "构建地图缓存") { requestBuildAllSurfaceCaches() }
+                    CircleIconButton("\uDB83\uDCBD", "构建房间缓存") { requestBuildAllSurfaceCaches() }
                 }
             }
             Spacer(modifier = Modifier.height(12.dp))

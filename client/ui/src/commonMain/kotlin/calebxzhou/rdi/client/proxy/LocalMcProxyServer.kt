@@ -32,11 +32,11 @@ internal object LocalMcProxyCommon {
         val normalized = gameAddr.removePrefix("tcp://").removePrefix("udp://")
         val delimiter = normalized.lastIndexOf(':')
         require(delimiter > 0 && delimiter < normalized.lastIndex) {
-            "地图地址无效: $gameAddr"
+            "房间地址无效: $gameAddr"
         }
         val host = normalized.substring(0, delimiter)
         val port = normalized.substring(delimiter + 1).toIntOrNull()
-            ?: throw IllegalArgumentException("地图端口无效: $gameAddr")
+            ?: throw IllegalArgumentException("房间端口无效: $gameAddr")
         return ProxyEndpoint(host, port)
     }
 }

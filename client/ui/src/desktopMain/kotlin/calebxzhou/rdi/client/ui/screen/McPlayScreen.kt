@@ -23,7 +23,7 @@ import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
-import calebxzhou.rdi.common.model.TaskProgress
+import calebxzhou.rdi.common.model.Task2Progress
 import kotlinx.coroutines.launch
 
 /**
@@ -56,13 +56,13 @@ fun McPlayScreen(
         scope.launch {
             try {
                 if (manageHostExtraMods) {
-                    consoleState.append("[RDI] 检查地图附加Mod...")
+                    consoleState.append("[RDI] 检查房间附加Mod...")
                     syncHostExtraMods(versionId, extraMods) { progress ->
                         scope.launch {
                             appendSyncProgress(consoleState, progress)
                         }
                     }
-                    consoleState.append("[RDI] 地图附加Mod已同步")
+                    consoleState.append("[RDI] 房间附加Mod已同步")
                 }
                 val launchJvmArgs = buildList {
                     addAll(jvmArgs.filterNot { it.startsWith("-Drdi.play=") })
@@ -116,7 +116,7 @@ fun McPlayScreen(
     }
 }
 
-private fun appendSyncProgress(consoleState: calebxzhou.rdi.client.ui.comp.ConsoleState, progress: TaskProgress) {
+private fun appendSyncProgress(consoleState: calebxzhou.rdi.client.ui.comp.ConsoleState, progress: Task2Progress) {
     val suffix = progress.fraction
         ?.let { fraction -> " ${(fraction * 100).toInt()}%" }
         .orEmpty()
@@ -125,7 +125,7 @@ private fun appendSyncProgress(consoleState: calebxzhou.rdi.client.ui.comp.Conso
 
 private fun String.withGameAddr(gameAddr: String): String {
     val lines = split(Regex("\\r?\\n")).toMutableList()
-    require(lines.size >= 2) { "RDI参数错误，请重新启动地图" }
+    require(lines.size >= 2) { "RDI参数错误，请重新启动房间" }
     lines[1] = gameAddr
     return lines.joinToString("\n")
 }

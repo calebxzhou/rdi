@@ -13,8 +13,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import calebxzhou.rdi.client.R
 import calebxzhou.rdi.client.android.MainActivity
-import calebxzhou.rdi.client.ui.screen.TaskExecutionRuntime
-import calebxzhou.rdi.client.ui.screen.TaskExecutionSnapshot
+import calebxzhou.rdi.client.ui.screen.ClientTaskManager
+import calebxzhou.rdi.common.model.Task2Entry
+import calebxzhou.rdi.common.model.Task2Status
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -36,31 +37,32 @@ class TaskExecutionService : Service() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        val snapshot = TaskExecutionRuntime.state.value
-        if (!snapshot.running) {
+        val entry = currentForegroundEntry(ClientTaskManager.entries.value)
+        if (entry == null) {
             stopSelf()
             return
         }
-        startForegroundInternal(snapshot)
+        startForegroundInternal(entry)
         serviceScope.launch {
-            TaskExecutionRuntime.state.collectLatest { state ->
-                if (!state.running) {
+            ClientTaskManager.entries.collectLatest { entries ->
+                val current = currentForegroundEntry(entries)
+                if (current == null) {
                     ServiceCompat.stopForeground(this@TaskExecutionService, ServiceCompat.STOP_FOREGROUND_REMOVE)
                     stopSelf()
-                    return@collectLatest
+                } else {
+                    updateNotification(current)
                 }
-                updateNotification(state)
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val snapshot = TaskExecutionRuntime.state.value
-        if (!snapshot.running) {
+        val entry = currentForegroundEntry(ClientTaskManager.entries.value)
+        if (entry == null) {
             stopSelf()
             return START_NOT_STICKY
         }
-        startForegroundInternal(snapshot)
+        startForegroundInternal(entry)
         return START_NOT_STICKY
     }
 
@@ -72,7 +74,7 @@ class TaskExecutionService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun startForegroundInternal(snapshot: TaskExecutionSnapshot) {
+    private fun startForegroundInternal(entry: Task2Entry) {
         val serviceType = if (Build.VERSION.SDK_INT >= 34) {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
         } else {
@@ -81,17 +83,18 @@ class TaskExecutionService : Service() {
         ServiceCompat.startForeground(
             this,
             NOTIFICATION_ID,
-            buildNotification(snapshot),
+            buildNotification(entry),
             serviceType
         )
     }
 
-    private fun updateNotification(snapshot: TaskExecutionSnapshot) {
+    private fun updateNotification(entry: Task2Entry) {
         val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, buildNotification(snapshot))
+        manager.notify(NOTIFICATION_ID, buildNotification(entry))
     }
 
-    private fun buildNotification(snapshot: TaskExecutionSnapshot): Notification {
+    private fun buildNotification(entry: Task2Entry): Notification {
+        val snapshot = entry.snapshot
         val percent = snapshot.currentFraction?.coerceIn(0f, 1f)
         val percentText = percent?.let {
             String.format(Locale.US, "%.1f%%", it * 100f)
@@ -113,7 +116,7 @@ class TaskExecutionService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(snapshot.taskName.ifBlank { "RDI任务执行中" })
+            .setContentTitle(snapshot.taskTitle.ifBlank { "RDI任务执行中" })
             .setContentText(contentText)
             .setStyle(NotificationCompat.BigTextStyle().bigText(contentText))
             .setContentIntent(contentIntent)
@@ -126,6 +129,11 @@ class TaskExecutionService : Service() {
                 percent == null
             )
             .build()
+    }
+
+    private fun currentForegroundEntry(entries: List<Task2Entry>): Task2Entry? {
+        return entries.firstOrNull { it.status == Task2Status.RUNNING }
+            ?: entries.firstOrNull { it.status == Task2Status.QUEUED }
     }
 
     private fun createNotificationChannel() {

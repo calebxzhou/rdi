@@ -12,6 +12,8 @@ data class TaskProgress(
     val fraction: Float? = null
 )
 
+fun TaskProgress.toTask2Progress() = Task2Progress(message, fraction)
+
 class TaskContext(
     val emitProgress: (TaskProgress) -> Unit,
     val isCancelled: () -> Boolean = { false }
@@ -66,4 +68,26 @@ suspend fun Task.execute( ctx: TaskContext) {
             }
         }
     }
+}
+
+fun Task.toTask2(): Task2 = when (this) {
+    is Task.Leaf -> Task2.Leaf(title = name) { ctx ->
+        execute(
+            TaskContext(
+                emitProgress = { progress -> ctx.emit(progress.toTask2Progress()) },
+                isCancelled = ctx.isCancelled
+            )
+        )
+    }
+
+    is Task.Group -> Task2.Group(
+        title = name,
+        children = subTasks.map { it.toTask2() },
+        parallelism = parallelism
+    )
+
+    is Task.Sequence -> Task2.Sequence(
+        title = name,
+        children = subTasks.map { it.toTask2() }
+    )
 }

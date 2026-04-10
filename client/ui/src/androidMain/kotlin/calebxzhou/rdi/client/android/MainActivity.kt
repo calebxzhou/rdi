@@ -25,20 +25,28 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
+import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.service.ClientDirs
+import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.checkLauncherInstalled
 import calebxzhou.rdi.client.ui.openUrl
 import calebxzhou.rdi.client.ui.screen.Login
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.DL_MOD_DIR
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     companion object {
         private var processActivityBootstrapped = false
     }
+
+    private val startupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val storagePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -84,6 +92,8 @@ class MainActivity : ComponentActivity() {
         AndroidBootstrap.initialize(this)
         LocalCredentials.init(this)
         DL_MOD_DIR = ClientDirs.dlModsDir
+        clearPackProcDirOnStartup()
+        warmUpHwSpecCacheOnStartup()
         setContent {
             val showFclDialog = remember { mutableStateOf(!checkLauncherInstalled()) }
             MaterialTheme {
@@ -118,6 +128,22 @@ class MainActivity : ComponentActivity() {
             }
         }
 
+    }
+
+    private fun clearPackProcDirOnStartup() {
+        startupScope.launch {
+            val packProcDir = ClientDirs.packProcDir
+            runCatching {
+                packProcDir.deleteRecursivelyNoSymlink()
+                packProcDir.mkdirs()
+            }
+        }
+    }
+
+    private fun warmUpHwSpecCacheOnStartup() {
+        startupScope.launch {
+            warmUpHwSpecCache()
+        }
     }
 
     private fun requestNotificationPermission() {

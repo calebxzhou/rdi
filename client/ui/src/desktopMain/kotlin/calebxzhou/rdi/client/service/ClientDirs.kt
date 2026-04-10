@@ -13,4 +13,5 @@ actual object ClientDirs {
     actual val assetsDir: File = mcDir.resolve("assets").also { it.mkdirs() }
     actual val assetIndexesDir: File = assetsDir.resolve("indexes").also { it.mkdirs() }
     actual val assetObjectsDir: File = assetsDir.resolve("objects").also { it.mkdirs() }
+    actual val toolsDir: File = RDIClient.DIR.resolve("tools")
 }

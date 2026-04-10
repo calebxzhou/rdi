@@ -33,12 +33,12 @@ import calebxzhou.rdi.client.model.firstLoader
 import calebxzhou.rdi.client.model.firstLoaderVersion
 import calebxzhou.rdi.client.model.metadata
 import calebxzhou.rdi.client.service.GameService
+import calebxzhou.rdi.client.ui.screen.ClientTaskManager
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.isDesktop
 import calebxzhou.rdi.client.ui.loadImageBitmap
 import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.model.Task
 
 /**
  * calebxzhou @ 2026-01-29 18:44
@@ -49,13 +49,17 @@ import calebxzhou.rdi.common.model.Task
 fun McVersionCard(
     mcver: McVersion,
     highlight: Boolean = false,
-    onOpenTask: ((Task) -> Unit)? = null,
     onOpenFclDialog: (String, String) -> Unit,
+    onOpenTaskList: ((String) -> Unit)? = null,
 ) {
     val iconBitmap = remember(mcver) {
         loadImageBitmap(mcver.icon)
     }
     val shape = RoundedCornerShape(16.dp)
+    fun submitTask(task: calebxzhou.rdi.common.model.Task2) {
+        val runId = ClientTaskManager.submit(task)
+        onOpenTaskList?.invoke(runId)
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -120,26 +124,26 @@ fun McVersionCard(
                 ) {
                     if (isDesktop) {
                         val enabled = mcver.enabled
-                        CircleIconButton("\uF019", "下载全部所需文件", enabled = enabled, showText = false) {
-                            onOpenTask?.invoke(GameService.downloadVersion(mcver, mcver.firstLoader))
+                        CircleIconButton("\uF019", "下载全部", enabled = enabled) {
+                            submitTask(GameService.downloadVersionTask2(mcver, mcver.firstLoader))
                         }
-                        CircleIconButton("\uF305", "仅下载MC核心", bgColor = Color.Gray, enabled = enabled, showText = false) {
-                            onOpenTask?.invoke(GameService.downloadClient(mcver.metadata))
+                        /*CircleIconButton("\uF305", "仅下载MC核心", bgColor = Color.Gray, enabled = enabled, showText = false) {
+                            submitTask(GameService.downloadClientTask2(mcver.metadata))
                         }
                         CircleIconButton("\uDB84\uDE5F", "仅下载运行库", bgColor = Color.Gray, enabled = enabled, showText = false) {
-                            onOpenTask?.invoke(GameService.downloadLibraries(mcver.metadata.libraries))
+                            submitTask(GameService.downloadLibrariesTask2(mcver.metadata.libraries))
                         }
                         CircleIconButton("\uF001", "仅下载音频资源", bgColor = Color.Gray, enabled = enabled, showText = false) {
-                            onOpenTask?.invoke(GameService.downloadAssets(mcver.metadata))
-                        }
+                            submitTask(GameService.downloadAssetsTask2(mcver.metadata))
+                        }*/
                         mcver.loaderVersions.forEach { (loader, _) ->
                             CircleIconButton(
                                 "\uEEFF",
-                                "安装${loader.name.lowercase()}",
-                                bgColor = Color.Gray,
-                                enabled = enabled, showText = false
+                                "安装最新${loader.name.lowercase()}",
+                                bgColor = MaterialColor.TEAL_900.color,
+                                enabled = enabled
                             ) {
-                                onOpenTask?.invoke(GameService.downloadLoader(mcver, loader))
+                                submitTask(GameService.downloadLoaderTask2(mcver, loader))
                             }
                         }
                     } else {

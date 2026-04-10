@@ -7,16 +7,18 @@ import androidx.navigation.compose.composable
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.mykotutils.std.readAllString
 import calebxzhou.rdi.RDIClient
-import calebxzhou.rdi.client.service.fetchHwSpec
+import calebxzhou.rdi.client.service.getCachedOrFetchHwSpecJson
 import calebxzhou.rdi.client.ui.screen.HostList
 import calebxzhou.rdi.client.ui.screen.McPlayView
+import calebxzhou.rdi.client.ui.screen.Menu
 import calebxzhou.rdi.client.ui.screen.ModpackList
+import calebxzhou.rdi.client.ui.screen.TaskList
 import calebxzhou.rdi.client.ui.screen.ModpackUpload
-import calebxzhou.rdi.client.ui.screen.TaskView
-import calebxzhou.rdi.common.hwspec.HwSpec
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
+import java.awt.FileDialog
+import java.awt.Frame
 import java.awt.Toolkit
 import java.awt.datatransfer.StringSelection
 import java.awt.image.BufferedImage
@@ -81,6 +83,60 @@ actual suspend fun pickLocalMinecraftWorldDir(): String? =
         val result = chooser.showOpenDialog(null)
         if (result != JFileChooser.APPROVE_OPTION) return@withContext null
         chooser.selectedFile?.takeIf { it.isDirectory }?.absolutePath
+    }
+
+actual suspend fun pickLocalModpackFile(): File? =
+    withContext(Dispatchers.IO) {
+        val owner = Frame()
+        try {
+            val dialog = FileDialog(owner, "选择客户端安装包", FileDialog.LOAD).apply {
+                directory = File(System.getProperty("user.home"), "Downloads").absolutePath
+                file = "*.zip;*.mrpack"
+                filenameFilter = java.io.FilenameFilter { dir, name ->
+                    val target = File(dir, name)
+                    target.isDirectory ||
+                        name.endsWith(".zip", ignoreCase = true) ||
+                        name.endsWith(".mrpack", ignoreCase = true)
+                }
+            }
+            dialog.isVisible = true
+            val dir = dialog.directory ?: return@withContext null
+            val name = dialog.file ?: return@withContext null
+            val selected = File(dir, name)
+            selected.takeIf {
+                it.exists() && (
+                    it.isDirectory ||
+                        it.name.endsWith(".zip", ignoreCase = true) ||
+                        it.name.endsWith(".mrpack", ignoreCase = true)
+                    )
+            }
+        } finally {
+            owner.dispose()
+        }
+    }
+
+actual suspend fun pickLocalZipFile(title: String): File? =
+    withContext(Dispatchers.IO) {
+        val owner = Frame()
+        try {
+            val dialog = FileDialog(owner, title, FileDialog.LOAD).apply {
+                directory = File(System.getProperty("user.home"), "Downloads").absolutePath
+                file = "*.zip"
+                filenameFilter = java.io.FilenameFilter { dir, name ->
+                    val target = File(dir, name)
+                    target.isDirectory || name.endsWith(".zip", ignoreCase = true)
+                }
+            }
+            dialog.isVisible = true
+            val dir = dialog.directory ?: return@withContext null
+            val name = dialog.file ?: return@withContext null
+            val selected = File(dir, name)
+            selected.takeIf {
+                it.exists() && it.isFile && it.name.endsWith(".zip", ignoreCase = true)
+            }
+        } finally {
+            owner.dispose()
+        }
     }
 
 actual fun checkCanCreateSymlink(): Boolean {
@@ -300,10 +356,7 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
         }
     }
     composable<ModpackUpload> {
-        val preset = androidx.compose.runtime.remember {
-            ModpackUploadStore.preset.also { ModpackUploadStore.preset = null }
-        }
-        calebxzhou.rdi.client.ui.screen.ModpackUploadScreen(
+        calebxzhou.rdi.client.ui.screen.ModpackUploadScreen2(
             onBack = {
                 navController.navigate(ModpackList) {
                     popUpTo<ModpackList> { inclusive = true }
@@ -311,21 +364,17 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
                     restoreState = false
                 }
             },
-            onOpenTask = { task, autoClose, onDone ->
-                TaskStore.current = task
-                TaskStore.autoClose = autoClose
-                TaskStore.onDone = onDone
-                TaskStore.onBack = { navController.popBackStack() }
-                navController.navigate(TaskView)
-            },
-            updateModpackId = preset?.updateModpackId,
-            updateModpackName = preset?.updateModpackName
+            onUploadSubmitted = { runId ->
+                navController.navigate(TaskList(runId)) {
+                    popUpTo<ModpackUpload> { inclusive = true }
+                    launchSingleTop = true
+                    restoreState = false
+                }
+            }
         )
     }
 }
 
 actual fun getHwSpecJson(): String {
-    return calebxzhou.rdi.common.serdesJson.encodeToString<HwSpec>(
-        fetchHwSpec()
-    )
+    return getCachedOrFetchHwSpecJson()
 }

@@ -7,8 +7,6 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.net.downloadFileFrom
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.security.MessageDigest
 
 object UpdateService {
@@ -26,7 +24,6 @@ object UpdateService {
                 }
             }
 
-            var anyUpdated = false
             mcTargets.forEach { (slug, mcFile) ->
                 val mcHash = server.makeRequest<String>("update/mc/$slug/hash").data
                     ?: throw RequestError("获取MC核心版本信息失败: $slug")
@@ -45,14 +42,23 @@ object UpdateService {
                         onStatus("更新失败，请检查网络")
                         return@runCatching
                     }
-                    anyUpdated = true
                     onStatus("${mcFile.name} 更新完成")
                 }
             }
 
-            onStatus(if (anyUpdated) "核心更新完成" else "当前已是最新版核心")
+            val platformSync = syncPlatformUpdates(onStatus, onDetail)
+            if (!platformSync.success) {
+                onStatus("更新失败，请检查网络")
+                return@runCatching
+            }
+            if (platformSync.requiresRestart) {
+                onStatus("更新完成，需要重启")
+                onRestart?.invoke()
+                return@runCatching
+            }
+
+            onStatus("当前已是最新版核心")
             onDetail("")
-            onRestart?.let { _ -> } // Android does not use restart in this flow.
         }.onFailure {
             onStatus("更新流程遇到错误")
             it.printStackTrace()
@@ -60,7 +66,7 @@ object UpdateService {
         }
     }
 
-    private suspend fun downloadAndReplaceCore(
+    internal suspend fun downloadAndReplaceCore(
         targetFile: File,
         downloadUrl: String,
         expectedSha: String,
@@ -101,44 +107,43 @@ object UpdateService {
             return false
         }
 
-        runCatching {
-            targetFile.parentFile?.mkdirs()
-            if (targetFile.exists()) {
-                targetFile.delete()
-            }
-            Files.move(
-                tempFile.toPath(),
-                targetFile.toPath(),
-                StandardCopyOption.REPLACE_EXISTING
-            )
-        }.recoverCatching {
-            Files.copy(
-                tempFile.toPath(),
-                targetFile.toPath(),
-                StandardCopyOption.REPLACE_EXISTING
-            )
-            tempFile.delete()
-        }.getOrElse {
-            tempFile.delete()
-            onDetail("替换核心文件失败")
-            return false
+        val replaced = replaceDownloadedUpdateFile(
+            tempFile = tempFile,
+            targetFile = targetFile,
+            onDetail = onDetail
+        )
+        if (replaced) {
+            onDetail("核心文件已更新至最新版本。")
         }
-
-        onDetail("核心文件已更新至最新版本。")
-        return true
-    }
-
-    private fun File.sha1Hex(): String {
-        val digest = MessageDigest.getInstance("SHA-1")
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-        inputStream().buffered().use { input ->
-            while (true) {
-                val read = input.read(buffer)
-                if (read <= 0) break
-                digest.update(buffer, 0, read)
-            }
-        }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+        return replaced
     }
 }
 
+internal data class PlatformUpdateSyncResult(
+    val success: Boolean,
+    val requiresRestart: Boolean
+)
+
+internal expect suspend fun syncPlatformUpdates(
+    onStatus: (String) -> Unit,
+    onDetail: (String) -> Unit
+): PlatformUpdateSyncResult
+
+internal expect fun replaceDownloadedUpdateFile(
+    tempFile: File,
+    targetFile: File,
+    onDetail: (String) -> Unit
+): Boolean
+
+private fun File.sha1Hex(): String {
+    val digest = MessageDigest.getInstance("SHA-1")
+    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+    inputStream().buffered().use { input ->
+        while (true) {
+            val read = input.read(buffer)
+            if (read <= 0) break
+            digest.update(buffer, 0, read)
+        }
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}

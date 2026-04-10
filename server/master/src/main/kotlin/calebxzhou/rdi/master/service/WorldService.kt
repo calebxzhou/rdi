@@ -149,6 +149,7 @@ object WorldService {
 
     fun getDir(worldId: ObjectId) = WORLDS_DIR.resolve(worldId.toHexString())
     fun getDataDir(worldId: ObjectId) = getDir(worldId).resolve("data").also { it.mkdir() }
+    fun getLevelDir(worldId: ObjectId) = getDataDir(worldId).resolve("world").also { it.mkdir() }
     val World.dir get() = getDir(_id)
     val World.dataDir get() = getDataDir(_id)
     suspend fun getById(id: ObjectId): World? = dbcl.find(eq("_id", id)).firstOrNull()
@@ -173,7 +174,7 @@ object WorldService {
     }
 
     suspend fun ApplicationCall.world(): World {
-        return getById(idPathParam("worldId")) ?: throw RequestError("无此地图")
+        return getById(idPathParam("worldId")) ?: throw RequestError("无此房间")
     }
 
     suspend fun updateWorldSize(worldId: ObjectId): Long {
@@ -229,7 +230,7 @@ object WorldService {
     suspend fun delete(uid: ObjectId, worldId: ObjectId) {
         val world = getById(worldId) ?: throw RequestError("存档不存在")
         if (world.ownerId != uid) throw RequestError("无权限")
-        HostService.findByWorld(worldId)?.let { throw RequestError("须先删除地图“${it.name}”，再删除此区块数据") }
+        HostService.findByWorld(worldId)?.let { throw RequestError("须先删除房间“${it.name}”，再删除此区块数据") }
         dbcl.deleteOne(eq("_id", worldId))
         worldSurfaceCol.deleteMany(eq("worldId", worldId))
         val dir = world.dir

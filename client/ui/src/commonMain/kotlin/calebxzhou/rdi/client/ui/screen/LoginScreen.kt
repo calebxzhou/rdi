@@ -285,7 +285,7 @@ fun LoginScreen(
                 }
                 Text("版本 "+Const.VERSION_NUMBER,style = MaterialTheme.typography.caption,)
                 if(!isDesktop){
-                    Text("请授予RDI文件管理与通知权限，以保证正常下载整合包与游玩地图（给过权限了请忽略这段文字）",style = MaterialTheme.typography.caption,)
+                    Text("请授予RDI文件管理与通知权限，以保证正常下载整合包与游玩房间（给过权限了请忽略这段文字）",style = MaterialTheme.typography.caption,)
                 }
             }
 

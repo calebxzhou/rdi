@@ -3,7 +3,7 @@ package calebxzhou.rdi.common.service
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.openChineseZip
 import calebxzhou.mykotutils.std.sha1
-import calebxzhou.rdi.common.exception.ModpackException
+import calebxzhou.rdi.common.exception.ModpackError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.net.ktorClient
@@ -45,61 +45,61 @@ object ModrinthService {
 
     suspend fun loadModpack(modpackFile: File): Result<LoadedModpack> {
         if (!modpackFile.exists()) {
-            throw ModpackException("找不到整合包文件: ${modpackFile.path}")
+            throw ModpackError("找不到整合包文件: ${modpackFile.path}")
         }
         val index = if (modpackFile.isDirectory) {
             if (!hasOverridesDir(modpackFile)) {
-                throw ModpackException("整合包缺少目录：overrides")
+                throw ModpackError("整合包缺少目录：overrides")
             }
             val indexFile = modpackFile.walkTopDown()
                 .firstOrNull { it.isFile && it.name == "modrinth.index.json" }
-                ?: throw ModpackException("整合包缺少文件：modrinth.index.json")
+                ?: throw ModpackError("整合包缺少文件：modrinth.index.json")
             val indexJson = indexFile.readText(Charsets.UTF_8)
             runCatching {
                 serdesJson.decodeFromString<ModrinthModpackIndex>(indexJson)
             }.getOrElse { err ->
-                throw ModpackException("modrinth.index.json 解析失败: ${err.message}")
+                throw ModpackError("modrinth.index.json 解析失败: ${err.message}")
             }
         } else {
             modpackFile.openChineseZip().use { zip ->
                 val indexEntry = zip.entries().asSequence().firstOrNull {
                     !it.isDirectory && it.name.substringAfterLast('/') == "modrinth.index.json"
-                } ?: throw ModpackException("整合包缺少文件：modrinth.index.json")
+                } ?: throw ModpackError("整合包缺少文件：modrinth.index.json")
                 val rootPrefix = indexEntry.name.substringBeforeLast('/', missingDelimiterValue = "")
                     .let { if (it.isBlank()) "" else "$it/" }
                 if (!hasOverridesDir(zip.entries().asSequence().toList().map { it.name }, rootPrefix)) {
-                    throw ModpackException("整合包缺少目录：overrides")
+                    throw ModpackError("整合包缺少目录：overrides")
                 }
                 val indexJson = zip.getInputStream(indexEntry).bufferedReader(Charsets.UTF_8).use { it.readText() }
                 runCatching {
                     serdesJson.decodeFromString<ModrinthModpackIndex>(indexJson)
                 }.getOrElse { err ->
-                    throw ModpackException("modrinth.index.json 解析失败: ${err.message}")
+                    throw ModpackError("modrinth.index.json 解析失败: ${err.message}")
                 }
             }
         }
 
         if (!index.game.equals("minecraft", ignoreCase = true)) {
-            throw ModpackException("不支持的游戏类型: ${index.game}")
+            throw ModpackError("不支持的游戏类型: ${index.game}")
         }
         if (index.formatVersion <= 0) {
-            throw ModpackException("不支持的整合包格式版本: ${index.formatVersion}")
+            throw ModpackError("不支持的整合包格式版本: ${index.formatVersion}")
         }
         val mcVersion = index.dependencies["minecraft"]?.trim().orEmpty()
         if (mcVersion.isBlank()) {
-            throw ModpackException("整合包缺少 minecraft 版本")
+            throw ModpackError("整合包缺少 minecraft 版本")
         }
         val parsedMcVersion = McVersion.from(mcVersion)
         if (parsedMcVersion == null || !parsedMcVersion.enabled) {
-            throw ModpackException("不支持的MC版本: $mcVersion")
+            throw ModpackError("不支持的MC版本: $mcVersion")
         }
         val loaderKey = index.dependencies.keys.firstOrNull { ModLoader.from(it) != null }
         if (loaderKey == null) {
-            throw ModpackException("不支持的Mod加载器: 未知")
+            throw ModpackError("不支持的Mod加载器: 未知")
         }
         val parsedModloader = ModLoader.from(loaderKey)
         if (parsedModloader == null) {
-            throw ModpackException("不支持的Mod加载器: $loaderKey")
+            throw ModpackError("不支持的Mod加载器: $loaderKey")
         }
         val fileEntries = index.files.associateBy { it.hashes.sha1 }
         val hashVersions = getVersionsFromHashes(fileEntries.keys.toList())
@@ -244,7 +244,7 @@ object ModrinthService {
             side = Mod.Side.BOTH
         )
     }
-
+    @Deprecated("")
     suspend fun List<Mod>.fillModrinthVo(projects: List<ModrinthProject>?): List<Mod> {
         val modsNeedingVo = filter { it.vo == null && it.platform.equals("mr", ignoreCase = true) }
         if (modsNeedingVo.isEmpty()) return this
@@ -262,7 +262,9 @@ object ModrinthService {
         }
         return this
     }
+    suspend fun getModCardVos(mods: List<Mod>,projects: List<ModrinthProject>?){
 
+    }
     suspend fun mrreq(
         path: String,
         method: HttpMethod = HttpMethod.Get,

@@ -30,7 +30,6 @@ import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.isDesktop
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.model.Task
 
 /**
  * calebxzhou @ 2026-01-13 18:27
@@ -40,7 +39,6 @@ import calebxzhou.rdi.common.model.Task
 fun ModpackListScreen(
     onBack: (() -> Unit) = {},
     onOpenUpload: (() -> Unit) = {},
-    onOpenTask: ((Task, Boolean, (() -> Unit)?) -> Unit) = { _, _, _ -> },
     onOpenMcVersions: (() -> Unit) = {},
     onOpenInfo: ((String) -> Unit) = {}
 ) {
@@ -70,7 +68,7 @@ fun ModpackListScreen(
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val compactActions = maxWidth < 760.dp
 
-            TitleRow("上传过的整合包", onBack) {
+            TitleRow("大家传过的包", onBack) {
                 Checkbox(
                     checked = onlyMine,
                     onCheckedChange = { onlyMine = it }

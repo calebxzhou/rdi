@@ -58,6 +58,18 @@ expect suspend fun pickSaveFile(suggestedName: String, extension: String): File?
 expect suspend fun pickLocalMinecraftWorldDir(): String?
 
 /**
+ * Pick a local modpack source file or extracted directory.
+ * Desktop: opens a chooser for zip/mrpack/directory. Android: returns null.
+ */
+expect suspend fun pickLocalModpackFile(): File?
+
+/**
+ * Pick a local zip file with a platform file dialog.
+ * Desktop: opens a native zip chooser. Android: returns null.
+ */
+expect suspend fun pickLocalZipFile(title: String): File?
+
+/**
  * Check whether the OS supports creating symlinks.
  * Desktop: delegates to canCreateSymlink().
  * Android: always returns true (no symlink needed).

@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client.ui.screen
 
 import calebxzhou.rdi.client.service.ModpackLocalDir
-import calebxzhou.rdi.common.model.Task
+import calebxzhou.rdi.common.model.Task2
 import java.io.File
 
 /**
@@ -11,11 +11,11 @@ import java.io.File
 
 actual fun selectRdiPackFiles(): List<File>? = null
 
-actual fun buildImportPackTask(zipFile: File): Task {
+actual fun buildImportPackTask2(zipFile: File): Task2 {
     error("Import pack not supported on Android")
 }
 
-actual suspend fun importRdiModpack(onProgress: (String) -> Unit): Task {
+actual suspend fun importRdiModpackTask2(onProgress: (String) -> Unit): Task2 {
     error("Import modpack not supported on Android")
 }
 

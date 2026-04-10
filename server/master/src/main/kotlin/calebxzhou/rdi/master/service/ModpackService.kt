@@ -4,18 +4,21 @@ import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.mykotutils.std.toFixed
+import calebxzhou.rdi.common.archive.TarZstArchiveWriter
+import calebxzhou.rdi.common.archive.PackArchiveFormat
+import calebxzhou.rdi.common.archive.forEachArchiveEntry
+import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.VALID_NAME_REGEX
+import calebxzhou.rdi.common.archive.detectArchiveFormat
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.ModService
-import calebxzhou.rdi.common.service.BackgroundTaskRunner
+import calebxzhou.rdi.common.service.runInline
 import calebxzhou.rdi.common.service.validate
-import calebxzhou.rdi.common.util.ioScope
 import calebxzhou.rdi.common.util.ok
 import calebxzhou.rdi.common.util.str
-import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.master.DB
 import calebxzhou.rdi.master.GAME_LIBS_DIR
 import calebxzhou.rdi.master.MODPACK_DATA_DIR
@@ -27,8 +30,6 @@ import calebxzhou.rdi.master.service.ModpackService.createVersion
 import calebxzhou.rdi.master.service.ModpackService.createWithVersion
 import calebxzhou.rdi.master.service.ModpackService.deleteModpack
 import calebxzhou.rdi.master.service.ModpackService.deleteVersion
-import calebxzhou.rdi.master.service.ModpackService.getVersionFile
-import calebxzhou.rdi.master.service.ModpackService.getVersionFileList
 import calebxzhou.rdi.master.service.ModpackService.modpackGuardContext
 import calebxzhou.rdi.master.service.ModpackService.rebuildVersion
 import calebxzhou.rdi.master.service.ModpackService.requireAuthor
@@ -36,6 +37,8 @@ import calebxzhou.rdi.master.service.ModpackService.toBriefVo
 import calebxzhou.rdi.master.service.ModpackService.toDetailVo
 import calebxzhou.rdi.master.service.ModpackService.validateVerName
 import calebxzhou.rdi.master.service.PlayerService.getPlayerNames
+import com.mongodb.ErrorCategory
+import com.mongodb.MongoWriteException
 import com.mongodb.client.model.Filters.*
 import com.mongodb.client.model.Projections
 import com.mongodb.client.model.UpdateOptions
@@ -50,40 +53,39 @@ import io.ktor.utils.io.*
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.launch
+import kotlinx.io.Source
+import kotlinx.io.buffered
 import kotlinx.io.readByteArray
 import org.bson.Document
-import org.bson.conversions.Bson
 import org.bson.types.ObjectId
-import java.awt.Color
-import java.awt.image.BufferedImage
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.File
-import java.io.InputStream
-import java.nio.charset.Charset
-import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
-import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
-import java.util.zip.ZipOutputStream
-import javax.imageio.IIOImage
-import javax.imageio.ImageIO
-import javax.imageio.ImageWriteParam
+import java.nio.file.StandardCopyOption
+import java.util.concurrent.atomic.AtomicBoolean
 
 val Modpack.dir
     get() = MODPACK_DATA_DIR.resolve(_id.str)
 val Modpack.libsDir
     get() = GAME_LIBS_DIR
         .resolve("${mcVer.mcVer}-${modloader}")
-val Modpack.Version.dir
-    get() = MODPACK_DATA_DIR.resolve(modpackId.str).resolve(name)
+val Modpack.Version.storageDir
+    get() = MODPACK_DATA_DIR.resolve(modpackId.str)
+fun Modpack.Version.tempDir(buildId: String): File =
+    storageDir.resolve(".build-$name-$buildId")
 val Modpack.Version.zip
-    get() = dir.parentFile.resolve("${name}.zip")
+    get() = storageDir.resolve("${name}.zip")
+val Modpack.Version.zstdPack
+    get() = storageDir.resolve("${name}.tar.zst")
+val Modpack.Version.fullPackFile
+    get() = zstdPack.takeIf(File::exists) ?: zip
 val Modpack.Version.clientZip
-    get() = dir.parentFile.resolve("${name}-client.zip")
+    get() = storageDir.resolve("${name}-client.zip")
+val Modpack.Version.clientZstdPack
+    get() = storageDir.resolve("${name}-client.tar.zst")
+val Modpack.Version.clientPackFile
+    get() = clientZstdPack.takeIf(File::exists) ?: clientZip
 
 const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
 val MAX_PACK_SIZE = 384 * 1024 * 1024L
@@ -92,37 +94,86 @@ private suspend inline fun <reified T> ApplicationCall.receiveUploadPayload(
     jsonFieldName: String,
     missingJsonError: String,
     invalidJsonPrefix: String
-): Pair<ByteArray, T> {
+): Pair<File, T> {
     val multipart = receiveMultipart(formFieldLimit = MAX_PACK_SIZE)
-    var zipBytes: ByteArray? = null
+    var uploadedFile: File? = null
     var payloadDto: T? = null
-    while (true) {
-        val part = multipart.readPart() ?: break
-        when (part) {
-            is PartData.FormItem -> if (part.name == jsonFieldName) {
-                payloadDto = runCatching { serdesJson.decodeFromString<T>(part.value) }
-                    .getOrElse { throw ParamError("$invalidJsonPrefix: ${it.message}") }
-            }
+    try {
+        while (true) {
+            val part = multipart.readPart() ?: break
+            when (part) {
+                is PartData.FormItem -> if (part.name == jsonFieldName) {
+                    payloadDto = runCatching { serdesJson.decodeFromString<T>(part.value) }
+                        .getOrElse { throw ParamError("$invalidJsonPrefix: ${it.message}") }
+                }
 
-            is PartData.FileItem -> if (part.name == "file") {
-                zipBytes = part.provider().toByteArray()
-            }
+                is PartData.FileItem -> if (part.name == "file") {
+                    uploadedFile?.delete()
+                    uploadedFile = receiveUploadFileToTemp(part.provider())
+                }
 
-            is PartData.BinaryItem -> if (part.name == "file") {
-                zipBytes = part.provider().readByteArray()
-            }
+                is PartData.BinaryItem -> if (part.name == "file") {
+                    uploadedFile?.delete()
+                    uploadedFile = receiveUploadFileToTemp(part.provider())
+                }
 
-            else -> {}
+                else -> {}
+            }
+            part.dispose()
         }
-        part.dispose()
+        val fileBytes = uploadedFile ?: throw ParamError("缺少文件")
+        val dto = payloadDto ?: throw ParamError(missingJsonError)
+        uploadedFile = null
+        return fileBytes to dto
+    } catch (error: Throwable) {
+        uploadedFile?.delete()
+        throw error
     }
+}
 
-    val fileBytes = zipBytes ?: throw ParamError("缺少文件")
-    if (fileBytes.size > MAX_PACK_SIZE) {
-        throw RequestError("整合包文件过大，最大允许 384MB")
+private suspend fun receiveUploadFileToTemp(channel: ByteReadChannel): File {
+    MODPACK_DATA_DIR.mkdirs()
+    val tempFile = Files.createTempFile(MODPACK_DATA_DIR.toPath(), "modpack-upload-", ".tmp").toFile()
+    val buffer = ByteArray(8192)
+    var total = 0L
+    return try {
+        Files.newOutputStream(
+            tempFile.toPath(),
+            StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE
+        ).use { output ->
+            while (!channel.isClosedForRead) {
+                val read = channel.readAvailable(buffer, 0, buffer.size)
+                if (read == -1) break
+                if (read == 0) continue
+                total += read
+                if (total > MAX_PACK_SIZE) {
+                    throw RequestError("整合包文件过大，最大允许 384MB")
+                }
+                output.write(buffer, 0, read)
+            }
+        }
+        tempFile
+    } catch (error: Throwable) {
+        tempFile.delete()
+        throw error
     }
-    val dto = payloadDto ?: throw ParamError(missingJsonError)
-    return fileBytes to dto
+}
+
+private fun receiveUploadFileToTemp(source: Source): File {
+    MODPACK_DATA_DIR.mkdirs()
+    val tempFile = Files.createTempFile(MODPACK_DATA_DIR.toPath(), "modpack-upload-", ".tmp").toFile()
+    return try {
+        val bytes = source.buffered().readByteArray()
+        if (bytes.size > MAX_PACK_SIZE) {
+            throw RequestError("整合包文件过大，最大允许 384MB")
+        }
+        tempFile.writeBytes(bytes)
+        tempFile
+    } catch (error: Throwable) {
+        tempFile.delete()
+        throw error
+    }
 }
 
 fun Route.modpackRoutes() {
@@ -177,10 +228,10 @@ fun Route.modpackRoutes() {
                         ?: throw RequestError("无此版本")
                 }
                 get("/client") {
-                    call.modpackGuardContext().version.clientZip.let { call.respondFile(it) }
+                    call.modpackGuardContext().version.clientPackFile.let { call.respondFile(it) }
                 }
                 get("/client/hash") {
-                    call.modpackGuardContext().version.clientZip.let { response(data = it.sha1) }
+                    call.modpackGuardContext().version.clientPackFile.let { response(data = it.sha1) }
                 }
                 get("/mods") {
                     call.modpackGuardContext().version.mods.let { response(data = it) }
@@ -214,17 +265,6 @@ fun Route.modpackRoutes() {
 
                     ctx.createVersion(verName, payload, modList)
                     ok()
-
-                }
-                get("/files") {
-                    call.modpackGuardContext().getVersionFileList().let { response(data = it) }
-                }
-                get("/file/{filePath...}") {
-
-                    val filePath = call.parameters.getAll("filePath")?.joinToString("/")
-                        ?: throw ParamError("缺少参数: filePath")
-                    val content = call.modpackGuardContext().getVersionFile(filePath)
-                    call.respondBytes(content)
 
                 }
             }
@@ -262,11 +302,10 @@ object ModpackService {
 
     //private val clientNeedDirs = listOf("config", "mods", "defaultconfigs", "kubejs", "global_packs", "resourcepacks")
     private val disallowedClientPaths = setOf("shaderpacks")
-    private val allowedQuestLangFiles = setOf("en_us.snbt", "zh_cn.snbt")
-    private const val QUEST_LANG_PREFIX = "config/ftbquests/quests/lang/"
-    private const val RESOURCEPACK_MAX_SIZE_BYTES = 1024L * 1024
-    private const val PNG_COMPRESSION_THRESHOLD_BYTES = 50 * 1024
-    private const val PNG_COMPRESSION_JPEG_QUALITY = 0.5f
+    private val hostSkippedAssetExtensions = setOf("ogg", "jpg", "png")
+
+    private fun versionBuildTaskKey(modpackId: ObjectId, versionName: String): String =
+        "server-modpack-build:${modpackId.toHexString()}:$versionName"
 
     val ModpackContext.isAuthor: Boolean
         get() = modpack.authorId == player._id
@@ -400,14 +439,14 @@ object ModpackService {
         )
     }
 
-    suspend fun Modpack.CreateWithVersionDto.createWithVersion(player: RAccount, zipBytes: ByteArray) {
+    suspend fun Modpack.CreateWithVersionDto.createWithVersion(player: RAccount, uploadFile: File) {
         val normalizedVerName = verName.validateVerName().getOrThrow()
         Modpack.OptionsDto(name,iconUrl,info,sourceUrl).validate()
         if (!player.hasMsid) throw RequestError("必须有微软账号才能传包")
         if (getModpackCount(player._id) >= MAX_MODPACK_PER_USER && !player.isDav) {
             throw RequestError("一个人最多传${MAX_MODPACK_PER_USER}个包")
         }
-        if (hasModpack(name)) throw RequestError("别人传过这个包了")
+        if (hasModpack(name)) throw RequestError("同名整合包已存在")
         val modpack = Modpack(
             name = this.name,
             authorId = player._id,
@@ -418,61 +457,78 @@ object ModpackService {
             sourceUrl = sourceUrl?.trim()?.ifBlank { null }
         )
         modpack.dir.mkdirs()
-        val version = prepareVersionUpload(modpack, normalizedVerName, zipBytes, mods)
-        modpack.versions += version
-        dbcl.insertOne(modpack)
-        enqueueVersionBuild(player, modpack, version)
-    }
-
-    fun ModpackContext.rebuildVersion() {
-        ioScope.launch {
+        try {
+            val version = prepareVersionUpload(modpack, normalizedVerName, uploadFile, mods)
             runCatching {
-                version.setStatus(Modpack.Status.BUILDING)
-                //重新处理mods 适配新的规则
-                version.processMods(modpack)
-                dbcl.updateOne(
-                    eq(Modpack::_id.name, modpack._id),
-                    Updates.set(
-                        "${Modpack::versions.name}.$[elem].${Modpack.Version::mods.name}",
-                        version.mods
-                    ),
-                    UpdateOptions().arrayFilters(
-                        listOf(
-                            Document("elem.name", version.name)
-                        )
-                    )
-                )
-                val mailId = MailService.sendSystemMail(
-                    player._id,
-                    "重构整合包：${modpack.name} V${version.name}",
-                    "开始重新构建整合包 ${modpack.name} 版本${version.name}\n"
-                )._id
-                modpack.buildVersion(version) {
-                    lgr.info { it }
-                    MailService.changeMail(mailId, newContent = it)
+                modpack.versions += version
+                dbcl.insertOne(modpack)
+                enqueueVersionBuild(player, modpack, version)
+            }.getOrElse { error ->
+                cleanupUploadedVersionArtifacts(version)
+                runCatching { dbcl.deleteOne(eq(Modpack::_id.name, modpack._id)) }
+                runCatching { modpack.dir.deleteRecursivelyNoSymlink() }
+                if (error.isDuplicateKeyError()) {
+                    throw RequestError("同名整合包已存在")
                 }
-            }.onFailure { error ->
-                lgr.error(error) { "重构整合包 ${modpack._id}:${version.name} 失败" }
-                version.setStatus(Modpack.Status.FAIL)
+                throw error
             }
+        } finally {
+            uploadFile.delete()
         }
     }
 
-    suspend fun ModpackContext.createVersion(verName: String, zipBytes: ByteArray, mods: MutableList<Mod>) {
-        val version = prepareVersionUpload(modpack, verName, zipBytes, mods)
-
-        // Add version to modpack
-        dbcl.updateOne(
-            eq(Modpack::_id.name, modpack._id),
-            Updates.push(Modpack::versions.name, version)
+    fun ModpackContext.rebuildVersion() {
+        ServerTaskManager.submit(
+            task = createVersionBuildTask(
+                player = player,
+                modpack = modpack,
+                version = version,
+                reprocessMods = true
+            ),
+            dedupeKey = versionBuildTaskKey(modpack._id, version.name)
         )
-        enqueueVersionBuild(player, modpack, version)
+    }
+
+    suspend fun ModpackContext.createVersion(verName: String, uploadFile: File, mods: MutableList<Mod>) {
+        try {
+            val version = prepareVersionUpload(modpack, verName, uploadFile, mods)
+            runCatching {
+                // Add version to modpack
+                val updateResult = dbcl.updateOne(
+                    and(
+                        eq(Modpack::_id.name, modpack._id),
+                        not(
+                            elemMatch(
+                                Modpack::versions.name,
+                                eq(Modpack.Version::name.name, version.name)
+                            )
+                        )
+                    ),
+                    Updates.push(Modpack::versions.name, version)
+                )
+                if (updateResult.modifiedCount <= 0L) {
+                    throw RequestError("版本 ${version.name} 已存在")
+                }
+                enqueueVersionBuild(player, modpack, version)
+            }.getOrElse { error ->
+                cleanupUploadedVersionArtifacts(version)
+                runCatching {
+                    dbcl.updateOne(
+                        eq(Modpack::_id.name, modpack._id),
+                        Updates.pull(Modpack::versions.name, eq(Modpack.Version::name.name, version.name))
+                    )
+                }
+                throw error
+            }
+        } finally {
+            uploadFile.delete()
+        }
     }
 
     private fun prepareVersionUpload(
         modpack: Modpack,
         verName: String,
-        zipBytes: ByteArray,
+        uploadFile: File,
         mods: MutableList<Mod>
     ): Modpack.Version {
         mods.sortBy { it.slug.lowercase() }
@@ -484,34 +540,263 @@ object ModpackService {
             mods = mods,
             time = System.currentTimeMillis()
         )
-        version.dir.mkdirs()
-        version.zip.writeBytes(zipBytes)
-        version.processMods(modpack)
+        try {
+            moveUploadedArchiveToVersion(uploadFile, version)
+            version.processMods(modpack)
+        } catch (error: Throwable) {
+            cleanupUploadedVersionArtifacts(version)
+            throw error
+        }
         return version
     }
 
-    private fun enqueueVersionBuild(player: RAccount, modpack: Modpack, version: Modpack.Version) {
-        ioScope.launch {
-            lgr.info { "开始构建 ${modpack.name}:${version.name}" }
-            val mailId = MailService.sendSystemMail(
-                player._id,
-                "整合包${version.name}构建中",
-                "开始构建整合包 ${modpack.name} 版本${version.name}\n"
-            )._id
-            runCatching {
-                modpack.buildVersion(version) {
-                    lgr.info { it }
-                    MailService.changeMail(mailId, newContent = it)
+    private fun moveUploadedArchiveToVersion(uploadFile: File, version: Modpack.Version) {
+        version.storageDir.mkdirs()
+        val targetFile = when (uploadFile.detectArchiveFormat()) {
+            PackArchiveFormat.TAR_ZST -> version.zstdPack
+            PackArchiveFormat.ZIP -> throw RequestError("现在只支持tar.zst格式传包，请更新客户端后重试")
+        }
+        if (version.zip.exists()) version.zip.delete()
+        if (version.zstdPack.exists()) version.zstdPack.delete()
+        Files.move(
+            uploadFile.toPath(),
+            targetFile.toPath(),
+            StandardCopyOption.REPLACE_EXISTING
+        )
+    }
+
+    private fun cleanupUploadedVersionArtifacts(version: Modpack.Version) {
+        version.zip.delete()
+        version.zstdPack.delete()
+        version.clientZip.delete()
+        version.clientZstdPack.delete()
+        cleanupVersionBuildDirs(version)
+    }
+
+    private fun Throwable.isDuplicateKeyError(): Boolean {
+        val writeError = this as? MongoWriteException ?: return false
+        return ErrorCategory.fromErrorCode(writeError.code) == ErrorCategory.DUPLICATE_KEY
+    }
+
+    suspend fun recoverUnfinishedVersionBuildsOnStartup() {
+        val affected = mutableListOf<Pair<ObjectId, String>>()
+        dbcl.find(
+            or(
+                elemMatch(Modpack::versions.name, eq(Modpack.Version::status.name, Modpack.Status.WAIT)),
+                elemMatch(Modpack::versions.name, eq(Modpack.Version::status.name, Modpack.Status.BUILDING))
+            )
+        ).toList().forEach { modpack ->
+            modpack.versions
+                .filter { it.status == Modpack.Status.WAIT || it.status == Modpack.Status.BUILDING }
+                .forEach { version ->
+                    affected += modpack._id to version.name
                 }
-            }.onFailure { error ->
-                lgr.error { "构建失败 ${modpack.name + "\n" + error }:${version.name}" }
-                MailService.changeMail(
-                    mailId,
-                    "整合包构建失败：${modpack.name}",
-                    "无法构建整合包，错误原因：${error.message}"
+        }
+        affected.forEach { (modpackId, versionName) ->
+            dbcl.updateOne(
+                eq(Modpack::_id.name, modpackId),
+                Updates.set("${Modpack::versions.name}.$[elem].${Modpack.Version::status.name}", Modpack.Status.FAIL),
+                UpdateOptions().arrayFilters(listOf(Document("elem.name", versionName)))
+            )
+        }
+        if (affected.isNotEmpty()) {
+            lgr.warn { "启动恢复：已将${affected.size}个卡在WAIT/BUILDING的整合包版本标记为FAIL" }
+        }
+    }
+
+    private fun enqueueVersionBuild(player: RAccount, modpack: Modpack, version: Modpack.Version) {
+        ServerTaskManager.submit(
+            task = createVersionBuildTask(
+                player = player,
+                modpack = modpack,
+                version = version,
+                reprocessMods = false
+            ),
+            dedupeKey = versionBuildTaskKey(modpack._id, version.name)
+        )
+    }
+
+    private fun createVersionBuildTask(
+        player: RAccount,
+        modpack: Modpack,
+        version: Modpack.Version,
+        reprocessMods: Boolean
+    ): Task2 = Task2.Sequence(
+        title = buildString {
+            append(if (reprocessMods) "重构整合包版本" else "构建整合包版本")
+            append(" ")
+            append(modpack.name)
+            append(" V")
+            append(version.name)
+        },
+        children = buildList {
+            var mailId: ObjectId? = null
+            val failureHandled = AtomicBoolean(false)
+
+            suspend fun updateMailProgress(message: String) {
+                lgr.info { message }
+                mailId?.let { MailService.changeMail(it, newContent = message) }
+            }
+
+            suspend fun handleBuildFailure(error: Throwable) {
+                if (!failureHandled.compareAndSet(false, true)) return
+                lgr.error(error) { "${if (reprocessMods) "重构" else "构建"}整合包 ${modpack._id}:${version.name} 失败" }
+                version.setStatus(Modpack.Status.FAIL)
+                mailId?.let {
+                    MailService.changeMail(
+                        it,
+                        if (reprocessMods) "重构整合包失败：${modpack.name}" else "整合包构建失败：${modpack.name}",
+                        "无法构建整合包，错误原因：${error.message}"
+                    )
+                }
+            }
+
+            fun guardedLeaf(title: String, action: suspend (Task2Context) -> Unit): Task2.Leaf = Task2.Leaf(title) { ctx ->
+                runCatching {
+                    action(ctx)
+                }.onFailure { error ->
+                    handleBuildFailure(error)
+                    throw error
+                }
+            }
+
+            add(
+                guardedLeaf("准备构建") { ctx ->
+                    val mail = MailService.sendSystemMail(
+                        player._id,
+                        if (reprocessMods) "重构整合包：${modpack.name} V${version.name}" else "整合包${version.name}构建中",
+                        "开始构建整合包 ${modpack.name} 版本${version.name}\n"
+                    )
+                    mailId = mail._id
+                    version.setStatus(Modpack.Status.BUILDING)
+                    version.setTotalSize(version.fullPackFile.length())
+                    val msg = "开始构建 ${modpack.name} V${version.name}"
+                    updateMailProgress(msg)
+                    ctx.emit(LoadProgress.Phase(msg))
+                }
+            )
+
+            if (reprocessMods) {
+                add(
+                    guardedLeaf("重新处理版本Mod信息") { ctx ->
+                        val msg = "重新处理版本Mod信息"
+                        updateMailProgress(msg)
+                        ctx.emit(LoadProgress.Phase(msg))
+                        version.processMods(modpack)
+                        dbcl.updateOne(
+                            eq(Modpack::_id.name, modpack._id),
+                            Updates.set(
+                                "${Modpack::versions.name}.$[elem].${Modpack.Version::mods.name}",
+                                version.mods
+                            ),
+                            UpdateOptions().arrayFilters(
+                                listOf(
+                                    Document("elem.name", version.name)
+                                )
+                            )
+                        )
+                        ctx.emit(LoadProgress.Percent("版本Mod信息重处理完成", 1f))
+                    }
                 )
             }
+
+            add(
+                guardedLeaf("校验整合包归档") { ctx ->
+                    val msg = "校验整合包归档"
+                    updateMailProgress(msg)
+                    ctx.emit(LoadProgress.Phase(msg))
+                    val entries = listArchiveEntries(version.fullPackFile)
+                    val total = entries.size.coerceAtLeast(1)
+                    entries.forEachIndexed { index, entry ->
+                        extractOverridesRelativePath(entry.path)
+                        val fraction = (index + 1).toFloat() / total
+                        ctx.emit(
+                            LoadProgress.Percent(
+                                "校验整合包归档(${index + 1}/$total)",
+                                fraction
+                            )
+                        )
+                    }
+                    ctx.emit(LoadProgress.Percent("整合包归档校验完成", 1f))
+                }
+            )
+
+            val serverMods = version.mods.filter {
+                it.side != Mod.Side.CLIENT && !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
+            }
+
+            add(
+                Task2.Sequence(
+                    title = "下载服务端Mod",
+                    children = buildList {
+                        add(
+                            guardedLeaf("准备下载服务端Mod") { ctx ->
+                                val msg = "开始下载服务端Mod，共${serverMods.size}个"
+                                updateMailProgress(msg)
+                                ctx.emit(LoadProgress.Phase(msg))
+                            }
+                        )
+                        add(
+                            ModService.downloadModsTask2(serverMods)
+                                .withFailureHandler(::handleBuildFailure)
+                        )
+                    }
+                )
+            )
+
+            add(
+                guardedLeaf("构建客户端版") { ctx ->
+                    val msg = "构建客户端版"
+                    updateMailProgress(msg)
+                    ctx.emit(LoadProgress.Phase(msg))
+                    buildClientPack(version)
+                    ctx.emit(LoadProgress.Percent("客户端版本构建完成", 1f))
+                }
+            )
+
+            add(
+                guardedLeaf("迁移归档到tar.zst") { ctx ->
+                    if (!version.zstdPack.exists() && version.zip.exists()) {
+                        val msg = "迁移整合包归档到tar.zst"
+                        updateMailProgress(msg)
+                        ctx.emit(LoadProgress.Phase(msg))
+                        upgradeFullPackArchive(version)
+                    } else {
+                        ctx.emit(LoadProgress.Percent("归档已是tar.zst，无需迁移", 1f))
+                    }
+                }
+            )
+
+            add(
+                guardedLeaf("完成构建") { ctx ->
+                    val msg = "整合包构建完成"
+                    updateMailProgress(msg)
+                    version.setStatus(Modpack.Status.OK)
+                    mailId?.let {
+                        MailService.changeMail(
+                            it,
+                            if (reprocessMods) "重构整合包成功：${modpack.name}" else "整合包构建成功：${modpack.name}",
+                            "${modpack.name} V${version.name} 已构建完成"
+                        )
+                    }
+                    ctx.emit(LoadProgress.Percent(msg, 1f))
+                }
+            )
         }
+    )
+
+    private fun Task2.withFailureHandler(
+        onFailure: suspend (Throwable) -> Unit
+    ): Task2 = when (this) {
+        is Task2.Leaf -> copy(action = { ctx ->
+            runCatching { action(ctx) }.getOrElse { error ->
+                onFailure(error)
+                throw error
+            }
+        })
+
+        is Task2.Group -> copy(children = children.map { it.withFailureHandler(onFailure) })
+        is Task2.Sequence -> copy(children = children.map { it.withFailureHandler(onFailure) })
     }
 
     suspend fun Modpack.getVersion(verName: String): Modpack.Version? {
@@ -535,36 +820,6 @@ object ModpackService {
             .first().versions.firstOrNull()
     }
 
-    fun ModpackContext.getVersionFile(filePath: String): ByteArray {
-        if (filePath.isBlank()) throw RequestError("文件路径不能为空")
-        val versionDir = version.dir
-        if (!versionDir.exists() || !versionDir.isDirectory) {
-            throw RequestError("版本目录不存在")
-        }
-
-        val target = versionDir.resolve(filePath)
-        val normalized = target.canonicalFile
-        if (!normalized.path.startsWith(versionDir.canonicalPath)) {
-            throw RequestError("非法路径")
-        }
-        if (!normalized.exists() || !normalized.isFile) {
-            throw RequestError("文件不存在")
-        }
-
-        return normalized.readBytes()
-    }
-
-    fun ModpackContext.getVersionFileList(): List<String> {
-        val dir = version.dir
-        if (!dir.exists() || !dir.isDirectory) {
-            throw RequestError("版本目录不存在")
-        }
-        return dir.walkTopDown()
-            .filter { it.isFile }
-            .map { it.relativeTo(dir).invariantSeparatorsPath }
-            .toList()
-    }
-
     suspend fun Modpack.installToHost(verName: String, host: Host, onProgress: (String) -> Unit) {
         val version = getVersion(verName)
             ?: throw RequestError("整合包版本不存在: $verName")
@@ -572,11 +827,16 @@ object ModpackService {
             throw RequestError("此版本未准备好或构建失败")
         }
         val hostDir = host.dir.canonicalFile.apply { mkdirs() }
-        if (!version.zip.exists()) {
-            throw RequestError("版本压缩文件不存在: ${version.zip}")
+        if (!version.fullPackFile.exists()) {
+            throw RequestError("版本压缩文件不存在: ${version.fullPackFile}")
         }
         onProgress("开始安装整合包..")
-        unzipOverrides(version.zip, hostDir, includeClientOnlyMarkedMods = false)
+        unzipOverrides(
+            version.fullPackFile,
+            hostDir,
+            includeClientOnlyMarkedMods = false,
+            skipHostAssetFiles = true
+        )
         hostDir.resolve("mods").listFiles()
             ?.filter { it.isFile && it.name.startsWith(CLIENT_ONLY_MARK_PREFIX) && it.extension.equals("jar", true) }
             ?.forEach { runCatching { it.delete() } }
@@ -585,14 +845,13 @@ object ModpackService {
         if (i18nUpdateMod.exists()) {
             i18nUpdateMod.delete()
         }
-        onProgress("解压成功")
-        //todo make sure mods are downloaded
+
         libsDir.canonicalFile.also {
             if (!it.exists() || !it.isDirectory) {
                 throw RequestError("整合包依赖目录缺失: $it")
             }
         }
-        onProgress("运行库已共享")
+        onProgress("安装成功")
     }
 
     private fun createOrReplaceSymlink(link: Path, target: Path) {
@@ -608,41 +867,43 @@ object ModpackService {
     }
 
     private fun unzipOverrides(
-        zipFile: File,
+        archiveFile: File,
         targetDir: File,
-        includeClientOnlyMarkedMods: Boolean = true
+        includeClientOnlyMarkedMods: Boolean = true,
+        skipHostAssetFiles: Boolean = false
     ) {
         val versionDirPath = targetDir.toPath()
-        // Use ZipFile with charset detection to handle Chinese filenames
-        open(zipFile).use { zip ->
-            zip.entries().asSequence().forEach { entry ->
-                val relativePath = extractOverridesRelativePath(entry.name)
-                if (relativePath != null) {
-                    if (!includeClientOnlyMarkedMods && isClientOnlyMarkedModPath(relativePath)) {
-                        return@forEach
-                    }
-                    val resolvedPath = versionDirPath.resolve(relativePath).normalize()
-                    if (!resolvedPath.startsWith(versionDirPath)) {
-                        throw RequestError("非法文件路径: ${entry.name}")
-                    }
+        forEachArchiveEntry(archiveFile) { entry ->
+            val relativePath = extractOverridesRelativePath(entry.path) ?: return@forEachArchiveEntry
+            if (!includeClientOnlyMarkedMods && isClientOnlyMarkedModPath(relativePath)) {
+                return@forEachArchiveEntry
+            }
+            if (skipHostAssetFiles && shouldSkipHostAssetFile(relativePath)) {
+                return@forEachArchiveEntry
+            }
+            val resolvedPath = versionDirPath.resolve(relativePath).normalize()
+            if (!resolvedPath.startsWith(versionDirPath)) {
+                throw RequestError("非法文件路径: ${entry.path}")
+            }
 
-                    if (entry.isDirectory) {
-                        Files.createDirectories(resolvedPath)
-                    } else {
-                        resolvedPath.parent?.let { Files.createDirectories(it) }
-                        zip.getInputStream(entry).use { input ->
-                            Files.newOutputStream(
-                                resolvedPath,
-                                StandardOpenOption.CREATE,
-                                StandardOpenOption.TRUNCATE_EXISTING
-                            ).use { output ->
-                                input.copyTo(output)
-                            }
-                        }
-                    }
+            if (entry.isDirectory) {
+                Files.createDirectories(resolvedPath)
+            } else {
+                resolvedPath.parent?.let { Files.createDirectories(it) }
+                Files.newOutputStream(
+                    resolvedPath,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING
+                ).use { output ->
+                    output.write(entry.bytes ?: byteArrayOf())
                 }
             }
         }
+    }
+
+    private fun shouldSkipHostAssetFile(relativePath: String): Boolean {
+        val extension = relativePath.substringAfterLast('.', "").lowercase()
+        return extension in hostSkippedAssetExtensions
     }
 
     fun Modpack.Version.processMods(modpack: Modpack) {
@@ -684,145 +945,129 @@ object ModpackService {
     }
 
     suspend fun Modpack.buildVersion(version: Modpack.Version, onProgress: (String) -> Unit) {
-        if (!version.zip.exists()) {
+        if (!version.fullPackFile.exists()) {
             throw RequestError("版本压缩文件不存在 请重新上传")
         }
-        if (version.status == Modpack.Status.BUILDING) {
-            throw RequestError("版本正在构建中 请勿重复操作")
-        }
         // if (version.hostsUsing().isNotEmpty()) throw RequestError("有主机正在使用此版本，无法重构")
-        version.setTotalSize(version.zip.length())
+        version.setTotalSize(version.fullPackFile.length())
+        val buildId = ObjectId().toHexString()
+        val buildDir = createVersionBuildDir(version, buildId)
         try {
-            if (version.dir.exists()) {
-                version.dir.deleteRecursivelyNoSymlink()
-            }
-            version.dir.mkdirs()
             onProgress("解压整合包文件..")
-            unzipOverrides(version.zip, version.dir, includeClientOnlyMarkedMods = false)
+            unzipOverrides(version.fullPackFile, buildDir, includeClientOnlyMarkedMods = false)
             val serverMods = version.mods.filter {
                 it.side != Mod.Side.CLIENT && !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
             }
-            val modDownloadTask = ModService.downloadModsTask(serverMods)
-            with(BackgroundTaskRunner) {
-                modDownloadTask.start { progress ->
+            ModService.downloadModsTask2(serverMods).runInline(
+                Task2Context{ progress ->
                     val msg = progress.fraction?.let { frac ->
                         val pct = (frac * 100f).toFixed(2)
                         "${progress.message} $pct%"
                     } ?: progress.message
                     onProgress("mod下载中：$msg")
                 }
-            }
+            )
             onProgress("所有mod下载完成 开始安装。。${serverMods.size}个mod")
             onProgress("构建客户端版。。")
             buildClientPack(version)
             onProgress("客户端版本构建完成")
+            if (!version.zstdPack.exists() && version.zip.exists()) {
+                onProgress("迁移整合包归档到tar.zst..")
+                upgradeFullPackArchive(version)
+            }
             onProgress("整合包构建完成！")
             version.setStatus(Modpack.Status.OK)
 
         } catch (e: Exception) {
             version.setStatus(Modpack.Status.FAIL)
             throw e
+        } finally {
+            if (buildDir.exists()) {
+                buildDir.deleteRecursivelyNoSymlink()
+            }
         }
     }
 
     private fun buildClientPack(version: Modpack.Version) {
-        val sourceZip = version.zip
-        if (!sourceZip.exists()) return
-        val clientZip = version.clientZip
-        clientZip.parentFile?.mkdirs()
-        if (clientZip.exists()) clientZip.delete()
+        val sourceArchive = version.fullPackFile
+        if (!sourceArchive.exists()) return
+        val clientArchive = version.clientZstdPack
+        clientArchive.parentFile?.mkdirs()
+        if (clientArchive.exists()) clientArchive.delete()
+        if (version.clientZip.exists()) version.clientZip.delete()
 
         var entriesCopied = 0
 
-        open(sourceZip).use { source ->
-            ZipOutputStream(clientZip.outputStream()).use { output ->
-                val addedDirs = mutableSetOf<String>()
-                source.entries().asSequence().forEach { entry ->
-                    val relative = extractOverridesRelativePath(entry.name) ?: return@forEach
-                    val relativeLower = relative.lowercase()
-                    if (disallowedClientPaths.any { relativeLower.startsWith(it) }) {
-                        return@forEach
-                    }
-                    //probeJS缓存 没有用
-                    if (relativeLower.startsWith("kubejs/probe/")) {
-                        return@forEach
-                    }
-                    //不要缓存
-                    if (relativeLower.contains("cache")) {
-                        return@forEach
-                    }
-                    if (relativeLower.startsWith("config/") && relativeLower.removePrefix("config/").isExcludedConfigPath()) {
-                        return@forEach
-                    }
-                    if (relativeLower.contains("yes_steve_model") || relativeLower.contains("史蒂夫模型")) {
-                        return@forEach
-                    }
-                    //太大了 客户端不需要
-                    if (relativeLower.endsWith(".mca")) {
-                        return@forEach
-                    }
-                    //没用
-                    if (relativeLower.endsWith(".ogg")) {
-                        return@forEach
-                    }
-                    //不需要其他语言
-                    if (isQuestLangEntryDisallowed(relativeLower, entry.isDirectory)) {
-                        return@forEach
-                    }
-                    val topLevel = relative.substringBefore('/', relative)
-
-                    if (entry.isDirectory) {
-                        if (addDirectoryEntry(relative, output, addedDirs)) {
-                            entriesCopied++
-                        }
-                        return@forEach
-                    }
-                    //太大资源包不要
-                    if (topLevel == "resourcepacks") {
-                        val bytes = readResourcepackEntry(source, entry, relativeLower) ?: return@forEach
-                        ensureZipParents(relative, output, addedDirs)
-                        val clientEntry = ZipEntry(relative).apply { time = entry.time }
-                        output.putNextEntry(clientEntry)
-                        output.write(bytes)
-                        output.closeEntry()
-                        entriesCopied++
-                    } else {
-                        ensureZipParents(relative, output, addedDirs)
-                        val clientEntry = ZipEntry(relative).apply { time = entry.time }
-                        output.putNextEntry(clientEntry)
-                        source.getInputStream(entry).use { input ->
-                            input.copyTo(output)
-                        }
-
-                        output.closeEntry()
-                        entriesCopied++
-                    }
+        TarZstArchiveWriter(clientArchive).use { output ->
+            val addedDirs = mutableSetOf<String>()
+            forEachArchiveEntry(sourceArchive) { entry ->
+                val relative = extractOverridesRelativePath(entry.path) ?: return@forEachArchiveEntry
+                val relativeLower = relative.lowercase()
+                if (disallowedClientPaths.any { relativeLower.startsWith(it) }) {
+                    return@forEachArchiveEntry
                 }
+                if (relativeLower.endsWith(".mca")) {
+                    return@forEachArchiveEntry
+                }
+                if (entry.isDirectory) {
+                    if (addDirectoryEntry(relative, output, addedDirs)) {
+                        entriesCopied++
+                    }
+                    return@forEachArchiveEntry
+                }
+                ensureArchiveParents(relative, output, addedDirs)
+                output.addFile(relative, entry.bytes ?: byteArrayOf(), entry.time)
+                entriesCopied++
             }
         }
 
         if (entriesCopied == 0) {
-            clientZip.delete()
+            clientArchive.delete()
         }
+    }
+
+    private fun upgradeFullPackArchive(version: Modpack.Version) {
+        val sourceZip = version.zip
+        if (!sourceZip.exists() || version.zstdPack.exists()) return
+        version.zstdPack.parentFile?.mkdirs()
+        val tempArchive = version.storageDir.resolve("${version.name}.tar.zst.tmp")
+        if (tempArchive.exists()) tempArchive.delete()
+        TarZstArchiveWriter(tempArchive).use { output ->
+            val addedDirs = mutableSetOf<String>()
+            forEachArchiveEntry(sourceZip) { entry ->
+                if (entry.isDirectory) {
+                    addDirectoryEntry(entry.path, output, addedDirs)
+                } else {
+                    ensureArchiveParents(entry.path, output, addedDirs)
+                    output.addFile(entry.path, entry.bytes ?: byteArrayOf(), entry.time)
+                }
+            }
+        }
+        if (!tempArchive.exists() || tempArchive.length() <= 0L) {
+            tempArchive.delete()
+            throw RequestError("迁移整合包归档失败")
+        }
+        if (version.zstdPack.exists()) version.zstdPack.delete()
+        tempArchive.renameTo(version.zstdPack)
+        sourceZip.delete()
     }
 
     private fun addDirectoryEntry(
         rawPath: String,
-        output: ZipOutputStream,
+        output: TarZstArchiveWriter,
         addedDirs: MutableSet<String>
     ): Boolean {
         val sanitized = rawPath.trim('/').ifEmpty { return false }
-        ensureZipParents(sanitized, output, addedDirs)
+        ensureArchiveParents(sanitized, output, addedDirs)
         val dirEntry = "$sanitized/"
         if (addedDirs.add(dirEntry)) {
-            output.putNextEntry(ZipEntry(dirEntry))
-            output.closeEntry()
+            output.addDirectory(sanitized)
             return true
         }
         return false
     }
 
-    private fun ensureZipParents(path: String, output: ZipOutputStream, addedDirs: MutableSet<String>) {
+    private fun ensureArchiveParents(path: String, output: TarZstArchiveWriter, addedDirs: MutableSet<String>) {
         val normalized = path.trim('/').ifEmpty { return }
         val parts = normalized.split('/')
         if (parts.size <= 1) return
@@ -833,90 +1078,10 @@ object ModpackService {
             current = if (current.isEmpty()) part else "$current/$part"
             val dirEntry = "$current/"
             if (addedDirs.add(dirEntry)) {
-                output.putNextEntry(ZipEntry(dirEntry))
-                output.closeEntry()
+                output.addDirectory(current)
             }
         }
     }
-
-    private fun readBytesWithLimit(input: InputStream, limit: Long): ByteArray? {
-        val buffer = ByteArrayOutputStream()
-        val chunk = ByteArray(DEFAULT_BUFFER_SIZE)
-        var total = 0L
-        while (true) {
-            val read = input.read(chunk)
-            if (read == -1) break
-            total += read
-            if (total > limit) {
-                return null
-            }
-            buffer.write(chunk, 0, read)
-        }
-        return buffer.toByteArray()
-    }
-
-    private fun isQuestLangEntryDisallowed(relativeLower: String, isDirectory: Boolean): Boolean {
-        if (!relativeLower.startsWith(QUEST_LANG_PREFIX)) return false
-        val remainder = relativeLower.removePrefix(QUEST_LANG_PREFIX)
-        if (remainder.isEmpty()) return false
-        if (isDirectory) return true
-        if (remainder.contains('/')) return true
-        return remainder !in allowedQuestLangFiles
-    }
-
-    private fun readResourcepackEntry(source: ZipFile, entry: ZipEntry, relativeLower: String): ByteArray? {
-        if (entry.size != -1L && entry.size > RESOURCEPACK_MAX_SIZE_BYTES) {
-            return null
-        }
-        val rawBytes = source.getInputStream(entry).use { input ->
-            when {
-                entry.size == -1L -> readBytesWithLimit(input, RESOURCEPACK_MAX_SIZE_BYTES)
-                entry.size > Int.MAX_VALUE -> return null
-                entry.size > RESOURCEPACK_MAX_SIZE_BYTES -> return null
-                else -> input.readNBytes(entry.size.toInt())
-            }
-        } ?: return null
-        val processed = if (relativeLower.endsWith(".png")) compressPngIfNeeded(rawBytes) else rawBytes
-        if (processed.size > RESOURCEPACK_MAX_SIZE_BYTES) return null
-        return processed
-    }
-
-    private fun compressPngIfNeeded(bytes: ByteArray): ByteArray {
-        if (bytes.size <= PNG_COMPRESSION_THRESHOLD_BYTES) return bytes
-        return runCatching {
-            val original = ImageIO.read(ByteArrayInputStream(bytes)) ?: return bytes
-            val rgbImage = if (original.type == BufferedImage.TYPE_INT_RGB) original else {
-                val converted = BufferedImage(original.width, original.height, BufferedImage.TYPE_INT_RGB)
-                val graphics = converted.createGraphics()
-                graphics.color = Color.WHITE
-                graphics.fillRect(0, 0, converted.width, converted.height)
-                graphics.drawImage(original, 0, 0, null)
-                graphics.dispose()
-                converted
-            }
-            val writerIterator = ImageIO.getImageWritersByFormatName("jpg")
-            if (!writerIterator.hasNext()) return bytes
-            val writer = writerIterator.next()
-            try {
-                val params = writer.defaultWriteParam
-                if (params.canWriteCompressed()) {
-                    params.compressionMode = ImageWriteParam.MODE_EXPLICIT
-                    params.compressionQuality = PNG_COMPRESSION_JPEG_QUALITY
-                }
-                ByteArrayOutputStream().use { baos ->
-                    val imageOut = ImageIO.createImageOutputStream(baos) ?: return bytes
-                    imageOut.use { outputStream ->
-                        writer.output = outputStream
-                        writer.write(null, IIOImage(rgbImage, null, null), params)
-                    }
-                    baos.toByteArray()
-                }
-            } finally {
-                writer.dispose()
-            }
-        }.getOrElse { bytes }
-    }
-
 
     suspend fun Modpack.Version.setStatus(status: Modpack.Status) {
         dbcl.updateOne(
@@ -954,8 +1119,11 @@ object ModpackService {
         if (versionNull == null) throw RequestError("无此版本")
         val hostsUsing = version.hostsUsing()
         if (hostsUsing.isNotEmpty()) throw RequestError("以下主机用了此版本整合包，且正在运行，无法删除：${hostsUsing.map { it.name }}")
-        versionNull.dir.deleteRecursivelyNoSymlink()
         versionNull.zip.delete()
+        versionNull.zstdPack.delete()
+        versionNull.clientZip.delete()
+        versionNull.clientZstdPack.delete()
+        cleanupVersionBuildDirs(versionNull)
         dbcl.updateOne(
             eq("_id", modpack._id),
             Updates.pull(Modpack::versions.name, eq(Modpack.Version::name.name, versionNull.name))
@@ -989,35 +1157,23 @@ object ModpackService {
         return fileName.startsWith(CLIENT_ONLY_MARK_PREFIX) && fileName.endsWith(".jar", ignoreCase = true)
     }
 
-    fun open(zipFile: File): ZipFile {
-        var lastError: Exception? = null
-        val attempted = mutableListOf<String>()
-
-        fun tryOpen(charset: Charset?): ZipFile? {
-            return try {
-                if (charset == null) ZipFile(zipFile) else ZipFile(zipFile, charset)
-            } catch (ex: Exception) {
-                lastError = ex
-                attempted += charset?.name() ?: "system-default"
-                null
-            }
+    private fun createVersionBuildDir(version: Modpack.Version, buildId: String): File {
+        version.storageDir.mkdirs()
+        val buildDir = version.tempDir(buildId)
+        if (buildDir.exists()) {
+            buildDir.deleteRecursivelyNoSymlink()
         }
-
-        tryOpen(null)?.let { return it }
-        buildList {
-            add(StandardCharsets.UTF_8)
-            add(Charset.defaultCharset())
-            runCatching { add(Charset.forName("GB18030")) }.getOrNull()
-            runCatching { add(Charset.forName("GBK")) }.getOrNull()
-            add(StandardCharsets.ISO_8859_1)
-        }.filterNotNull().distinct().forEach { charset ->
-            tryOpen(charset)?.let { return it }
-        }
-
-        throw RequestError(
-            "无法读取整合包: ${lastError?.message ?: "未知错误"} (尝试编码: ${attempted.joinToString()})"
-        )
+        buildDir.mkdirs()
+        return buildDir
     }
+
+    private fun cleanupVersionBuildDirs(version: Modpack.Version) {
+        val prefix = ".build-${version.name}-"
+        version.storageDir.listFiles()
+            ?.filter { it.isDirectory && it.name.startsWith(prefix) }
+            ?.forEach { it.deleteRecursivelyNoSymlink() }
+    }
+
 }
 
 

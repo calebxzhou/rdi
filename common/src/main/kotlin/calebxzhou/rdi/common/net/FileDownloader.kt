@@ -42,7 +42,7 @@ private val lgr by Loggers
 private const val DEFAULT_DOWNLOAD_ATTEMPTS = 3
 private const val DEFAULT_MAX_RANGE_THREADS = 32
 private const val HTTP_MAX_REQUESTS = 128
-private const val HTTP_MAX_REQUESTS_PER_HOST = 32
+private const val HTTP_MAX_REQUESTS_PER_HOST = 64
 private const val HTTP_CONNECTION_POOL_SIZE = 64
 private const val MIN_MULTI_PART_DOWNLOAD_BYTES = 4L * 1024 * 1024
 private const val MIN_BYTES_PER_RANGE = 2L * 1024 * 1024
@@ -255,9 +255,10 @@ private suspend fun resolveDownloadStrategy(
     knownSize: Long,
     existingTempBytes: Long,
 ): DownloadStrategy {
-    val sizeHint = fetchContentLength(url, headers) ?: knownSize.takeIf { it > 0L } ?: -1L
+    val sizeHint = knownSize.takeIf { it > 0L } ?: fetchContentLength(url, headers) ?: -1L
     val needsResumeProbe = existingTempBytes > 0L && sizeHint > 0L
-    if (sizeHint < MIN_MULTI_PART_DOWNLOAD_BYTES && !needsResumeProbe) {
+    val shouldProbeRange = needsResumeProbe || sizeHint >= MIN_MULTI_PART_DOWNLOAD_BYTES
+    if (!shouldProbeRange) {
         return DownloadStrategy.Single(
             totalBytesHint = sizeHint,
             supportsResume = false

@@ -418,7 +418,8 @@ private fun AccountSettings(
                     }, onErr = {
                         errMsg = "绑定失败：${it.message}，请重试"
                     }) {
-                        loggedAccount = loggedAccount.copy(msid = info.uuid)
+                        val jwt = loggedAccount.jwt
+                        loggedAccount = loggedAccount.copy(msid = info.uuid).also { it.jwt = jwt }
                     }
                 }
             }

@@ -22,9 +22,11 @@ data class Mod(
     enum class Side(val text:String){
         CLIENT("客户端"),SERVER("服务端"),BOTH("客+服通用"),UNKNOWN("未知")
     }
+    @Deprecated("rm later")
     @Transient
     var vo: Mod.CardVo?=null
     @Transient
+    @Deprecated("rm later")
     var file: File?=null
     //展示modcard的信息
     @Serializable

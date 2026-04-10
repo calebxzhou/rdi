@@ -11,11 +11,11 @@ import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.model.ModrinthVersionInfo
-import calebxzhou.rdi.common.service.BackgroundTaskRunner
 import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.service.McServerPinger
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.ModrinthService
+import calebxzhou.rdi.common.service.runInline
 import calebxzhou.rdi.common.util.ioScope
 import calebxzhou.rdi.common.util.objectId
 import calebxzhou.rdi.common.util.str
@@ -81,7 +81,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
-import org.bouncycastle.asn1.x500.style.RFC4519Style.st
 import org.bson.Document
 import org.bson.conversions.Bson
 import org.bson.types.ObjectId
@@ -175,12 +174,12 @@ fun Route.hostRoutes() = route("/host") {
         get {
             HostService.getById(idParam("hostId"))?.let {
                 response(data = it)
-            } ?: err("无此地图")
+            } ?: err("无此房间")
         }
         get("detail") {
             HostService.getById(idParam("hostId"))?.let {
                 response(data = it.toDetailVo())
-            } ?: err("无此地图")
+            } ?: err("无此房间")
         }
         route("/mods") {
             post {
@@ -220,7 +219,7 @@ fun Route.hostRoutes() = route("/host") {
                 val ctx = try {
                     call.hostContext()
                 } catch (err: NotFoundException) {
-                    send(ServerSentEvent(event = "error", data = "此地图已被删除"))
+                    send(ServerSentEvent(event = "error", data = "此房间已被删除"))
                     return@sse
                 } catch (err: RequestError) {
                     send(ServerSentEvent(event = "error", data = err.message ?: "unknown"))
@@ -258,7 +257,7 @@ fun Route.hostRoutes() = route("/host") {
 fun Route.hostPlayRoutes() = route("/host") {
     get("/status") {
         val port = param("port").toInt()
-        val host = HostService.getByPort(port) ?: throw RequestError("无此地图")
+        val host = HostService.getByPort(port) ?: throw RequestError("无此房间")
         response(data = host.status)
     }
     webSocket("/play/{hostId}") {
@@ -271,7 +270,7 @@ fun Route.hostPlayRoutes() = route("/host") {
 
         val host = HostService.getById(hostId)
         if (host == null) {
-            close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "未知地图"))
+            close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "未知房间"))
             return@webSocket
         }
 
@@ -297,7 +296,7 @@ data class HostContext(
     val targetMemberNull: Host.Member?
 ) {
     var reqId = 0
-    val targetMember get() = targetMemberNull ?: throw ParamError("玩家${player.name}不是此地图的受邀成员")
+    val targetMember get() = targetMemberNull ?: throw ParamError("玩家${player.name}不是此房间的受邀成员")
     suspend fun getTargetPlayer() =
         PlayerService.getById(targetMember.id) ?: throw ParamError("玩家${player.name}不存在")
 }
@@ -319,6 +318,14 @@ object HostService {
     private const val SHUTDOWN_THRESHOLD = 20
     private const val HOSTS_PER_PAGE = 100
     private const val HOST_WORKDIR_LIMIT_BYTES: Long = 1L * 1024 * 1024 * 1024
+
+    private fun createHostTaskKey(hostId: ObjectId): String =
+        "server-host-create:${hostId.toHexString()}"
+
+    private fun addExtraModsTaskKey(hostId: ObjectId, mods: List<Mod>): String {
+        val modKeys = mods.map(::projectIdentity).sorted().joinToString(",")
+        return "server-host-add-extra-mods:${hostId.toHexString()}:$modKeys"
+    }
     private const val HOST_CONFIG_FILE_MAX_BYTES: Long = 8 * 1024
     private const val HOST_CONFIG_FILE_LIST_MAX_BYTES: Long = 8 * 1024
     private val editableConfigExtensions = setOf("json", "toml", "txt", "json5", "properties","yaml","yml")
@@ -410,7 +417,7 @@ object HostService {
                 "HOST_ID=${_id.str}",
                 "GAME_PORT=${port}",
                 "ALL_OP=${if (allowCheats) "true" else "false"}",
-                "START_PARAMS=-Xmx8G $serverArg --universe /data --nogui"
+                "START_PARAMS=-Xmx8G $serverArg --nogui"
             ).apply {
                 gameRules.forEach { id, value ->
                     this += "GAME_RULE_${id}=${value}"
@@ -423,19 +430,6 @@ object HostService {
         val libsDir: File,
         val versionDir: File
     )
-
-    private fun Host.prepareOverlaySources(modpack: Modpack, version: Modpack.Version): OverlaySources {
-        val libsDir = modpack.libsDir.canonicalFile.also {
-            if (!it.exists()) throw RequestError("整合包依赖缺失: ${it}")
-        }
-        val versionDir = version.dir.canonicalFile.also {
-            if (!it.exists()) throw RequestError("整合包版本目录缺失: ${it}")
-        }
-        val hostRoot = overlayRootDir().apply { mkdirs() }
-
-
-        return OverlaySources(libsDir, versionDir)
-    }
 
     private fun Host.writeServerProperties() {
         dir.resolve("allowed_symlinks.txt").writeText("[regex].*")
@@ -471,6 +465,15 @@ object HostService {
         }
     }
 
+    private fun Host.deleteTransientStartupDirs() {
+        listOf("tacz_backup", "dynamic-data-pack-cache").forEach { dirName ->
+            val targetDir = dir.resolve(dirName)
+            if (!targetDir.exists()) return@forEach
+            runCatching { targetDir.deleteRecursivelyNoSymlink() }
+                .onFailure { err -> throw RequestError("删除${dirName}失败: ${err.message}") }
+        }
+    }
+
     private fun Host.syncAllOpMarkers() {
         val allOpMarker = dir.resolve("R_ALL_OP")
         val opsFile = dir.resolve("ops.json")
@@ -492,7 +495,7 @@ object HostService {
             .filter { it.isFile && !Files.isSymbolicLink(it.toPath()) }
             .sumOf { it.length() }
         if (totalSize > HOST_WORKDIR_LIMIT_BYTES) {
-            throw RequestError("地图目录超过 3GB (${totalSize.humanFileSize}MB)，请删除不必要文件后再启动") }
+            throw RequestError("房间目录超过 3GB (${totalSize.humanFileSize}MB)，请删除不必要文件后再启动") }
     }
 
     val HostContext.needMember get() = requireRole(Role.MEMBER)
@@ -515,13 +518,13 @@ object HostService {
     suspend fun ApplicationCall.hostContext(): HostContext {
         val player = player()
         val requesterId = player._id
-        val host = HostService.getById(idPathParam("hostId")) ?: throw RequestError("无此地图")
+        val host = HostService.getById(idPathParam("hostId")) ?: throw RequestError("无此房间")
         val reqMem = host.members.firstOrNull { it.id == requesterId } ?: run {
             if (player.isDav) {
                 Host.Member(id = requesterId, role = Role.ADMIN)
             } else if (!host.whitelist) {
                 Host.Member(id = requesterId, role = Role.GUEST)
-            } else throw RequestError("不是地图受邀成员")
+            } else throw RequestError("不是房间受邀成员")
         }
         val tarMem = pathParamNull("uid2")?.let { rawId ->
             runCatching { ObjectId(rawId) }.getOrNull()
@@ -984,7 +987,7 @@ object HostService {
         }
         val occupyHost = findByWorld(worldId)
         if (occupyHost != null && occupyHost._id != currentHostId) {
-            throw RequestError("此存档数据已被地图“${occupyHost.name}”占用")
+            throw RequestError("此存档数据已被房间“${occupyHost.name}”占用")
         }
         val world = WorldService.getById(worldId) ?: throw RequestError("无此存档")
         if (world.ownerId != _id) {
@@ -997,13 +1000,13 @@ object HostService {
         host.name.validateName()
         val playerId = _id
         if (getByOwner(playerId).size > 3 && !this.isDav) {
-            throw RequestError("最多只可创建3张地图")
+            throw RequestError("最多只可创建3张房间")
         }
         if (host.name.contains("公测") && !this.isDav) {
-            throw RequestError("无权创建公测地图")
+            throw RequestError("无权创建公测房间")
         }
         if (findByOwnerAndModpack(playerId, host.modpackId) != null) {
-            throw RequestError("同一个整合包只能创建一张地图")
+            throw RequestError("同一个整合包只能创建一张房间")
         }
         val world = resolveWorld(host.saveWorld, host.worldId, host.modpackId)
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此包")
@@ -1025,7 +1028,7 @@ object HostService {
             gameRules = host.gameRules
         )
         val mailId =
-            MailService.sendSystemMail(playerId, "地图创建中", "${host.name}正在创建中，请稍等几分钟...")._id
+            MailService.sendSystemMail(playerId, "房间创建中", "${host.name}正在创建中，请稍等几分钟...")._id
         dbcl.insertOne(host)
         startCreateHost(host, modpack, version, mailId)
 
@@ -1036,34 +1039,57 @@ object HostService {
         host: Host,
         modpack: Modpack,
         version: Modpack.Version,
-        mailId: ObjectId
+        mailId: ObjectId,
+        runningTitle: String = "房间创建中",
+        successTitle: String = "房间创建成功",
+        successContent: String = "可以玩了",
+        failureTitle: String = "房间创建失败"
     ) {
-        ioScope.launch {
-            runCatching {
-                if (host.dir.exists()) {
-                    host.dir.deleteRecursivelyNoSymlink()
+        ServerTaskManager.submit(
+            task = Task2.Leaf("创建房间 ${host.name}") { ctx ->
+                runCatching {
+                    ctx.emit(LoadProgress.Phase("准备房间目录"))
+                    MailService.changeMail(mailId, runningTitle, newContent = "准备房间目录")
+                    if (host.dir.exists()) {
+                        host.dir.deleteRecursivelyNoSymlink()
+                    }
+                    host.dir.mkdir()
+
+                    ctx.emit(LoadProgress.Phase("准备Docker容器"))
+                    MailService.changeMail(mailId, runningTitle, newContent = "准备Docker容器")
+                    host.makeContainer(host.worldId, modpack, version)
+
+                    modpack.installToHost(host.packVer, host) {
+                        MailService.changeMail(mailId, runningTitle, newContent = it)
+                        ctx.emit(LoadProgress.Phase(it))
+                    }
+
+                    ctx.emit(LoadProgress.Phase("写入房间配置"))
+                    MailService.changeMail(mailId, runningTitle, newContent = "写入房间配置")
+                    host.writeServerProperties()
+
+                    ctx.emit(LoadProgress.Phase("清理启动前缓存"))
+                    MailService.changeMail(mailId, runningTitle, newContent = "清理启动前缓存")
+                    host.deleteTransientStartupDirs()
+
+                    lgr.info { "installToHost returned. Proceeding to start Docker container for host ${host._id} (Logic Error Tracing)." }
+                    ctx.emit(LoadProgress.Phase("启动房间"))
+                    MailService.changeMail(mailId, runningTitle, newContent = "启动房间")
+                    DockerService.start(host._id.str)
+                    host.listenCrashOnStart()
+
+                    clearShutFlag(host._id)
+                }.onFailure {
+                    lgr.error { it }
+                    it.printStackTrace()
+                    MailService.changeMail(mailId, failureTitle, newContent = "无法创建房间，错误：${it}")
+                    throw it
+                }.onSuccess {
+                    MailService.changeMail(mailId, successTitle, newContent = successContent)
                 }
-                host.dir.mkdir()
-
-                host.makeContainer(host.worldId, modpack, version)
-
-                modpack.installToHost(host.packVer, host) {
-                    MailService.changeMail(mailId, "地图创建中", newContent = it)
-                }
-                host.writeServerProperties()
-                lgr.info { "installToHost returned. Proceeding to start Docker container for host ${host._id} (Logic Error Tracing)." }
-                DockerService.start(host._id.str)
-                host.listenCrashOnStart()
-
-                clearShutFlag(host._id)
-            }.onFailure {
-                lgr.error { it }
-                it.printStackTrace()
-                MailService.changeMail(mailId, "地图创建失败", newContent = "无法创建地图，错误：${it}")
-            }.onSuccess {
-                MailService.changeMail(mailId, "地图创建成功", newContent = "可以玩了")
-            }
-        }
+            },
+            dedupeKey = createHostTaskKey(host._id)
+        )
     }
 
     private fun Host.makeContainer(
@@ -1108,7 +1134,7 @@ object HostService {
                 .forEach { mod ->
                     val source = DL_MOD_DIR.resolve(mod.fileName)
                     if (!source.exists()) {
-                        throw RequestError("地图附加Mod文件缺失:${mod.slug} 请重新上传")
+                        throw RequestError("房间附加Mod文件缺失:${mod.slug} 请重新上传")
                     }
                     this += Mount()
                         .withType(MountType.BIND)
@@ -1131,13 +1157,13 @@ object HostService {
                 //使用存档
                 this += Mount()
                     .withType(MountType.BIND)
-                    .withSource(WorldService.getDataDir(worldId).absolutePath)
-                    .withTarget("/data")
+                    .withSource(WorldService.getLevelDir(worldId).absolutePath)
+                    .withTarget("/opt/server/world")
             } else {
                 //不存档
                 this += Mount()
                     .withType(MountType.TMPFS)
-                    .withTarget("/data")
+                    .withTarget("/opt/server/world")
                     .withTmpfsOptions(TmpfsOptions().withSizeBytes(512 * 1024 * 1024))
             }
         }
@@ -1184,8 +1210,8 @@ object HostService {
         val hostIdStr = host._id.str
         val mailId = MailService.sendSystemMail(
             player._id,
-            "地图整合包切换中",
-            "你的地图《${host.name}》正在切换到整合包版本 $resolvedVer ，请稍等几分钟..."
+            "房间整合包切换中",
+            "你的房间《${host.name}》正在切换到整合包版本 $resolvedVer ，请稍等几分钟..."
         )._id
 
         DockerService.deleteContainer(hostIdStr)
@@ -1196,8 +1222,16 @@ object HostService {
             )
         )
         host.packVer = resolvedVer
-        startCreateHost(host, modpack, modpackVer, mailId)
-        MailService.changeMail(mailId, "地图整合包版本切换完成", "好了")
+        startCreateHost(
+            host = host,
+            modpack = modpack,
+            version = modpackVer,
+            mailId = mailId,
+            runningTitle = "房间整合包切换中",
+            successTitle = "房间整合包版本切换完成",
+            successContent = "好了",
+            failureTitle = "房间整合包版本切换失败"
+        )
     }
 
     suspend fun HostContext.changeOptions(payload: Host.OptionsDto) {
@@ -1252,7 +1286,7 @@ object HostService {
         val isMember = member.role != Role.GUEST
         val isPublicHost = current.isPublicTest || !current.whitelist
         if (!isPublicHost && !isMember && !player.isDav) {
-            throw RequestError("私有地图仅成员可启动")
+            throw RequestError("私有房间仅成员可启动")
         }
         if (DockerService.isStarted(current._id.str)) {
             throw RequestError("已经启动过了")
@@ -1261,6 +1295,7 @@ object HostService {
         val version = modpack.getVersion(current.packVer) ?: throw RequestError("无此版本")
         DockerService.deleteContainer(current._id.str)
         current.writeServerProperties()
+        current.deleteTransientStartupDirs()
         current.makeContainer(current.worldId, modpack, version)
         DockerService.start(current._id.str)
         current.listenCrashOnStart()
@@ -1290,7 +1325,7 @@ object HostService {
         val normalized = command.trimEnd()
         if (normalized.isBlank()) throw RequestError("命令不能为空")
 
-        val session = hostStates[hostId]?.session ?: throw RequestError("地图未处于游玩状态")
+        val session = hostStates[hostId]?.session ?: throw RequestError("房间未处于游玩状态")
 
         val message = WsMessage(
             reqId,
@@ -1779,18 +1814,17 @@ object HostService {
     }
 
     suspend fun HostContext.addExtraMods(mods: List<Mod>) {
-        if (mods.isEmpty()) throw RequestError("extraMods不能为空")
-
+        if (mods.isEmpty()) throw RequestError("附加Mod列表不能为空")
         val duplicateRequestIds = mods.groupBy(::projectIdentity)
             .filterKeys { it.isNotBlank() }
             .filterValues { it.size > 1 }
             .keys
         if (duplicateRequestIds.isNotEmpty()) {
-            throw RequestError("请求中包含重复Mod projectId: ${duplicateRequestIds.joinToString()}")
+            throw RequestError("请求中包含重复Mod项目: ${duplicateRequestIds.joinToString()}")
         }
         val duplicateRequestSlugs = duplicateRequestSlugLabels(mods)
         if (duplicateRequestSlugs.isNotEmpty()) {
-            throw RequestError("请求中包含同slug的重复Mod: ${duplicateRequestSlugs.joinToString()}")
+            throw RequestError("请求中包含重复Mod名: ${duplicateRequestSlugs.joinToString()}")
         }
 
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此整合包")
@@ -1802,17 +1836,17 @@ object HostService {
                 .filter { projectIdentity(it) in duplicateExistingIds }
                 .map { it.slug.trim().ifBlank { projectIdentity(it) } }
                 .distinct()
-            throw RequestError("地图已有这些mod: ${duplicateExistingSlugs.joinToString()}")
+            throw RequestError("房间已有这些mod: ${duplicateExistingSlugs.joinToString()}")
         }
         val duplicateExistingSlugs = duplicateExistingSlugLabels(mods, host.extraMods + baseVersion.mods)
         if (duplicateExistingSlugs.isNotEmpty()) {
-            throw RequestError("地图已有这些同名mod: ${duplicateExistingSlugs.joinToString()}")
+            throw RequestError("房间已有这些同名mod: ${duplicateExistingSlugs.joinToString()}")
         }
 
         val mailId = MailService.sendSystemMail(
             player._id,
-            "主机附加Mod添加中",
-            "开始为地图${host.name}添加${mods.size}个附加Mod"
+            "附加Mod添加中",
+            "开始为房间${host.name}添加${mods.size}个附加Mod"
         )._id
         enqueueAddExtraMods(host._id, host.name, host.modpackId, host.packVer, mods, mailId)
     }
@@ -1825,91 +1859,104 @@ object HostService {
         mods: List<Mod>,
         mailId: ObjectId
     ) {
-        ioScope.launch {
-            runCatching {
-                MailService.changeMail(mailId, newContent = "开始校验Mod信息")
-                mods.forEachIndexed { index, mod ->
-                    validateExtraMod(mod)
-                    MailService.changeMail(mailId, newContent = "已校验 ${index + 1}/${mods.size}: ${mod.slug}")
-                }
-
-                val currentHost = getById(hostId) ?: throw RequestError("无此地图")
-                val modpack = ModpackService.getById(modpackId) ?: throw RequestError("无此整合包")
-                val baseVersion = modpack.getVersion(packVer) ?: throw RequestError("无此整合包版本: $packVer")
-                val existingProjectIds = (currentHost.extraMods + baseVersion.mods).map(::projectIdentity).toSet()
-                val duplicateExistingMods = mods.filter { projectIdentity(it) in existingProjectIds }
-                if (duplicateExistingMods.isNotEmpty()) {
-                    val duplicateSlugs = duplicateExistingMods
-                        .map { it.slug.trim().ifBlank { projectIdentity(it) } }
-                        .distinct()
-                    throw RequestError("主机已有这些mod: ${duplicateSlugs.joinToString()}")
-                }
-                val duplicateExistingSlugMods =
-                    duplicateExistingSlugLabels(mods, currentHost.extraMods + baseVersion.mods)
-                if (duplicateExistingSlugMods.isNotEmpty()) {
-                    throw RequestError("主机已有这些同slug mod: ${duplicateExistingSlugMods.joinToString()}")
-                }
-
-                with(BackgroundTaskRunner) {
-                    ModService.downloadModsTask(mods).start { progress ->
-                        val percentText = progress.fraction?.let { fraction ->
-                            " ${(fraction.coerceIn(0f, 1f) * 100).toInt()}%"
-                        }.orEmpty()
-                        MailService.changeMail(mailId, newContent = "${progress.message}$percentText")
+        ServerTaskManager.submit(
+            task = Task2.Leaf("为房间添加附加Mod $hostName") { ctx ->
+                runCatching {
+                    MailService.changeMail(mailId, newContent = "开始校验Mod信息")
+                    ctx.emit(LoadProgress.Phase("开始校验Mod信息"))
+                    mods.forEachIndexed { index, mod ->
+                        validateExtraMod(mod)
+                        val message = "已校验 ${index + 1}/${mods.size}: ${mod.slug}"
+                        MailService.changeMail(mailId, newContent = message)
+                        ctx.emit(
+                            LoadProgress.Percent(
+                                message,
+                                (index + 1).toFloat() / mods.size.coerceAtLeast(1)
+                            )
+                        )
                     }
-                }
 
-                val latestHost = getById(hostId) ?: throw RequestError("无此地图")
-                val latestModpack = ModpackService.getById(latestHost.modpackId) ?: throw RequestError("无此整合包")
-                val latestBaseVersion = latestModpack.getVersion(latestHost.packVer)
-                    ?: throw RequestError("无此整合包版本: ${latestHost.packVer}")
-                val latestExistingProjectIds =
-                    (latestHost.extraMods + latestBaseVersion.mods).map(::projectIdentity).toSet()
-                val latestExistingSlugs = (latestHost.extraMods + latestBaseVersion.mods)
-                    .map(::slugIdentity)
-                    .filter { it.isNotBlank() }
-                    .toSet()
-                val modsToAppend = mods.filterNot {
-                    projectIdentity(it) in latestExistingProjectIds ||
-                            (slugIdentity(it).isNotBlank() && slugIdentity(it) in latestExistingSlugs)
-                }
-                if (modsToAppend.isEmpty()) {
-                    throw RequestError("这些mod在任务执行期间已被添加到主机")
-                }
+                    val currentHost = getById(hostId) ?: throw RequestError("无此房间")
+                    val modpack = ModpackService.getById(modpackId) ?: throw RequestError("无此整合包")
+                    val baseVersion = modpack.getVersion(packVer) ?: throw RequestError("无此整合包版本: $packVer")
+                    val existingProjectIds = (currentHost.extraMods + baseVersion.mods).map(::projectIdentity).toSet()
+                    val duplicateExistingMods = mods.filter { projectIdentity(it) in existingProjectIds }
+                    if (duplicateExistingMods.isNotEmpty()) {
+                        val duplicateSlugs = duplicateExistingMods
+                            .map { it.slug.trim().ifBlank { projectIdentity(it) } }
+                            .distinct()
+                        throw RequestError("主机已有这些mod: ${duplicateSlugs.joinToString()}")
+                    }
+                    val duplicateExistingSlugMods =
+                        duplicateExistingSlugLabels(mods, currentHost.extraMods + baseVersion.mods)
+                    if (duplicateExistingSlugMods.isNotEmpty()) {
+                        throw RequestError("主机已有这些同slug mod: ${duplicateExistingSlugMods.joinToString()}")
+                    }
 
-                val updatedMods = (latestHost.extraMods + modsToAppend)
-                    .distinctBy(::modIdentity)
-                    .toList()
-                dbcl.updateOne(
-                    eq("_id", hostId),
-                    set(Host::extraMods.name, updatedMods)
-                )
-                val skippedCount = mods.size - modsToAppend.size
-                MailService.changeMail(
-                    mailId,
-                    newTitle = "主机附加Mod添加完成",
-                    newContent = buildString {
-                        append("已为地图")
-                        append(hostName)
-                        append("添加")
-                        append(modsToAppend.size)
-                        append("个附加Mod")
-                        if (skippedCount > 0) {
-                            append("，另有")
-                            append(skippedCount)
-                            append("个mod因执行期间已存在而跳过")
+                    ModService.downloadModsTask2(mods).runInline(
+                        Task2Context { progress ->
+                            val percentText = progress.fraction?.let { fraction ->
+                                " ${(fraction.coerceIn(0f, 1f) * 100).toInt()}%"
+                            }.orEmpty()
+                            MailService.changeMail(mailId, newContent = "${progress.message}$percentText")
+                            ctx.emit(progress)
                         }
+                    )
+
+                    val latestHost = getById(hostId) ?: throw RequestError("无此房间")
+                    val latestModpack = ModpackService.getById(latestHost.modpackId) ?: throw RequestError("无此整合包")
+                    val latestBaseVersion = latestModpack.getVersion(latestHost.packVer)
+                        ?: throw RequestError("无此整合包版本: ${latestHost.packVer}")
+                    val latestExistingProjectIds =
+                        (latestHost.extraMods + latestBaseVersion.mods).map(::projectIdentity).toSet()
+                    val latestExistingSlugs = (latestHost.extraMods + latestBaseVersion.mods)
+                        .map(::slugIdentity)
+                        .filter { it.isNotBlank() }
+                        .toSet()
+                    val modsToAppend = mods.filterNot {
+                        projectIdentity(it) in latestExistingProjectIds ||
+                                (slugIdentity(it).isNotBlank() && slugIdentity(it) in latestExistingSlugs)
                     }
-                )
-            }.onFailure { error ->
-                lgr.error { "添加主机附加Mod失败 host=$hostId\n$error" }
-                MailService.changeMail(
-                    mailId,
-                    newTitle = "主机附加Mod添加失败",
-                    newContent = "无法为地图${hostName}添加附加Mod: ${error.message ?: error}"
-                )
-            }
-        }
+                    if (modsToAppend.isEmpty()) {
+                        throw RequestError("这些mod在任务执行期间已被添加到主机")
+                    }
+
+                    val updatedMods = (latestHost.extraMods + modsToAppend)
+                        .distinctBy(::modIdentity)
+                        .toList()
+                    dbcl.updateOne(
+                        eq("_id", hostId),
+                        set(Host::extraMods.name, updatedMods)
+                    )
+                    val skippedCount = mods.size - modsToAppend.size
+                    MailService.changeMail(
+                        mailId,
+                        newTitle = "主机附加Mod添加完成",
+                        newContent = buildString {
+                            append("已为房间")
+                            append(hostName)
+                            append("添加")
+                            append(modsToAppend.size)
+                            append("个附加Mod")
+                            if (skippedCount > 0) {
+                                append("，另有")
+                                append(skippedCount)
+                                append("个mod因执行期间已存在而跳过")
+                            }
+                        }
+                    )
+                }.onFailure { error ->
+                    lgr.error { "添加主机附加Mod失败 host=$hostId\n$error" }
+                    MailService.changeMail(
+                        mailId,
+                        newTitle = "主机附加Mod添加失败",
+                        newContent = "无法为房间${hostName}添加附加Mod: ${error.message ?: error}"
+                    )
+                    throw error
+                }
+            },
+            dedupeKey = addExtraModsTaskKey(hostId, mods)
+        )
     }
 
     suspend fun HostContext.deleteExtraMods(projectIds: List<String>): List<Mod> {
@@ -2017,7 +2064,7 @@ object HostService {
     }
 
     suspend fun HostContext.transferOwnership() {
-        val current = getById(host._id) ?: throw RequestError("无此地图")
+        val current = getById(host._id) ?: throw RequestError("无此房间")
         val recipient = targetMember
         if (current.ownerId == recipient.id) throw RequestError("不能转给自己")
         if (!getTargetPlayer().hasMsid) throw RequestError("找不到对方的微软账号")
@@ -2045,17 +2092,17 @@ object HostService {
     }
 
     suspend fun HostContext.addMember(qq: String) {
-        val current = getById(host._id) ?: throw RequestError("无此地图")
+        val current = getById(host._id) ?: throw RequestError("无此房间")
         val target = PlayerService.getByQQ(qq) ?: throw RequestError("无此账号")
         if (current.hasMember(target._id)) {
             throw RequestError("该用户已是成员")
         }
         if (!current.isPublicTest && current.members.size >= 10) {
-            throw RequestError("该地图最多只能有10名成员")
+            throw RequestError("该房间最多只能有10名成员")
         }
         val joinedCount = dbcl.countDocuments(eq("${Host::members.name}.${Host.Member::id.name}", target._id))
         if (joinedCount >= 10) {
-            throw RequestError("该用户已加入 9 张地图，无法继续加入")
+            throw RequestError("该用户已加入 9 张房间，无法继续加入")
         }
         dbcl.updateOne(
             eq("_id", current._id),
@@ -2088,10 +2135,10 @@ object HostService {
 
     suspend fun HostContext.quit() {
         if (!host.hasMember(player._id)) {
-            throw RequestError("你不是此地图成员")
+            throw RequestError("你不是此房间成员")
         }
         if (host.ownerId == player._id) {
-            throw RequestError("拥有者无法退出地图")
+            throw RequestError("拥有者无法退出房间")
         }
         dbcl.updateOne(
             eq("_id", host._id),

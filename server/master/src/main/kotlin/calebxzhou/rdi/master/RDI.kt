@@ -1,7 +1,10 @@
 package calebxzhou.rdi.master
 
+import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.model.Modpack
+import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.master.exception.AuthError
 import calebxzhou.rdi.master.exception.ParamError
@@ -87,6 +90,8 @@ fun main(): Unit = runBlocking {
     if (DEBUG) {
         System.setProperty("javax.net.ssl.trustStoreType", "Windows-ROOT")
     }
+    CommonConfig.updateProxyConfig(CONF.proxy)
+    ModService.useMirror = CONF.download.useMirror
     CONF.storage.dlModsDir?.let { System.setProperty("rdi.modDir", it) }
 
     CRASH_REPORT_DIR.mkdirs()
@@ -99,7 +104,9 @@ fun main(): Unit = runBlocking {
 
     accountCol.createIndex(Indexes.ascending("qq"), IndexOptions().unique(true))
     accountCol.createIndex(Indexes.ascending("name"), IndexOptions().unique(true))
+    ModpackService.dbcl.createIndex(Indexes.ascending(Modpack::name.name), IndexOptions().unique(true))
 
+    ModpackService.recoverUnfinishedVersionBuildsOnStartup()
     HostService.startIdleMonitor()
     EmailService.startListener()
     Runtime.getRuntime().addShutdownHook(Thread {

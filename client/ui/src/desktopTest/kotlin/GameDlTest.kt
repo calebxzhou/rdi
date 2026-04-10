@@ -1,6 +1,4 @@
 import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.model.ModLoader
-import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.GameService.rewriteMirrorUrl
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
@@ -21,11 +19,6 @@ class GameDlTest {
         //GameService.downloadVersionLegacy(McVersion.V211) { println(it) }
     }
 
-    /*@Test
-    fun dl20(): Unit = runBlocking {
-
-        GameService.downloadVersion(McVersion.V201) { println(it) }
-    }*/
     @Test
     fun start21(): Unit = runBlocking {
        // GameService.start(McVersion.V211, "neoforge-21.1.216") { println(it) }
@@ -42,10 +35,5 @@ class GameDlTest {
     fun installLoader21(): Unit = runBlocking {
        // GameService.downloadLoaderLegacy(McVersion.V211, ModLoader.neoforge) { println(it) }
     }
-
-    /*@Test
-    fun installLoader20(): Unit = runBlocking {
-        GameService.downloadLoader(McVersion.V201, ModLoader.FORGE) { println(it) }
-    }*/
 
 }

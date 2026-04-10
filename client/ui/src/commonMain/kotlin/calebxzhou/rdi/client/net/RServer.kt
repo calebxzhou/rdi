@@ -20,6 +20,7 @@ import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import java.nio.file.Paths
 
 val server
     get() = RServer.now
@@ -34,8 +35,8 @@ data class ServerNode(
 )
 val SERVER_NODES = listOf(
     ServerNode(0, "电信专用优化", if(DEBUG)"${RServer.OFFICIAL_DEBUG.ip}:65230" else "rdi.calebxzhou.cn:65230"),
-    ServerNode(1, "广东互通", "frp-leg.com:65230"),
-    ServerNode(2, "浙江互通", "frp-try.com:65230"),
+    ServerNode(1, "广东互通", "frp-lab.com:55230"),
+    ServerNode(2, "浙江互通", "frp-fog.com:65230"),
     ServerNode(3, "河北互通", "frp-own.com:65230"),
     ServerNode(4, "西安互通", "frp-arm.com:55230"),
     ServerNode(5, "重庆互通", "frp-fox.com:65230"),
@@ -120,12 +121,11 @@ class RServer(
         saveTo: String,
         onProgress: (DownloadProgress) -> Unit
     ) {
-        downloadFileTo(
+        Paths.get(saveTo).downloadFileFrom(
             "${hqUrl}/${path}",
-            saveTo,
             headers = mapOf(HttpHeaders.Authorization to "Bearer ${loggedAccount.jwt}"),
             onProgress = onProgress,
-        )
+        ).getOrThrow()
     }
 }
 

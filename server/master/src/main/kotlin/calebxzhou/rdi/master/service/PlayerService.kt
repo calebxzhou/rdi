@@ -24,7 +24,6 @@ import calebxzhou.rdi.master.service.PlayerService.bindMSAccount
 import calebxzhou.rdi.master.service.PlayerService.changeCloth
 import calebxzhou.rdi.master.service.PlayerService.changeProfile
 import calebxzhou.rdi.master.service.PlayerService.clearCloth
-import calebxzhou.rdi.master.service.PlayerService.getInvitedPlayers
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.Filters.`in`
 import com.mongodb.client.model.Updates
@@ -128,11 +127,6 @@ fun Route.playerRoutes() {
                 call.player().bindMSAccount(call.receive())
                 ok()
             }
-            route("/invite") {
-                get {
-                    call.player().getInvitedPlayers().map { it.dto }.let { response(data = it) }
-                }
-            }
         }
     }
 }
@@ -179,10 +173,6 @@ object PlayerService {
     suspend fun validate(usr: String, pwd: String): RAccount? {
         val account = get(usr)
         return if (account == null || account.pwd != pwd) null else account
-    }
-    @Deprecated("remove later")
-    suspend fun RAccount.getInvitedPlayers(): List<RAccount> {
-        return accountCol.find(eq(RAccount::inviter.name, _id)).toList()
     }
     suspend fun RAccount.clearCloth() {
         accountCol.updateOne(uidFilter, Updates.unset(RAccount::cloth.name))

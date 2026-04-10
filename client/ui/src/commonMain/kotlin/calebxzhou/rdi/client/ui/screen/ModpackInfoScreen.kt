@@ -2,42 +2,46 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.*
+import androidx.compose.material.AlertDialog
+import androidx.compose.material.Button
+import androidx.compose.material.CircularProgressIndicator
+import androidx.compose.material.MaterialTheme
+import androidx.compose.material.OutlinedTextField
+import androidx.compose.material.SnackbarDuration
+import androidx.compose.material.SnackbarHostState
+import androidx.compose.material.Tab
+import androidx.compose.material.TabRow
+import androidx.compose.material.Text
+import androidx.compose.material.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.millisToHumanDateTime
+import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.service.ModpackService
-import calebxzhou.rdi.client.service.ModpackService.startInstall
+import calebxzhou.rdi.client.service.ModpackService.modpackInstallTaskKey
+import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
+import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HeadButton
-import calebxzhou.rdi.client.ui.comp.ModCard
+import calebxzhou.rdi.client.ui.comp.ModGrid
 import calebxzhou.rdi.common.json
-import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.model.Task
 import calebxzhou.rdi.common.model.isDav
-import calebxzhou.rdi.common.service.CurseForgeService.fillCurseForgeVo
-import calebxzhou.rdi.common.service.ModrinthService.fillModrinthVo
 import calebxzhou.rdi.common.service.latest
 import calebxzhou.rdi.common.service.validate
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.bson.types.ObjectId
 
 /**
  * calebxzhou @ 2026-01-17 20:44
@@ -47,9 +51,8 @@ import org.bson.types.ObjectId
 fun ModpackInfoScreen(
     modpackId: String,
     onBack: () -> Unit,
-    onOpenUpload: ((ObjectId, String) -> Unit)? = null,
-    onCreateHost: ((String, String, String, Boolean) -> Unit)? = null,
-    onOpenTask: ((Task) -> Unit)? = null
+    onOpenTaskList: ((String) -> Unit)? = null,
+    onCreateHost: ((String, String, String, Boolean) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -58,7 +61,7 @@ fun ModpackInfoScreen(
     var title by remember { mutableStateOf("整合包详情") }
     var loading by remember { mutableStateOf(true) }
     var modpack by remember { mutableStateOf<Modpack.DetailVo?>(null) }
-    var mods by remember { mutableStateOf<List<Mod>>(emptyList()) }
+    var mods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
     var modsLoading by remember { mutableStateOf(false) }
     var confirmDeletePack by remember { mutableStateOf(false) }
     var confirmDeleteVersion by remember { mutableStateOf<Modpack.Version?>(null) }
@@ -70,7 +73,6 @@ fun ModpackInfoScreen(
     var editInfo by remember { mutableStateOf("") }
     var editSourceUrl by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf(0) }
-    var modSearch by remember { mutableStateOf("") }
 
     fun reload() {
         loading = true
@@ -87,8 +89,7 @@ fun ModpackInfoScreen(
                     scope.launch {
                         val loaded = withContext(Dispatchers.IO) {
                             runCatching {
-                                latest.mods.fillCurseForgeVo()
-                                latest.mods.fillModrinthVo(null)
+                                latest.mods.hydrateToUiMods()
                             }.getOrElse {
                                 it.printStackTrace();
                                 emptyList()
@@ -108,11 +109,14 @@ fun ModpackInfoScreen(
     }
 
     fun startDownload(pack: Modpack.DetailVo, version: Modpack.Version) {
-        val task = version.startInstall(pack.mcVer, pack.modloader, pack.name)
-        if (onOpenTask != null) {
-            onOpenTask(task)
+        val runId = ClientTaskManager.submit(
+            task = version.startInstallTask2(pack.mcVer, pack.modloader, pack.name),
+            dedupeKey = modpackInstallTaskKey(version.modpackId, version.name)
+        )
+        if (onOpenTaskList != null) {
+            onOpenTaskList(runId)
         } else {
-            okMessage = "暂不支持在此页面下载"
+            okMessage = "已加入任务列表"
         }
     }
 
@@ -157,24 +161,7 @@ fun ModpackInfoScreen(
                     ) {
                         showEditDialog = true
                     }
-                    // Upload button — desktop only
                     if (isDesktop) {
-                        Space8w()
-                        CircleIconButton(
-                            icon = "\uF093",
-                            tooltip = "上传新版本",
-                            bgColor = MaterialColor.BLUE_900.color
-                        ) {
-                            if (onOpenUpload == null) {
-                                okMessage = "暂不支持在此页面上传新版本"
-                                return@CircleIconButton
-                            }
-                            ModpackUploadStore.preset = ModpackUploadStore.Preset(
-                                updateModpackId = pack?._id,
-                                updateModpackName = pack?.name
-                            )
-                            onOpenUpload(pack!!._id, pack!!.name)
-                        }
                         Space8w()
                         CircleIconButton(
                             icon = "\uEA81",
@@ -228,58 +215,10 @@ fun ModpackInfoScreen(
                                 Text("正在载入${pack.modCount}个Mod的详细信息...")
                             }
                             Space8h()
-                            OutlinedTextField(
-                                value = modSearch,
-                                onValueChange = { modSearch = it },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 8.dp),
-                                label = { Text("搜索 Mod 名称") },
-                                singleLine = true,
-                                maxLines = 1,
-                                placeholder = { Text("输入 Mod 名称或英文名...") },
-                                trailingIcon = {
-                                    if (modSearch.isNotBlank()) {
-                                        IconButton(onClick = { modSearch = "" }) {
-                                            Text("✕")
-                                        }
-                                    }
-                                }
+                            ModGrid(
+                                mods = mods,
+                                emptyText = "没有可显示的mod"
                             )
-                            val sortedMods = remember(mods) {
-                                mods.sortedWith(
-                                    compareBy(
-                                        String.CASE_INSENSITIVE_ORDER
-                                    ) { mod ->mod.vo?.name?.takeIf { it.isNotBlank() }
-                                            ?: mod.slug
-                                    }
-                                )
-
-                            }
-                            val filteredMods = remember(sortedMods, modSearch) {
-                                val query = modSearch.trim()
-                                if (query.isBlank()) sortedMods
-                                else sortedMods.filter { mod ->
-                                    val name = mod.vo?.name ?: ""
-                                    val nameCn = mod.vo?.nameCn ?: ""
-                                    name.contains(query, true) || nameCn.contains(query, true) || mod.slug.contains(query, true)
-                                }
-                            }
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(320.dp),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                items(filteredMods, key = { it.hash }) { mod ->
-                                    val card = mod.vo
-                                    if (card != null) {
-                                        card.ModCard()
-                                    } else {
-                                        Text(mod.slug, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                            }
                         }
                     }
                     1 -> {
@@ -346,18 +285,6 @@ fun ModpackInfoScreen(
                             item {
                                 if (pack.versions.isEmpty()) {
                                     Text("此整合包暂无可用版本，等待作者上传....", color = Color.Gray)
-                                    Space8h()
-                                    if (isDesktop) {
-                                        Button(onClick = {
-                                            if (onOpenUpload != null) {
-                                                onOpenUpload(pack._id, pack.name)
-                                            } else {
-                                                okMessage = "暂不支持上传新版"
-                                            }
-                                        }) {
-                                            Text("上传新版")
-                                        }
-                                    }
                                 }
                             }
                         }

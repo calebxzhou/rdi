@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.ui.comp
 
 import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -13,6 +14,12 @@ import androidx.compose.ui.Modifier
 @Composable
 expect fun PlatformVerticalScrollbar(
     listState: LazyListState,
+    modifier: Modifier = Modifier
+)
+
+@Composable
+expect fun PlatformVerticalScrollbar(
+    gridState: LazyGridState,
     modifier: Modifier = Modifier
 )
 

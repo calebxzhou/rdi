@@ -1,5 +1,6 @@
 package calebxzhou.rdi.master
 
+import calebxzhou.rdi.common.ProxyConfig
 import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
 import net.peanuuutz.tomlkt.Toml
@@ -16,12 +17,6 @@ data class DatabaseConfig(
 data class ServerConfig(
     val port: Int = 65231,
     val httpsPort: Int = 65331
-)
-
-@Serializable
-data class ProxyConfig(
-    val host: String = "127.0.0.1",
-    val port: Int = 10808,
 )
 
 @Serializable
@@ -48,6 +43,11 @@ data class DockerConfig(
 data class ApiKeyConfig(
     val curseforge: String = "",
 
+)
+
+@Serializable
+data class DownloadConfig(
+    val useMirror: Boolean = true
 )
 
 @Serializable
@@ -86,9 +86,10 @@ data class EmailConfig(
 data class AppConfig(
     val database: DatabaseConfig = DatabaseConfig(),
     val server: ServerConfig = ServerConfig(),
-    val proxy: ProxyConfig? = null,
+    val proxy: ProxyConfig = ProxyConfig(),
     val docker: DockerConfig = DockerConfig(),
     val apiKey: ApiKeyConfig = ApiKeyConfig(),
+    val download: DownloadConfig = DownloadConfig(),
     val jwt: JwtConfig = JwtConfig(),
     val storage: StorageConfig = StorageConfig(),
     val email: EmailConfig = EmailConfig(),

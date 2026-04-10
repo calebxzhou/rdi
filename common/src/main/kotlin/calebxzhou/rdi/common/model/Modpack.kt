@@ -1,13 +1,8 @@
 package calebxzhou.rdi.common.model
 
-import calebxzhou.rdi.common.exception.RequestError
-import calebxzhou.rdi.common.net.httpRequest
-import io.ktor.client.request.*
-import io.ktor.http.*
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import org.bson.types.ObjectId
-import java.net.URI
 
 @Serializable
 class Modpack(
@@ -20,9 +15,41 @@ class Modpack(
     val modloader: ModLoader,
     val mcVer: McVersion,
     val sourceUrl: String? = null,
+    val categories: List<String> = arrayListOf(),
     val versions: MutableList<Version> = arrayListOf(),
 ) {
+    @Serializable
+    enum class Category(val label: String) {
+        LARGE("大型"),
+        MEDIUM("中型"),
+        SMALL("小型"),
+        MAGIC("魔法"),
+        HARDCORE("硬核"),
+        MINIGAME("小游戏"),
+        QUEST("任务"),
+        SKYBLOCK("空岛"),
+        EDUCATION("教育"),
+        VANILLA("纯净"),
+        TECH("科技"),
+        STORY("剧情"),
+        ADVENTURE("探险"),
+        CASUAL("休闲"),
+        MANAGE("经营"),
+        NURTURE("养成"),
+        SCENERY("风景"),
+        APOCALYPSE("末日"),
+        WAR("战争"),
+        HEAVY_MOD("魔改"),
+        RPG("RPG"),
+        COMBAT("战斗"),
+        LIGHT_MOD("轻量"),
+        OPTIMIZE("优化"),
+        OTHER("其他");
 
+        companion object {
+            val allLabels = entries.map(Category::label)
+        }
+    }
     @Serializable
     data class Version(
         val time: Long,

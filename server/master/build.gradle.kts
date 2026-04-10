@@ -2,13 +2,13 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.gradle.api.tasks.testing.Test
 
-val ktorVersion = "3.4.0"
+val ktorVersion = "3.4.2"
 
 plugins {
     application
-    kotlin("jvm") version "2.3.10"
-    kotlin("plugin.serialization") version "2.3.10"
-    id("io.ktor.plugin") version "3.4.0"
+    kotlin("jvm") version "2.3.20"
+    kotlin("plugin.serialization") version "2.3.20"
+    id("io.ktor.plugin") version "3.4.2"
 }
 
 group = "calebxzhou.rdi"
@@ -58,7 +58,7 @@ dependencies {
     implementation("calebxzhou.mykotutils:log:0.1")
     implementation("calebxzhou.mykotutils:curseforge:0.1")
     implementation("calebxzhou.mykotutils:hwspec:0.1")
-
+    implementation("com.github.luben:zstd-jni:1.5.7-7")
 
     testImplementation(kotlin("test"))
     testImplementation("io.mockk:mockk:1.13.12")

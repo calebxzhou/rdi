@@ -28,8 +28,9 @@ import org.bson.types.ObjectId
 @Composable
 fun MenuScreen(
     onOpenModpackLocalManage: () -> Unit,
-    onOpenMcVersionManage: () -> Unit,
+    onOpenModpackList: () -> Unit,
     onOpenSponsor: () -> Unit,
+    onOpenTaskList: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMail: () -> Unit,
     onOpenHostLobby: () -> Unit,
@@ -77,17 +78,17 @@ fun MenuScreen(
                     onClick = onOpenWardrobe
                 )
 
-                MenuActionButtons(
-                    modifier = Modifier
-                        .align(Alignment.CenterEnd)
-                        .padding(end = 12.dp, top = 136.dp, bottom = 96.dp)
-                        .widthIn(min = 92.dp, max = buttonAreaWidth),
-                    compact = true,
-                    onOpenModpackLocalManage = onOpenModpackLocalManage,
-                    onOpenMcVersionManage = onOpenMcVersionManage,
-                    onOpenSettings = onOpenSettings,
-                    onOpenMail = onOpenMail,
-                    onOpenHostLobby = onOpenHostLobby,
+                    MenuActionButtons(
+                        modifier = Modifier
+                            .align(Alignment.CenterEnd)
+                            .padding(end = 12.dp, top = 136.dp, bottom = 96.dp)
+                            .widthIn(min = 92.dp, max = buttonAreaWidth),
+                        compact = true,
+                        onOpenModpackLocalManage = onOpenModpackLocalManage,
+                        onOpenModpackList = onOpenModpackList,
+                        onOpenSettings = onOpenSettings,
+                        onOpenMail = onOpenMail,
+                        onOpenHostLobby = onOpenHostLobby,
                     onOpenWorldList = onOpenWorldList,
                     onBack = onBack
                 )
@@ -114,7 +115,7 @@ fun MenuScreen(
                         modifier = Modifier.widthIn(min = if (compact) 180.dp else 220.dp),
                         compact = compact,
                         onOpenModpackLocalManage = onOpenModpackLocalManage,
-                        onOpenMcVersionManage = onOpenMcVersionManage,
+                        onOpenModpackList = onOpenModpackList,
                         onOpenSettings = onOpenSettings,
                         onOpenMail = onOpenMail,
                         onOpenHostLobby = onOpenHostLobby,
@@ -131,7 +132,7 @@ fun MenuScreen(
                 lastPlayHost?.let { host ->
                     CircleIconButton(
                         icon = "\uF04B",
-                        tooltip = "继续游玩地图:${host.name}",
+                        tooltip = "继续游玩房间:${host.name}",
                         bgColor = MaterialColor.GREEN_900.color
                     ) {
                         onOpenHostInfo(host.id)
@@ -149,6 +150,19 @@ fun MenuScreen(
                     bgColor = MaterialColor.PINK_700.color
                 ) {
                     onOpenSponsor()
+                }
+            }
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(end = 24.dp, bottom = 24.dp)
+            ) {
+                CircleIconButton(
+                    icon = "\uDB80\uDDDA",
+                    tooltip = "任务列表",
+                    bgColor = MaterialColor.BLUE_800.color
+                ) {
+                    onOpenTaskList()
                 }
             }
         }
@@ -189,7 +203,7 @@ private fun MenuActionButtons(
     modifier: Modifier = Modifier,
     compact: Boolean,
     onOpenModpackLocalManage: () -> Unit,
-    onOpenMcVersionManage: () -> Unit,
+    onOpenModpackList: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMail: () -> Unit,
     onOpenHostLobby: () -> Unit,
@@ -216,10 +230,10 @@ private fun MenuActionButtons(
         ) {
             onOpenSettings()
         }
-        ImageIconButton("grass_block", "MC资源", bgColor = MaterialColor.GREEN_200.color) {
-            onOpenMcVersionManage()
+        ImageIconButton("grass_block", "整合包列表", bgColor = MaterialColor.GREEN_200.color) {
+            onOpenModpackList()
         }
-        ImageIconButton("chest", "整合包", bgColor = MaterialColor.AMBER_200.color) {
+        ImageIconButton("chest", "版本管理", bgColor = MaterialColor.AMBER_200.color) {
             onOpenModpackLocalManage()
         }
         CircleIconButton("\uEB1C", "信箱") {
@@ -230,7 +244,7 @@ private fun MenuActionButtons(
         }
         CircleIconButton(
             "\uF04B",
-            "地图",
+            "房间",
             bgColor = MaterialColor.GREEN_900.color,
             contentPadding = PaddingValues(start = 2.dp)
         ) {

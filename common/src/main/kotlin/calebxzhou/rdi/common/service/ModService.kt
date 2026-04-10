@@ -333,6 +333,19 @@ object ModService {
         return Task.Sequence("下载${mods.size}个Mod", tasks)
     }
 
+    fun downloadModsTask2(mods: List<Mod>): Task2 {
+        if (mods.isEmpty()) return Task2.Group("下载Mod", emptyList())
+        val cfMods = mods.filter { it.platform == "cf" }
+        val mrMods = mods.filter { it.platform == "mr" }
+        return Task2.Sequence(
+            title = "下载${mods.size}个Mod",
+            children = buildList {
+                add(downloadCFModsTask2(cfMods))
+                add(downloadMRModsTask2(mrMods))
+            }
+        )
+    }
+
     fun isDownloadedModFileValid(mod: Mod): Boolean {
         val targetPath = mod.targetPath
         if (!targetPath.exists()) return false
@@ -355,6 +368,7 @@ object ModService {
         if (mods.isEmpty()) return Task.Group("下载CurseForge Mod", emptyList())
         val fileIds = mods.map { it.fileId.toInt() }
         val fileInfoMap = mutableMapOf<Int, CurseForgeFile>()
+        val aggregateProgress = createBatchProgressTracker(mods)
         val prepareTask = Task.Leaf("获取CurseForge文件信息") { ctx ->
             val fileInfos = CurseForgeService.getModFilesInfo(fileIds)
             fileInfoMap.clear()
@@ -366,37 +380,112 @@ object ModService {
                 val fileInfo = fileInfoMap[mod.fileId.toInt()]
                     ?: throw IllegalStateException("未找到文件信息: ${mod.slug}")
                 val result = downloadSingleCFMod(mod, fileInfo) { progress ->
-                    ctx.emitProgress(
-                        TaskProgress(
-                            "Mod下载中 ${mod.slug}",
-                            progress.fraction.coerceIn(0f, 1f)
-                        )
-                    )
+                    ctx.emitProgress(aggregateProgress(mod, progress.fraction.coerceIn(0f, 1f)))
                 }
                 result.getOrElse { throw it }
+                ctx.emitProgress(aggregateProgress(mod, 1f))
             }
         }
         return Task.Sequence("下载CurseForge Mod", listOf(prepareTask, Task.Group("下载CurseForge Mod", tasks)))
     }
 
+    fun downloadCFModsTask2(mods: List<Mod>): Task2 {
+        if (mods.isEmpty()) return Task2.Group("下载CurseForge Mod", emptyList())
+        val fileIds = mods.map { it.fileId.toInt() }
+        val fileInfoMap = mutableMapOf<Int, CurseForgeFile>()
+        val aggregateProgress = createBatchProgressTracker2(mods)
+        val prepareTask = Task2.Leaf("获取CurseForge文件信息") { ctx ->
+            val fileInfos = CurseForgeService.getModFilesInfo(fileIds)
+            fileInfoMap.clear()
+            fileInfoMap.putAll(fileInfos.associateBy { it.id })
+            ctx.emit(Task2Progress("获取完成", 1f))
+        }
+        val tasks = mods.map { mod ->
+            Task2.Leaf("下载 ${mod.slug}") { ctx ->
+                val fileInfo = fileInfoMap[mod.fileId.toInt()]
+                    ?: throw IllegalStateException("未找到文件信息: ${mod.slug}")
+                val result = downloadSingleCFMod(mod, fileInfo) { progress ->
+                    ctx.emit(aggregateProgress(mod, progress.fraction.coerceIn(0f, 1f)))
+                }
+                result.getOrElse { throw it }
+                ctx.emit(aggregateProgress(mod, 1f))
+            }
+        }
+        return Task2.Sequence(
+            title = "下载CurseForge Mod",
+            children = listOf(
+                prepareTask,
+                Task2.Group("下载CurseForge Mod", tasks)
+            )
+        )
+    }
+
     fun downloadMRModsTask(mods: List<Mod>): Task {
         if (mods.isEmpty()) return Task.Group("下载Modrinth Mod", emptyList())
         val modsWithUrls = mods.filter { it.downloadUrls.isNotEmpty() }
+        val aggregateProgress = createBatchProgressTracker(modsWithUrls)
         val tasks = modsWithUrls.map { mod ->
             Task.Leaf("下载 ${mod.slug}") { ctx ->
                 val result = downloadSingleMRMod(mod) { progress ->
-                    ctx.emitProgress(
-                        TaskProgress(
-                            "Mod下载中 ${mod.slug}",
-                            progress.fraction.coerceIn(0f, 1f)
-                        )
-                    )
+                    ctx.emitProgress(aggregateProgress(mod, progress.fraction.coerceIn(0f, 1f)))
                 }
                 result.getOrElse { throw it }
+                ctx.emitProgress(aggregateProgress(mod, 1f))
             }
         }
         return Task.Group("下载Modrinth Mod", tasks)
     }
+
+    fun downloadMRModsTask2(mods: List<Mod>): Task2 {
+        if (mods.isEmpty()) return Task2.Group("下载Modrinth Mod", emptyList())
+        val modsWithUrls = mods.filter { it.downloadUrls.isNotEmpty() }
+        val aggregateProgress = createBatchProgressTracker2(modsWithUrls)
+        val tasks = modsWithUrls.map { mod ->
+            Task2.Leaf("下载 ${mod.slug}") { ctx ->
+                val result = downloadSingleMRMod(mod) { progress ->
+                    ctx.emit(aggregateProgress(mod, progress.fraction.coerceIn(0f, 1f)))
+                }
+                result.getOrElse { throw it }
+                ctx.emit(aggregateProgress(mod, 1f))
+            }
+        }
+        return Task2.Group("下载Modrinth Mod", tasks)
+    }
+
+    private fun createBatchProgressTracker(mods: List<Mod>): (Mod, Float) -> TaskProgress {
+        if (mods.isEmpty()) return { mod, _ -> TaskProgress("Mod下载中 ${mod.slug}", 1f) }
+        val total = mods.size.toFloat()
+        val progressMap = linkedMapOf<String, Float>().apply {
+            mods.forEach { put(it.batchProgressKey, 0f) }
+        }
+        val lock = Any()
+        return { mod, fraction ->
+            val overallFraction = synchronized(lock) {
+                progressMap[mod.batchProgressKey] = fraction.coerceIn(0f, 1f)
+                (progressMap.values.sum() / total).coerceIn(0f, 1f)
+            }
+            TaskProgress("Mod下载中 ${mod.slug}", overallFraction)
+        }
+    }
+
+    private fun createBatchProgressTracker2(mods: List<Mod>): (Mod, Float) -> Task2Progress {
+        if (mods.isEmpty()) return { mod, _ -> Task2Progress("Mod下载中 ${mod.slug}", 1f) }
+        val total = mods.size.toFloat()
+        val progressMap = linkedMapOf<String, Float>().apply {
+            mods.forEach { put(it.batchProgressKey, 0f) }
+        }
+        val lock = Any()
+        return { mod, fraction ->
+            val overallFraction = synchronized(lock) {
+                progressMap[mod.batchProgressKey] = fraction.coerceIn(0f, 1f)
+                (progressMap.values.sum() / total).coerceIn(0f, 1f)
+            }
+            Task2Progress("Mod下载中 ${mod.slug}", overallFraction)
+        }
+    }
+
+    private val Mod.batchProgressKey: String
+        get() = "${platform}:${projectId}:${fileId}:${slug}"
 
     private suspend fun downloadSingleCFMod(
         mod: Mod,

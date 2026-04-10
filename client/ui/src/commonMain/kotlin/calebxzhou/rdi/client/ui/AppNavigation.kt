@@ -60,14 +60,6 @@ fun AppNavigation(
     MaterialTheme(typography = AppTypography) {
         val navController = rememberNavController()
         val scope = rememberCoroutineScope()
-        val openTaskView: (calebxzhou.rdi.common.model.Task, Boolean, (() -> Unit)?, (() -> Unit)?) -> Unit = { task, autoClose, onDone, onBack ->
-            TaskStore.current = task
-            TaskStore.autoClose = autoClose
-            TaskStore.onDone = onDone
-            TaskStore.onBack = onBack
-            navController.navigate(TaskView)
-        }
-
         // Android FCL launch dialog
         val showFclLaunchDialog = remember { mutableStateOf(false) }
         val fclLaunchArgs = remember { mutableStateOf<McPlayArgs?>(null) }
@@ -141,8 +133,9 @@ fun AppNavigation(
             composable<Menu> {
                 MenuScreen(
                     onOpenModpackLocalManage = { navController.navigate(ModpackLocalManage) },
-                    onOpenMcVersionManage = { navController.navigate(RMcVersion(null)) },
+                    onOpenModpackList = { navController.navigate(ModpackList) },
                     onOpenSponsor = { navController.navigate(Sponsor) },
+                    onOpenTaskList = { navController.navigate(TaskList()) },
                     onOpenSettings = { navController.navigate(Setting) },
                     onOpenMail = { navController.navigate(Mail) },
                     onOpenHostLobby = { navController.navigate(HostList) },
@@ -231,25 +224,22 @@ fun AppNavigation(
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(RMcVersion(mcVer?.mcVer))
                     },
-                    onOpenTask = { task ->
-                        openTaskView(task, false, null) {
-                            navController.navigateAbsolute(HostList)
-                        }
+                    onOpenTaskList = { runId ->
+                        navController.navigate(TaskList(runId))
                     }
                 )
             }
             composable<ModpackLocalManage> {
                 ModpackLocalManageScreen(
                     onBack = { navController.navigateAbsolute(Menu) },
-                    onOpenTask = { task ->
-                        openTaskView(task, false, null) {
-                            navController.navigateAbsolute(ModpackLocalManage)
-                        }
-                    },
                     onOpenPlay = { args ->
                         openMcPlay(args) { navController.navigateAbsolute(ModpackLocalManage) }
                     },
-                    onOpenModpackList = { navController.navigate(ModpackList) }
+                    onOpenModpackList = { navController.navigate(ModpackList) },
+                    onOpenMcVersionManage = { navController.navigate(RMcVersion(null)) },
+                    onOpenTaskList = { runId ->
+                        navController.navigate(TaskList(runId))
+                    }
                 )
             }
             composable<HostAll> {
@@ -264,10 +254,8 @@ fun AppNavigation(
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(RMcVersion(mcVer?.mcVer))
                     },
-                    onOpenTask = { task ->
-                        openTaskView(task, false, null) {
-                            navController.navigateAbsolute(HostAll)
-                        }
+                    onOpenTaskList = { runId ->
+                        navController.navigate(TaskList(runId))
                     }
                 )
             }
@@ -299,11 +287,6 @@ fun AppNavigation(
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(RMcVersion(mcVer?.mcVer))
                     },
-                    onOpenTask = { task ->
-                        openTaskView(task, false, null) {
-                            navController.navigateAbsolute(HostInfo(route.hostId, route.fromAllHosts))
-                        }
-                    },
                     onOpenHostEdit = { host ->
                         navController.navigate(
                             HostCreate(
@@ -311,6 +294,9 @@ fun AppNavigation(
                                 fromAllHosts = route.fromAllHosts
                             )
                         )
+                    },
+                    onOpenTaskList = { runId ->
+                        navController.navigate(TaskList(runId))
                     }
                 )
             }
@@ -344,6 +330,13 @@ fun AppNavigation(
                     onBack = { navController.navigateAbsolute(WorldList) }
                 )
             }
+            composable<TaskList> {
+                val route = it.toRoute<TaskList>()
+                TaskListScreen(
+                    onBack = { navController.navigateAbsolute(Menu) },
+                    initialSelectedRunId = route.selectedRunId
+                )
+            }
             composable<HostCreate> {
                 val route = it.toRoute<HostCreate>()
                 HostNewCreateScreen(
@@ -358,29 +351,6 @@ fun AppNavigation(
                     onNavigateProfile = { navController.navigateAbsolute(HostList) }
                 )
             }
-            composable<TaskView> {
-                val task = TaskStore.current
-                if (task != null) {
-                    TaskScreen(
-                        task = task,
-                        autoClose = TaskStore.autoClose,
-                        onBack = {
-                            val back = TaskStore.onBack ?: { navController.navigateAbsolute(Menu) }
-                            TaskStore.current = null
-                            TaskStore.onBack = null
-                            TaskStore.onDone = null
-                            TaskStore.autoClose = false
-                            back.invoke()
-                        },
-                        onDone = {
-                            TaskStore.onDone?.invoke()
-                            TaskStore.onDone = null
-                        }
-                    )
-                } else {
-                    Text("没有可显示的任务")
-                }
-            }
             // Desktop-only routes (McPlayView, ModpackUpload) are added via expect/actual
             addDesktopOnlyRoutes(navController)
             composable<Setting> {
@@ -392,11 +362,6 @@ fun AppNavigation(
                 ModpackListScreen(
                     onBack = { navController.navigateAbsolute(Menu) },
                     onOpenUpload = { navController.navigate(ModpackUpload) },
-                    onOpenTask = { task, autoClose, onDone ->
-                        openTaskView(task, autoClose, onDone) {
-                            navController.navigateAbsolute(ModpackList)
-                        }
-                    },
                     onOpenMcVersions = { navController.navigate(RMcVersion(null)) },
                     onOpenInfo = { modpackId ->
                         navController.navigate(ModpackInfo(modpackId))
@@ -414,18 +379,11 @@ fun AppNavigation(
                             navController.navigateAbsolute(ModpackList)
                         }
                     },
-                    onOpenUpload = { modpackId, modpackName ->
-                        navController.navigate(ModpackUpload)
+                    onOpenTaskList = { runId ->
+                        navController.navigate(TaskList(runId))
                     },
                     onCreateHost = { _, _, _, _ ->
                         navController.navigate(HostCreate())
-                    },
-                    onOpenTask = { task ->
-                        openTaskView(task, false, null) {
-                            navController.navigateAbsolute(
-                                ModpackInfo(route.modpackId, route.fromHostId, route.fromAllHosts)
-                            )
-                        }
                     }
                 )
             }
@@ -436,10 +394,8 @@ fun AppNavigation(
                 McVersionScreen(
                     requiredMcVer = required,
                     onBack = { navController.navigateAbsolute(Menu) },
-                    onOpenTask = { task ->
-                        openTaskView(task, false, null) {
-                            navController.navigateAbsolute(RMcVersion(route.mcVer))
-                        }
+                    onOpenTaskList = { runId ->
+                        navController.navigate(TaskList(runId))
                     }
                 )
             }
@@ -449,7 +405,7 @@ fun AppNavigation(
 
 private fun String.withGameAddr(gameAddr: String): String {
     val lines = split(Regex("\\r?\\n")).toMutableList()
-    require(lines.size >= 2) { "RDI参数错误，请重新启动地图" }
+    require(lines.size >= 2) { "RDI参数错误，请重新启动房间" }
     lines[1] = gameAddr
     return lines.joinToString("\n")
 }

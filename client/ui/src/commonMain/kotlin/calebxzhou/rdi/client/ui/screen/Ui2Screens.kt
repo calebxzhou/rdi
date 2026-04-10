@@ -37,6 +37,6 @@ object Wardrobe
 @Serializable data class MailDetail(val mailId: String)
 @Serializable object WorldList
 @Serializable data class WorldBirdView(val worldId: String)
-@Serializable object TaskView
+@Serializable data class TaskList(val selectedRunId: String? = null)
 @Serializable object McPlayView
 @Serializable data class RMcVersion(val mcVer: String? = null)

@@ -1,6 +1,8 @@
 package calebxzhou.rdi.client.ui.screen
 
 import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.client.model.UiMod
+import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModsTomlConfig
@@ -66,13 +68,13 @@ actual suspend fun matchHostExtraModFiles(
     val selectedMods = selectLatestMatchedMods(mrResult.mods + cfResult.mods)
 
     HostExtraModMatchResult(
-        matchedMods = selectedMods,
+        matchedMods = selectedMods.map(UiMod::toMod),
         rejectedFiles = versionCheck.rejectedFiles + cfResult.rejectedFiles
     )
 }
 
 private data class SelectedLocalMod(
-    val mod: Mod,
+    val mod: UiMod,
     val sourceFile: File,
     val configVersion: String?
 )
@@ -99,7 +101,7 @@ private suspend fun matchHostExtraModsMR(files: List<File>): LocalMatchResult {
         val side = project?.toHostExtraModSide() ?: Mod.Side.BOTH
         val slug = project?.slug?.takeIf { it.isNotBlank() } ?: file.nameWithoutExtension.ifBlank { version.projectId }
         val downloadUrls = version.files.map { it.url }.filter { it.isNotBlank() }
-        val mod = Mod(
+        val rawMod = Mod(
             platform = "mr",
             projectId = version.projectId,
             slug = slug,
@@ -107,10 +109,12 @@ private suspend fun matchHostExtraModsMR(files: List<File>): LocalMatchResult {
             hash = sha1,
             side = side,
             downloadUrls = downloadUrls
-        ).apply {
-            vo = project?.toCardVo(file)?.copy(side = side)
-            this.file = file
-        }
+        )
+        val mod = UiMod(
+            mod = rawMod,
+            card = project?.toCardVo(file)?.copy(side = side),
+            file = file
+        )
         matched += SelectedLocalMod(
             mod = mod,
             sourceFile = file,
@@ -129,7 +133,7 @@ private suspend fun matchHostExtraModsCF(files: List<File>): LocalMatchResult {
         mods = result.matched.mapNotNull { mod ->
             val sourceFile = mod.file ?: return@mapNotNull null
             SelectedLocalMod(
-                mod = mod,
+                mod = mod.toUiMod(),
                 sourceFile = sourceFile,
                 configVersion = readModsTomlVersion(sourceFile)
             )
@@ -225,7 +229,7 @@ private fun readModsTomlVersion(file: File): String? {
     }.getOrNull()
 }
 
-private fun selectLatestMatchedMods(selectedMods: List<SelectedLocalMod>): List<Mod> {
+private fun selectLatestMatchedMods(selectedMods: List<SelectedLocalMod>): List<UiMod> {
     if (selectedMods.isEmpty()) return emptyList()
     return selectedMods
         .groupBy { "${it.mod.platform}:${it.mod.projectId}" }
@@ -237,7 +241,7 @@ private fun selectLatestMatchedMods(selectedMods: List<SelectedLocalMod>): List<
             )!!
         }
         .map { selected ->
-            selected.mod.also { it.file = null }
+            selected.mod.withFile(null)
         }
 }
 

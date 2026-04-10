@@ -4,6 +4,7 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.HorizontalScrollbar
 import androidx.compose.foundation.VerticalScrollbar
 import androidx.compose.foundation.defaultScrollbarStyle
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.runtime.Composable
@@ -17,6 +18,21 @@ actual fun PlatformVerticalScrollbar(
 ) {
     VerticalScrollbar(
         adapter = rememberScrollbarAdapter(listState),
+        style = defaultScrollbarStyle().copy(
+            unhoverColor = Color(0xFFAAAAAA),
+            hoverColor = Color(0xFFCCCCCC)
+        ),
+        modifier = modifier
+    )
+}
+
+@Composable
+actual fun PlatformVerticalScrollbar(
+    gridState: LazyGridState,
+    modifier: Modifier
+) {
+    VerticalScrollbar(
+        adapter = rememberScrollbarAdapter(gridState),
         style = defaultScrollbarStyle().copy(
             unhoverColor = Color(0xFFAAAAAA),
             hoverColor = Color(0xFFCCCCCC)

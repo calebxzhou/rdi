@@ -128,7 +128,7 @@ fun Host.BriefVo.HostCard(
 
             if (isHovered && onClickPlay != null && playable) {
                 Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                    SimpleTooltip("启动MC 玩这个地图") {
+                    SimpleTooltip("启动MC 玩这个房间") {
                         TextButton(
                             onClick = { onClickPlay.invoke(this@HostCard) },
                             shape = CircleShape,

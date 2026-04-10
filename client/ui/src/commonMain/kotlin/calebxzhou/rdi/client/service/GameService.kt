@@ -12,6 +12,7 @@ import calebxzhou.rdi.common.model.LibraryOsArch.Companion.detectHostOs
 import calebxzhou.rdi.common.net.DownloadProgress
 import calebxzhou.rdi.common.net.downloadFileFrom
 import calebxzhou.rdi.common.serdesJson
+import calebxzhou.rdi.common.service.runInline
 import kotlinx.coroutines.delay
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
@@ -72,25 +73,23 @@ object GameService {
             }
             return original
         }
-
-
-    fun downloadVersion(version: McVersion, loader: ModLoader? = null): Task {
+    fun downloadVersionTask2(version: McVersion, loader: ModLoader? = null): Task2 {
         val manifest = version.metadata
-        val tasks = mutableListOf<Task>(
-            downloadClient(manifest),
-            downloadLibraries(manifest.libraries),
-            Task.Leaf("提取原生库") { ctx ->
+        val tasks = mutableListOf<Task2>(
+            downloadClientTask2(manifest),
+            downloadLibrariesTask2(manifest.libraries),
+            Task2.Leaf("提取原生库") { ctx ->
                 extractNatives(manifest) { message ->
-                    ctx.emitProgress(TaskProgress(message, null))
+                    ctx.emit(Task2Progress(message))
                 }
-                ctx.emitProgress(TaskProgress("完成", 1f))
+                ctx.emit(Task2Progress("完成", 1f))
             },
-            downloadAssets(manifest)
+            downloadAssetsTask2(manifest)
         )
-        loader?.let { tasks += downloadLoader(version, it) }
-        return Task.Sequence(
-            name = "下载 $version",
-            subTasks = tasks
+        loader?.let { tasks += downloadLoaderTask2(version, it) }
+        return Task2.Sequence(
+            title = "下载 $version",
+            children = tasks
         )
     }
 
@@ -127,10 +126,10 @@ object GameService {
     }
 
 
-    fun downloadClient(manifest: MojangVersionManifest): Task {
-        return Task.Leaf("下载客户端 ${manifest.id}") { ctx ->
+    fun downloadClientTask2(manifest: MojangVersionManifest): Task2 {
+        return Task2.Leaf("下载客户端 ${manifest.id}") { ctx ->
             var clientArtf = manifest.downloads?.client ?: run {
-                ctx.emitProgress(TaskProgress("缺少客户端下载信息", 0f))
+                ctx.emit(Task2Progress("缺少客户端下载信息", 0f))
                 return@Leaf
             }
             if (CONF.useMirror) {
@@ -144,26 +143,26 @@ object GameService {
             val versionDir = versionListDir.resolve(manifest.id).apply { mkdirs() }
             File(versionDir, "${manifest.id}.json").writeText(manifest.json)
             val target = File(versionDir, "${manifest.id}.jar")
-            ctx.emitProgress(TaskProgress("开始下载...", 0.1f))
+            ctx.emit(Task2Progress("开始下载...", 0.1f))
             downloadArtifact("客户端核心 ${manifest.id}", clientArtf, target) { progress ->
-                ctx.emitProgress(
-                    TaskProgress(
+                ctx.emit(
+                    Task2Progress(
                         "${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
                         progress.fraction
                     )
                 )
             }.getOrThrow()
-            ctx.emitProgress(TaskProgress("下载完成", 1f))
+            ctx.emit(Task2Progress("下载完成", 1f))
         }
     }
 
-    suspend fun downloadServer(
+    private suspend fun downloadServerTask2(
         holder: LoaderInstallHolder,
-        ctx: TaskContext
+        ctx: Task2Context
     ) {
         val mcVerStr = holder.version.mcVer
         var server = holder.version.metadata.downloads?.server ?: run {
-            ctx.emitProgress(TaskProgress("缺少服务端下载信息", 0f))
+            ctx.emit(Task2Progress("缺少服务端下载信息", 0f))
             return
         }
         if (CONF.useMirror) {
@@ -179,17 +178,16 @@ object GameService {
             ?.replace("{MINECRAFT_VERSION}", mcVerStr)
             ?.let { File(it).apply { parentFile?.mkdirs() } }
             ?: ClientDirs.mcDir.resolve("minecraft_server.${mcVerStr}.jar")
-        ctx.emitProgress(TaskProgress("开始下载...", 0.1f))
+        ctx.emit(Task2Progress("开始下载...", 0.1f))
         downloadArtifact("服务端核心 $mcVerStr", server, serverTargetFile) { progress ->
-            ctx.emitProgress(
-                TaskProgress(
+            ctx.emit(
+                Task2Progress(
                     "${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
                     progress.fraction
                 )
             )
         }.getOrThrow()
-        ctx.emitProgress(TaskProgress("下载完成", 1f))
-
+        ctx.emit(Task2Progress("下载完成", 1f))
     }
 
     private fun MojangLibrary.shouldDownloadByArch(): Boolean {
@@ -330,27 +328,27 @@ object GameService {
         return message.contains("429")
     }
 
-    fun downloadLibraries(libraries: List<MojangLibrary>): Task {
+    fun downloadLibrariesTask2(libraries: List<MojangLibrary>): Task2 {
         val filtered = libraries.filter { it.shouldDownloadByArch() }
         if (filtered.isEmpty()) {
-            return Task.Leaf("下载运行库") { ctx ->
-                ctx.emitProgress(TaskProgress("无需下载", 1f))
+            return Task2.Leaf("下载运行库") { ctx ->
+                ctx.emit(Task2Progress("无需下载", 1f))
             }
         }
         val subTasks = filtered.map { library ->
-            Task.Leaf("运行库 ${library.name}") { ctx ->
-                downloadSingleLibrary(library, ctx)
+            Task2.Leaf("运行库 ${library.name}") { ctx ->
+                downloadSingleLibraryTask2(library, ctx)
             }
         }
-        return Task.Group(
-            name = "下载${filtered.size}个运行库",
-            subTasks = subTasks
+        return Task2.Group(
+            title = "下载${filtered.size}个运行库",
+            children = subTasks
         )
     }
 
-    fun downloadAssets(manifest: MojangVersionManifest): Task {
-        val assetIndexMeta = manifest.assetIndex ?: return Task.Leaf("下载资源") { ctx ->
-            ctx.emitProgress(TaskProgress("找不到资源", 0f))
+    fun downloadAssetsTask2(manifest: MojangVersionManifest): Task2 {
+        val assetIndexMeta = manifest.assetIndex ?: return Task2.Leaf("下载资源") { ctx ->
+            ctx.emit(Task2Progress("找不到资源", 0f))
         }
         val metaJson = loadResourceStream("mcmeta/assets-index/${assetIndexMeta.id}.json").use {
             it.readBytes().toString(Charsets.UTF_8)
@@ -367,7 +365,6 @@ object GameService {
         index.objects.entries.forEach { entry ->
             when {
                 shouldDownloadAsset(entry.key) -> toDownload += entry
-
                 shouldUseEmptySound(entry.key) -> toStub += entry
                 else -> Unit
             }
@@ -415,41 +412,41 @@ object GameService {
         }
 
         val subTasks = compacted.map { (path, obj) ->
-            Task.Leaf("资源 $path") { ctx ->
-                ctx.emitProgress(TaskProgress("开始下载...", 0f))
+            Task2.Leaf("资源 $path") { ctx ->
+                ctx.emit(Task2Progress("开始下载...", 0f))
                 downloadAssetObject(path, obj) { prog ->
-                    ctx.emitProgress(
-                        TaskProgress(
+                    ctx.emit(
+                        Task2Progress(
                             "${prog.bytesDownloaded.humanFileSize}/${prog.totalBytes.humanFileSize}",
                             prog.fraction
                         )
                     )
                 }.getOrThrow()
-                ctx.emitProgress(TaskProgress("下载完成", 1f))
+                ctx.emit(Task2Progress("下载完成", 1f))
             }
         }
 
         if (linkPlans.isNotEmpty()) {
-            val linksTask = Task.Leaf("链接相似资源") { ctx ->
+            val linksTask = Task2.Leaf("链接相似资源") { ctx ->
                 linkPlans.forEachIndexed { index, plan ->
                     createObjectLink(plan.fromHash, plan.toHash)
-                    ctx.emitProgress(
-                        TaskProgress(
+                    ctx.emit(
+                        Task2Progress(
                             "已链接 ${index + 1}/${linkPlans.size}",
                             (index + 1).toFloat() / linkPlans.size
                         )
                     )
                 }
             }
-            return Task.Group(
-                name = "下载${compacted.size}个音频资源",
-                subTasks = subTasks + linksTask
+            return Task2.Group(
+                title = "下载${compacted.size}个音频资源",
+                children = subTasks + linksTask
             )
         }
 
-        return Task.Group(
-            name = "下载${compacted.size}个音频资源",
-            subTasks = subTasks
+        return Task2.Group(
+            title = "下载${compacted.size}个音频资源",
+            children = subTasks
         )
     }
 
@@ -631,31 +628,31 @@ object GameService {
         }
     }
 
-    fun downloadLoader(version: McVersion, loader: ModLoader): Task {
+    fun downloadLoaderTask2(version: McVersion, loader: ModLoader): Task2 {
         val holder = LoaderInstallHolder(version = version, loader = loader)
-        return Task.Sequence(
-            name = "安装 $loader",
-            subTasks = listOf(
-                Task.Leaf("下载$loader 安装器") { ctx ->
-                    prepareInstaller(holder, ctx)
+        return Task2.Sequence(
+            title = "安装 $loader",
+            children = listOf(
+                Task2.Leaf("下载$loader 安装器") { ctx ->
+                    prepareInstallerTask2(holder, ctx)
                 },
-                Task.Leaf("解析安装器") { ctx ->
-                    parseInstaller(holder, ctx)
+                Task2.Leaf("解析安装器") { ctx ->
+                    parseInstallerTask2(holder, ctx)
                 },
-                Task.Leaf("下载${loader}服务端") { ctx ->
-                    downloadServer(holder, ctx)
+                Task2.Leaf("下载${loader}服务端") { ctx ->
+                    downloadServerTask2(holder, ctx)
                 },
-                Task.Leaf("下载$loader 依赖") { ctx ->
-                    downloadLibrariesTask(holder.loaderLibraries, ctx, holder.installer)
+                Task2.Leaf("下载$loader 依赖") { ctx ->
+                    downloadLibrariesTask2(holder.loaderLibraries, ctx, holder.installer)
                 },
-                Task.Leaf("下载Mojmap") { ctx ->
-                    downloadMojmapIfNeededTask(holder, ctx)
+                Task2.Leaf("下载Mojmap") { ctx ->
+                    downloadMojmapIfNeededTask2(holder, ctx)
                 },
-                Task.Leaf("运行安装器") { ctx ->
-                    runInstallerBootstrapper(holder, ctx)
+                Task2.Leaf("运行安装器") { ctx ->
+                    runInstallerBootstrapperTask2(holder, ctx)
                 },
-                Task.Leaf("运行安装器服务端") { ctx ->
-                    runServerInstallerBootstrapper(holder, ctx)
+                Task2.Leaf("运行安装器服务端") { ctx ->
+                    runServerInstallerBootstrapperTask2(holder, ctx)
                 }
             ),
         )
@@ -672,7 +669,7 @@ object GameService {
         var loaderLibraries: List<MojangLibrary> = emptyList()
     )
 
-    private suspend fun prepareInstaller(holder: LoaderInstallHolder, ctx: TaskContext) {
+    private suspend fun prepareInstallerTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
         val loaderMeta = holder.version.loaderVersions[holder.loader]
             ?: error("未配置 ${holder.loader} 安装器下载链接")
         val mcDir = ClientDirs.mcDir
@@ -685,23 +682,23 @@ object GameService {
         holder.installer = installer
 
         if (installer.exists() && installer.sha1 == loaderMeta.installerSha1) {
-            ctx.emitProgress(TaskProgress("安装器已存在", 1f))
+            ctx.emit(Task2Progress("安装器已存在", 1f))
             return
         }
 
-        ctx.emitProgress(TaskProgress("开始下载...", 0f))
+        ctx.emit(Task2Progress("开始下载...", 0f))
         installer.toPath().downloadFileFrom(loaderMeta.installerUrl.rewriteMirrorUrl) { progress ->
-            ctx.emitProgress(
-                TaskProgress(
+            ctx.emit(
+                Task2Progress(
                     "${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
                     progress.fraction
                 )
             )
         }.getOrThrow()
-        ctx.emitProgress(TaskProgress("下载完成", 1f))
+        ctx.emit(Task2Progress("下载完成", 1f))
     }
 
-    private fun parseInstaller(holder: LoaderInstallHolder, ctx: TaskContext) {
+    private fun parseInstallerTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
         val installer = holder.installer ?: error("安装器未准备")
         val versionJsonText = readInstallerEntry(installer, "version.json")
         val loaderVersionManifest = serdesJson.decodeFromString<MojangVersionManifest>(versionJsonText)
@@ -717,39 +714,38 @@ object GameService {
         holder.installProfile = installProfile
         holder.loaderLibraries = loaderLibraries
 
-        ctx.emitProgress(TaskProgress("解析完成", 1f))
+        ctx.emit(Task2Progress("解析完成", 1f))
     }
 
-    private suspend fun downloadLibrariesTask(
+    private suspend fun downloadLibrariesTask2(
         libraries: List<MojangLibrary>,
-        ctx: TaskContext,
+        ctx: Task2Context,
         installer: File? = null
     ) {
         val filtered = libraries.filter { it.shouldDownloadByArch() }
         if (filtered.isEmpty()) {
-            ctx.emitProgress(TaskProgress("无需下载", 1f))
+            ctx.emit(Task2Progress("无需下载", 1f))
             return
         }
-        val task = Task.Group(
-            name = "下载${filtered.size}个运行库",
-            subTasks = filtered.map { library ->
-                Task.Leaf("运行库 ${library.name}") { childCtx ->
-                    downloadSingleLibrary(library, childCtx, installer)
+        Task2.Group(
+            title = "下载${filtered.size}个运行库",
+            children = filtered.map { library ->
+                Task2.Leaf("运行库 ${library.name}") { childCtx ->
+                    downloadSingleLibraryTask2(library, childCtx, installer)
                 }
             }
-        )
-        task.execute(ctx)
+        ).runInline(ctx)
     }
 
-    private suspend fun downloadSingleLibrary(
+    private suspend fun downloadSingleLibraryTask2(
         library: MojangLibrary,
-        ctx: TaskContext,
+        ctx: Task2Context,
         installer: File? = null
     ) {
-        ctx.emitProgress(TaskProgress("开始下载...", 0f))
+        ctx.emit(Task2Progress("开始下载...", 0f))
         downloadLibraryArtifact(library, installer = installer) { progress ->
-            ctx.emitProgress(
-                TaskProgress(
+            ctx.emit(
+                Task2Progress(
                     "${library.name} ${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
                     progress.fraction
                 )
@@ -759,18 +755,18 @@ object GameService {
             val nativePath = nativeArtifact.path ?: return@let
             val nativeFile = File(libsDir, nativePath)
             downloadLibraryArtifact(nativeArtifact, nativeFile, installer = installer) { progress ->
-                ctx.emitProgress(
-                    TaskProgress(
+                ctx.emit(
+                    Task2Progress(
                         "${library.name} ${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
                         progress.fraction
                     )
                 )
             }.getOrThrow()
         }
-        ctx.emitProgress(TaskProgress("下载完成", 1f))
+        ctx.emit(Task2Progress("下载完成", 1f))
     }
 
-    private suspend fun downloadMojmapIfNeededTask(holder: LoaderInstallHolder, ctx: TaskContext) {
+    private suspend fun downloadMojmapIfNeededTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
         val installProfile = holder.installProfile ?: return
         val vanillaManifest = holder.version.metadata
         val mojmaps = installProfile.data["MOJMAPS"] ?: return
@@ -787,7 +783,7 @@ object GameService {
             }
         }
         if (tasks.isEmpty()) {
-            ctx.emitProgress(TaskProgress("无需下载", 1f))
+            ctx.emit(Task2Progress("无需下载", 1f))
             return
         }
         val total = tasks.size
@@ -795,40 +791,37 @@ object GameService {
             val relativePath = descriptorToLibraryPath(descriptor)
             val target = File(libsDir, relativePath)
             downloadArtifact(label, artifact, target) { progress ->
-                ctx.emitProgress(
-                    TaskProgress(
+                ctx.emit(
+                    Task2Progress(
                         "$label ${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
                         progress.fraction
                     )
                 )
             }.getOrThrow()
-            ctx.emitProgress(TaskProgress("已完成 ${index + 1}/$total", (index + 1).toFloat() / total))
+            ctx.emit(Task2Progress("已完成 ${index + 1}/$total", (index + 1).toFloat() / total))
         }
     }
 
-    /**
-     * Run the loader installer bootstrapper (client).
-     * Desktop: runs ProcessBuilder. Android: no-op (FCL handles this).
-     */
-    internal fun runInstallerBootstrapper(holder: LoaderInstallHolder, ctx: TaskContext) {
+    internal fun runInstallerBootstrapperTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
         if (!calebxzhou.rdi.client.ui.isDesktop) {
-            ctx.emitProgress(TaskProgress("Android跳过 (由FCL处理)", 1f))
+            ctx.emit(Task2Progress("Android跳过 (由FCL处理)", 1f))
             return
         }
-        runInstallerBootstrapperDesktop(holder, ctx)
+        runInstallerBootstrapperDesktop(holder, ctx.asLegacyTaskContext())
     }
 
-    /**
-     * Run the loader installer bootstrapper (server).
-     * Desktop: runs ProcessBuilder. Android: no-op.
-     */
-    internal fun runServerInstallerBootstrapper(holder: LoaderInstallHolder, ctx: TaskContext) {
+    internal fun runServerInstallerBootstrapperTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
         if (!calebxzhou.rdi.client.ui.isDesktop) {
-            ctx.emitProgress(TaskProgress("Android跳过 (由FCL处理)", 1f))
+            ctx.emit(Task2Progress("Android跳过 (由FCL处理)", 1f))
             return
         }
-        runServerInstallerBootstrapperDesktop(holder, ctx)
+        runServerInstallerBootstrapperDesktop(holder, ctx.asLegacyTaskContext())
     }
+
+    private fun Task2Context.asLegacyTaskContext(): TaskContext = TaskContext(
+        emitProgress = { progress -> emit(Task2Progress(progress.message, progress.fraction)) },
+        isCancelled = isCancelled
+    )
 
     private suspend fun downloadArtifact(
         label: String,

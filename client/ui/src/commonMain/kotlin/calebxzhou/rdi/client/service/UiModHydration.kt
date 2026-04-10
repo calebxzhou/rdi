@@ -1,0 +1,58 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.model.UiMod
+import calebxzhou.rdi.client.model.toUiMod
+import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.model.ModrinthProject
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+
+fun List<Mod>.toUiMods(): List<UiMod> = map(Mod::toUiMod)
+
+private val uiModResolvers: List<ModCardResolver> = listOf(
+    CurseForgeCardResolver,
+    ModrinthCardResolver
+)
+
+suspend fun List<Mod>.hydrateToUiMods(
+    modrinthProjects: List<ModrinthProject>? = null
+): List<UiMod> = coroutineScope {
+    val hydratedMods = map(Mod::copyForUiHydration)
+    val resolveContext = ModCardResolveContext(modrinthProjects = modrinthProjects)
+    val localCardMap = LocalModCardResolver.resolve(hydratedMods)
+    val unresolvedMods = hydratedMods.filter { it.projectKey() !in localCardMap }
+    val remoteCardMap = uiModResolvers
+        .map { resolver ->
+            async { resolver.resolve(unresolvedMods, resolveContext) }
+        }
+        .awaitAll()
+        .fold(mutableMapOf<String, Mod.CardVo>()) { acc, resolved ->
+            acc.apply { putAll(resolved) }
+        }
+    val cardMap = LinkedHashMap<String, Mod.CardVo>().apply {
+        putAll(localCardMap)
+        putAll(remoteCardMap)
+    }
+
+    return@coroutineScope hydratedMods.map { mod ->
+        UiMod(
+            mod = mod,
+            card = cardMap[mod.projectKey()]?.copy(side = mod.side),
+            file = mod.file
+        )
+    }
+}
+
+private fun Mod.copyForUiHydration(): Mod = copy(
+    platform = platform,
+    projectId = projectId,
+    slug = slug,
+    fileId = fileId,
+    hash = hash,
+    side = side,
+    downloadUrls = downloadUrls.toList()
+).also { copied ->
+    copied.vo = vo?.copy(side = side)
+    copied.file = file
+}

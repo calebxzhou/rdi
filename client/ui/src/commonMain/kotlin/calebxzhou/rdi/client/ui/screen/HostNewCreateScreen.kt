@@ -51,7 +51,7 @@ fun HostNewCreateScreen(
     val overrideRules = remember { mutableStateMapOf<String, String>() }
     var selectedTab by remember { mutableStateOf(0) }
 
-    var title by remember { mutableStateOf("创建新地图") }
+    var title by remember { mutableStateOf("创建新房间") }
     var hostName by remember { mutableStateOf("${loggedAccount.name}的世界${Random.nextInt(1000)}") }
     var modpackIdText by remember { mutableStateOf("") }
     var packVerText by remember { mutableStateOf("") }
@@ -127,7 +127,7 @@ fun HostNewCreateScreen(
     LaunchedEffect(arg.hostId) {
         val rawHostId = arg.hostId?.trim()
         if (rawHostId.isNullOrBlank() || !ObjectId.isValid(rawHostId)) {
-            title = "创建新地图"
+            title = "创建新房间"
             editHostId = null
             return@LaunchedEffect
         }
@@ -138,7 +138,7 @@ fun HostNewCreateScreen(
             path = "host/$rawHostId/detail",
             onOk = { resp ->
                 val detail = resp.data ?: return@rdiRequest
-                title = "编辑地图 · ${detail.name}"
+                title = "编辑房间 · ${detail.name}"
                 hostName = detail.name
                 modpackIdText = detail.modpack.id.toHexString()
                 packVerText = detail.packVer
@@ -155,7 +155,7 @@ fun HostNewCreateScreen(
                 overrideRules.clear()
                 overrideRules.putAll(detail.gameRules)
             },
-            onErr = { errorMessage = "无法加载地图信息: ${it.message}" },
+            onErr = { errorMessage = "无法加载房间信息: ${it.message}" },
             onDone = { loadingHost = false }
         )
     }
@@ -164,7 +164,7 @@ fun HostNewCreateScreen(
         loadingWorlds = true
         scope.rdiRequest<List<World.Vo>>(
             "world",
-            onErr = { errorMessage = "无法载入区块数据: ${it.message}" },
+            onErr = { errorMessage = "无法载入存档: ${it.message}" },
             onOk = { resp ->
                 worlds = resp.data ?: emptyList()
             },
@@ -199,7 +199,7 @@ fun HostNewCreateScreen(
         statusMessage = null
         val trimmedName = hostName.trim()
         if (trimmedName.isEmpty()) {
-            statusMessage = "请输入地图名称"
+            statusMessage = "请输入房间名称"
             selectedTab = 1
             return
         }
@@ -274,7 +274,7 @@ fun HostNewCreateScreen(
 
     val loadingAny = loadingLocalPacks || loadingHost || loadingWorlds
     val selectedPackTitle = selectedPack?.let { "${it.vo.name} ${it.verName}" } ?: "未选择整合包"
-    val tabs = listOf("1.选择整合包（$selectedPackTitle）", "2.地图设置")
+    val tabs = listOf("1.选择整合包（$selectedPackTitle）", "2.房间设置")
     MainColumn {
         Column(
             modifier = Modifier
@@ -320,7 +320,7 @@ fun HostNewCreateScreen(
                 0 -> {
                     if (isEditMode()) {
                         Space8h()
-                        Text("整合包一经设定，就不能更换。换包请重新创建地图", color = MaterialColor.GRAY_700.color)
+                        Text("整合包一经设定，就不能更换。换包请重新创建房间", color = MaterialColor.GRAY_700.color)
                     }
                     Space8h()
                     localPackError?.let {
@@ -335,9 +335,9 @@ fun HostNewCreateScreen(
                             CircularProgressIndicator()
                         }
                     }
-                    Text("使用已下载的整合包创建地图。")
+                    Text("使用已下载的整合包创建房间。")
                     if (!loadingLocalPacks && localDirs.isEmpty()) {
-                        Text("请先到“整合包管理界面”下载想玩的整合包，方可创建地图。", color = MaterialColor.GRAY_700.color)
+                        Text("请先到“整合包管理界面”下载想玩的整合包，方可创建房间。", color = MaterialColor.GRAY_700.color)
                     }
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 280.dp),
@@ -367,6 +367,7 @@ fun HostNewCreateScreen(
                 }
 
                 1 -> {
+                    Text("超30天无人游玩房间会被自动删除（不删存档）届时需重新创建")
                     Column(modifier = Modifier.fillMaxWidth()) {
                         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                             val compactTopLayout = maxWidth < 1280.dp
@@ -395,7 +396,7 @@ fun HostNewCreateScreen(
                                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                                     ) {
                                         OutlinedTextField(
-                                            label = { Text("地图名称") },
+                                            label = { Text("房间名称") },
                                             value = hostName,
                                             onValueChange = { hostName = it },
                                             singleLine = true
@@ -549,7 +550,7 @@ fun HostNewCreateScreen(
                                         maxItemsInEachRow = if (compactOptions) 1 else 4
                                     ) {
                                         RowV {
-                                            Text("选择要使用的区块数据", fontWeight = FontWeight.Bold)
+                                            Text("选择要使用的存档", fontWeight = FontWeight.Bold)
                                             if (worlds.size < 5) {
                                                 RadioButton(
                                                     selected = selectedWorldId == null && !noSave,
@@ -558,7 +559,7 @@ fun HostNewCreateScreen(
                                                         selectedWorldId = null
                                                     }
                                                 )
-                                                Text("创建新区块数据")
+                                                Text("创建新存档")
                                             }
                                             RadioButton(
                                                 selected = selectedWorldId == null && noSave,

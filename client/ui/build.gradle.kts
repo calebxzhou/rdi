@@ -5,15 +5,16 @@ import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
-val ktorVersion = "3.4.0"
-val version = "5.11.8"
+val ktorVersion = "3.4.2"
+val zstdVer = "1.5.7-7"
+val version = "5.12"
 project.version = version
 
 plugins {
-    kotlin("multiplatform") version "2.3.10"
-    kotlin("plugin.serialization") version "2.3.10"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.3.10"
-    id("org.jetbrains.compose") version "1.10.1"
+    kotlin("multiplatform") version "2.3.20"
+    kotlin("plugin.serialization") version "2.3.20"
+    id("org.jetbrains.kotlin.plugin.compose") version "2.3.20"
+    id("org.jetbrains.compose") version "1.10.3"
     id("com.android.application") version "8.12.0"
     idea
 }
@@ -45,7 +46,7 @@ kotlin {
     sourceSets {
         val commonMain by getting {
             dependencies {
-                val composeVersion = "1.10.1"
+                val composeVersion = "1.10.3"
                 implementation("org.jetbrains.compose.runtime:runtime:$composeVersion")
                 implementation("org.jetbrains.compose.foundation:foundation:$composeVersion")
                 implementation("org.jetbrains.compose.material:material:$composeVersion")
@@ -73,6 +74,8 @@ kotlin {
                 implementation("com.github.oshi:oshi-core:6.9.3") {
                     exclude(group = "net.java.dev.jna")
                 }
+                // Source: https://mvnrepository.com/artifact/com.github.luben/zstd-jni
+                implementation("com.github.luben:zstd-jni:$zstdVer")
             }
         }
 
@@ -123,7 +126,7 @@ kotlin {
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
                 implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
                 implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
-                implementation("org.apache.maven:maven-artifact:3.9.11")
+                implementation("org.apache.maven:maven-artifact:3.9.14")
             }
         }
 
@@ -155,6 +158,7 @@ kotlin {
                 implementation("com.github.oshi:oshi-core:6.9.3") {
                     exclude(group = "net.java.dev.jna")
                 }
+                implementation("com.github.luben:zstd-jni:$zstdVer@aar")
             }
             // Exclude logback from all transitive dependencies in Android
             configurations.all {
@@ -378,6 +382,7 @@ tasks.register<Zip>("makeShipPack") {
     from(File(shipDir, "fonts")) { into("fonts") }
     from(File(shipDir, "jre")) { into("jre") }
     from(File(shipDir, "mcb")) { into("mc") }
+    from(File(shipDir, "tools")) { into("tools") }
     from(shipDir) { include("双击启动.cmd") }
 
     doFirst {

@@ -20,8 +20,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
 import androidx.navigation.compose.composable
-import calebxzhou.rdi.client.service.fetchHwSpec
 import calebxzhou.rdi.client.service.UpdateService
+import calebxzhou.rdi.client.service.getCachedOrFetchHwSpecJson
 import calebxzhou.rdi.client.ui.screen.ModpackList
 import calebxzhou.rdi.client.ui.screen.ModpackUpload
 import calebxzhou.rdi.common.hwspec.HwSpec
@@ -88,6 +88,10 @@ actual suspend fun pickSaveFile(suggestedName: String, extension: String): File?
 }
 
 actual suspend fun pickLocalMinecraftWorldDir(): String? = null
+
+actual suspend fun pickLocalModpackFile(): File? = null
+
+actual suspend fun pickLocalZipFile(title: String): File? = null
 
 actual fun checkCanCreateSymlink(): Boolean = true // Android doesn't need symlinks
 
@@ -207,22 +211,23 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
 }
 
 actual fun getHwSpecJson(): String {
-    val hwSpec = runCatching { fetchHwSpec() }
+    return runCatching { getCachedOrFetchHwSpecJson() }
         .onFailure {
             // Some Android devices cannot initialize OSHI/JNA native probes.
             Log.w("RDI-HwSpec", "Failed to fetch hardware info on Android, fallback to empty HwSpec.", it)
         }
         .getOrElse {
-            HwSpec(
-                model = "",
-                os = "",
-                cpu = HwSpec.Cpu(name = "", cores = 0, threads = 0, frequency = 0L),
-                gpus = emptyList(),
-                mems = emptyList(),
-                disk = emptyList(),
-                display = emptyList(),
-                videoMode = emptyList()
+            calebxzhou.rdi.common.serdesJson.encodeToString(
+                HwSpec(
+                    model = "",
+                    os = "",
+                    cpu = HwSpec.Cpu(name = "", cores = 0, threads = 0, frequency = 0L),
+                    gpus = emptyList(),
+                    mems = emptyList(),
+                    disk = emptyList(),
+                    display = emptyList(),
+                    videoMode = emptyList()
+                )
             )
         }
-    return calebxzhou.rdi.common.serdesJson.encodeToString<HwSpec>(hwSpec)
 }

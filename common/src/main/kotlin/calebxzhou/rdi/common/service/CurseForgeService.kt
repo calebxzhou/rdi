@@ -2,8 +2,7 @@ package calebxzhou.rdi.common.service
 
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.openChineseZip
-import calebxzhou.mykotutils.std.sha1
-import calebxzhou.rdi.common.exception.ModpackException
+import calebxzhou.rdi.common.exception.ModpackError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.net.ktorClient
@@ -159,6 +158,7 @@ object CurseForgeService {
      * Fill ModCardVo for CurseForge mods that don't have vo yet
      * @return List of mods with vo filled
      */
+    @Deprecated("")
     suspend fun List<Mod>.fillCurseForgeVo(): List<Mod> {
         // Filter mods that need vo and are from CurseForge
         val modsNeedingVo = filter { it.vo == null && it.platform.equals("cf", ignoreCase = true) }
@@ -175,10 +175,9 @@ object CurseForgeService {
         }
         return this
     }
-
-    suspend fun List<CurseForgePackManifest.File>.mapMods(): List<Mod> {
-        val modInfoMap = getModsInfo(map { it.projectId }).associateBy { it.id }
-        val fileInfoMap = getModFilesInfo(map { it.fileId }).associateBy { it.id }
+    suspend fun mapManifestEntriesToMods(files: List<CurseForgePackManifest.File>): List<Mod> {
+        val modInfoMap = getModsInfo(files.map { it.projectId }).associateBy { it.id }
+        val fileInfoMap = getModFilesInfo(files.map { it.fileId }).associateBy { it.id }
         val fileSha1Map = fileInfoMap.mapValues { (_, fileInfo) ->
             fileInfo.hashes.firstOrNull { it.algo == 1 }?.value?.trim()?.lowercase().orEmpty()
         }
@@ -195,7 +194,7 @@ object CurseForgeService {
                 if (ids.isEmpty()) emptyMap() else getMultipleProjects(ids).associateBy { it.id }
             }
         val libraryModSlugs = arrayListOf<String>()
-        return mapNotNull { curseFile ->
+        return files.mapNotNull { curseFile ->
             val modInfo = modInfoMap[curseFile.projectId] ?: let {
                 lgr.warn { "mod ${curseFile.projectId}/${curseFile.fileId} 在mod info map没有信息" }
                 return@mapNotNull null
@@ -244,12 +243,12 @@ object CurseForgeService {
      * Load and validate a CurseForge modpack from a ZIP file
      * @param zipPath Path to the modpack ZIP file
      * @return Parsed manifest and list of override entries with their root prefix
-     * @throws ModpackException if validation fails
+     * @throws ModpackError if validation fails
      */
     suspend fun loadModpack(zipPath: String): CurseForgeModpackData {
         val zipFile = File(zipPath)
         if (!zipFile.exists() || !zipFile.isFile) {
-            throw ModpackException("找不到整合包文件: ${zipFile.path}")
+            throw ModpackError("找不到整合包文件: ${zipFile.path}")
         }
 
         val zip = zipFile.openChineseZip()
@@ -257,16 +256,16 @@ object CurseForgeService {
         try {
             val entries = zip.entries().asSequence().toList()
             entries.find { it.name == ".minecraft" }
-                ?.let { throw ModpackException("你应该选整合包 而不是客户端\n你可以用PCL的导出功能 将客户端转换为整合包") }
+                ?.let { throw ModpackError("你应该选整合包 而不是客户端\n你可以用PCL的导出功能 将客户端转换为整合包") }
             //玩不了gto
             val hasGtoCore = entries.any { it.name.startsWith("overrides/mods/gtocore") }
             val hasGtoNativeLib = entries.any { it.name.startsWith("overrides/mods/gtonativelib") }
             if (hasGtoCore && hasGtoNativeLib) {
-                throw ModpackException("无法识别具有单机反作弊与代码加密的整合包")
+                throw ModpackError("无法识别具有单机反作弊与代码加密的整合包")
             }
             val manifestEntry = entries.firstOrNull {
                 !it.isDirectory && it.name.substringAfterLast('/') == "manifest.json"
-            } ?: throw ModpackException("整合包缺少文件：manifest.json")
+            } ?: throw ModpackError("整合包缺少文件：manifest.json")
 
             val rootPrefix = manifestEntry.name.substringBeforeLast('/', missingDelimiterValue = "")
                 .let { if (it.isBlank()) "" else "$it/" }
@@ -274,20 +273,20 @@ object CurseForgeService {
             val overrideEntries = entries.filter { !it.isDirectory && it.name.startsWith(overridesFolder) }
 
             if (overrideEntries.isEmpty()) {
-                throw ModpackException("整合包缺少目录：overrides")
+                throw ModpackError("整合包缺少目录：overrides")
             }
 
             val manifestJson = zip.getInputStream(manifestEntry).bufferedReader(Charsets.UTF_8).use { it.readText() }
             val manifest = runCatching {
                 serdesJson.decodeFromString<CurseForgePackManifest>(manifestJson)
             }.getOrElse {
-                throw ModpackException("manifest.json 解析失败: ${it.message}")
+                throw ModpackError("manifest.json 解析失败: ${it.message}")
             }
 
             val supportedVersion = McVersion.from(manifest.minecraft.version)
             if (supportedVersion == null || !supportedVersion.enabled) {
                 val supportedList = McVersion.entries.joinToString(", ") { it.mcVer }
-                throw ModpackException("不支持的 MC 版本: ${manifest.minecraft.version}，当前只支持: $supportedList")
+                throw ModpackError("不支持的 MC 版本: ${manifest.minecraft.version}，当前只支持: $supportedList")
             }
 
             val loaderId = manifest.minecraft.modLoaders.firstOrNull { it.primary }?.id
@@ -295,12 +294,12 @@ object CurseForgeService {
             val loaderSupported = loaderId?.startsWith("neoforge", ignoreCase = true) == true ||
                 loaderId?.startsWith("forge", ignoreCase = true) == true
             if (!loaderSupported) {
-                throw ModpackException("不支持的 Mod 加载器: ${loaderId ?: "未知"}，当前只支持 Forge/NeoForge")
+                throw ModpackError("不支持的 Mod 加载器: ${loaderId ?: "未知"}，当前只支持 Forge/NeoForge")
             }
 
             val modpackName = manifest.name.trim()
             if (modpackName.isEmpty()) {
-                throw ModpackException("manifest.json 中缺少整合包名称")
+                throw ModpackError("manifest.json 中缺少整合包名称")
             }
 
             var versionName = manifest.version.trim()
@@ -313,10 +312,10 @@ object CurseForgeService {
                 manifest = manifest,
                 file = zipFile,
             )
-        } catch (e: ModpackException) {
+        } catch (e: ModpackError) {
             throw e
         } catch (e: Exception) {
-            throw ModpackException("处理整合包时出错: ${e.message}")
+            throw ModpackError("处理整合包时出错: ${e.message}")
         } finally {
             withContext(Dispatchers.IO) {
                 zip.close()

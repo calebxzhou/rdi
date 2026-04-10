@@ -38,7 +38,7 @@ import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.model.Task
+import calebxzhou.rdi.common.model.Task2
 import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 
@@ -54,27 +54,27 @@ fun HostListScreen(
     onOpenHostCreate: (() -> Unit)? = null,
     onOpenMcVersions: ((McVersion?) -> Unit)? = null,
     onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenTask: ((Task) -> Unit)? = null
+    onOpenTaskList: ((String) -> Unit)? = null
 ) {
     HostBrowserScreen(
-        title = "我的地图",
-        emptyStateText = "暂无你的地图，点击右上角创建或等待朋友邀请",
+        title = "我的房间",
+        emptyStateText = "暂无你的房间，点击右上角创建或等待朋友邀请",
         listPathForPage = { pageIndex -> "host/my/$pageIndex" },
         onBack = onBack,
         onOpenHostInfo = onOpenHostInfo,
         onOpenMcVersions = onOpenMcVersions,
         onOpenMcPlay = onOpenMcPlay,
-        onOpenTask = onOpenTask
+        onOpenTaskList = onOpenTaskList
     ) {
-        Text("显示你创建/受邀的地图")
+        Text("显示你创建/受邀的房间")
         Space8w()
         onOpenHostAll?.let {
-            CircleIconButton("\uF0C0", "地图大厅") {
+            CircleIconButton("\uF0C0", "房间大厅") {
                 it()
             }
             Space8w()
         }
-        CircleIconButton("\uDB81\uDC90", "创建新地图") {
+        CircleIconButton("\uDB81\uDC90", "创建新房间") {
             onOpenHostCreate?.invoke()
         }
     }
@@ -90,13 +90,13 @@ internal fun HostBrowserScreen(
     onOpenHostInfo: ((String) -> Unit)? = null,
     onOpenMcVersions: ((McVersion?) -> Unit)? = null,
     onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenTask: ((Task) -> Unit)? = null,
+    onOpenTaskList: ((String) -> Unit)? = null,
     headerActions: @Composable RowScope.() -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     var hosts by remember { mutableStateOf<List<Host.BriefVo>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var installConfirmTask by remember { mutableStateOf<Task?>(null) }
+    var installConfirmTask by remember { mutableStateOf<Task2?>(null) }
     var page by remember { mutableStateOf(0) }
     var loadingMore by remember { mutableStateOf(false) }
     var reachedEnd by remember { mutableStateOf(false) }
@@ -172,7 +172,7 @@ internal fun HostBrowserScreen(
                             val res = server.makeRequest<Host.DetailVo>("host/${host._id}/detail")
                             val detail = res.data
                                 ?: run {
-                                    errorMessage = "获取地图信息失败: ${res.msg}"
+                                    errorMessage = "获取房间信息失败: ${res.msg}"
                                     return@launch
                                 }
                             val args = try {
@@ -224,14 +224,14 @@ internal fun HostBrowserScreen(
                     }
                 } else {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text("暂无可游玩的地图", color = Color.Gray)
+                        Text("暂无可游玩的房间", color = Color.Gray)
                     }
                 }
 
                 if (nonPlayableHosts.isNotEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
-                            "以下地图由于不在线或已启用白名单，无法游玩",
+                            "以下房间由于不在线或已启用白名单，无法游玩",
                             style = MaterialTheme.typography.subtitle1,
                             color = Color.Gray
                         )
@@ -261,14 +261,15 @@ internal fun HostBrowserScreen(
         AlertDialog(
             onDismissRequest = { installConfirmTask = null },
             title = { Text("未下载整合包") },
-            text = { Text("未下载此地图的整合包，是否立即下载？") },
+            text = { Text("未下载此房间的整合包，是否立即下载？") },
             confirmButton = {
                 TextButton(onClick = {
                     installConfirmTask = null
-                    if (onOpenTask != null) {
-                        onOpenTask(task)
+                    val runId = ClientTaskManager.submit(task)
+                    if (onOpenTaskList != null) {
+                        onOpenTaskList(runId)
                     } else {
-                        errorMessage = "暂不支持在此页面下载"
+                        errorMessage = "已加入任务列表"
                     }
                 }) { Text("下载") }
             },

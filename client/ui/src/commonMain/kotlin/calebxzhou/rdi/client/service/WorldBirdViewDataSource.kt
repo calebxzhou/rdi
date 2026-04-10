@@ -96,6 +96,6 @@ private class RemoteWorldBirdViewDataSource(
             method = HttpMethod.Post
         )
         if (!response.ok) throw RequestError(response.msg)
-        return response.msg.ifBlank { "已提交地图缓存构建，请到邮件查看进度" }
+        return response.msg.ifBlank { "已提交房间缓存构建，请到邮件查看进度" }
     }
 }

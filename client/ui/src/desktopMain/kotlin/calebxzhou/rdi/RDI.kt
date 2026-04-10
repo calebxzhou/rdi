@@ -1,13 +1,7 @@
 package calebxzhou.rdi
 
 import calebxzhou.mykotutils.std.javaExePath
-import calebxzhou.rdi.client.AppConfig
 import java.io.File
-
-fun main() {
-    //redirect new ui
-    calebxzhou.rdi.client.main()
-}
 
 object RDIClient {
     val DIR: File = File(System.getProperty("user.dir")).absoluteFile
@@ -21,3 +15,7 @@ object RDIClient {
 
 }
 
+fun main() {
+    //redirect new ui
+    calebxzhou.rdi.client.main()
+}
