@@ -48,3 +48,21 @@ val Mod.isPlatformMr get() = platform=="mr"
 val Mod.normalizedProjectId get() = projectId.trim()
 val Mod.normalizedSlug get() = slug.trim().lowercase()
 val Mod.displaySlugOrProject get() = slug.trim().ifBlank { normalizedProjectId }
+fun sameMod(a: Mod, b: Mod): Boolean {
+    if (a.platform == b.platform &&
+        a.normalizedProjectId.isNotBlank() &&
+        b.normalizedProjectId.isNotBlank()
+    ) {
+        return a.normalizedProjectId == b.normalizedProjectId
+    }
+    if (a.normalizedSlug.isNotBlank() && b.normalizedSlug.isNotBlank()) {
+        return a.normalizedSlug == b.normalizedSlug
+    }
+    if (a.hash.isNotBlank() && b.hash.isNotBlank()) {
+        return a.hash.equals(b.hash, ignoreCase = true)
+    }
+    if (a.platform == b.platform && a.fileId.isNotBlank() && b.fileId.isNotBlank()) {
+        return a.fileId == b.fileId
+    }
+    return false
+}

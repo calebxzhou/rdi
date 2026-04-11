@@ -25,6 +25,7 @@ import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.model.WsMessage
 import calebxzhou.rdi.master.net.*
+import calebxzhou.rdi.master.service.HostService.addDisabledMods
 import calebxzhou.rdi.master.service.HostService.addExtraMods
 import calebxzhou.rdi.master.service.HostService.addMember
 import calebxzhou.rdi.master.service.HostService.changeOptions
@@ -32,6 +33,7 @@ import calebxzhou.rdi.master.service.HostService.changeVersion
 import calebxzhou.rdi.master.service.HostService.createHost
 import calebxzhou.rdi.master.service.HostService.delMember
 import calebxzhou.rdi.master.service.HostService.delete
+import calebxzhou.rdi.master.service.HostService.deleteDisabledMods
 import calebxzhou.rdi.master.service.HostService.listConfigFiles
 import calebxzhou.rdi.master.service.HostService.readConfigFile
 import calebxzhou.rdi.master.service.HostService.deleteExtraMods
@@ -182,17 +184,32 @@ fun Route.hostRoutes() = route("/host") {
             } ?: err("无此房间")
         }
         route("/mods") {
-            post {
-                val ctx = call.hostContext().needAdmin
-                ctx.addExtraMods(call.receive())
-                ok()
+            route("/extra"){
+                post {
+                    val ctx = call.hostContext().needAdmin
+                    ctx.addExtraMods(call.receive())
+                    ok()
+                }
+                delete {
+                    val ctx = call.hostContext().needAdmin
+                    response(data = ctx.deleteExtraMods(call.receive()))
+                }
+                get {
+                    response(data = call.hostContext().host.extraMods)
+                }
             }
-            delete {
-                val ctx = call.hostContext().needAdmin
-                response(data = ctx.deleteExtraMods(call.receive()))
-            }
-            get {
-                response(data = call.hostContext().host.extraMods)
+            route("/disabled") {
+                post {
+                    val ctx = call.hostContext().needAdmin
+                    response(data = ctx.addDisabledMods(call.receive()))
+                }
+                delete {
+                    val ctx = call.hostContext().needAdmin
+                    response(data = ctx.deleteDisabledMods(call.receive()))
+                }
+                get {
+                    response(data = call.hostContext().host.disabledMods)
+                }
             }
         }
         route("/config") {
@@ -311,6 +328,8 @@ object HostService {
 
     private val hostStates = ConcurrentHashMap<ObjectId, HostState>()
     private val skipWorldSizeUpdate = ConcurrentHashMap.newKeySet<ObjectId>()
+    private val onlinePlayersCache = ConcurrentHashMap<ObjectId, OnlinePlayersCacheEntry>()
+    private val onlinePlayersRefreshJobs = ConcurrentHashMap<ObjectId, Job>()
     private val staleCleanupJob: Job
 
     private const val PORT_START = 50000
@@ -318,6 +337,7 @@ object HostService {
     private const val SHUTDOWN_THRESHOLD = 20
     private const val HOSTS_PER_PAGE = 100
     private const val HOST_WORKDIR_LIMIT_BYTES: Long = 1L * 1024 * 1024 * 1024
+    private const val ONLINE_PLAYERS_CACHE_TTL_MS = 15_000L
 
     private fun createHostTaskKey(hostId: ObjectId): String =
         "server-host-create:${hostId.toHexString()}"
@@ -337,6 +357,11 @@ object HostService {
         var shutFlag: Int = 0,
         var session: DefaultWebSocketServerSession? = null,
         var shutdownJob: Job? = null
+    )
+
+    private data class OnlinePlayersCacheEntry(
+        val playerIds: List<ObjectId>,
+        val updatedAt: Long
     )
 
 
@@ -369,6 +394,9 @@ object HostService {
         }
         hostStates.clear()
         skipWorldSizeUpdate.clear()
+        onlinePlayersRefreshJobs.values.forEach(Job::cancel)
+        onlinePlayersRefreshJobs.clear()
+        onlinePlayersCache.clear()
         lgr.info { "HostService shutdown complete" }
     }
 
@@ -842,7 +870,7 @@ object HostService {
     suspend fun getIdles(): List<Host> {
         val result = mutableListOf<Host>()
         for (host in getPlayables()) {
-            if (host.getOnlinePlayers().size == 0) {
+            if (host.fetchOnlinePlayersNow().isEmpty()) {
                 result += host
             }
         }
@@ -887,7 +915,7 @@ object HostService {
 
         for (host in runningHosts) {
             val onlinePlayers = try {
-                host.getOnlinePlayers()
+                host.fetchOnlinePlayersNow()
             } catch (cancel: CancellationException) {
                 throw cancel
             }.mapNotNull {
@@ -949,20 +977,46 @@ object HostService {
     }
 
     // ---------- Core Logic (no ApplicationCall side-effects) ----------
-    suspend fun Host.getOnlinePlayers(): List<ObjectId> {
+    private suspend fun Host.fetchOnlinePlayersNow(): List<ObjectId> {
         return try {
             if (status != HostStatus.PLAYABLE)
                 return emptyList()
-            McServerPinger.ping(this.port).players?.let { players ->
+            val players = McServerPinger.ping(port, timeoutMillis = 1_000).players
+            val playerIds = players?.let { players ->
                 lgr.info { "get online players for ${this.name} = ${players}" }
                 players.sample.map { UUID.fromString(it.id).objectId }
             } ?: emptyList()
+            onlinePlayersCache[_id] = OnlinePlayersCacheEntry(playerIds, System.currentTimeMillis())
+            playerIds
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (t: Throwable) {
             lgr.warn { "Failed to ping host ${this._id}: ${t.message}" }
             emptyList()
         }
+    }
+
+    private fun Host.refreshOnlinePlayersInBackground() {
+        val existing = onlinePlayersRefreshJobs[_id]
+        if (existing?.isActive == true) return
+        onlinePlayersRefreshJobs[_id] = ioScope.launch {
+            try {
+                fetchOnlinePlayersNow()
+            } finally {
+                onlinePlayersRefreshJobs.remove(_id)
+            }
+        }
+    }
+
+    suspend fun Host.getOnlinePlayers(): List<ObjectId> {
+        if (status != HostStatus.PLAYABLE) return emptyList()
+        val cached = onlinePlayersCache[_id]
+        val now = System.currentTimeMillis()
+        if (cached != null && now - cached.updatedAt <= ONLINE_PLAYERS_CACHE_TTL_MS) {
+            return cached.playerIds
+        }
+        refreshOnlinePlayersInBackground()
+        return cached?.playerIds ?: emptyList()
     }
 
     suspend fun getAllHostsOnlinePlayerIds(): List<ObjectId> = coroutineScope {
@@ -1002,8 +1056,8 @@ object HostService {
         if (getByOwner(playerId).size > 3 && !this.isDav) {
             throw RequestError("最多只可创建3张房间")
         }
-        if (host.name.contains("公测") && !this.isDav) {
-            throw RequestError("无权创建公测房间")
+        if (host.name.contains("公共") && !this.isDav) {
+            throw RequestError("无权创建公共房间")
         }
         if (findByOwnerAndModpack(playerId, host.modpackId) != null) {
             throw RequestError("同一个整合包只能创建一张房间")
@@ -1119,7 +1173,8 @@ object HostService {
         ).apply {
             //装入mod
             version.mods
-                .filter { it.side != Mod.Side.CLIENT && !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX) }
+                .filter(::isServerInstalledMod)
+                .filterNot { this@makeContainer.isDisabledMod(it) }
                 .forEach { mod ->
                     val source = DL_MOD_DIR.resolve(mod.fileName)
                     if (source.exists()) {
@@ -1130,7 +1185,7 @@ object HostService {
                     }
                 }
             extraMods
-                .filter { it.side != Mod.Side.CLIENT && !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX) }
+                .filter(::isServerInstalledMod)
                 .forEach { mod ->
                     val source = DL_MOD_DIR.resolve(mod.fileName)
                     if (!source.exists()) {
@@ -1284,7 +1339,7 @@ object HostService {
     suspend fun HostContext.start() {
         val current = host
         val isMember = member.role != Role.GUEST
-        val isPublicHost = current.isPublicTest || !current.whitelist
+        val isPublicHost = current.isPublic || !current.whitelist
         if (!isPublicHost && !isMember && !player.isDav) {
             throw RequestError("私有房间仅成员可启动")
         }
@@ -1589,11 +1644,11 @@ object HostService {
             visibleHosts.map { host ->
                 async {
                     val modpack = ModpackService.getById(host.modpackId)
-                    val onlinePlayers = host.getOnlinePlayers()
+                    //val onlinePlayers =host.getOnlinePlayers()
                     val isMember = host.ownerId == requesterId || host.members.any { it.id == requesterId }
                     val playable = when {
                         isMember -> true
-                        host.isPublicTest -> true
+                        host.isPublic -> true
                         host.status == HostStatus.PLAYABLE && !host.whitelist -> true
                         else -> false
                     }
@@ -1608,7 +1663,7 @@ object HostService {
                         port = host.port,
                         playable = playable,
                         isMember = isMember,
-                        onlinePlayerIds = onlinePlayers
+                        onlinePlayerIds = emptyList()
                     )
                 }
             }.awaitAll()
@@ -1739,6 +1794,21 @@ object HostService {
         }
     }
 
+    private fun isServerInstalledMod(mod: Mod): Boolean =
+        mod.side != Mod.Side.CLIENT && !mod.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
+
+    private fun Host.isDisabledMod(mod: Mod): Boolean =
+        disabledMods.any { sameMod(it, mod) }
+
+    private fun List<Mod>.distinctBySameMod(): List<Mod> = buildList {
+        this@distinctBySameMod.forEach { mod ->
+            if (none { sameMod(it, mod) }) add(mod)
+        }
+    }
+
+    private fun Host.effectiveBaseMods(baseVersion: Modpack.Version): List<Mod> =
+        baseVersion.mods.filterNot{isDisabledMod(it)}
+
     private fun projectIdentity(mod: Mod): String = mod.normalizedProjectId
 
     private fun slugIdentity(mod: Mod): String = mod.normalizedSlug
@@ -1829,7 +1899,8 @@ object HostService {
 
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此整合包")
         val baseVersion = modpack.getVersion(host.packVer) ?: throw RequestError("无此整合包版本: ${host.packVer}")
-        val existingProjectIds = (host.extraMods + baseVersion.mods).map(::projectIdentity).toSet()
+        val activeBaseMods = host.effectiveBaseMods(baseVersion)
+        val existingProjectIds = (host.extraMods + activeBaseMods).map(::projectIdentity).toSet()
         val duplicateExistingIds = mods.map(::projectIdentity).filter { it in existingProjectIds }
         if (duplicateExistingIds.isNotEmpty()) {
             val duplicateExistingSlugs = mods
@@ -1838,7 +1909,7 @@ object HostService {
                 .distinct()
             throw RequestError("房间已有这些mod: ${duplicateExistingSlugs.joinToString()}")
         }
-        val duplicateExistingSlugs = duplicateExistingSlugLabels(mods, host.extraMods + baseVersion.mods)
+        val duplicateExistingSlugs = duplicateExistingSlugLabels(mods, host.extraMods + activeBaseMods)
         if (duplicateExistingSlugs.isNotEmpty()) {
             throw RequestError("房间已有这些同名mod: ${duplicateExistingSlugs.joinToString()}")
         }
@@ -1849,6 +1920,33 @@ object HostService {
             "开始为房间${host.name}添加${mods.size}个附加Mod"
         )._id
         enqueueAddExtraMods(host._id, host.name, host.modpackId, host.packVer, mods, mailId)
+    }
+
+    suspend fun HostContext.addDisabledMods(mods: List<Mod>): List<Mod> {
+        if (mods.isEmpty()) throw RequestError("禁用Mod列表不能为空")
+        val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此整合包")
+        val baseVersion = modpack.getVersion(host.packVer) ?: throw RequestError("无此整合包版本: ${host.packVer}")
+        val installableBaseMods = baseVersion.mods.filter(::isServerInstalledMod)
+        val matchedMods = mods.map { requestMod ->
+            installableBaseMods.firstOrNull { sameMod(it, requestMod) }
+                ?: throw RequestError("整合包未安装此Mod: ${requestMod.displaySlugOrProject}")
+        }.distinctBySameMod()
+        val alreadyDisabled = matchedMods.filter { matched ->
+            host.disabledMods.any { sameMod(it, matched) }
+        }
+        if (alreadyDisabled.isNotEmpty()) {
+            throw RequestError(
+                "这些Mod已被禁用: ${alreadyDisabled.map { it.displaySlugOrProject }.distinct().joinToString()}"
+            )
+        }
+        val updatedMods = (host.disabledMods + matchedMods).distinctBySameMod()
+        dbcl.updateOne(
+            eq("_id", host._id),
+            set(Host::disabledMods.name, updatedMods)
+        )
+        host.disabledMods = updatedMods
+        deleteMountedDisabledModFiles(host, matchedMods)
+        return updatedMods
     }
 
     private fun enqueueAddExtraMods(
@@ -1879,7 +1977,8 @@ object HostService {
                     val currentHost = getById(hostId) ?: throw RequestError("无此房间")
                     val modpack = ModpackService.getById(modpackId) ?: throw RequestError("无此整合包")
                     val baseVersion = modpack.getVersion(packVer) ?: throw RequestError("无此整合包版本: $packVer")
-                    val existingProjectIds = (currentHost.extraMods + baseVersion.mods).map(::projectIdentity).toSet()
+                    val activeBaseMods = currentHost.effectiveBaseMods(baseVersion)
+                    val existingProjectIds = (currentHost.extraMods + activeBaseMods).map(::projectIdentity).toSet()
                     val duplicateExistingMods = mods.filter { projectIdentity(it) in existingProjectIds }
                     if (duplicateExistingMods.isNotEmpty()) {
                         val duplicateSlugs = duplicateExistingMods
@@ -1888,7 +1987,7 @@ object HostService {
                         throw RequestError("主机已有这些mod: ${duplicateSlugs.joinToString()}")
                     }
                     val duplicateExistingSlugMods =
-                        duplicateExistingSlugLabels(mods, currentHost.extraMods + baseVersion.mods)
+                        duplicateExistingSlugLabels(mods, currentHost.extraMods + activeBaseMods)
                     if (duplicateExistingSlugMods.isNotEmpty()) {
                         throw RequestError("主机已有这些同slug mod: ${duplicateExistingSlugMods.joinToString()}")
                     }
@@ -1907,9 +2006,10 @@ object HostService {
                     val latestModpack = ModpackService.getById(latestHost.modpackId) ?: throw RequestError("无此整合包")
                     val latestBaseVersion = latestModpack.getVersion(latestHost.packVer)
                         ?: throw RequestError("无此整合包版本: ${latestHost.packVer}")
+                    val latestActiveBaseMods = latestHost.effectiveBaseMods(latestBaseVersion)
                     val latestExistingProjectIds =
-                        (latestHost.extraMods + latestBaseVersion.mods).map(::projectIdentity).toSet()
-                    val latestExistingSlugs = (latestHost.extraMods + latestBaseVersion.mods)
+                        (latestHost.extraMods + latestActiveBaseMods).map(::projectIdentity).toSet()
+                    val latestExistingSlugs = (latestHost.extraMods + latestActiveBaseMods)
                         .map(::slugIdentity)
                         .filter { it.isNotBlank() }
                         .toSet()
@@ -1966,6 +2066,11 @@ object HostService {
         val removedMods = host.extraMods
             .filter { projectIdentity(it) in normalizedProjectIds }
             .toList()
+        val foundProjectIds = removedMods.map(::projectIdentity).toSet()
+        val missingProjectIds = normalizedProjectIds - foundProjectIds
+        if (missingProjectIds.isNotEmpty()) {
+            throw RequestError("这些Mod不在附加Mod列表中: ${missingProjectIds.joinToString()}")
+        }
         val updatedMods = host.extraMods
             .filterNot { projectIdentity(it) in normalizedProjectIds }
             .toList()
@@ -1986,6 +2091,35 @@ object HostService {
                 }
         }
         host.extraMods = updatedMods
+        return updatedMods
+    }
+
+    suspend fun HostContext.deleteDisabledMods(mods: List<Mod>): List<Mod> {
+        if (mods.isEmpty()) throw RequestError("禁用Mod列表不能为空")
+        val modsToReEnable = mods.filter { requestMod ->
+            host.disabledMods.any { sameMod(it, requestMod) }
+        }.distinctBySameMod()
+        if (modsToReEnable.isEmpty()) {
+            throw RequestError("这些Mod未被禁用")
+        }
+        val conflictWithExtra = modsToReEnable.filter { reenableMod ->
+            host.extraMods.any { sameMod(it, reenableMod) }
+        }
+        if (conflictWithExtra.isNotEmpty()) {
+            throw RequestError(
+                "这些Mod已在附加Mod中存在，请先移除附加Mod再重新启用: ${
+                    conflictWithExtra.map { it.displaySlugOrProject }.distinct().joinToString()
+                }"
+            )
+        }
+        val updatedMods = host.disabledMods
+            .filterNot { disabledMod -> modsToReEnable.any { sameMod(it, disabledMod) } }
+            .toList()
+        dbcl.updateOne(
+            eq("_id", host._id),
+            set(Host::disabledMods.name, updatedMods)
+        )
+        host.disabledMods = updatedMods
         return updatedMods
     }
 
@@ -2012,8 +2146,25 @@ object HostService {
             allowCheats = allowCheats,
             members = members,
             extraMods = extraMods,
+            disabledMods = disabledMods,
             onlinePlayerIds = onlinePlayers
         )
+    }
+
+    private fun deleteMountedDisabledModFiles(host: Host, disabledMods: List<Mod>) {
+        if (disabledMods.isEmpty()) return
+        disabledMods.forEach { mod ->
+            val hostModFile = host.dir.resolve("mods").resolve(mod.fileName).toPath()
+            runCatching { Files.deleteIfExists(hostModFile) }
+                .onSuccess { deleted ->
+                    if (deleted) {
+                        lgr.info { "Host ${host._id} 删除已停用Mod占位文件: ${hostModFile.fileName}" }
+                    }
+                }
+                .onFailure { err ->
+                    lgr.warn { "Host ${host._id} 删除已停用Mod占位文件失败 ${hostModFile.fileName}: ${err.message}" }
+                }
+        }
     }
 
     suspend fun stopIdleHosts() {
@@ -2097,7 +2248,7 @@ object HostService {
         if (current.hasMember(target._id)) {
             throw RequestError("该用户已是成员")
         }
-        if (!current.isPublicTest && current.members.size >= 10) {
+        if (!current.isPublic && current.members.size >= 10) {
             throw RequestError("该房间最多只能有10名成员")
         }
         val joinedCount = dbcl.countDocuments(eq("${Host::members.name}.${Host.Member::id.name}", target._id))

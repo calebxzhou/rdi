@@ -115,18 +115,36 @@ fun FlowRowV(
 }
 
 @Composable
-fun AlertOk(msg: String) {
-    createAlertDialog(title = "成功", icon = "\uF058", msg = msg, accentColor = MaterialColor.GREEN_900.color)
+fun AlertOk(msg: String, onClose: (() -> Unit)? = null) {
+    createAlertDialog(
+        title = "成功",
+        icon = "\uF058",
+        msg = msg,
+        accentColor = MaterialColor.GREEN_900.color,
+        onClose = onClose
+    )
 }
 
 @Composable
-fun AlertWarn(msg: String) {
-    createAlertDialog(title = "警告", icon = "\uEA6C", msg = msg, accentColor = Color(0xFFE0A800))
+fun AlertWarn(msg: String, onClose: (() -> Unit)? = null) {
+    createAlertDialog(
+        title = "警告",
+        icon = "\uEA6C",
+        msg = msg,
+        accentColor = Color(0xFFE0A800),
+        onClose = onClose
+    )
 }
 
 @Composable
-fun AlertErr(msg: String) {
-    createAlertDialog(title = "错误", icon = "\uEA87", msg = msg, accentColor = Color(0xFFD64545))
+fun AlertErr(msg: String, onClose: (() -> Unit)? = null) {
+    createAlertDialog(
+        title = "错误",
+        icon = "\uEA87",
+        msg = msg,
+        accentColor = Color(0xFFD64545),
+        onClose = onClose
+    )
 }
 
 @Composable
@@ -134,13 +152,19 @@ private fun createAlertDialog(
     title: String,
     icon: String,
     msg: String,
-    accentColor: Color
+    accentColor: Color,
+    onClose: (() -> Unit)? = null
 ) {
     var visible by remember { mutableStateOf(true) }
     if (!visible) return
 
+    fun close() {
+        visible = false
+        onClose?.invoke()
+    }
+
     AlertDialog(
-        onDismissRequest = { visible = false },
+        onDismissRequest = ::close,
         title = {
             val titleStyle = MaterialTheme.typography.subtitle1
             Row(
@@ -175,7 +199,7 @@ private fun createAlertDialog(
             )
         },
         confirmButton = {
-            TextButton(onClick = { visible = false }) {
+            TextButton(onClick = ::close) {
                 Text("明白", color = accentColor)
             }
         },

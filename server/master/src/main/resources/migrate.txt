@@ -1,1 +1,1 @@
-add categories field for every document in modpack collection
+add disabledMods field for every document in Host collection

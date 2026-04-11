@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.IconButton
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,12 +31,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.UiMod
+import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzhou.rdi.client.ui.RowV
+import calebxzhou.rdi.client.ui.Space8w
 import calebxzhou.rdi.common.model.Mod
 
 /**
  * calebxzhou @ 2026-04-02 13:27
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModGrid(
     mods: List<UiMod>,
@@ -47,6 +52,7 @@ fun ModGrid(
     onSideChange: ((UiMod, Mod.Side) -> Unit)? = null
 ) {
     var modSearch by remember { mutableStateOf("") }
+    var showSearchBox by remember { mutableStateOf(false) }
     val sortedMods = remember(mods) {
         mods.sortedWith(
             compareBy(
@@ -65,112 +71,137 @@ fun ModGrid(
     }
     val selectedBackground = Color(243, 236, 255)
     val unselectedFallbackBackground = Color(255, 255, 255, 235)
-    Column(modifier = modifier.fillMaxWidth()) {
-        OutlinedTextField(
-            value = modSearch,
-            onValueChange = { modSearch = it },
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 8.dp),
-            label = { Text("搜索mod") },
-            singleLine = true,
-            maxLines = 1,
-            placeholder = { Text("搜索mod..") },
-            trailingIcon = {
-                if (modSearch.isNotBlank()) {
-                    IconButton(onClick = { modSearch = "" }) {
-                        Text("✕")
-                    }
+    Box(modifier = modifier.fillMaxWidth()) {
+        LazyVerticalGrid(
+            state = gridState,
+            columns = GridCells.Adaptive(320.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(
+                top = if (showSearchBox) 56.dp else 8.dp,
+                end = 18.dp,
+                bottom = 12.dp
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            if (filteredMods.isEmpty()) {
+                item(key = "mod-grid-empty") {
+                    Text(
+                        text = emptyText,
+                        modifier = Modifier.padding(vertical = 12.dp)
+                    )
                 }
             }
-        )
-        Box(modifier = Modifier.fillMaxWidth()) {
-            LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Adaptive(320.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                contentPadding = PaddingValues(end = 18.dp, bottom = 12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                if (filteredMods.isEmpty()) {
-                    item(key = "mod-grid-empty") {
-                        Text(
-                            text = emptyText,
-                            modifier = Modifier.padding(vertical = 12.dp)
+            items(filteredMods, key = { it.key }) { mod ->
+                val card = mod.card
+                val selected = mod.key in selectedKeys
+                val clickableModifier = if (onModClick != null) {
+                    Modifier.clickable { onModClick(mod) }
+                } else {
+                    Modifier
+                }
+                if (card != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (selected) selectedBackground else Color.Transparent,
+                                RoundedCornerShape(18.dp)
+                            )
+                            .padding(2.dp)
+                            .then(clickableModifier)
+                    ) {
+                        card.ModCard(
+                            modifier = Modifier.fillMaxWidth(),
+                            currentSide = mod.side,
+                            onSideChange = onSideChange?.let { callback ->
+                                { nextSide -> callback(mod, nextSide) }
+                            }
                         )
                     }
-                }
-                items(filteredMods, key = { it.key }) { mod ->
-                    val card = mod.card
-                    val selected = mod.key in selectedKeys
-                    val clickableModifier = if (onModClick != null) {
-                        Modifier.clickable { onModClick(mod) }
-                    } else {
-                        Modifier
-                    }
-                    if (card != null) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    if (selected) selectedBackground else Color.Transparent,
-                                    RoundedCornerShape(18.dp)
-                                )
-                                .padding(2.dp)
-                                .then(clickableModifier)
-                        ) {
-                            card.ModCard(
-                                modifier = Modifier.fillMaxWidth(),
-                                currentSide = mod.side,
-                                onSideChange = onSideChange?.let { callback ->
-                                    { nextSide -> callback(mod, nextSide) }
-                                }
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (selected) selectedBackground else unselectedFallbackBackground,
+                                RoundedCornerShape(16.dp)
                             )
-                        }
-                    } else {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    if (selected) selectedBackground else unselectedFallbackBackground,
-                                    RoundedCornerShape(16.dp)
-                                )
-                                .padding(12.dp)
-                                .then(clickableModifier),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
+                            .padding(12.dp)
+                            .then(clickableModifier),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = mod.displayName,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialColor.GRAY_900.color
+                        )
+                        if (!mod.slug.equals(mod.displayName, ignoreCase = true)) {
                             Text(
-                                text = mod.displayName,
+                                text = mod.slug,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = MaterialColor.GRAY_900.color
+                                color = MaterialColor.BLUE_600.color
                             )
-                            if (!mod.slug.equals(mod.displayName, ignoreCase = true)) {
-                                Text(
-                                    text = mod.slug,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = MaterialColor.BLUE_600.color
-                                )
-                            }
                         }
                     }
                 }
             }
-            Box(
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .width(12.dp)
+                .padding(bottom = 12.dp)
+        ) {
+            PlatformVerticalScrollbar(
+                gridState = gridState,
                 modifier = Modifier
-                    .align(Alignment.CenterEnd)
                     .fillMaxHeight()
-                    .width(12.dp)
-                    .padding(bottom = 12.dp)
-            ) {
-                PlatformVerticalScrollbar(
-                    gridState = gridState,
-                    modifier = Modifier
-                        .fillMaxHeight()
-                        .padding(vertical = 2.dp)
-                )
+                    .padding(vertical = 2.dp)
+            )
+        }
+        Box(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 8.dp, end = 18.dp)
+        ) {
+            RowV(horizontalArrangement = Arrangement.End) {
+                if (showSearchBox) {
+                    OutlinedTextField(
+                        value = modSearch,
+                        onValueChange = { modSearch = it },
+                        modifier = Modifier.width(220.dp),
+                        label = { Text("搜索mod") },
+                        singleLine = true,
+                        maxLines = 1,
+                        placeholder = { Text("搜索mod..") },
+                        trailingIcon = {
+                            if (modSearch.isNotBlank()) {
+                                IconButton(onClick = { modSearch = "" }) {
+                                    Text("✕")
+                                }
+                            }
+                        }
+                    )
+                    Space8w()
+                }
+                CircleIconButton(
+                    icon = if (showSearchBox) "\uF00D" else "\uF002",
+                    tooltip = if (showSearchBox) "隐藏搜索" else "显示搜索",
+                    bgColor = MaterialColor.BLUE_900.color,
+                    size = 32,
+                    showText = false
+                ) {
+                    if (showSearchBox) {
+                        showSearchBox = false
+                        modSearch = ""
+                    } else {
+                        showSearchBox = true
+                    }
+                }
             }
         }
     }

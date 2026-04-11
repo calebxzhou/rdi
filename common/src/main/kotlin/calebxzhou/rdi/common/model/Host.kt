@@ -32,13 +32,14 @@ data class Host(
     val members: List<Member> = arrayListOf(),
     val banlist: List<@Contextual ObjectId> = arrayListOf(),
     //整合包外的附加mod
-    var extraMods: List<Mod> = arrayListOf()
+    var extraMods: List<Mod> = arrayListOf(),
+    var disabledMods: List<Mod> = arrayListOf()
 ) {
     companion object {
         var portNow: Int = 0
     }
     //所有人都能玩 无论是否启动
-    val isPublicTest get() = name.contains("公测")
+    val isPublic get() = name.contains("公共")
 
     @Serializable
     data class Member(
@@ -99,6 +100,7 @@ data class Host(
         val allowCheats: Boolean = false,
         val members: List<Member> = arrayListOf(),
         val extraMods: List<Mod> = arrayListOf(),
+        val disabledMods: List<Mod> = arrayListOf(),
         val onlinePlayerIds: List<@Contextual ObjectId> = arrayListOf(),
     )
 

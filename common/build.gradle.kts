@@ -43,7 +43,7 @@ dependencies {
     implementation("io.github.oshai:kotlin-logging-jvm:${kotlinLoggingVersion}")
     testImplementation("io.github.oshai:kotlin-logging-jvm:${kotlinLoggingVersion}")
     implementation("org.apache.commons:commons-compress:1.27.1")
-    implementation("com.github.luben:zstd-jni:1.5.7-7")
+    compileOnly("com.github.luben:zstd-jni:1.5.7-7")
 
     implementation("net.benwoodworth.knbt:knbt:0.11.9")
 

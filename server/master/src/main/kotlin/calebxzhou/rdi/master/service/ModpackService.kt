@@ -4,6 +4,7 @@ import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.mykotutils.std.toFixed
+import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.archive.TarZstArchiveWriter
 import calebxzhou.rdi.common.archive.PackArchiveFormat
 import calebxzhou.rdi.common.archive.forEachArchiveEntry
@@ -11,12 +12,13 @@ import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.VALID_NAME_REGEX
 import calebxzhou.rdi.common.archive.detectArchiveFormat
 import calebxzhou.rdi.common.exception.RequestError
-import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.runInline
 import calebxzhou.rdi.common.service.validate
+import calebxzhou.rdi.common.service.ModService.modId
+import calebxzhou.rdi.common.service.ModService.readNeoForgeConfig
 import calebxzhou.rdi.common.util.ok
 import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.master.DB
@@ -64,6 +66,7 @@ import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.jar.JarFile
 
 val Modpack.dir
     get() = MODPACK_DATA_DIR.resolve(_id.str)
@@ -845,6 +848,7 @@ object ModpackService {
         if (i18nUpdateMod.exists()) {
             i18nUpdateMod.delete()
         }
+        cleanupDisabledInstalledMods(host, version, hostDir.resolve("mods"))
 
         libsDir.canonicalFile.also {
             if (!it.exists() || !it.isDirectory) {
@@ -878,6 +882,9 @@ object ModpackService {
             if (!includeClientOnlyMarkedMods && isClientOnlyMarkedModPath(relativePath)) {
                 return@forEachArchiveEntry
             }
+            if (shouldSkipHostClientOnlyJar(relativePath)) {
+                return@forEachArchiveEntry
+            }
             if (skipHostAssetFiles && shouldSkipHostAssetFile(relativePath)) {
                 return@forEachArchiveEntry
             }
@@ -904,6 +911,55 @@ object ModpackService {
     private fun shouldSkipHostAssetFile(relativePath: String): Boolean {
         val extension = relativePath.substringAfterLast('.', "").lowercase()
         return extension in hostSkippedAssetExtensions
+    }
+
+    private fun cleanupDisabledInstalledMods(host: Host, version: Modpack.Version, modsDir: File) {
+        if (!modsDir.exists() || !modsDir.isDirectory || host.disabledMods.isEmpty()) return
+        val disabledBaseMods = version.mods
+            .filter { it.side != Mod.Side.CLIENT && !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX) }
+            .filter { versionMod -> host.disabledMods.any { sameMod(it, versionMod) } }
+        if (disabledBaseMods.isEmpty()) return
+
+        val disabledFileNames = disabledBaseMods.map { it.fileName.lowercase() }.toSet()
+        val disabledSlugs = disabledBaseMods.map { it.slug.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
+        val disabledHashes = disabledBaseMods.map { it.hash.trim().lowercase() }.filter { it.isNotBlank() }.toSet()
+        val disabledModIds = disabledBaseMods.mapNotNull { disabledMod ->
+            DL_MOD_DIR.resolve(disabledMod.fileName)
+                .takeIf(File::exists)
+                ?.let(::readPrimaryJarModId)
+        }.toSet()
+
+        modsDir.listFiles()
+            ?.filter { it.isFile && it.extension.equals("jar", true) }
+            ?.forEach { file ->
+                val lowerName = file.name.lowercase()
+                val directNameMatch = lowerName in disabledFileNames ||
+                    disabledSlugs.any(lowerName::contains) ||
+                    disabledHashes.any(lowerName::contains)
+                val modIdMatch = readPrimaryJarModId(file)?.let { it in disabledModIds } ?: false
+                if (!directNameMatch && !modIdMatch) return@forEach
+                runCatching { file.delete() }
+                    .onSuccess { deleted ->
+                        if (deleted) {
+                            lgr.info { "Host ${host._id} 删除已禁用整合包Mod文件: ${file.name}" }
+                        }
+                    }
+                    .onFailure { err ->
+                        lgr.warn { "Host ${host._id} 删除已禁用整合包Mod文件失败 ${file.name}: ${err.message}" }
+                    }
+            }
+    }
+
+    private fun readPrimaryJarModId(file: File): String? {
+        return runCatching {
+            JarFile(file).use { jar ->
+                jar.readNeoForgeConfig()
+                    ?.modId
+                    ?.trim()
+                    ?.lowercase()
+                    ?.ifBlank { null }
+            }
+        }.getOrNull()
     }
 
     fun Modpack.Version.processMods(modpack: Modpack) {
@@ -1155,6 +1211,13 @@ object ModpackService {
         if (!normalized.startsWith("mods/")) return false
         val fileName = normalized.substringAfterLast('/')
         return fileName.startsWith(CLIENT_ONLY_MARK_PREFIX) && fileName.endsWith(".jar", ignoreCase = true)
+    }
+
+    private fun shouldSkipHostClientOnlyJar(relativePath: String): Boolean {
+        val normalized = relativePath.replace('\\', '/').trimStart('/')
+        if (!normalized.startsWith("mods/")) return false
+        val fileName = normalized.substringAfterLast('/').lowercase()
+        return fileName.endsWith(".jar") && fileName.contains("rgp-client")
     }
 
     private fun createVersionBuildDir(version: Modpack.Version, buildId: String): File {

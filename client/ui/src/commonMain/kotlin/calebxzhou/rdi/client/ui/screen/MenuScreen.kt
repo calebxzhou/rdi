@@ -78,20 +78,23 @@ fun MenuScreen(
                     onClick = onOpenWardrobe
                 )
 
-                    MenuActionButtons(
+                MenuActionButtons(
                         modifier = Modifier
                             .align(Alignment.CenterEnd)
                             .padding(end = 12.dp, top = 136.dp, bottom = 96.dp)
                             .widthIn(min = 92.dp, max = buttonAreaWidth),
                         compact = true,
+                        showBottomActionsInline = true,
                         onOpenModpackLocalManage = onOpenModpackLocalManage,
                         onOpenModpackList = onOpenModpackList,
+                        onOpenSponsor = onOpenSponsor,
+                        onOpenTaskList = onOpenTaskList,
                         onOpenSettings = onOpenSettings,
                         onOpenMail = onOpenMail,
                         onOpenHostLobby = onOpenHostLobby,
-                    onOpenWorldList = onOpenWorldList,
-                    onBack = onBack
-                )
+                        onOpenWorldList = onOpenWorldList,
+                        onBack = onBack
+                    )
             } else {
                 Row(
                     modifier = Modifier.align(Alignment.Center),
@@ -114,8 +117,11 @@ fun MenuScreen(
                     MenuActionButtons(
                         modifier = Modifier.widthIn(min = if (compact) 180.dp else 220.dp),
                         compact = compact,
+                        showBottomActionsInline = false,
                         onOpenModpackLocalManage = onOpenModpackLocalManage,
                         onOpenModpackList = onOpenModpackList,
+                        onOpenSponsor = onOpenSponsor,
+                        onOpenTaskList = onOpenTaskList,
                         onOpenSettings = onOpenSettings,
                         onOpenMail = onOpenMail,
                         onOpenHostLobby = onOpenHostLobby,
@@ -124,45 +130,47 @@ fun MenuScreen(
                     )
                 }
             }
-            RowV(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 24.dp)
-            ) {
-                lastPlayHost?.let { host ->
-                    CircleIconButton(
-                        icon = "\uF04B",
-                        tooltip = "继续游玩房间:${host.name}",
-                        bgColor = MaterialColor.GREEN_900.color
-                    ) {
-                        onOpenHostInfo(host.id)
+            if (!portrait) {
+                RowV(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 24.dp)
+                ) {
+                    lastPlayHost?.let { host ->
+                        CircleIconButton(
+                            icon = "\uF04B",
+                            tooltip = "继续游玩房间:${host.name}",
+                            bgColor = MaterialColor.GREEN_900.color
+                        ) {
+                            onOpenHostInfo(host.id)
+                        }
                     }
                 }
-            }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(end = 24.dp, bottom = 24.dp)
-            ) {
-                CircleIconButton(
-                    icon = "\uF004",
-                    tooltip = "支持RDI",
-                    bgColor = MaterialColor.PINK_700.color
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 24.dp, bottom = 24.dp)
                 ) {
-                    onOpenSponsor()
+                    CircleIconButton(
+                        icon = "\uF004",
+                        tooltip = "支持RDI",
+                        bgColor = MaterialColor.PINK_700.color
+                    ) {
+                        onOpenSponsor()
+                    }
                 }
-            }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(end = 24.dp, bottom = 24.dp)
-            ) {
-                CircleIconButton(
-                    icon = "\uDB80\uDDDA",
-                    tooltip = "任务列表",
-                    bgColor = MaterialColor.BLUE_800.color
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomStart)
+                        .padding(end = 24.dp, bottom = 24.dp)
                 ) {
-                    onOpenTaskList()
+                    CircleIconButton(
+                        icon = "\uDB80\uDDDA",
+                        tooltip = "任务列表",
+                        bgColor = MaterialColor.BLUE_800.color
+                    ) {
+                        onOpenTaskList()
+                    }
                 }
             }
         }
@@ -202,8 +210,11 @@ private fun MenuAccountSummary(
 private fun MenuActionButtons(
     modifier: Modifier = Modifier,
     compact: Boolean,
+    showBottomActionsInline: Boolean,
     onOpenModpackLocalManage: () -> Unit,
     onOpenModpackList: () -> Unit,
+    onOpenSponsor: () -> Unit,
+    onOpenTaskList: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMail: () -> Unit,
     onOpenHostLobby: () -> Unit,
@@ -249,6 +260,22 @@ private fun MenuActionButtons(
             contentPadding = PaddingValues(start = 2.dp)
         ) {
             onOpenHostLobby()
+        }
+        if (showBottomActionsInline) {
+            CircleIconButton(
+                "\uDB80\uDDDA",
+                "任务",
+                bgColor = MaterialColor.BLUE_800.color
+            ) {
+                onOpenTaskList()
+            }
+            CircleIconButton(
+                "\uF004",
+                "支持",
+                bgColor = MaterialColor.PINK_700.color
+            ) {
+                onOpenSponsor()
+            }
         }
     }
 }

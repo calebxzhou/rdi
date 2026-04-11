@@ -113,13 +113,13 @@ object UpdateService {
             onDetail = onDetail
         )
         if (replaced) {
-            onDetail("核心文件已更新至最新版本。")
+            onDetail("核心文件已更新至最新版本-")
         }
         return replaced
     }
 }
 
-internal data class PlatformUpdateSyncResult(
+data class PlatformUpdateSyncResult(
     val success: Boolean,
     val requiresRestart: Boolean
 )

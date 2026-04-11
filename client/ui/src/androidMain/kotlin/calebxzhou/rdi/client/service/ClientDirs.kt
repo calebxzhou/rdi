@@ -41,4 +41,6 @@ actual object ClientDirs {
     actual val assetsDir: File get() = fclMinecraftDir.resolve("assets")
     actual val assetIndexesDir: File get() = assetsDir.resolve("indexes")
     actual val assetObjectsDir: File get() = assetsDir.resolve("objects")
+    actual val toolsDir: File
+        get() = throw UnsupportedOperationException("不支持tools")
 }

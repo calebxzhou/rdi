@@ -1,13 +1,15 @@
 import org.gradle.jvm.tasks.Jar
+import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.bundling.Zip
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
 val ktorVersion = "3.4.2"
 val zstdVer = "1.5.7-7"
-val version = "5.12"
+val version = "5.12.1"
 project.version = version
 
 plugins {
@@ -74,8 +76,6 @@ kotlin {
                 implementation("com.github.oshi:oshi-core:6.9.3") {
                     exclude(group = "net.java.dev.jna")
                 }
-                // Source: https://mvnrepository.com/artifact/com.github.luben/zstd-jni
-                implementation("com.github.luben:zstd-jni:$zstdVer")
             }
         }
 
@@ -84,6 +84,7 @@ kotlin {
                 implementation(compose.desktop.currentOs)
                 implementation("org.jetbrains.androidx.navigation:navigation-compose:2.9.2")
                 implementation("org.jetbrains.compose.material3:material3-desktop:1.10.0-alpha05")
+                implementation("com.github.luben:zstd-jni:$zstdVer")
     
                 // JNA/Oshi dependencies (JNA excluded from commonMain)
                 implementation("net.java.dev.jna:jna:5.18.1")
@@ -175,6 +176,7 @@ kotlin {
         }
     }
 }
+
 
 android {
     namespace = "calebxzhou.rdi.client"
@@ -283,6 +285,14 @@ tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
 
+tasks.withType<KotlinJvmCompile>().matching { it.name == "compileKotlinDesktop" }.configureEach {
+    outputs.upToDateWhen {
+        destinationDirectory.asFile.get()
+            .walkTopDown()
+            .any { it.isFile && it.extension == "class" }
+    }
+}
+
 idea {
     module {
         isDownloadSources = true
@@ -324,42 +334,23 @@ tasks.named<Jar>("desktopJar") {
 
 
 fun registerCopyTask(name: String, extraDestinations: List<String> = emptyList()) {
-    tasks.register(name) {
-        notCompatibleWithConfigurationCache("uses project file operations at execution time")
-
-        dependsOn("desktopInstallLibs")
-
-        val baseDestinations = listOf(
-            file("../../server/master/run/client-libs/lib"),
-       //     File(System.getProperty("user.home"), "Documents/rdi5ship/lib")
-        )
-        val destinationDirs = baseDestinations + extraDestinations.map { file(it) }
-
-        doLast {
-            val srcDir = layout.buildDirectory.dir("install/ui/lib").get().asFile
-            if (!srcDir.exists()) {
-                throw GradleException("未找到目录: $srcDir")
-            }
-            val srcFileNames = srcDir.listFiles()?.map { it.name }?.toSet() ?: emptySet()
-
-            destinationDirs.forEach { targetDir ->
-                targetDir.mkdirs()
-                copy {
-                    from(srcDir)
-                    into(targetDir)
-                }
-                targetDir.listFiles()?.forEach { file ->
-                    if (file.name !in srcFileNames) {
-                        val deleted = file.deleteRecursively()
-                        if (deleted) {
-                            println("Deleted unused library: ${file.name}")
-                        } else {
-                            println("Failed to delete: ${file.name}")
-                        }
-                    }
-                }
-            }
+    val baseDestinations = listOf(
+        file("../../server/master/run/client-libs/lib"),
+   //     File(System.getProperty("user.home"), "Documents/rdi5ship/lib")
+    )
+    val destinationDirs = baseDestinations + extraDestinations.map { file(it) }
+    val syncTaskNames = destinationDirs.mapIndexed { index, targetDir ->
+        val syncTaskName = "${name}Sync$index"
+        tasks.register<Sync>(syncTaskName) {
+            dependsOn("desktopInstallLibs")
+            from(layout.buildDirectory.dir("install/ui/lib"))
+            into(targetDir)
         }
+        syncTaskName
+    }
+
+    tasks.register(name) {
+        dependsOn(syncTaskNames)
     }
 }
 

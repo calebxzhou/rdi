@@ -10,6 +10,9 @@ import io.ktor.http.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import java.io.RandomAccessFile
@@ -39,19 +42,22 @@ data class DownloadProgress(
 }
 
 private val lgr by Loggers
-private const val DEFAULT_DOWNLOAD_ATTEMPTS = 3
-private const val DEFAULT_MAX_RANGE_THREADS = 32
-private const val HTTP_MAX_REQUESTS = 128
-private const val HTTP_MAX_REQUESTS_PER_HOST = 64
-private const val HTTP_CONNECTION_POOL_SIZE = 64
+private const val DEFAULT_DOWNLOAD_ATTEMPTS = 5
+private const val MAX_CONCURRENT_DOWNLOADS = 64
+private const val HTTP_MAX_REQUESTS = 512
+private const val HTTP_MAX_REQUESTS_PER_HOST = 512
+private const val HTTP_CONNECTION_POOL_SIZE = 512
 private const val MIN_MULTI_PART_DOWNLOAD_BYTES = 4L * 1024 * 1024
-private const val MIN_BYTES_PER_RANGE = 2L * 1024 * 1024
-private const val READ_TIMEOUT_MILLIS = 30_000L
+private const val WORK_QUEUE_CHUNK_SIZE = 1L * 1024 * 1024  // 1MB per chunk
+private const val WORK_QUEUE_WORKERS = 16
+private const val READ_TIMEOUT_MILLIS = 60_000L
+private const val STALL_RETRY_TIMEOUT_MULTIPLIER = 1.5
 private const val ZERO_READ_BACKOFF_MILLIS = 100L
 private const val MAX_CONSECUTIVE_ZERO_READS = 100
 private const val RETRY_BACKOFF_BASE_MILLIS = 500L
-private const val RETRY_BACKOFF_MAX_MILLIS = 4_000L
+private const val RETRY_BACKOFF_MAX_MILLIS = 10_000L
 private const val RETRY_BACKOFF_JITTER_MILLIS = 250L
+private val downloadSemaphore = Semaphore(MAX_CONCURRENT_DOWNLOADS)
 
 val httpFileClient by lazy {
     HttpClient(OkHttp) {
@@ -66,7 +72,7 @@ val httpFileClient by lazy {
                     maxRequests = HTTP_MAX_REQUESTS
                     maxRequestsPerHost = HTTP_MAX_REQUESTS_PER_HOST
                 })
-                connectionPool(ConnectionPool(HTTP_CONNECTION_POOL_SIZE, 1, TimeUnit.MINUTES))
+                connectionPool(ConnectionPool(HTTP_CONNECTION_POOL_SIZE, 5, TimeUnit.MINUTES))
                 proxySelector(DynamicProxySelector())
             }
         }
@@ -123,7 +129,8 @@ suspend fun Path.downloadFileFrom(
                             knownSize = strategy.totalBytesHint,
                             headers = headers,
                             resumeFromBytes = existingTempBytes,
-                            supportsResume = strategy.supportsResume
+                            supportsResume = strategy.supportsResume,
+                            readTimeoutMillis = attemptReadTimeoutMillis(attemptNumber)
                         )
                     }
 
@@ -342,15 +349,9 @@ private data class RangeProbeResult(
 )
 
 private fun buildDownloadChunks(totalBytes: Long): List<DownloadChunk> {
-    val parallelism = ((totalBytes + MIN_BYTES_PER_RANGE - 1) / MIN_BYTES_PER_RANGE)
-        .toInt()
-        .coerceIn(1, DEFAULT_MAX_RANGE_THREADS)
-    if (parallelism <= 1) {
-        return listOf(DownloadChunk(0, 0L, totalBytes - 1))
-    }
-
-    val chunkSize = (totalBytes + parallelism - 1) / parallelism
-    return buildList(parallelism) {
+    // Work queue模式：切成1MB小chunk，由固定worker从队列消费
+    val chunkSize = WORK_QUEUE_CHUNK_SIZE
+    return buildList {
         var start = 0L
         var index = 0
         while (start < totalBytes) {
@@ -370,90 +371,93 @@ private suspend fun downloadSingleStream(
     headers: Map<String, String>,
     resumeFromBytes: Long = 0L,
     supportsResume: Boolean = false,
+    readTimeoutMillis: Long = READ_TIMEOUT_MILLIS,
 ): Long {
     val shouldResume = supportsResume && resumeFromBytes > 0L
-    return httpFileClient.prepareGet(url) {
-        headers.forEach { (key, value) -> header(key, value) }
-        header(HttpHeaders.AcceptEncoding, "identity")
-        if (shouldResume) {
-            header(HttpHeaders.Range, "bytes=${resumeFromBytes}-")
-        }
-    }.execute { response ->
-        if (shouldResume && response.status != HttpStatusCode.PartialContent) {
-            throw ResumeMismatchException("Resume download failed: expected 206, got ${response.status} for ${url}")
-        }
-        if (!shouldResume && !response.status.isSuccess()) {
-            throw IOException("Download failed: ${response.status} for ${url}")
-        }
+    return downloadSemaphore.withPermit {
+        httpFileClient.prepareGet(url) {
+            headers.forEach { (key, value) -> header(key, value) }
+            header(HttpHeaders.AcceptEncoding, "identity")
+            if (shouldResume) {
+                header(HttpHeaders.Range, "bytes=${resumeFromBytes}-")
+            }
+        }.execute { response ->
+            if (shouldResume && response.status != HttpStatusCode.PartialContent) {
+                throw ResumeMismatchException("Resume download failed: expected 206, got ${response.status} for ${url}")
+            }
+            if (!shouldResume && !response.status.isSuccess()) {
+                throw IOException("Download failed: ${response.status} for ${url}")
+            }
 
-        val contentRange = if (shouldResume) {
-            parseContentRange(response.headers[HttpHeaders.ContentRange])
-                ?: throw ResumeMismatchException("Missing Content-Range for resumed download: ${url}")
-        } else null
-        if (shouldResume && contentRange?.startInclusive != resumeFromBytes) {
-            throw ResumeMismatchException(
-                "Unexpected resume range for ${url}: expected start $resumeFromBytes, got ${contentRange?.startInclusive}"
+            val contentRange = if (shouldResume) {
+                parseContentRange(response.headers[HttpHeaders.ContentRange])
+                    ?: throw ResumeMismatchException("Missing Content-Range for resumed download: ${url}")
+            } else null
+            if (shouldResume && contentRange?.startInclusive != resumeFromBytes) {
+                throw ResumeMismatchException(
+                    "Unexpected resume range for ${url}: expected start $resumeFromBytes, got ${contentRange?.startInclusive}"
+                )
+            }
+
+            val totalBytes = contentRange?.totalBytes
+                ?: response.contentLength()
+                ?: knownSize.takeIf { it > 0L }
+                ?: -1L
+
+            if (shouldResume && totalBytes > 0L && resumeFromBytes >= totalBytes) {
+                onProgress(DownloadProgress(totalBytes, totalBytes, 0.0))
+                return@execute totalBytes
+            }
+
+            val initialBytesDownloaded = if (shouldResume) resumeFromBytes else 0L
+
+            val reporter = ProgressReporter(
+                totalBytes = totalBytes,
+                initialBytesDownloaded = initialBytesDownloaded,
+                onProgress = onProgress
             )
-        }
+            val channel: ByteReadChannel = response.body()
+            val buffer = ByteArray(8192)
+            var bytesDownloaded = initialBytesDownloaded
 
-        val totalBytes = contentRange?.totalBytes
-            ?: response.contentLength()
-            ?: knownSize.takeIf { it > 0L }
-            ?: -1L
+            withContext(Dispatchers.IO) {
+                Files.newOutputStream(
+                    targetPath,
+                    StandardOpenOption.CREATE,
+                    if (shouldResume) StandardOpenOption.APPEND else StandardOpenOption.TRUNCATE_EXISTING
+                )
+                    .use { outputStream ->
+                        var consecutiveZeroReads = 0
+                        while (!channel.isClosedForRead) {
+                            val bytesRead = withTimeoutOrNull(readTimeoutMillis) {
+                                channel.readAvailable(buffer, 0, buffer.size)
+                            } ?: throw IOException("Read timeout - connection stalled")
 
-        if (shouldResume && totalBytes > 0L && resumeFromBytes >= totalBytes) {
-            onProgress(DownloadProgress(totalBytes, totalBytes, 0.0))
-            return@execute totalBytes
-        }
+                            if (bytesRead == -1) break
 
-        val initialBytesDownloaded = if (shouldResume) resumeFromBytes else 0L
-
-        val reporter = ProgressReporter(
-            totalBytes = totalBytes,
-            initialBytesDownloaded = initialBytesDownloaded,
-            onProgress = onProgress
-        )
-        val channel: ByteReadChannel = response.body()
-        val buffer = ByteArray(8192)
-        var bytesDownloaded = initialBytesDownloaded
-
-        withContext(Dispatchers.IO) {
-            Files.newOutputStream(
-                targetPath,
-                StandardOpenOption.CREATE,
-                if (shouldResume) StandardOpenOption.APPEND else StandardOpenOption.TRUNCATE_EXISTING
-            )
-                .use { outputStream ->
-                    var consecutiveZeroReads = 0
-                    while (!channel.isClosedForRead) {
-                        val bytesRead = withTimeoutOrNull(READ_TIMEOUT_MILLIS) {
-                            channel.readAvailable(buffer, 0, buffer.size)
-                        } ?: throw IOException("Read timeout - connection stalled")
-
-                        if (bytesRead == -1) break
-
-                        if (bytesRead == 0) {
-                            consecutiveZeroReads++
-                            if (consecutiveZeroReads >= MAX_CONSECUTIVE_ZERO_READS) {
-                                throw IOException("Connection stalled - too many zero reads")
+                            if (bytesRead == 0) {
+                                consecutiveZeroReads++
+                                if (consecutiveZeroReads >= MAX_CONSECUTIVE_ZERO_READS) {
+                                    throw IOException("Connection stalled - too many zero reads")
+                                }
+                                delay(ZERO_READ_BACKOFF_MILLIS)
+                                continue
                             }
-                            delay(ZERO_READ_BACKOFF_MILLIS)
-                            continue
+                            consecutiveZeroReads = 0
+
+                            outputStream.write(buffer, 0, bytesRead)
+                            bytesDownloaded += bytesRead
+                            reporter.addBytes(bytesRead)
                         }
-                        consecutiveZeroReads = 0
-
-                        outputStream.write(buffer, 0, bytesRead)
-                        bytesDownloaded += bytesRead
-                        reporter.addBytes(bytesRead)
                     }
-                }
-        }
+            }
 
-        if (totalBytes > 0L && bytesDownloaded != totalBytes) {
-            throw IOException("Download truncated: expected $totalBytes bytes, got $bytesDownloaded for $url")
+            if (totalBytes > 0L && bytesDownloaded != totalBytes) {
+                throw IOException("Download truncated: expected $totalBytes bytes, got $bytesDownloaded for $url")
+            }
+            reporter.finish()
+            bytesDownloaded
         }
-        reporter.finish()
-        bytesDownloaded
     }
 }
 
@@ -482,21 +486,35 @@ private suspend fun downloadByRanges(
         totalBytes = totalBytes,
         onProgress = onProgress
     )
-    val writtenByChunk = chunks.map { chunk ->
-        async {
-            downloadRangeChunkWithRetry(
-                url = url,
-                targetPath = targetPath,
-                expectedTotalBytes = totalBytes,
-                chunk = chunk,
-                headers = headers,
-                reporter = reporter,
-                maxAttempts = maxChunkAttempts,
-            )
-        }
-    }.awaitAll()
 
-    val totalWritten = writtenByChunk.sum()
+    // Work queue: 所有小chunk放入Channel，固定数量worker消费
+    val chunkChannel = Channel<DownloadChunk>(Channel.UNLIMITED)
+    chunks.forEach { chunkChannel.trySend(it) }
+    chunkChannel.close()
+
+    val workerCount = WORK_QUEUE_WORKERS.coerceAtMost(chunks.size)
+    lgr.info { "Starting $workerCount workers for ${chunks.size} chunks (${totalBytes} bytes) from $url" }
+
+    val workers = (0 until workerCount).map { workerIndex ->
+        async {
+            var workerWritten = 0L
+            for (chunk in chunkChannel) {
+                val written = downloadRangeChunkWithRetry(
+                    url = url,
+                    targetPath = targetPath,
+                    expectedTotalBytes = totalBytes,
+                    chunk = chunk,
+                    headers = headers,
+                    reporter = reporter,
+                    maxAttempts = maxChunkAttempts,
+                )
+                workerWritten += written
+            }
+            workerWritten
+        }
+    }
+
+    val totalWritten = workers.awaitAll().sum()
     if (totalWritten != totalBytes) {
         throw IOException("Download truncated: expected $totalBytes bytes, got $totalWritten for $url")
     }
@@ -526,6 +544,7 @@ private suspend fun downloadRangeChunkWithRetry(
                 chunk = chunk,
                 headers = headers,
                 reporter = reporter,
+                readTimeoutMillis = attemptReadTimeoutMillis(attemptNumber),
             )
         } catch (cancel: CancellationException) {
             reporter.setChunkBytes(chunk.index, 0L)
@@ -553,69 +572,72 @@ private suspend fun downloadRangeChunk(
     chunk: DownloadChunk,
     headers: Map<String, String>,
     reporter: ProgressReporter,
+    readTimeoutMillis: Long,
 ): Long {
-    return httpFileClient.prepareGet(url) {
-        headers.forEach { (key, value) -> header(key, value) }
-        header(HttpHeaders.AcceptEncoding, "identity")
-        header(HttpHeaders.Range, "bytes=${chunk.startInclusive}-${chunk.endInclusive}")
-    }.execute { response ->
-        if (response.status != HttpStatusCode.PartialContent) {
-            throw IOException("Range download failed: expected 206, got ${response.status} for $url")
-        }
+    return downloadSemaphore.withPermit {
+        httpFileClient.prepareGet(url) {
+            headers.forEach { (key, value) -> header(key, value) }
+            header(HttpHeaders.AcceptEncoding, "identity")
+            header(HttpHeaders.Range, "bytes=${chunk.startInclusive}-${chunk.endInclusive}")
+        }.execute { response ->
+            if (response.status != HttpStatusCode.PartialContent) {
+                throw IOException("Range download failed: expected 206, got ${response.status} for $url")
+            }
 
-        val contentRange = parseContentRange(response.headers[HttpHeaders.ContentRange])
-            ?: throw IOException("Missing Content-Range for ranged download: $url")
-        if (contentRange.startInclusive != chunk.startInclusive || contentRange.endInclusive != chunk.endInclusive) {
-            throw IOException(
-                "Unexpected Content-Range for $url: expected ${chunk.startInclusive}-${chunk.endInclusive}, " +
-                        "got ${contentRange.startInclusive}-${contentRange.endInclusive}"
-            )
-        }
-        if (contentRange.totalBytes != null && contentRange.totalBytes != expectedTotalBytes) {
-            throw IOException(
-                "Unexpected total size for $url: expected $expectedTotalBytes, got ${contentRange.totalBytes}"
-            )
-        }
+            val contentRange = parseContentRange(response.headers[HttpHeaders.ContentRange])
+                ?: throw IOException("Missing Content-Range for ranged download: $url")
+            if (contentRange.startInclusive != chunk.startInclusive || contentRange.endInclusive != chunk.endInclusive) {
+                throw IOException(
+                    "Unexpected Content-Range for $url: expected ${chunk.startInclusive}-${chunk.endInclusive}, " +
+                            "got ${contentRange.startInclusive}-${contentRange.endInclusive}"
+                )
+            }
+            if (contentRange.totalBytes != null && contentRange.totalBytes != expectedTotalBytes) {
+                throw IOException(
+                    "Unexpected total size for $url: expected $expectedTotalBytes, got ${contentRange.totalBytes}"
+                )
+            }
 
-        val channel: ByteReadChannel = response.body()
-        val buffer = ByteArray(8192)
-        var writePosition = chunk.startInclusive
-        var bytesDownloaded = 0L
-        var consecutiveZeroReads = 0
+            val channel: ByteReadChannel = response.body()
+            val buffer = ByteArray(8192)
+            var writePosition = chunk.startInclusive
+            var bytesDownloaded = 0L
+            var consecutiveZeroReads = 0
 
-        withContext(Dispatchers.IO) {
-            FileChannel.open(targetPath, StandardOpenOption.WRITE).use { outputChannel ->
-                while (bytesDownloaded < chunk.length) {
-                    val bytesRead = withTimeoutOrNull(READ_TIMEOUT_MILLIS) {
-                        channel.readAvailable(buffer, 0, buffer.size)
-                    } ?: throw IOException("Read timeout - connection stalled")
+            withContext(Dispatchers.IO) {
+                FileChannel.open(targetPath, StandardOpenOption.WRITE).use { outputChannel ->
+                    while (bytesDownloaded < chunk.length) {
+                        val bytesRead = withTimeoutOrNull(readTimeoutMillis) {
+                            channel.readAvailable(buffer, 0, buffer.size)
+                        } ?: throw IOException("Read timeout - connection stalled")
 
-                    if (bytesRead == -1) break
+                        if (bytesRead == -1) break
 
-                    if (bytesRead == 0) {
-                        consecutiveZeroReads++
-                        if (consecutiveZeroReads >= MAX_CONSECUTIVE_ZERO_READS) {
-                            throw IOException("Connection stalled - too many zero reads")
+                        if (bytesRead == 0) {
+                            consecutiveZeroReads++
+                            if (consecutiveZeroReads >= MAX_CONSECUTIVE_ZERO_READS) {
+                                throw IOException("Connection stalled - too many zero reads")
+                            }
+                            delay(ZERO_READ_BACKOFF_MILLIS)
+                            continue
                         }
-                        delay(ZERO_READ_BACKOFF_MILLIS)
-                        continue
-                    }
-                    consecutiveZeroReads = 0
+                        consecutiveZeroReads = 0
 
-                    writeBufferFully(outputChannel, buffer, bytesRead, writePosition)
-                    writePosition += bytesRead
-                    bytesDownloaded += bytesRead
-                    reporter.setChunkBytes(chunk.index, bytesDownloaded)
+                        writeBufferFully(outputChannel, buffer, bytesRead, writePosition)
+                        writePosition += bytesRead
+                        bytesDownloaded += bytesRead
+                        reporter.setChunkBytes(chunk.index, bytesDownloaded)
+                    }
                 }
             }
-        }
 
-        if (bytesDownloaded != chunk.length) {
-            throw IOException(
-                "Range download truncated for $url: expected ${chunk.length} bytes, got $bytesDownloaded on chunk ${chunk.index}"
-            )
+            if (bytesDownloaded != chunk.length) {
+                throw IOException(
+                    "Range download truncated for $url: expected ${chunk.length} bytes, got $bytesDownloaded on chunk ${chunk.index}"
+                )
+            }
+            bytesDownloaded
         }
-        bytesDownloaded
     }
 }
 
@@ -671,6 +693,17 @@ private fun nextRetryDelayMillis(attemptNumber: Int): Long {
         .coerceAtMost(RETRY_BACKOFF_MAX_MILLIS)
     val jitter = Random.nextLong(0L, RETRY_BACKOFF_JITTER_MILLIS + 1L)
     return exponential + jitter
+}
+
+private fun attemptReadTimeoutMillis(attemptNumber: Int): Long {
+    val multiplier = STALL_RETRY_TIMEOUT_MULTIPLIER.pow((attemptNumber - 1).coerceAtLeast(0))
+    return (READ_TIMEOUT_MILLIS * multiplier).toLong().coerceAtMost(180_000L)
+}
+
+private fun Double.pow(exponent: Int): Double {
+    var result = 1.0
+    repeat(exponent) { result *= this }
+    return result
 }
 
 private suspend fun moveDownloadedFile(source: Path, target: Path) {

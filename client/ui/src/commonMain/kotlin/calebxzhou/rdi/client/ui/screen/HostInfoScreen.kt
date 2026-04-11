@@ -33,7 +33,6 @@ import calebxzhou.rdi.client.service.startPlay
 import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.*
-import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.extension.isAdmin
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
@@ -55,11 +54,11 @@ import org.bson.types.ObjectId
 fun HostInfoScreen(
     hostId: ObjectId,
     onBack: () -> Unit = {},
-    onOpenModpackInfo: ((String) -> Unit)? = null,
-    onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenMcVersions: ((McVersion?) -> Unit)? = null,
-    onOpenHostEdit: ((Host.DetailVo) -> Unit)? = null,
-    onOpenTaskList: ((String) -> Unit)? = null
+    onOpenModpackInfo: (String) -> Unit,
+    onOpenMcPlay: (McPlayArgs) -> Unit,
+    onOpenMcVersions: (McVersion?) -> Unit,
+    onOpenHostEdit: (Host.DetailVo) -> Unit,
+    onOpenTaskList: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -116,7 +115,6 @@ fun HostInfoScreen(
     val extraModsTabIndex = 1
     val consoleTabIndex = 2
     val configTabIndex = 3
-    val infoTabIndex = 4
 
     fun resetAddExtraModDialog() {
         addExtraModLoading = false
@@ -157,6 +155,10 @@ fun HostInfoScreen(
         val currentHostId = hostDetail?._id
         hostDetail = hostDetail?.copy(extraMods = updatedMods)
         refreshExtraMods(updatedMods, currentHostId)
+    }
+
+    fun applyDisabledMods(updatedMods: List<Mod>) {
+        disabledMods = updatedMods
     }
 
     fun updatePendingExtraModSide(uiMod: UiMod, side: Mod.Side) {
@@ -294,6 +296,7 @@ fun HostInfoScreen(
                 }
                 hostDetail = detail
                 refreshExtraMods(detail.extraMods, detail._id)
+                applyDisabledMods(detail.disabledMods)
                 scope.rdiRequest<Modpack.DetailVo>(
                     path = "modpack/${detail.modpack.id}",
                     onOk = { modpackResponse ->
@@ -328,6 +331,11 @@ fun HostInfoScreen(
         configStatusMessage = null
         reload()
     }
+    LaunchedEffect(selectedTab) {
+        if (selectedTab > configTabIndex) {
+            selectedTab = memberTabIndex
+        }
+    }
     LaunchedEffect(okMessage) {
         okMessage?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
@@ -349,6 +357,7 @@ fun HostInfoScreen(
     val baseVersionMods = modpackDetail?.versions
         ?.firstOrNull { it.name == host?.packVer }
         ?.mods
+        ?.filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }
         .orEmpty()
     val configDirty = selectedConfigPath != null && configEditorText != configOriginalText
 
@@ -423,89 +432,85 @@ fun HostInfoScreen(
         }
     }
 
+    errorMessage?.let { message ->
+        AlertErr(message) { errorMessage = null }
+    }
+
+    fun startPlay(host: Host.DetailVo) {
+        scope.launch {
+            val args = try {
+                host.startPlay()
+            } catch (e: Exception) {
+                errorMessage = e.message ?: "无法开始游玩"
+                return@launch
+            }
+            when (args) {
+                is StartPlayResult.Ready -> {
+                    LocalCredentials.read().updateLastPlayHost(
+                        id = host._id.toHexString(),
+                        name = host.name
+                    )
+                    if (onOpenMcPlay != null) {
+                        onOpenMcPlay(args.args)
+                    } else {
+                        errorMessage = "暂不支持在此页面游玩"
+                    }
+                }
+
+                is StartPlayResult.NeedInstall -> {
+                    installConfirmTask = args.task
+                }
+
+                is StartPlayResult.NeedMc -> {
+                    errorMessage = "未安装MC版本资源：${args.ver.mcVer}，请先下载"
+                    onOpenMcVersions?.invoke(args.ver)
+                }
+            }
+        }
+    }
+
     MainBox {
         MainColumn {
             TitleRow(title = host?.name ?: "房间详情", onBack = onBack) {
-                errorMessage?.let { ErrorText(it) }
-                Space8w()
-                host?.let { host ->
-                    SimpleTooltip("房间的创建者") {
+
+                    host?.let { host ->
+                        Text("房主：")
                         HeadButton(host.ownerId)
-                    }
-                    Space8w()
-                    host.onlinePlayerIds.forEach {
-                        HeadButton(it, showName = false)
-                    }
-                    Space8w()
-                    CircleIconButton(
-                        icon = "\uF04B",
-                        tooltip = "开始游玩",
-                        bgColor = MaterialColor.GREEN_900.color,
-                        showText = false
-                    ) {
-                        scope.launch {
-                            val args = try {
-                                host.startPlay()
-                            } catch (e: Exception) {
-                                errorMessage = e.message ?: "无法开始游玩"
-                                return@launch
-                            }
-                            when (args) {
-                                is StartPlayResult.Ready -> {
-                                    LocalCredentials.read().updateLastPlayHost(
-                                        id = host._id.toHexString(),
-                                        name = host.name
-                                    )
-                                    if (onOpenMcPlay != null) {
-                                        onOpenMcPlay(args.args)
-                                    } else {
-                                        errorMessage = "暂不支持在此页面游玩"
-                                    }
-                                }
-
-                                is StartPlayResult.NeedInstall -> {
-                                    installConfirmTask = args.task
-                                }
-
-                                is StartPlayResult.NeedMc -> {
-                                    errorMessage = "未安装MC版本资源：${args.ver.mcVer}，请先下载"
-                                    onOpenMcVersions?.invoke(args.ver)
-                                }
-                            }
-                        }
-                    }
-                    Space8w()
-                    if (meAdmin) {
-                        CircleIconButton(
-                            icon = "\uF013",
-                            tooltip = "设置",
-                            showText = false
-                        ) {
-                            if (onOpenHostEdit != null) {
-                                onOpenHostEdit(host)
-                            } else {
-                                errorMessage = "暂不支持编辑房间"
-                            }
-                        }
-                        if (modpackDetail != null) {
-                            Space8w()
-                            CircleIconButton(
-                                icon = "\uDB80\uDFD5",
-                                tooltip = "更新",
-                                showText = false
-                            ) { showUpdateConfirm = true }
-                        }
-                    }
-                    if (meOwner) {
                         Space8w()
                         CircleIconButton(
-                            icon = "\uEA81",
-                            tooltip = "删除房间",
-                            bgColor = MaterialColor.RED_900.color,
-                            showText = false
-                        ) { showDeleteConfirm = true }
+                            icon = "\uF04B",
+                            tooltip = "开始游玩",
+                            bgColor = MaterialColor.GREEN_900.color,
+                        ) {
+                            startPlay(host)
+                        }
+                        Space8w()
+                        if (meAdmin) {
+                            CircleIconButton(
+                                icon = "\uF013",
+                                tooltip = "设置",
+                                bgColor = MaterialColor.YELLOW_900.color
+                            ) {
+                                onOpenHostEdit(host)
+                            }
+                            if (modpackDetail != null) {
+                                Space8w()
+                                CircleIconButton(
+                                    icon = "\uDB80\uDFD5",
+                                    tooltip = "更新"
+                                ) { showUpdateConfirm = true }
+                            }
+                        }
+                        if (meOwner) {
+                            Space8w()
+                            CircleIconButton(
+                                icon = "\uEA81",
+                                tooltip = "删除",
+                                bgColor = MaterialColor.RED_900.color
+                            ) { showDeleteConfirm = true }
+                        }
                     }
-                }
+
             }
 
             Space8h()
@@ -528,71 +533,45 @@ fun HostInfoScreen(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                            val compactLayout = maxWidth < 760.dp
-                            if (compactLayout) {
-                                Column(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text("\uEB29 整合包 ${host.modpack.name} ${host.packVer}".asIconText)
-                                        Row {
-                                            Text("\uF05F ${host.intro}".asIconText)
-                                        }
-                                        Row {
-                                            Text("\uE384 ${host._id.timestamp.secondsToHumanDateTime}".asIconText)
-                                        }
-                                    }
-                                    modpackDetail?.let {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.End
-                                        ) {
-                                            host.modpack.ModpackCard(
-                                                modifier = Modifier.width(300.dp),
-                                                onClick = { onOpenModpackInfo?.invoke(host.modpack.id.toHexString()) }
-                                            )
-                                        }
-                                    } ?: Text(
-                                        text = "找不到整合包",
-                                        color = MaterialColor.RED_900.color
-                                    )
+                        val hostInfoSection = @Composable {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val difficultyText = when (host.difficulty) {
+                                    0 -> "和平"
+                                    1 -> "简单"
+                                    2 -> "普通"
+                                    3 -> "困难"
+                                    else -> host.difficulty.toString()
                                 }
-                            } else {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.Top
-                                ) {
-                                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text("\uEB29 整合包 ${host.modpack.name} ${host.packVer}".asIconText)
-                                        Row {
-                                            Text("\uF05F ${host.intro}".asIconText)
+                                val gameModeText = when (host.gameMode) {
+                                    0 -> "生存"
+                                    1 -> "创造"
+                                    2 -> "冒险"
+                                    3 -> "旁观"
+                                    else -> host.gameMode.toString()
+                                }
+                                Text("难度：$difficultyText")
+                                Text("游戏模式：$gameModeText")
+                                Text("世界类型：${host.levelType}")
+                                Text("白名单：${if (host.whitelist) "开启" else "关闭"}")
+                                Text("允许作弊：${if (host.allowCheats) "开启" else "关闭"}")
+                                if (host.gameRules.isNotEmpty()) {
+                                    Text("游戏规则覆盖：")
+                                    host.gameRules.entries
+                                        .sortedBy { it.key }
+                                        .forEach { (rule, value) ->
+                                            Text(" - $rule = $value")
                                         }
-                                        Row {
-                                            Text("\uE384 ${host._id.timestamp.secondsToHumanDateTime}".asIconText)
-                                        }
-                                    }
-                                    modpackDetail?.let {
-                                        host.modpack.ModpackCard(
-                                            modifier = Modifier.width(300.dp),
-                                            onClick = { onOpenModpackInfo?.invoke(host.modpack.id.toHexString()) }
-                                        )
-                                    } ?: Text(
-                                        text = "找不到整合包",
-                                        color = MaterialColor.RED_900.color
-                                    )
+                                } else {
+                                    Text("游戏规则覆盖：无")
                                 }
                             }
                         }
 
                         val tabs = listOf(
-                            "\uEF69 成员(${host.members.size}/10)",
+                            "\uEF69 信息",
                             "\uF02D 私货",
                             "\uDB80\uDD8D 后台",
-                            "\uE5FC 配置",
-                            "\uE615 信息"
+                            "\uE5FC 配置"
                         )
                         TabRow(
                             selectedTabIndex = selectedTab,
@@ -623,6 +602,69 @@ fun HostInfoScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
+                                    item {
+                                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                                            val infoColumn = @Composable {
+                                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                                    Text("整合包：${host.modpack.name} ${host.packVer}".asIconText)
+                                                    RowV {
+                                                        Text("在线人数：${host.onlinePlayerIds.size}人")
+                                                        Space8w()
+                                                        host.onlinePlayerIds.forEach {
+                                                            HeadButton(it)
+                                                        }
+                                                    }
+                                                    Row {
+                                                        Text("创建时间：${host._id.timestamp.secondsToHumanDateTime}".asIconText)
+                                                    }
+                                                }
+                                            }
+                                            val modpackCard = @Composable{
+                                                host.modpack.ModpackCard(
+                                                    modifier = Modifier.width(300.dp),
+                                                    onClick = { onOpenModpackInfo?.invoke(host.modpack.id.toHexString()) }
+                                                )
+                                            }
+                                            val compactLayout = maxWidth < 760.dp
+                                            if (compactLayout) {
+                                                Column(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                ) {
+                                                    infoColumn()
+                                                    modpackDetail?.let {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.End
+                                                        ) {
+                                                            modpackCard()
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                    verticalAlignment = Alignment.Top
+                                                ) {
+                                                    infoColumn()
+                                                    modpackDetail?.let {
+                                                        modpackCard()
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        hostInfoSection()
+                                    }
+                                    item {
+                                        Divider(
+                                            modifier = Modifier.padding(vertical = 8.dp),
+                                            color = MaterialColor.GRAY_300.color
+                                        )
+                                        Space8h()
+                                        Text("受邀成员：")
+                                        Space8h()
+                                    }
                                     items(
                                         items = host.members,
                                         key = { member -> member.id }
@@ -733,19 +775,21 @@ fun HostInfoScreen(
                                             onClick = { privateThingsSubTab = 0 },
                                             text = { Text("附加mod") }
                                         )
-                                        if(DEBUG){
-
-                                            Tab(
-                                                selected = privateThingsSubTab == 1,
-                                                onClick = { privateThingsSubTab = 1 },
-                                                text = { Text("mod总表（开发中）") }
-                                            )
-                                            Tab(
-                                                selected = privateThingsSubTab == 2,
-                                                onClick = { privateThingsSubTab = 2 },
-                                                text = { Text("已停用的mod（开发中）") }
-                                            )
-                                        }
+                                        Tab(
+                                            selected = privateThingsSubTab == 1,
+                                            onClick = { privateThingsSubTab = 1 },
+                                            text = { Text("mod总表") }
+                                        )
+                                        Tab(
+                                            selected = privateThingsSubTab == 2,
+                                            onClick = { privateThingsSubTab = 2 },
+                                            text = { Text("已停用的mod") }
+                                        )
+                                        Tab(
+                                            selected = privateThingsSubTab == 3,
+                                            onClick = { privateThingsSubTab = 3 },
+                                            text = { Text("KubeJS（开发中）") }
+                                        )
                                     }
                                     when (privateThingsSubTab) {
                                         0 -> HostExtraModsPane(
@@ -859,12 +903,21 @@ fun HostInfoScreen(
                                                 }
                                             },
                                             onDisableSelected = {
-                                                // TODO implement disable selected modpack mods for host
-                                                errorMessage = "TODO: 停用选中的mod"
+                                                scope.rdiRequest<List<Mod>>(
+                                                    path = "host/$hostId/mods/disabled",
+                                                    method = HttpMethod.Post,
+                                                    body = serdesJson.encodeToString(selectedModListMods),
+                                                    onOk = { response ->
+                                                        applyDisabledMods(response.data ?: emptyList())
+                                                        selectedModListKeys = emptySet()
+                                                        okMessage = "已停用选中的mod，重启房间后生效"
+                                                    },
+                                                    onErr = { errorMessage = it.message ?: "停用mod失败" }
+                                                )
                                             }
                                         )
 
-                                        else -> HostDisabledModsPane(
+                                        2 -> HostDisabledModsPane(
                                             disabledMods = disabledMods,
                                             selectedDisabledMods = selectedDisabledMods,
                                             selectedDisabledModKeys = selectedDisabledModKeys,
@@ -886,10 +939,21 @@ fun HostInfoScreen(
                                                 }
                                             },
                                             onEnableSelected = {
-                                                // TODO implement enable selected disabled mods for host
-                                                errorMessage = "TODO: 启用选中的mod"
+                                                scope.rdiRequest<List<Mod>>(
+                                                    path = "host/$hostId/mods/disabled",
+                                                    method = HttpMethod.Delete,
+                                                    body = serdesJson.encodeToString(selectedDisabledMods),
+                                                    onOk = { response ->
+                                                        applyDisabledMods(response.data ?: emptyList())
+                                                        selectedDisabledModKeys = emptySet()
+                                                        okMessage = "已恢复选中的mod，重启房间后生效"
+                                                    },
+                                                    onErr = { errorMessage = it.message ?: "启用mod失败" }
+                                                )
                                             }
                                         )
+                                        3->{}
+                                        else -> {}
                                     }
                                 }
                             }
@@ -969,39 +1033,6 @@ fun HostInfoScreen(
                                 }
                             }
 
-                            infoTabIndex -> {
-                                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    val difficultyText = when (host.difficulty) {
-                                        0 -> "和平"
-                                        1 -> "简单"
-                                        2 -> "普通"
-                                        3 -> "困难"
-                                        else -> host.difficulty.toString()
-                                    }
-                                    val gameModeText = when (host.gameMode) {
-                                        0 -> "生存"
-                                        1 -> "创造"
-                                        2 -> "冒险"
-                                        3 -> "旁观"
-                                        else -> host.gameMode.toString()
-                                    }
-                                    Text("难度：$difficultyText")
-                                    Text("游戏模式：$gameModeText")
-                                    Text("世界类型：${host.levelType}")
-                                    Text("白名单：${if (host.whitelist) "开启" else "关闭"}")
-                                    Text("允许作弊：${if (host.allowCheats) "开启" else "关闭"}")
-                                    if (host.gameRules.isNotEmpty()) {
-                                        Text("游戏规则覆盖：")
-                                        host.gameRules.entries
-                                            .sortedBy { it.key }
-                                            .forEach { (rule, value) ->
-                                                Text(" - $rule = $value")
-                                            }
-                                    } else {
-                                        Text("游戏规则覆盖：无")
-                                    }
-                                }
-                            }
                         }
                     }
                 }
@@ -1211,7 +1242,7 @@ fun HostInfoScreen(
                                 addExtraModLoading = true
                                 addExtraModDialogError = null
                                 scope.rdiRequestU(
-                                    path = "host/$hostId/mods",
+                                    path = "host/$hostId/mods/extra",
                                     method = HttpMethod.Post,
                                     body = serdesJson.encodeToString(pendingExtraUiMods.map(UiMod::toMod)),
                                     onOk = {
@@ -1307,7 +1338,7 @@ fun HostInfoScreen(
             },
             onConfirm = {
                 scope.rdiRequest<List<Mod>>(
-                    path = "host/$hostId/mods",
+                    path = "host/$hostId/mods/extra",
                     method = HttpMethod.Delete,
                     body = serdesJson.encodeToString(targetProjectIds),
                     onOk = { response ->

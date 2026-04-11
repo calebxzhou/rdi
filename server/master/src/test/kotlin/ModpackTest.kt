@@ -226,15 +226,14 @@ class ModpackTest {
         val version = testVersion(modpack, "1.0.2")
         rememberRoot(modpack.dir)
 
-        version.dir.mkdirs()
+
         version.zip.writeBytes(samplePackZip())
 
         /*val ctx = ModpackContext(player, modpack.copy(versions = listOf(version)), version)
 
         ctx.deleteVersion()*/
 
-        assertFalse(version.dir.exists(), "Version directory should be deleted")
-        assertFalse(version.zip.exists(), "Version archive should be removed")
+         assertFalse(version.zip.exists(), "Version archive should be removed")
         coVerify { modpackCollection.updateOne(any<Bson>(), any<Bson>(), any()) }
     }
 
@@ -246,7 +245,6 @@ class ModpackTest {
             val version = testVersion(modpack, "1.0.3")
             rememberRoot(modpack.dir)
 
-            version.dir.mkdirs()
             version.zip.writeBytes(samplePackZip())
 
             /*val ctx = ModpackContext(player, modpack.copy(versions = listOf(version)), version)
@@ -286,8 +284,7 @@ class ModpackTest {
         val modpack = testModpack(ObjectId())
         rememberRoot(modpack.dir)
         val version = testVersion(modpack, versionName)
-        version.dir.mkdirs()
-        return version
+         return version
     }
 
     private fun testAccount(): RAccount = RAccount(ObjectId(), "tester", "pwd", "10086")
