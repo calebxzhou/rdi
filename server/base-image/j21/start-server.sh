@@ -25,6 +25,31 @@ if [ -n "${HOST_DOCKER_INTERNAL_IP}" ] && [ "${HOST_DOCKER_INTERNAL_IP}" != "${H
     DEFAULT_WHITELIST="${DEFAULT_WHITELIST},${HOST_DOCKER_INTERNAL_IP}:65231"
 fi
 OUTGOING_WHITELIST="${OUTGOING_WHITELIST:-${DEFAULT_WHITELIST}}"
+DEFAULT_HTTP_HOSTS="mojang.com,launchermeta.mojang.com,launcher.mojang.com,piston-meta.mojang.com,piston-data.mojang.com,minecraftforge.net,files.minecraftforge.net,maven.minecraftforge.net,neoforged.net,maven.neoforged.net"
+OUTGOING_HTTP_HOSTS="${OUTGOING_HTTP_HOSTS:-${DEFAULT_HTTP_HOSTS}}"
+OUTGOING_HTTP_PORTS="${OUTGOING_HTTP_PORTS:-80,443}"
+
+allow_host_ports() {
+    local host="$1"
+    shift
+    if [ -z "${host}" ]; then
+        return
+    fi
+    local resolved_ips
+    resolved_ips=$(getent ahostsv4 "${host}" | awk '{print $1}' | sort -u || true)
+    if [ -z "${resolved_ips}" ]; then
+        echo "Warning: unable to resolve ${host}, skip HTTP allowlist" >&2
+        return
+    fi
+    while IFS= read -r ip; do
+        [ -n "${ip}" ] || continue
+        for port in "$@"; do
+            [ -n "${port}" ] || continue
+            echo "Allowing outgoing HTTP(S) to ${host} (${ip}:${port})" >&2
+            iptables -A OUTPUT -d "${ip}" -p tcp --dport "${port}" -j ACCEPT
+        done
+    done <<< "${resolved_ips}"
+}
 
 # Restrict outgoing connections to whitelisted ip:port combinations only
 echo "Applying firewall rules..." >&2
@@ -57,6 +82,16 @@ for entry in "${WHITELIST_ENTRIES[@]}"; do
             iptables -A OUTPUT -d "${host}" -p udp --dport "${port}" -j ACCEPT
         fi
     fi
+done
+
+# Allow outbound HTTP(S) to selected Mojang/Forge/NeoForged hosts.
+# Note: iptables is IP-based, so wildcard DNS suffixes must be expanded into concrete hosts before startup.
+IFS=',' read -ra HTTP_PORT_ENTRIES <<< "${OUTGOING_HTTP_PORTS}"
+IFS=',' read -ra HTTP_HOST_ENTRIES <<< "${OUTGOING_HTTP_HOSTS}"
+for host in "${HTTP_HOST_ENTRIES[@]}"; do
+    host=$(echo "${host}" | xargs)
+    [ -n "${host}" ] || continue
+    allow_host_ports "${host}" "${HTTP_PORT_ENTRIES[@]}"
 done
 
 # Allow DNS resolution (needed to resolve host.docker.internal and other hostnames)

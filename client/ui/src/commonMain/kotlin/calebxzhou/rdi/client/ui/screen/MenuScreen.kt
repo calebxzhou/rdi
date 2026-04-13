@@ -241,7 +241,7 @@ private fun MenuActionButtons(
         ) {
             onOpenSettings()
         }
-        ImageIconButton("grass_block", "整合包列表", bgColor = MaterialColor.GREEN_200.color) {
+        ImageIconButton("grass_block", "版本下载", bgColor = MaterialColor.GREEN_200.color) {
             onOpenModpackList()
         }
         ImageIconButton("chest", "版本管理", bgColor = MaterialColor.AMBER_200.color) {

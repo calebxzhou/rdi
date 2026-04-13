@@ -322,17 +322,6 @@ object ModService {
         return map
     }
 
-    fun downloadModsTask(mods: List<Mod>): Task {
-        if (mods.isEmpty()) return Task.Group("下载Mod", emptyList())
-        val cfMods = mods.filter { it.platform == "cf" }
-        val mrMods = mods.filter { it.platform == "mr" }
-        val tasks = buildList {
-            add(downloadCFModsTask(cfMods))
-            add(downloadMRModsTask(mrMods))
-        }
-        return Task.Sequence("下载${mods.size}个Mod", tasks)
-    }
-
     fun downloadModsTask2(mods: List<Mod>): Task2 {
         if (mods.isEmpty()) return Task2.Group("下载Mod", emptyList())
         val cfMods = mods.filter { it.platform == "cf" }
@@ -362,31 +351,6 @@ object ModService {
                 else -> true
             }
         }.getOrDefault(false)
-    }
-
-    fun downloadCFModsTask(mods: List<Mod>): Task {
-        if (mods.isEmpty()) return Task.Group("下载CurseForge Mod", emptyList())
-        val fileIds = mods.map { it.fileId.toInt() }
-        val fileInfoMap = mutableMapOf<Int, CurseForgeFile>()
-        val aggregateProgress = createBatchProgressTracker(mods)
-        val prepareTask = Task.Leaf("获取CurseForge文件信息") { ctx ->
-            val fileInfos = CurseForgeService.getModFilesInfo(fileIds)
-            fileInfoMap.clear()
-            fileInfoMap.putAll(fileInfos.associateBy { it.id })
-            ctx.emitProgress(TaskProgress("获取完成", 1f))
-        }
-        val tasks = mods.map { mod ->
-            Task.Leaf("下载 ${mod.slug}") { ctx ->
-                val fileInfo = fileInfoMap[mod.fileId.toInt()]
-                    ?: throw IllegalStateException("未找到文件信息: ${mod.slug}")
-                val result = downloadSingleCFMod(mod, fileInfo) { progress ->
-                    ctx.emitProgress(aggregateProgress(mod, progress.fraction.coerceIn(0f, 1f)))
-                }
-                result.getOrElse { throw it }
-                ctx.emitProgress(aggregateProgress(mod, 1f))
-            }
-        }
-        return Task.Sequence("下载CurseForge Mod", listOf(prepareTask, Task.Group("下载CurseForge Mod", tasks)))
     }
 
     fun downloadCFModsTask2(mods: List<Mod>): Task2 {
@@ -420,22 +384,6 @@ object ModService {
         )
     }
 
-    fun downloadMRModsTask(mods: List<Mod>): Task {
-        if (mods.isEmpty()) return Task.Group("下载Modrinth Mod", emptyList())
-        val modsWithUrls = mods.filter { it.downloadUrls.isNotEmpty() }
-        val aggregateProgress = createBatchProgressTracker(modsWithUrls)
-        val tasks = modsWithUrls.map { mod ->
-            Task.Leaf("下载 ${mod.slug}") { ctx ->
-                val result = downloadSingleMRMod(mod) { progress ->
-                    ctx.emitProgress(aggregateProgress(mod, progress.fraction.coerceIn(0f, 1f)))
-                }
-                result.getOrElse { throw it }
-                ctx.emitProgress(aggregateProgress(mod, 1f))
-            }
-        }
-        return Task.Group("下载Modrinth Mod", tasks)
-    }
-
     fun downloadMRModsTask2(mods: List<Mod>): Task2 {
         if (mods.isEmpty()) return Task2.Group("下载Modrinth Mod", emptyList())
         val modsWithUrls = mods.filter { it.downloadUrls.isNotEmpty() }
@@ -450,22 +398,6 @@ object ModService {
             }
         }
         return Task2.Group("下载Modrinth Mod", tasks)
-    }
-
-    private fun createBatchProgressTracker(mods: List<Mod>): (Mod, Float) -> TaskProgress {
-        if (mods.isEmpty()) return { mod, _ -> TaskProgress("Mod下载中 ${mod.slug}", 1f) }
-        val total = mods.size.toFloat()
-        val progressMap = linkedMapOf<String, Float>().apply {
-            mods.forEach { put(it.batchProgressKey, 0f) }
-        }
-        val lock = Any()
-        return { mod, fraction ->
-            val overallFraction = synchronized(lock) {
-                progressMap[mod.batchProgressKey] = fraction.coerceIn(0f, 1f)
-                (progressMap.values.sum() / total).coerceIn(0f, 1f)
-            }
-            TaskProgress("Mod下载中 ${mod.slug}", overallFraction)
-        }
     }
 
     private fun createBatchProgressTracker2(mods: List<Mod>): (Mod, Float) -> Task2Progress {
@@ -504,15 +436,25 @@ object ModService {
         }
 
         val officialUrl = fileInfo.realDownloadUrl
-        val mirrorUrl = if (useMirror) {
-            officialUrl.ofMirrorUrl
+        val officialUrls = listOf(officialUrl)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+        val mirrorUrls = if (useMirror) {
+            listOf(officialUrl.ofMirrorUrl)
+                .map(String::trim)
+                .filter(String::isNotBlank)
+                .filterNot { it in officialUrls }
+                .distinct()
         } else {
-            officialUrl
+            emptyList()
         }
+        val allCandidateUrls = officialUrls + mirrorUrls
 
-        suspend fun attemptDownload(url: String, label: String): Result<Path> = runCatching {
+        val finalResult = runCatching {
             val downloadedPath = targetPath.downloadFileFrom(
-                url,
+                primaryUrls = officialUrls,
+                fallbackUrls = mirrorUrls,
                 onProgress = onProgress
             ).getOrElse { throw it }
             val actualFingerprint = downloadedPath.murmur2
@@ -523,17 +465,7 @@ object ModService {
             }
             downloadedPath
         }.onFailure { err ->
-            if (label == "mirror") {
-                lgr.warn { "Mirror download failed for ${mod.slug + "\n" + err}, will retry official" }
-            }
-        }
-
-        // Try mirror first if enabled, then fall back to official
-        val mirrorResult = if (useMirror) attemptDownload(mirrorUrl, "mirror") else null
-        val finalResult = when {
-            mirrorResult == null -> attemptDownload(officialUrl, "official")
-            mirrorResult.isSuccess -> mirrorResult
-            else -> attemptDownload(officialUrl, "official")
+            lgr.warn { "Download failed for ${mod.slug} from ${allCandidateUrls.joinToString()}\n$err" }
         }
 
         finalResult.onFailure { err ->
@@ -564,11 +496,24 @@ object ModService {
 
         val urls = mod.downloadUrls
         val expectedHash = mod.hash
-        var lastError: Throwable? = null
+        val officialUrls = urls
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+        val mirrorUrls = if (useMirror) {
+            officialUrls.map { it.ofMirrorUrl }
+                .filter(String::isNotBlank)
+                .filterNot { it in officialUrls }
+                .distinct()
+        } else {
+            emptyList()
+        }
+        val allCandidateUrls = officialUrls + mirrorUrls
 
-        suspend fun attemptDownload(url: String, label: String): Result<Path> = runCatching {
+        val result = runCatching {
             val downloadedPath = targetPath.downloadFileFrom(
-                url,
+                primaryUrls = officialUrls,
+                fallbackUrls = mirrorUrls,
                 onProgress = onProgress
             ).getOrElse { throw it }
 
@@ -582,47 +527,13 @@ object ModService {
             }
             downloadedPath
         }.onFailure { err ->
-            if (label == "mirror") {
-                lgr.warn { "Mirror download failed for ${mod.slug + "\n" + err}, will retry official" }
-            }
+            lgr.warn { "Download failed for ${mod.slug} from ${allCandidateUrls.joinToString()}\n$err" }
         }
 
-        // Try each URL in order until one succeeds
-        for ((index, officialUrl) in urls.withIndex()) {
-            val candidateUrls = buildList {
-                if (useMirror) {
-                    val mirrorUrl = officialUrl.ofMirrorUrl
-                    if (mirrorUrl != officialUrl) {
-                        add("mirror" to mirrorUrl)
-                    }
-                }
-                add("official" to officialUrl)
-            }
-
-            var result: Result<Path> = Result.failure(IllegalStateException("No download URL available"))
-            for ((label, url) in candidateUrls) {
-                result = attemptDownload(url, label)
-                if (result.isSuccess) {
-                    lgr.debug { "Successfully downloaded ${mod.slug} from $label URL #${index + 1}" }
-                    return result
-                }
-            }
-
-            if (result.isSuccess) {
-                return result
-            }
-
-            lastError = result.exceptionOrNull()
-            lgr.warn { "Download failed for ${mod.slug + "\n" + lastError} from URL #${index + 1}: $officialUrl" }
-
-            if (index < urls.lastIndex) {
-                lgr.info { "Trying next URL for ${mod.slug}..." }
-            }
+        result.onFailure { err ->
+            lgr.error { "Failed to download mod ${mod.slug + "\n" + err}" }
         }
-
-        // All URLs failed
-        lgr.error { "Failed to download mod ${mod.slug + "\n" + lastError} from all ${urls.size} URLs" }
-        return Result.failure(lastError ?: IllegalStateException("No download URLs available"))
+        return result
     }
 
     fun MutableList<Mod>.postProcessModSides(): MutableList<Mod> {
@@ -645,7 +556,8 @@ object ModService {
             "flighthud-reborn",
             "i18nupdatemod",
             "modern-ui",
-            "controllable"
+            "controllable",
+            "reforgedplay-mod"
         )
 
         forEach { mod ->

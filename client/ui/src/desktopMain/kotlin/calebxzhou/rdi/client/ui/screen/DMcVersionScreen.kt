@@ -4,7 +4,9 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.common.DL_MOD_DIR
+import calebxzhou.rdi.common.archive.PackArchiveFormat
 import calebxzhou.rdi.common.archive.TarZstArchiveWriter
+import calebxzhou.rdi.common.archive.detectArchiveFormat
 import calebxzhou.rdi.common.archive.forEachArchiveEntry
 import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.model.Modpack
@@ -20,26 +22,31 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import java.util.zip.ZipEntry
-import java.util.zip.ZipFile
 import java.util.zip.ZipOutputStream
 import javax.swing.JFileChooser
 import javax.swing.filechooser.FileNameExtensionFilter
 
 actual fun selectRdiPackFiles(): List<File>? {
-    val chooser = JFileChooser().apply {
-        dialogTitle = "选择资源包 (*.mc.rdipack)"
-        fileSelectionMode = JFileChooser.FILES_ONLY
-        isMultiSelectionEnabled = true
-        currentDirectory = File("C:/Users/${System.getProperty("user.name")}/Downloads")
-        fileFilter = FileNameExtensionFilter("RDI资源包 (*.rdipack)", "rdipack")
+    val owner = Frame()
+    try {
+        val dialog = FileDialog(owner, "选择MC版本包", FileDialog.LOAD).apply {
+            isMultipleMode = true
+            directory = File(System.getProperty("user.home"), "Downloads").absolutePath
+            file = "*.rdimcpack"
+            filenameFilter = java.io.FilenameFilter { dir, name ->
+                val target = File(dir, name)
+                target.isDirectory || name.endsWith(".rdimcpack", ignoreCase = true)
+            }
+        }
+        dialog.isVisible = true
+        val files = dialog.files
+            ?.toList()
+            ?.filter { it.exists() && it.isFile && it.name.endsWith(".rdimcpack", ignoreCase = true) }
+            ?: emptyList()
+        return files.takeIf { it.isNotEmpty() }
+    } finally {
+        owner.dispose()
     }
-    val result = chooser.showOpenDialog(null)
-    if (result != JFileChooser.APPROVE_OPTION) return null
-    val files = chooser.selectedFiles?.toList()
-        ?: chooser.selectedFile?.let { listOf(it) }
-        ?: return null
-    return files.filter { it.exists() && it.isFile && it.name.endsWith(".rdipack", ignoreCase = true) }
-        .takeIf { it.isNotEmpty() }
 }
 
 private fun selectRdiModpackFile(): File? {
@@ -63,37 +70,39 @@ private fun selectRdiModpackFile(): File? {
     }
 }
 
-actual fun buildImportPackTask2(zipFile: File): Task2 {
-    return Task2.Leaf("导入 ${zipFile.name}") { ctx ->
+actual fun buildImportPackTask2(packFile: File): Task2 {
+    return Task2.Leaf("导入 ${packFile.name}") { ctx ->
+        if (!packFile.name.endsWith(".rdimcpack", ignoreCase = true)) {
+            throw IllegalStateException("仅支持.rdimcpack文件")
+        }
+        if (packFile.detectArchiveFormat() != PackArchiveFormat.TAR_ZST) {
+            throw IllegalStateException(".rdimcpack必须是tar.zst格式")
+        }
         val targetRoot = ClientDirs.mcDir.canonicalFile
-        val totalFiles = ZipFile(zipFile).use { zip ->
-            zip.entries().asSequence().count { !it.isDirectory }
-        }.coerceAtLeast(1)
+        val totalFiles = listArchiveEntries(packFile).count { !it.isDirectory }.coerceAtLeast(1)
         var processed = 0
-        ZipFile(zipFile).use { zip ->
-            zip.entries().asSequence().forEach { entry ->
-                val name = entry.name.replace('\\', '/').trimStart('/')
-                if (name.isEmpty()) return@forEach
-                val outFile = targetRoot.resolve(name)
-                val normalized = outFile.canonicalFile
-                if (!normalized.path.startsWith(targetRoot.path)) return@forEach
-                if (entry.isDirectory) {
-                    normalized.mkdirs()
-                } else {
-                    normalized.parentFile?.mkdirs()
-                    zip.getInputStream(entry).use { input ->
-                        Files.newOutputStream(
-                            normalized.toPath(),
-                            StandardOpenOption.CREATE,
-                            StandardOpenOption.TRUNCATE_EXISTING
-                        ).use { output -> input.copyTo(output) }
-                    }
-                    processed += 1
-                    ctx.emit(
-                        Task2Progress("解压 ${entry.name}", processed.toFloat() / totalFiles)
-                    )
-                }
+        forEachArchiveEntry(packFile) { entry ->
+            val name = entry.path.replace('\\', '/').trimStart('/')
+            if (name.isEmpty()) return@forEachArchiveEntry
+            val outFile = targetRoot.resolve(name)
+            val normalized = outFile.canonicalFile
+            if (!normalized.path.startsWith(targetRoot.path)) return@forEachArchiveEntry
+            if (entry.isDirectory) {
+                normalized.mkdirs()
+                return@forEachArchiveEntry
             }
+            normalized.parentFile?.mkdirs()
+            Files.newOutputStream(
+                normalized.toPath(),
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+            ).use { output ->
+                output.write(entry.bytes ?: byteArrayOf())
+            }
+            processed += 1
+            ctx.emit(
+                Task2Progress("导入 ${entry.path}", processed.toFloat() / totalFiles)
+            )
         }
         ctx.emit(Task2Progress("完成", 1f))
     }

@@ -21,6 +21,7 @@ import androidx.compose.ui.window.rememberWindowState
 import calebxzhou.mykotutils.std.decodeBase64
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.jarResource
+import calebxzhou.rdi.client.net.lgr
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.ClientDirs
@@ -28,10 +29,10 @@ import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.AppTypography
-import calebxzhou.rdi.client.ui.asIconText
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.DEBUG
+import calebxzhou.rdi.common.model.GeoLocation
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.model.Task2Entry
 import calebxzhou.rdi.common.serdesJson
@@ -46,7 +47,7 @@ lateinit var ScreenSize: Pair<Dp, Dp>
 fun main() {
     clearIncompleteModDownloadsOnStartup()
     clearPackProcDirOnStartup()
-    warmUpHwSpecCacheOnStartup()
+    warmUpCacheOnStartup()
     initializeLoggedAccountOnStartup()
     LocalMcProxy.start(::println)
     application {
@@ -177,7 +178,7 @@ private fun clearPackProcDirOnStartup() = GlobalScope.launch {
     }
 }
 
-private fun warmUpHwSpecCacheOnStartup() = GlobalScope.launch(Dispatchers.IO) {
+private fun warmUpCacheOnStartup() = GlobalScope.launch(Dispatchers.IO) {
     warmUpHwSpecCache()
 }
 

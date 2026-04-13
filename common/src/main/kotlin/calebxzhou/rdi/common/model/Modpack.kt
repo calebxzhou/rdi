@@ -15,9 +15,16 @@ class Modpack(
     val modloader: ModLoader,
     val mcVer: McVersion,
     val sourceUrl: String? = null,
-    val categories: List<String> = arrayListOf(),
+    val categories: List<Category> = emptyList(),
     val versions: MutableList<Version> = arrayListOf(),
 ) {
+    companion object {
+        const val MAX_CATEGORY_COUNT = 4
+
+        fun normalizeCategories(categories: List<Category>): List<Category> =
+            categories.distinct().take(MAX_CATEGORY_COUNT)
+    }
+
     @Serializable
     enum class Category(val label: String) {
         LARGE("大型"),
@@ -79,6 +86,7 @@ class Modpack(
         val iconUrl:String?=null,
         val sourceUrl: String? =null,
         val info: String? =null,
+        val categories: List<Category> = emptyList(),
         val mods: MutableList<Mod>
     ) {
 
@@ -98,6 +106,7 @@ class Modpack(
         val fileSize: Long = 0L,
         val icon: String? = null,
         val info: String? = null,
+        val categories: List<Category> = emptyList(),
     )
 
     @Serializable
@@ -114,6 +123,7 @@ class Modpack(
         val info: String? = null,
         val modloader: ModLoader,
         val mcVer: McVersion,
+        val categories: List<Category> = emptyList(),
         val versions: List<Version> = arrayListOf(),
     )
 
@@ -122,7 +132,8 @@ class Modpack(
         val name: String? = null,
         val iconUrl: String? = null,
         val info: String? = null,
-        val sourceUrl: String? = null
+        val sourceUrl: String? = null,
+        val categories: List<Category>? = null
     )
 
     enum class Status {

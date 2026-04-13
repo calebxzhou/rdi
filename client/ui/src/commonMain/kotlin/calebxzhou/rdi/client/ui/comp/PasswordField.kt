@@ -29,6 +29,7 @@ fun PasswordField(
     onValueChange: (String) -> Unit,
     label: String = "密码",
     enabled: Boolean = true,
+    modifier: Modifier = Modifier,
     showPassword: Boolean = false,
     onToggleVisibility: () -> Unit,
     onEnter: () -> Unit
@@ -38,8 +39,9 @@ fun PasswordField(
         onValueChange = onValueChange,
         label = { Text(label) },
         singleLine = true,
+        textStyle = MaterialTheme.typography.body2,
         enabled = enabled,
-        modifier = Modifier.fillMaxWidth().onKeyEvent { event ->
+        modifier = modifier.fillMaxWidth().onKeyEvent { event ->
             if (event.type == KeyEventType.KeyUp && event.key == Key.Enter) {
                 onEnter()
                 true

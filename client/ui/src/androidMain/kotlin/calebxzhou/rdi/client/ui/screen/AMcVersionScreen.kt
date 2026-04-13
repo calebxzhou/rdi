@@ -11,7 +11,7 @@ import java.io.File
 
 actual fun selectRdiPackFiles(): List<File>? = null
 
-actual fun buildImportPackTask2(zipFile: File): Task2 {
+actual fun buildImportPackTask2(packFile: File): Task2 {
     error("Import pack not supported on Android")
 }
 

@@ -99,6 +99,7 @@ internal fun HostBrowserScreen(
     var installConfirmTask by remember { mutableStateOf<Task2?>(null) }
     var page by remember { mutableStateOf(0) }
     var loadingMore by remember { mutableStateOf(false) }
+    var initialLoading by remember { mutableStateOf(true) }
     var reachedEnd by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
 
@@ -106,6 +107,7 @@ internal fun HostBrowserScreen(
         page = 0
         reachedEnd = false
         hosts = emptyList()
+        initialLoading = true
     }
 
     suspend fun loadPage(pageIndex: Int) {
@@ -119,11 +121,15 @@ internal fun HostBrowserScreen(
             hosts = hosts + data
         }
         loadingMore = false
+        if (pageIndex == 0) {
+            initialLoading = false
+        }
     }
 
     LaunchedEffect(Unit) {
         if (Const.USE_MOCK_DATA) {
             hosts = generateMockHosts()
+            initialLoading = false
         } else {
             resetList()
             loadPage(0)
@@ -152,7 +158,11 @@ internal fun HostBrowserScreen(
         }
         Spacer(modifier = Modifier.height(16.dp))
 
-        if (hosts.isEmpty()) {
+        if (initialLoading) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator()
+            }
+        } else if (hosts.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = emptyStateText,

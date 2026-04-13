@@ -81,5 +81,8 @@ suspend fun Modpack.OptionsDto.validate(): Result<Unit>{
     name?.validateName()
     validateModpackIconUrl(iconUrl)
     validateModpackSourceUrl(sourceUrl)
+    if ((categories?.distinct()?.size ?: 0) > Modpack.MAX_CATEGORY_COUNT) {
+        throw RequestError("分类最多选择${Modpack.MAX_CATEGORY_COUNT}个")
+    }
     return ok()
 }

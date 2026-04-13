@@ -1644,7 +1644,7 @@ object HostService {
             visibleHosts.map { host ->
                 async {
                     val modpack = ModpackService.getById(host.modpackId)
-                    //val onlinePlayers =host.getOnlinePlayers()
+                    val onlinePlayers =host.getOnlinePlayers()
                     val isMember = host.ownerId == requesterId || host.members.any { it.id == requesterId }
                     val playable = when {
                         isMember -> true
@@ -1663,7 +1663,7 @@ object HostService {
                         port = host.port,
                         playable = playable,
                         isMember = isMember,
-                        onlinePlayerIds = emptyList()
+                        onlinePlayerIds = onlinePlayers
                     )
                 }
             }.awaitAll()

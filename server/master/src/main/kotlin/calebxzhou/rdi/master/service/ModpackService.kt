@@ -320,11 +320,13 @@ object ModpackService {
 
     suspend fun ModpackContext.changeOptions(payload: Modpack.OptionsDto) {
         payload.validate()
+        val normalizedCategories = payload.categories?.let(Modpack::normalizeCategories) ?: modpack.categories
         val update = Updates.combine(
             Updates.set(Modpack::name.name, payload.name ?: modpack.name),
             Updates.set(Modpack::iconUrl.name, payload.iconUrl),
             Updates.set(Modpack::info.name, payload.info),
-            Updates.set(Modpack::sourceUrl.name, payload.sourceUrl)
+            Updates.set(Modpack::sourceUrl.name, payload.sourceUrl),
+            Updates.set(Modpack::categories.name, normalizedCategories)
         )
         dbcl.updateOne(eq("_id", modpack._id), update)
     }
@@ -403,7 +405,8 @@ object ModpackService {
                 icon = pack.iconUrl,
                 mcVer = pack.mcVer,
                 modloader = pack.modloader,
-                info = pack.info
+                info = pack.info,
+                categories = pack.categories
             )
         }
     }
@@ -420,7 +423,8 @@ object ModpackService {
             fileSize = versions.lastOrNull()?.totalSize ?: 0L,
             icon = iconUrl,
             modloader = modloader,
-            info = info
+            info = info,
+            categories = categories
         )
     }
 
@@ -438,13 +442,15 @@ object ModpackService {
             info = info,
             modloader = modloader,
             mcVer = mcVer,
+            categories = categories,
             versions = versions
         )
     }
 
     suspend fun Modpack.CreateWithVersionDto.createWithVersion(player: RAccount, uploadFile: File) {
         val normalizedVerName = verName.validateVerName().getOrThrow()
-        Modpack.OptionsDto(name,iconUrl,info,sourceUrl).validate()
+        val normalizedCategories = Modpack.normalizeCategories(categories)
+        Modpack.OptionsDto(name, iconUrl, info, sourceUrl, normalizedCategories).validate()
         if (!player.hasMsid) throw RequestError("必须有微软账号才能传包")
         if (getModpackCount(player._id) >= MAX_MODPACK_PER_USER && !player.isDav) {
             throw RequestError("一个人最多传${MAX_MODPACK_PER_USER}个包")
@@ -457,7 +463,8 @@ object ModpackService {
             info = info?.trim()?.ifBlank { null },
             mcVer = mcVer,
             modloader = modLoader,
-            sourceUrl = sourceUrl?.trim()?.ifBlank { null }
+            sourceUrl = sourceUrl?.trim()?.ifBlank { null },
+            categories = normalizedCategories
         )
         modpack.dir.mkdirs()
         try {

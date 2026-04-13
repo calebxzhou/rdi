@@ -35,11 +35,11 @@ data class ServerNode(
 )
 val SERVER_NODES = listOf(
     ServerNode(0, "电信专用优化", if(DEBUG)"${RServer.OFFICIAL_DEBUG.ip}:65230" else "rdi.calebxzhou.cn:65230"),
-    ServerNode(1, "广东互通", "frp-lab.com:55230"),
-    ServerNode(2, "浙江互通", "frp-fog.com:65230"),
-    ServerNode(3, "河北互通", "frp-own.com:65230"),
+    ServerNode(1, "广东互通", "frp-leg.com:65230"),
+    ServerNode(2, "浙江互通", "frp-shy.com:65230"),
+    ServerNode(3, "山东互通", "frp-rug.com:65230"),
     ServerNode(4, "西安互通", "frp-arm.com:55230"),
-    ServerNode(5, "重庆互通", "frp-fox.com:65230"),
+    ServerNode(5, "重庆互通", "frp-dog.com:65230"),
     ServerNode(10, "国际出口", "frp-pet.com:65230"),
 ).associateBy { it.id }
 
@@ -100,7 +100,7 @@ class RServer(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            lgr.warn { "request failed: $method $path" + "\n" + e }
+            lgr.warn(e) { "request failed: $method $path\n" }
             throw RequestError("无法连接服务器 请检查网络连接")
         }
     }

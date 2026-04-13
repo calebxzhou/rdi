@@ -33,6 +33,8 @@ import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.ModGrid
+import calebxzhou.rdi.client.ui.comp.ModpackCategoryChips
+import calebxzhou.rdi.client.ui.comp.ModpackCategorySelector
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.isDav
@@ -72,6 +74,7 @@ fun ModpackInfoScreen(
     var editIconUrl by remember { mutableStateOf("") }
     var editInfo by remember { mutableStateOf("") }
     var editSourceUrl by remember { mutableStateOf("") }
+    var editCategories by remember { mutableStateOf<List<Modpack.Category>>(emptyList()) }
     var selectedTab by remember { mutableStateOf(0) }
 
     fun reload() {
@@ -138,6 +141,7 @@ fun ModpackInfoScreen(
             editIconUrl = it.icon ?: ""
             editInfo = it.info ?: ""
             editSourceUrl = it.sourceUrl ?: ""
+            editCategories = it.categories
         }
     }
 
@@ -208,6 +212,12 @@ fun ModpackInfoScreen(
                 Space8h()
                 when (selectedTab) {
                     0 -> {
+                        if (pack.categories.isNotEmpty()) {
+                            ModpackCategoryChips(
+                                categories = pack.categories,
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+                        }
                         if (pack.versions.isEmpty()) {
                             Text("此整合包暂无可用版本，等待作者上传....", color = Color.Gray)
                         } else {
@@ -222,6 +232,12 @@ fun ModpackInfoScreen(
                         }
                     }
                     1 -> {
+                        if (pack.categories.isNotEmpty()) {
+                            ModpackCategoryChips(
+                                categories = pack.categories,
+                                modifier = Modifier.padding(bottom = 12.dp)
+                            )
+                        }
                         Text(pack.info?:"无")
                     }
                     else -> {
@@ -357,6 +373,12 @@ fun ModpackInfoScreen(
                         label = { Text("简介") },
                         modifier = Modifier.fillMaxWidth()
                     )
+                    Text("分类 最多${Modpack.MAX_CATEGORY_COUNT}个")
+                    ModpackCategorySelector(
+                        selected = editCategories,
+                        onSelectedChange = { editCategories = it },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             },
             confirmButton = {
@@ -367,8 +389,12 @@ fun ModpackInfoScreen(
                                 name = editName.trim().ifBlank { null },
                                 iconUrl = editIconUrl.trim().ifBlank { null },
                                 info = editInfo.trim().ifBlank { null },
-                                sourceUrl = editSourceUrl.trim().ifBlank { null }
-                            ).validate()
+                                sourceUrl = editSourceUrl.trim().ifBlank { null },
+                                categories = Modpack.normalizeCategories(editCategories)
+                            ).let { options ->
+                                options.validate()
+                                options
+                            }
                         }.getOrElse {
                             errorMessage = it.message
                             return@launch

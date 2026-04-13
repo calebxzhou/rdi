@@ -46,7 +46,8 @@ fun SponsorScreen(
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("如果觉得RDI做得还不错，可以给我一个小红包吗")
+                    Text("为了开发和维护RDI 我几乎用尽了全部的业余时间 并且付出了大量精力")
+                    Text("如果觉得RDI做得还不错 可以给我一个小红包吗")
                     Spacer(modifier = Modifier.height(16.dp))
                     Image(
                         bitmap = sponsorBitmap,

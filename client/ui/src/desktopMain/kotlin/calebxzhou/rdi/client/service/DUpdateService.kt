@@ -37,7 +37,7 @@ internal actual suspend fun syncPlatformUpdates(
                 label = name,
                 onDetail = onDetail
             )
-            if (!ok) return PlatformUpdateSyncResult(false, updated)
+            if (!ok) return false to updated
             updated = true
             onStatus("$name 更新完成")
         }
@@ -69,7 +69,7 @@ internal actual suspend fun syncPlatformUpdates(
         }
         onStatus(msg)
     }
-    return PlatformUpdateSyncResult(true, updated)
+    return true to updated
 }
 
 internal actual fun replaceDownloadedUpdateFile(

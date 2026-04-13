@@ -21,6 +21,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.*
@@ -55,9 +56,14 @@ object GameService {
     )
     private val bracketedLibraryRegex = Regex("^\\[(.+)]$")
     private val numberedAssetRegex = Regex("^(.+?)(\\d+)(\\.[^./]+)$")
-    internal val String.rewriteMirrorUrl: String
+    private const val VERIFIED_DOWNLOAD_MAX_ATTEMPTS = 6
+    private data class DownloadSourcePlan(
+        val primaryUrls: List<String>,
+        val fallbackUrls: List<String> = emptyList()
+    )
+
+    private val String.mirrorCandidateUrl: String
         get() {
-            if (!CONF.useMirror) return this
             val original = this
             mirrors.forEach { (originRaw, mirrorRaw) ->
                 val origin = originRaw.trim()
@@ -73,6 +79,49 @@ object GameService {
             }
             return original
         }
+
+    private fun buildDownloadSourcePlan(
+        officialUrl: String,
+        mirrorUrl: String = officialUrl.mirrorCandidateUrl
+    ): DownloadSourcePlan {
+        val officialUrls = listOf(officialUrl.trim())
+            .filter { it.isNotBlank() }
+            .distinct()
+        val mirrorUrls = listOf(mirrorUrl.trim())
+            .filter { it.isNotBlank() }
+            .filterNot { it in officialUrls }
+            .distinct()
+        return if (CONF.useMirror) {
+            DownloadSourcePlan(
+                primaryUrls = if (mirrorUrls.isNotEmpty()) mirrorUrls else officialUrls,
+                fallbackUrls = if (mirrorUrls.isNotEmpty()) officialUrls else emptyList()
+            )
+        } else {
+            DownloadSourcePlan(
+                primaryUrls = officialUrls,
+                fallbackUrls = mirrorUrls
+            )
+        }
+    }
+
+    private fun buildClientDownloadSourcePlan(manifest: MojangVersionManifest): DownloadSourcePlan {
+        val officialUrl = manifest.downloads?.client?.url?.trim().orEmpty()
+        val mirrorUrl = "https://bmclapi2.bangbang93.com/version/${manifest.id}/client"
+        return buildDownloadSourcePlan(officialUrl, mirrorUrl)
+    }
+
+    private fun buildServerDownloadSourcePlan(mcVerStr: String, artifact: MojangDownloadArtifact): DownloadSourcePlan {
+        val officialUrl = artifact.url.trim()
+        val mirrorUrl = "https://bmclapi2.bangbang93.com/version/${mcVerStr}/server"
+        return buildDownloadSourcePlan(officialUrl, mirrorUrl)
+    }
+
+    private fun buildAssetDownloadSourcePlan(hash: String): DownloadSourcePlan {
+        val officialBase = "https://resources.download.minecraft.net"
+        val sub = hash.take(2)
+        val officialUrl = "${officialBase.trimEnd('/')}/$sub/$hash"
+        return buildDownloadSourcePlan(officialUrl)
+    }
     fun downloadVersionTask2(version: McVersion, loader: ModLoader? = null): Task2 {
         val manifest = version.metadata
         val tasks = mutableListOf<Task2>(
@@ -128,23 +177,20 @@ object GameService {
 
     fun downloadClientTask2(manifest: MojangVersionManifest): Task2 {
         return Task2.Leaf("下载客户端 ${manifest.id}") { ctx ->
-            var clientArtf = manifest.downloads?.client ?: run {
+            val clientArtf = manifest.downloads?.client ?: run {
                 ctx.emit(Task2Progress("缺少客户端下载信息", 0f))
                 return@Leaf
-            }
-            if (CONF.useMirror) {
-                clientArtf = MojangDownloadArtifact(
-                    url = "https://bmclapi2.bangbang93.com/version/${manifest.id}/client",
-                    sha1 = clientArtf.sha1,
-                    size = clientArtf.size,
-                    path = clientArtf.path
-                )
             }
             val versionDir = versionListDir.resolve(manifest.id).apply { mkdirs() }
             File(versionDir, "${manifest.id}.json").writeText(manifest.json)
             val target = File(versionDir, "${manifest.id}.jar")
             ctx.emit(Task2Progress("开始下载...", 0.1f))
-            downloadArtifact("客户端核心 ${manifest.id}", clientArtf, target) { progress ->
+            downloadArtifact(
+                label = "客户端核心 ${manifest.id}",
+                artifact = clientArtf,
+                target = target,
+                sourcePlan = buildClientDownloadSourcePlan(manifest)
+            ) { progress ->
                 ctx.emit(
                     Task2Progress(
                         "${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
@@ -161,17 +207,9 @@ object GameService {
         ctx: Task2Context
     ) {
         val mcVerStr = holder.version.mcVer
-        var server = holder.version.metadata.downloads?.server ?: run {
+        val server = holder.version.metadata.downloads?.server ?: run {
             ctx.emit(Task2Progress("缺少服务端下载信息", 0f))
             return
-        }
-        if (CONF.useMirror) {
-            server = MojangDownloadArtifact(
-                url = "https://bmclapi2.bangbang93.com/version/${mcVerStr}/server",
-                sha1 = server.sha1,
-                size = server.size,
-                path = server.path
-            )
         }
         val serverTargetFile = holder.installProfile?.serverJarPath
             ?.replace("{LIBRARY_DIR}", libsDir.absolutePath)
@@ -179,7 +217,12 @@ object GameService {
             ?.let { File(it).apply { parentFile?.mkdirs() } }
             ?: ClientDirs.mcDir.resolve("minecraft_server.${mcVerStr}.jar")
         ctx.emit(Task2Progress("开始下载...", 0.1f))
-        downloadArtifact("服务端核心 $mcVerStr", server, serverTargetFile) { progress ->
+        downloadArtifact(
+            label = "服务端核心 $mcVerStr",
+            artifact = server,
+            target = serverTargetFile,
+            sourcePlan = buildServerDownloadSourcePlan(mcVerStr, server)
+        ) { progress ->
             ctx.emit(
                 Task2Progress(
                     "${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
@@ -251,39 +294,14 @@ object GameService {
         if (resolvedUrl.isBlank()) {
             throw IllegalStateException("${target.name} 下载链接为空")
         }
-        val maxRetries = 4
-        var attempt = 0
-        while (true) {
-            val result = target.toPath().downloadFileFrom(
-                url = if (attempt < 2) resolvedUrl.rewriteMirrorUrl else resolvedUrl,
-                knownSize = artifact.size
-            ) { progress ->
-                onProgress(progress)
-            }
-            val error = result.exceptionOrNull()
-            if (error != null) {
-                target.delete()
-                if (attempt >= maxRetries || !isTooManyRequests(error)) {
-                    throw error
-                }
-                val backoffMs = 1000L * (attempt + 1)
-                delay(backoffMs)
-                attempt++
-                continue
-            }
-            val downloadedSha = target.sha1
-            if (!downloadedSha.equals(artifact.sha1, true)) {
-                target.delete()
-                if (attempt >= maxRetries) {
-                    throw IllegalStateException("${target.name}库文件校验失败")
-                }
-                val backoffMs = 1000L * (attempt + 1)
-                delay(backoffMs)
-                attempt++
-                continue
-            }
-            return Result.success(target)
-        }
+        val sourcePlan = buildDownloadSourcePlan(resolvedUrl)
+        return downloadVerifiedArtifact(
+            label = "${target.name}库文件",
+            artifact = artifact,
+            target = target,
+            sourcePlan = sourcePlan,
+            onProgress = onProgress
+        )
     }
 
     private fun tryExtractLibraryFromInstaller(
@@ -323,10 +341,87 @@ object GameService {
         return "${base.trimEnd('/')}/${path.trimStart('/')}"
     }
 
+    private fun DownloadSourcePlan.preferFallback(): DownloadSourcePlan {
+        if (fallbackUrls.isEmpty()) return this
+        return DownloadSourcePlan(
+            primaryUrls = fallbackUrls,
+            fallbackUrls = primaryUrls
+        )
+    }
+
+    private suspend fun downloadVerifiedArtifact(
+        label: String,
+        artifact: MojangDownloadArtifact,
+        target: File,
+        sourcePlan: DownloadSourcePlan,
+        onProgress: (DownloadProgress) -> Unit
+    ): Result<File> {
+        var attempt = 1
+        var currentSourcePlan = sourcePlan
+        while (true) {
+            val result = target.toPath().downloadFileFrom(
+                primaryUrls = currentSourcePlan.primaryUrls,
+                fallbackUrls = currentSourcePlan.fallbackUrls,
+                knownSize = artifact.size
+            ) { progress ->
+                onProgress(progress)
+            }
+            val error = result.exceptionOrNull()
+            if (error != null) {
+                target.delete()
+                if (attempt >= VERIFIED_DOWNLOAD_MAX_ATTEMPTS || !isRetryableArtifactDownloadFailure(error)) {
+                    throw error
+                }
+                scheduleArtifactRetry(label, attempt, error)
+                attempt++
+                continue
+            }
+
+            val downloadedSha = try {
+                target.sha1
+            } catch (error: Throwable) {
+                target.delete()
+                if (attempt >= VERIFIED_DOWNLOAD_MAX_ATTEMPTS) {
+                    throw error
+                }
+                scheduleArtifactRetry("$label 计算校验值", attempt, error)
+                attempt++
+                continue
+            }
+            if (downloadedSha.equals(artifact.sha1, true)) {
+                return Result.success(target)
+            }
+
+            target.delete()
+            val mismatchError = IllegalStateException("$label 校验失败")
+            if (attempt >= VERIFIED_DOWNLOAD_MAX_ATTEMPTS) {
+                throw mismatchError
+            }
+            currentSourcePlan = currentSourcePlan.preferFallback()
+            scheduleArtifactRetry(label, attempt, mismatchError, preferFallback = true)
+            attempt++
+        }
+    }
+
+    private suspend fun scheduleArtifactRetry(
+        label: String,
+        attempt: Int,
+        error: Throwable,
+        preferFallback: Boolean = false
+    ) {
+        val backoffMs = 1000L * attempt
+        val suffix = if (preferFallback) "，下次优先备用源" else ""
+        lgr.warn { "$label 第$attempt 次失败，${backoffMs}ms后重试$suffix: ${error.message}" }
+        delay(backoffMs)
+    }
+
     private fun isTooManyRequests(error: Throwable): Boolean {
         val message = error.message ?: return false
         return message.contains("429")
     }
+
+    private fun isRetryableArtifactDownloadFailure(error: Throwable): Boolean =
+        isTooManyRequests(error) || error is IOException
 
     fun downloadLibrariesTask2(libraries: List<MojangLibrary>): Task2 {
         val filtered = libraries.filter { it.shouldDownloadByArch() }
@@ -469,13 +564,14 @@ object GameService {
         }
 
         targetDir.mkdirs()
-        val downloadUrl = buildAssetUrl(hash)
+        val sourcePlan = buildAssetDownloadSourcePlan(hash)
 
         val maxRetries = 4
         var attempt = 0
         while (true) {
             val result = targetFile.toPath().downloadFileFrom(
-                url = downloadUrl,
+                primaryUrls = sourcePlan.primaryUrls,
+                fallbackUrls = sourcePlan.fallbackUrls,
                 knownSize = asset.size
             ) { progress ->
                 onProgress(progress)
@@ -586,12 +682,6 @@ object GameService {
         }
     }
 
-    private fun buildAssetUrl(hash: String): String {
-        val base = "https://resources.download.minecraft.net".rewriteMirrorUrl
-        val sub = hash.take(2)
-        return "$base/$sub/$hash"
-    }
-
     private data class NumberedAsset(
         val path: String,
         val asset: MojangAssetObject,
@@ -687,7 +777,11 @@ object GameService {
         }
 
         ctx.emit(Task2Progress("开始下载...", 0f))
-        installer.toPath().downloadFileFrom(loaderMeta.installerUrl.rewriteMirrorUrl) { progress ->
+        val sourcePlan = buildDownloadSourcePlan(loaderMeta.installerUrl)
+        installer.toPath().downloadFileFrom(
+            primaryUrls = sourcePlan.primaryUrls,
+            fallbackUrls = sourcePlan.fallbackUrls
+        ) { progress ->
             ctx.emit(
                 Task2Progress(
                     "${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
@@ -827,6 +921,7 @@ object GameService {
         label: String,
         artifact: MojangDownloadArtifact,
         target: File,
+        sourcePlan: DownloadSourcePlan = buildDownloadSourcePlan(resolveArtifactUrl(artifact)),
         onProgress: (DownloadProgress) -> Unit
     ): Result<File> {
         if (target.exists()) {
@@ -836,26 +931,17 @@ object GameService {
             }
         }
         target.parentFile?.mkdirs()
-        val resolvedUrl = resolveArtifactUrl(artifact)
-        if (resolvedUrl.isBlank()) {
+        if (sourcePlan.primaryUrls.isEmpty() && sourcePlan.fallbackUrls.isEmpty()) {
 
             throw IllegalStateException("$label 下载链接为空")
         }
-        target.toPath().downloadFileFrom(
-            url = resolvedUrl.rewriteMirrorUrl,
-            knownSize = artifact.size
-        ) { progress ->
-            onProgress(progress)
-        }.getOrElse {
-            target.delete()
-            throw it
-        }
-        val downloadedSha = target.sha1
-        if (!downloadedSha.equals(artifact.sha1, true)) {
-            target.delete()
-            throw IllegalStateException("$label 校验失败")
-        }
-        return Result.success(target)
+        return downloadVerifiedArtifact(
+            label = label,
+            artifact = artifact,
+            target = target,
+            sourcePlan = sourcePlan,
+            onProgress = onProgress
+        )
     }
 
     // ---- Argument resolution (used by desktop game launching) ----

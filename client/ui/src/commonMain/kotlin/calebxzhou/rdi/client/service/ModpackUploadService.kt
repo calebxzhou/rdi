@@ -672,6 +672,7 @@ private suspend fun buildZipFromDir(
         TarZstArchiveWriter(target).use { out ->
             val totalWriteEntries = fileEntries.size.coerceAtLeast(1)
             var writtenEntries = 0
+            var wrotePatchedFancyMenuOptions = false
             for (file in fileEntries) {
                 if (file == rootDir) continue
                 val relative = file.relativeTo(rootDir).invariantSeparatorsPath
@@ -693,6 +694,9 @@ private suspend fun buildZipFromDir(
                     } else null,
                     preprocessedBytes = processedAssets[relative]
                 )
+                if (!file.isDirectory && relativeLower == PATCHED_FANCYMENU_OPTIONS_PATH) {
+                    wrotePatchedFancyMenuOptions = true
+                }
                 writtenEntries++
                 val fraction = writtenEntries.toFloat() / totalWriteEntries.toFloat()
                 onProgress(
@@ -701,6 +705,10 @@ private suspend fun buildZipFromDir(
                         0.5f + fraction * 0.5f
                     )
                 )
+            }
+            if (!wrotePatchedFancyMenuOptions) {
+                ensureArchiveParents(PATCHED_FANCYMENU_OPTIONS_PATH, out, addedDirs)
+                out.addFile(PATCHED_FANCYMENU_OPTIONS_PATH, patchedFancyMenuOptionsTxtBytes())
             }
         }
         onProgress(LoadProgress.Percent("整合包打包完成", 1f))
@@ -772,6 +780,7 @@ private fun shouldSkipEntry(
     isDirectory: Boolean,
     skipCacheDirectory: Boolean = true
 ): Boolean {
+    if (relativeLower == PATCHED_FANCYMENU_OPTIONS_PATH) return false
     if (disallowedClientPathPrefixes.any { relativeLower.startsWith(it) }) return true
     if (skipCacheDirectory && containsCacheDirectory(relativeLower)) return true
     if (relativeLower.startsWith("config/") && relativeLower.removePrefix("config/").isExcludedConfigPath()) return true
@@ -818,6 +827,7 @@ private suspend fun writeProcessedEntry(
 
     ensureArchiveParents(relative, out, addedDirs)
     val bytes = when {
+        relativeLower == PATCHED_FANCYMENU_OPTIONS_PATH -> patchedFancyMenuOptionsTxtBytes()
         nestedZipBytes != null -> nestedZipBytes()
         relativeLower.endsWith(".png") -> preprocessedBytes ?: compressPngIfNeededPlatform(readAllBytes())
         relativeLower.endsWith(".ogg") -> preprocessedBytes ?: processOggBytes(readAllBytes(), relative)
@@ -910,6 +920,18 @@ private const val QUEST_LANG_PREFIX = "config/ftbquests/quests/lang/"
 private const val RESOURCEPACK_MAX_SIZE_BYTES = 1*1024L * 1024
 private const val OGG_MAX_DURATION_SECONDS = 5
 private const val OGG_OUTPUT_SAMPLE_RATE = 16_000
+private const val PATCHED_FANCYMENU_OPTIONS_PATH = "config/fancymenu/options.txt"
+private val PATCHED_FANCYMENU_OPTIONS_TXT = """
+##[tutorial]
+
+B:show_welcome_screen = 'false';
+
+##[customization]
+
+B:modpack_mode = 'false';
+B:show_customization_overlay = 'false';
+B:advanced_customization_mode = 'false';
+""".trimIndent()
 
 private fun isQuestLangEntryDisallowed(relativeLower: String, isDirectory: Boolean): Boolean {
     if (!relativeLower.startsWith(QUEST_LANG_PREFIX)) return false
@@ -946,6 +968,8 @@ private fun readResourcepackFile(file: File, relativeLower: String, preprocessed
 private fun shouldPreprocessAsset(relativeLower: String): Boolean {
     return relativeLower.endsWith(".png") || relativeLower.endsWith(".ogg")
 }
+
+private fun patchedFancyMenuOptionsTxtBytes(): ByteArray = PATCHED_FANCYMENU_OPTIONS_TXT.encodeToByteArray()
 
 private suspend fun preprocessAssetInputsInParallel(
     inputs: List<AssetProcessInput>,
@@ -1081,6 +1105,7 @@ suspend fun uploadModpack(
     mods: List<Mod>,
     modpackName: String,
     versionName: String,
+    categories: List<Modpack.Category>,
     iconUrl: String?,
     sourceUrl: String?,
     info: String?,
@@ -1125,6 +1150,7 @@ suspend fun uploadModpack(
                 mcVersion = payload.mcVersion,
                 modloader = payload.modloader,
                 mods = mods,
+                categories = categories,
                 iconUrl = iconUrl,
                 sourceUrl = sourceUrl,
                 info = info,
@@ -1151,6 +1177,7 @@ fun createUploadModpackTask2(
     mods: List<Mod>,
     modpackName: String,
     versionName: String,
+    categories: List<Modpack.Category>,
     iconUrl: String?,
     sourceUrl: String?,
     info: String?,
@@ -1195,6 +1222,7 @@ fun createUploadModpackTask2(
                     mcVersion = payload.mcVersion,
                     modloader = payload.modloader,
                     mods = mods,
+                    categories = categories,
                     iconUrl = iconUrl,
                     sourceUrl = sourceUrl,
                     info = info,
@@ -1283,6 +1311,7 @@ private suspend fun uploadNewModpack(
     mcVersion: McVersion,
     modloader: ModLoader,
     mods: List<Mod>,
+    categories: List<Modpack.Category>,
     iconUrl: String?,
     sourceUrl: String?,
     info: String?,
@@ -1304,6 +1333,7 @@ private suspend fun uploadNewModpack(
         iconUrl = iconUrl?.trim()?.ifBlank { null },
         sourceUrl = sourceUrl?.trim()?.ifBlank { null },
         info = info?.trim()?.ifBlank { null },
+        categories = Modpack.normalizeCategories(categories),
         mods = mods.toMutableList()
     )
     val dtoJson = serdesJson.encodeToString(dto)

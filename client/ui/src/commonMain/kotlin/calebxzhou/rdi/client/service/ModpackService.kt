@@ -9,7 +9,6 @@ import calebxzhou.rdi.client.model.loaderManifest
 import calebxzhou.rdi.client.net.SERVER_NODES
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
-import calebxzhou.rdi.client.proxy.LocalMcProxy.gameAddr
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.isDesktop
 import calebxzhou.rdi.common.DL_MOD_DIR
@@ -20,7 +19,6 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.service.ModService
-import calebxzhou.rdi.common.util.ok
 import calebxzhou.rdi.common.util.str
 import io.ktor.http.*
 import kotlinx.coroutines.async
@@ -180,114 +178,6 @@ object ModpackService {
         }
     }
 
-    fun installVersion(
-        mcVersion: McVersion,
-        modLoader: ModLoader,
-        modpackId: ObjectId,
-        verName: String,
-        mods: List<Mod>
-    ): Task {
-        var clientPackFile: java.io.File? = null
-        val versionDir = getVersionDir(modpackId, verName)
-
-        val downloadModsTask = ModService.downloadModsTask(mods)
-
-        val downloadClientPackTask = Task.Leaf("下载客户端整合包") { ctx ->
-            val hash = server.makeRequest<String>("modpack/$modpackId/version/$verName/client/hash").data
-                ?: throw IllegalStateException("客户端包hash为空")
-            val cached = findCachedClientPackFile(modpackId, verName, hash)
-            if (cached != null) {
-                ctx.emitProgress(TaskProgress("客户端整合包已存在", 1f))
-                clientPackFile = cached
-                return@Leaf
-            }
-            ctx.emitProgress(TaskProgress("开始下载...", 0f))
-            clientPackFile = downloadClientPackArchive(modpackId, verName, hash) { progress ->
-                ctx.emitProgress(TaskProgress(progress.message, progress.fraction))
-            }
-            ctx.emitProgress(TaskProgress("下载完成", 1f))
-        }
-
-        val prepareVersionDirTask = Task.Leaf("准备安装目录") { ctx ->
-            if (versionDir.exists()) {
-                ctx.emitProgress(TaskProgress("清理旧版本文件...", null))
-                runCatching { versionDir.deleteRecursivelyNoSymlink() }
-                    .getOrElse { throw IllegalStateException("无法清理旧版本目录: ${versionDir.absolutePath}", it) }
-            }
-            if (!versionDir.exists()) {
-                versionDir.mkdirs()
-            }
-            ctx.emitProgress(TaskProgress("目录已就绪", 1f))
-        }
-
-        val extractTask = Task.Leaf("解压客户端整合包") { ctx ->
-            val clientPack = clientPackFile ?: throw IllegalStateException("客户端包未准备好")
-            ctx.emitProgress(TaskProgress("扫描压缩包内容...", 0f))
-            extractArchiveToDir(
-                archiveFile = clientPack,
-                targetDir = versionDir,
-                pathTransform = ::normalizeInstalledClientPackPath
-            ) { done, total, currentPath ->
-                val fraction = done.toFloat() / total.coerceAtLeast(1).toFloat()
-                ctx.emitProgress(TaskProgress("解压中 ${currentPath.substringAfterLast('/')}($done/$total)", fraction))
-            }
-            ctx.emitProgress(TaskProgress("解压完成", 1f))
-        }
-
-        val copyModsTask = Task.Leaf("复制mod文件") { ctx ->
-            val modsDir = versionDir.resolve("mods").apply { mkdirs() }
-            val modFiles = mods.map { mod ->
-                val file = ClientDirs.dlModsDir.resolve(mod.fileName)
-                if (!file.exists()) {
-                    throw IllegalStateException("缺少Mod文件: ${file.absolutePath}")
-                }
-                file
-            }
-            modFiles.forEachIndexed { index, modFile ->
-                val target = modsDir.resolve(modFile.name)
-                linkOrCopyMod(modFile, target)
-                val fraction = (index + 1).toFloat() / modFiles.size.coerceAtLeast(1)
-                ctx.emitProgress(TaskProgress("已处理 ${index + 1}/${modFiles.size}", fraction))
-            }
-
-            installRdiCore(mcVersion, modLoader, modsDir)
-            ctx.emitProgress(TaskProgress("完成", 1f))
-        }
-
-        val writeOptionsTask = Task.Leaf("写入配置文件") { ctx ->
-            val optionsFile = versionDir.resolve("options.txt")
-            optionsFile.writeText(
-                mergeMinecraftOptions(
-                    original = optionsFile.takeIf(File::exists)?.readText().orEmpty(),
-                    overrides = linkedMapOf(
-                        "lang" to "zh_cn",
-                        "darkMojangStudiosBackground" to "true",
-                        "forceUnicodeFont" to "true"
-                    )
-                )
-            )
-            try {
-                versionDir.resolve(versionDir.name+".json").writeText(mcVersion.loaderManifest.copy(id=versionDir.name).json)
-            } catch (e: FileNotFoundException) {
-                throw RequestError("没有找到${mcVersion.mcVer}版本的${modLoader.name}，请先安装")
-            }
-
-            ctx.emitProgress(TaskProgress("写入完成", 1f))
-        }
-
-        return Task.Sequence(
-            name = "安装整合包 $verName",
-            subTasks = listOf(
-                downloadModsTask,
-                downloadClientPackTask,
-                prepareVersionDirTask,
-                extractTask,
-                copyModsTask,
-                writeOptionsTask
-            )
-        )
-    }
-
     fun installVersionTask2(
         mcVersion: McVersion,
         modLoader: ModLoader,
@@ -373,24 +263,6 @@ object ModpackService {
     }
 
 
-    fun Modpack.Version.startInstall(
-        mcVersion: McVersion,
-        modLoader: ModLoader,
-        modpackName: String? = null
-    ): Task {
-        val title = buildString {
-            append("完整下载整合包")
-            if (!modpackName.isNullOrBlank()) append(" ").append(modpackName)
-            totalSize?.humanFileSize?.let { append(" ").append(it) }
-        }
-        return Task.Sequence(
-            name = title,
-            subTasks = listOf(
-                installVersion(mcVersion, modLoader, modpackId, this@startInstall.name, mods)
-            )
-        )
-    }
-
     fun Modpack.Version.startInstallTask2(
         mcVersion: McVersion,
         modLoader: ModLoader,
@@ -414,10 +286,6 @@ object ModpackService {
         if (!versionDir.exists()) return false
         versionDir.resolve("mods").takeIf { it.exists() } ?: return false
         return true
-    }
-
-    suspend fun fetchSourceIntro(url: String) : Result<String>{
-        return ok("")
     }
 
     private suspend fun collectReferencedModFileNamesExcluding(

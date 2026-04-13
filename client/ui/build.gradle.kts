@@ -2,6 +2,8 @@ import org.gradle.jvm.tasks.Jar
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.bundling.Zip
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import org.jetbrains.kotlin.gradle.tasks.CompileUsingKotlinDaemon
+import org.jetbrains.kotlin.gradle.tasks.KotlinCompilerExecutionStrategy
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
 import java.io.File
 import java.text.SimpleDateFormat
@@ -9,7 +11,10 @@ import java.util.*
 
 val ktorVersion = "3.4.2"
 val zstdVer = "1.5.7-7"
-val version = "5.12.1"
+val version = "5.12.2"
+val devMode = providers.gradleProperty("rdi.devMode")
+    .map(String::toBoolean)
+    .orElse(true)
 project.version = version
 
 plugins {
@@ -121,6 +126,7 @@ kotlin {
                 implementation("org.mongodb:bson:5.6.4")
                 implementation("org.mongodb:bson-kotlinx:5.6.4")
                 implementation("com.github.ben-manes.caffeine:caffeine:3.2.3")
+                implementation(project(":ip2region"))
                 implementation("io.ktor:ktor-server-core:$ktorVersion")
                 implementation("io.ktor:ktor-server-websockets:$ktorVersion")
                 implementation("io.ktor:ktor-server-netty:$ktorVersion")
@@ -285,13 +291,10 @@ tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
 
-tasks.withType<KotlinJvmCompile>().matching { it.name == "compileKotlinDesktop" }.configureEach {
-    outputs.upToDateWhen {
-        destinationDirectory.asFile.get()
-            .walkTopDown()
-            .any { it.isFile && it.extension == "class" }
-    }
-}
+// Removed custom upToDateWhen — it was breaking Kotlin's incremental compilation,
+// causing full recompilation on every hot reload instead of only changed files.
+
+
 
 idea {
     module {

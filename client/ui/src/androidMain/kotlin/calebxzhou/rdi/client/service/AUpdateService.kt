@@ -7,10 +7,7 @@ import java.nio.file.StandardCopyOption
 internal actual suspend fun syncPlatformUpdates(
     onStatus: (String) -> Unit,
     onDetail: (String) -> Unit
-): PlatformUpdateSyncResult = PlatformUpdateSyncResult(
-    success = true,
-    requiresRestart = false
-)
+): PlatformUpdateSyncResult = true to false
 
 internal actual fun replaceDownloadedUpdateFile(
     tempFile: File,

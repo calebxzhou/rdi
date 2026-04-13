@@ -119,10 +119,13 @@ object UpdateService {
     }
 }
 
-data class PlatformUpdateSyncResult(
-    val success: Boolean,
-    val requiresRestart: Boolean
-)
+typealias PlatformUpdateSyncResult = Pair<Boolean, Boolean>
+
+private val PlatformUpdateSyncResult.success: Boolean
+    get() = first
+
+private val PlatformUpdateSyncResult.requiresRestart: Boolean
+    get() = second
 
 internal expect suspend fun syncPlatformUpdates(
     onStatus: (String) -> Unit,

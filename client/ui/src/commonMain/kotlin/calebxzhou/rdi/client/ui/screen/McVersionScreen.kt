@@ -37,7 +37,7 @@ fun McVersionScreen(
             TitleRow("Minecraft版本", onBack) {
                 if (isDesktop) {
                     Space8w()
-                    CircleIconButton("\uDB85\uDC03", "从网盘下载") {
+                    CircleIconButton("\uDB85\uDC03", "不限速网盘下载") {
                         openUrl("https://www.123865.com/s/iWSWvd-Zrtdd")
                     }
                     Space8w()
@@ -71,8 +71,7 @@ fun McVersionScreen(
                     Column(
                         modifier = Modifier.fillMaxSize()
                     ) {
-                        Text("若下载不成功，可尝试从网盘下载，然后手动导入。（需要手机号登录，免费）")
-                        Text("RDI5.12+版本已内置1.20/21的MC资源，正常情况不用额外下载")
+                        Text("若下载不成功，从网盘下载，然后手动导入。（不限速，需要手机号登录，免费）")
                         if (requiredMcVer != null) {
                             Text(
                                 text = "请先下载所需版本：${requiredMcVer.mcVer}",

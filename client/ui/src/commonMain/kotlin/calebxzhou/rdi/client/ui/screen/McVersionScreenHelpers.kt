@@ -12,7 +12,7 @@ import java.io.File
 
 expect fun selectRdiPackFiles(): List<File>?
 
-expect fun buildImportPackTask2(zipFile: File): Task2
+expect fun buildImportPackTask2(packFile: File): Task2
 
 expect suspend fun importRdiModpackTask2(onProgress: (String) -> Unit): Task2
 

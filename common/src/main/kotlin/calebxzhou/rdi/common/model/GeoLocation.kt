@@ -49,7 +49,7 @@ data class GeoLocation(
             }
             try {
                 // Parse JSON response without creating classes
-                val jsonElement = serdesJson.parseToJsonElement(resp.bodyAsText())
+                val jsonElement = serdesJson.parseToJsonElement(resp.bodyAsText().also { lgr.info { it } })
                 val jsonObject = jsonElement.jsonObject
 
                 val dataElement = jsonObject["data"]

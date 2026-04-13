@@ -87,20 +87,14 @@ object ModrinthService {
         }
         val mcVersion = index.dependencies["minecraft"]?.trim().orEmpty()
         if (mcVersion.isBlank()) {
-            throw ModpackError("整合包缺少 minecraft 版本")
+            throw ModpackError("整合包缺少MC版本")
         }
         val parsedMcVersion = McVersion.from(mcVersion)
         if (parsedMcVersion == null || !parsedMcVersion.enabled) {
             throw ModpackError("不支持的MC版本: $mcVersion")
         }
-        val loaderKey = index.dependencies.keys.firstOrNull { ModLoader.from(it) != null }
-        if (loaderKey == null) {
-            throw ModpackError("不支持的Mod加载器: 未知")
-        }
-        val parsedModloader = ModLoader.from(loaderKey)
-        if (parsedModloader == null) {
-            throw ModpackError("不支持的Mod加载器: $loaderKey")
-        }
+        val loaderKey = index.dependencies.keys.firstOrNull { ModLoader.from(it) != null } ?: throw ModpackError("不支持的Mod加载器: 未知")
+        val parsedModloader = ModLoader.from(loaderKey) ?: throw ModpackError("不支持的Mod加载器: $loaderKey")
         val fileEntries = index.files.associateBy { it.hashes.sha1 }
         val hashVersions = getVersionsFromHashes(fileEntries.keys.toList())
         val projectIds = hashVersions.values.map { it.projectId }.distinct()
@@ -262,9 +256,7 @@ object ModrinthService {
         }
         return this
     }
-    suspend fun getModCardVos(mods: List<Mod>,projects: List<ModrinthProject>?){
 
-    }
     suspend fun mrreq(
         path: String,
         method: HttpMethod = HttpMethod.Get,

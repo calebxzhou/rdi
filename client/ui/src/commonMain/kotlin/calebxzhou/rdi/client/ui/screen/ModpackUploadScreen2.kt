@@ -31,6 +31,8 @@ import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.client.ui.comp.ModGrid
+import calebxzhou.rdi.client.ui.comp.ModpackCategoryChips
+import calebxzhou.rdi.client.ui.comp.ModpackCategorySelector
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.client.ui.comp.Task2DetailDialog
 import calebxzhou.rdi.common.DEBUG
@@ -62,6 +64,7 @@ fun ModpackUploadScreen2(
     var loadedModpack by remember { mutableStateOf<LoadedLocalModpack?>(null) }
     var modpackName by remember { mutableStateOf("") }
     var versionName by remember { mutableStateOf("") }
+    var selectedCategories by remember { mutableStateOf<List<Modpack.Category>>(emptyList()) }
     var iconUrl by remember { mutableStateOf("") }
     var sourceUrl by remember { mutableStateOf("") }
     var infoText by remember { mutableStateOf("") }
@@ -199,12 +202,14 @@ fun ModpackUploadScreen2(
         uploadMode = UploadMode.CREATE
         selectedUpdateTarget = null
         modpackName = loadedModpack?.packName ?: modpackName
+        selectedCategories = emptyList()
     }
 
     fun chooseUpdateMode(target: Modpack.BriefVo) {
         uploadMode = UploadMode.UPDATE
         selectedUpdateTarget = target
         modpackName = target.name
+        selectedCategories = target.categories
         showUploadModeDialog = false
     }
 
@@ -285,6 +290,7 @@ fun ModpackUploadScreen2(
                 iconUrl = iconUrl.trim().ifBlank { null },
                 sourceUrl = sourceUrl.trim().ifBlank { null },
                 info = infoText.trim().ifBlank { null },
+                categories = Modpack.normalizeCategories(selectedCategories),
                 updateModpackId = selectedUpdateTarget?.id.takeIf { uploadMode == UploadMode.UPDATE }
             ),
             dedupeKey = modpackUploadTaskKey(
@@ -324,6 +330,7 @@ fun ModpackUploadScreen2(
             iconUrl = ""
             sourceUrl = ""
             infoText = ""
+            selectedCategories = emptyList()
             mcVersionText = loadResult.mcVersion.mcVer
             modloaderText = loadResult.modloader.name
             mods = loadResult.mods
@@ -499,7 +506,10 @@ fun ModpackUploadScreen2(
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             RadioButton(
                                                 selected = uploadMode == UploadMode.UPDATE,
-                                                onClick = { uploadMode = UploadMode.UPDATE }
+                                                onClick = {
+                                                    uploadMode = UploadMode.UPDATE
+                                                    selectedCategories = selectedUpdateTarget?.categories ?: emptyList()
+                                                }
                                             )
                                             Text("更新已有包")
                                         }
@@ -571,6 +581,16 @@ fun ModpackUploadScreen2(
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text("简介") },
                                 maxLines = 10
+                            )
+                            Text("分类 最多${Modpack.MAX_CATEGORY_COUNT}个")
+                            ModpackCategorySelector(
+                                selected = selectedCategories,
+                                onSelectedChange = { selectedCategories = it },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                            ModpackCategoryChips(
+                                categories = selectedCategories,
+                                emptyText = "未选择分类"
                             )
                             loadedModpack?.let {
                                 Text("来源类型 ${it.sourceType.name}")
@@ -670,7 +690,7 @@ fun ModpackUploadScreen2(
                                 continueWithoutServerPack()
                             }
                         ) {
-                            Text("没有")
+                            Text("没有/我不懂")
                         }
                         TextButton(
                             onClick = ::handleServerPromptHasServer
@@ -809,7 +829,8 @@ private fun Modpack.toLocalBriefVo(): Modpack.BriefVo = Modpack.BriefVo(
     modCount = versions.maxOfOrNull { it.mods.size } ?: 0,
     fileSize = versions.lastOrNull()?.totalSize ?: 0L,
     icon = iconUrl,
-    info = info
+    info = info,
+    categories = categories
 )
 
 private fun modMergeKey(mod: Mod): String {
