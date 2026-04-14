@@ -1,17 +1,9 @@
 import org.gradle.jvm.tasks.Jar
-import org.gradle.api.file.DuplicatesStrategy
-import org.gradle.api.tasks.bundling.Zip
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import org.jetbrains.kotlin.gradle.tasks.CompileUsingKotlinDaemon
-import org.jetbrains.kotlin.gradle.tasks.KotlinCompilerExecutionStrategy
-import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.*
 
 val ktorVersion = "3.4.2"
 val zstdVer = "1.5.7-7"
-val version = "5.12.2"
+val version = "5.12.3"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
@@ -22,7 +14,7 @@ plugins {
     kotlin("plugin.serialization") version "2.3.20"
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.20"
     id("org.jetbrains.compose") version "1.10.3"
-    id("com.android.application") version "8.12.0"
+    id("com.android.application") version "8.12.3"
     idea
 }
 
@@ -42,7 +34,11 @@ base {
 }
 
 kotlin {
-    jvm("desktop")
+    jvm("desktop") {
+        compilerOptions {
+            jvmTarget.set(JvmTarget.JVM_21)
+        }
+    }
 
     androidTarget {
         compilerOptions {
@@ -58,8 +54,10 @@ kotlin {
                 implementation("org.jetbrains.compose.foundation:foundation:$composeVersion")
                 implementation("org.jetbrains.compose.material:material:$composeVersion")
                 implementation("org.jetbrains.compose.ui:ui:$composeVersion")
+                implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.10.0")
                 implementation(project(":common"))
+                implementation(project(":ip2region"))
                 // Source: https://mvnrepository.com/artifact/org.joml/joml
                 implementation("org.joml:joml:1.10.8")
                 implementation("net.raphimc:MinecraftAuth:5.0.0")
@@ -76,8 +74,7 @@ kotlin {
                 implementation("org.jetbrains.androidx.navigation:navigation-compose:2.9.2")
                 implementation("org.jetbrains.compose.material3:material3:1.10.0-alpha05")
                 implementation("net.peanuuutz.tomlkt:tomlkt:0.5.0")
-                implementation("com.mikepenz:multiplatform-markdown-renderer:0.39.2")
-                implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.39.2")
+                implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.40.2")
                 implementation("com.github.oshi:oshi-core:6.9.3") {
                     exclude(group = "net.java.dev.jna")
                 }
@@ -126,7 +123,7 @@ kotlin {
                 implementation("org.mongodb:bson:5.6.4")
                 implementation("org.mongodb:bson-kotlinx:5.6.4")
                 implementation("com.github.ben-manes.caffeine:caffeine:3.2.3")
-                implementation(project(":ip2region"))
+
                 implementation("io.ktor:ktor-server-core:$ktorVersion")
                 implementation("io.ktor:ktor-server-websockets:$ktorVersion")
                 implementation("io.ktor:ktor-server-netty:$ktorVersion")
@@ -317,7 +314,7 @@ tasks.withType<JavaExec>().configureEach {
     }
 }
 
-tasks.matching { it.name == "hotRunDesktop" }.configureEach {
+tasks.matching { it.name == "hotRunDesktop" || it.name == "hotDevDesktop" }.configureEach {
     notCompatibleWithConfigurationCache("uses project file operations at execution time")
     if (this is JavaExec) {
         systemProperties = System.getProperties().filter { it.key.toString().startsWith("rdi.") } as MutableMap<String, Any?>
@@ -336,10 +333,11 @@ tasks.named<Jar>("desktopJar") {
 }
 
 
+
 fun registerCopyTask(name: String, extraDestinations: List<String> = emptyList()) {
     val baseDestinations = listOf(
         file("../../server/master/run/client-libs/lib"),
-   //     File(System.getProperty("user.home"), "Documents/rdi5ship/lib")
+        //     File(System.getProperty("user.home"), "Documents/rdi5ship/lib")
     )
     val destinationDirs = baseDestinations + extraDestinations.map { file(it) }
     val syncTaskNames = destinationDirs.mapIndexed { index, targetDir ->
@@ -363,7 +361,7 @@ registerCopyTask("出core2-release", listOf("\\\\rdi\\rdi55\\ihq\\client-libs\\l
 tasks.register<Zip>("makeShipPack") {
     notCompatibleWithConfigurationCache("uses project file operations at execution time")
     val shipDir = File(System.getProperty("user.home"), "Documents/rdi5ship")
-    val filesNeed = listOf("lib", "双击启动.cmd", "fonts", "jre","mcb")
+    val filesNeed = listOf("lib", "双击启动.cmd", "fonts", "jre"/*,"mcb"*/)
 
     group = "distribution"
     description = "Create shipping zip in Documents/rdi5ship."
@@ -375,7 +373,7 @@ tasks.register<Zip>("makeShipPack") {
     from(File(shipDir, "lib")) { into("lib") }
     from(File(shipDir, "fonts")) { into("fonts") }
     from(File(shipDir, "jre")) { into("jre") }
-    from(File(shipDir, "mcb")) { into("mc") }
+    //from(File(shipDir, "mcb")) { into("mc") }
     from(File(shipDir, "tools")) { into("tools") }
     from(shipDir) { include("双击启动.cmd") }
 

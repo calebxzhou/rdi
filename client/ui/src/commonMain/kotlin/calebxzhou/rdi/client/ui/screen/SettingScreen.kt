@@ -22,12 +22,10 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.ui.*
-import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.PasswordField
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
-import calebxzhou.rdi.common.model.isDav
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -50,7 +48,8 @@ fun SettingScreen(
     var showChangeProfile by remember { mutableStateOf(false) }
 
     // Desktop-only settings state
-    var useMirror by remember { mutableStateOf(false) }
+    var preferModMirror by remember { mutableStateOf(false) }
+    var preferMcMirror by remember { mutableStateOf(false) }
     var maxMemoryText by remember { mutableStateOf("") }
     var jre21Path by remember { mutableStateOf("") }
     var jre8Path by remember { mutableStateOf("") }
@@ -67,7 +66,8 @@ fun SettingScreen(
         withContext(Dispatchers.IO) {
             runCatching {
                 val config = calebxzhou.rdi.client.AppConfig.load()
-                useMirror = config.useMirror
+                preferModMirror = config.preferModMirror
+                preferMcMirror = config.preferMcMirror
                 maxMemoryText = if (config.maxMemory <= 0) "" else config.maxMemory.toString()
                 jre21Path = config.jre21Path.orEmpty()
                 jre8Path = config.jre8Path.orEmpty()
@@ -138,7 +138,8 @@ fun SettingScreen(
 
                         // Save settings
                         svc.saveSettings(
-                            useMirror = useMirror,
+                            preferModMirror = preferModMirror,
+                            preferMcMirror = preferMcMirror,
                             maxMemoryText = maxMemoryText,
                             jre21Path = jre21Path,
                             jre8Path = jre8Path,
@@ -190,16 +191,28 @@ fun SettingScreen(
                                             onMaxMemoryChange = { maxMemoryText = it.trim() },
                                             jre21Path = jre21Path,
                                             onJre21Change = { jre21Path = it },
+                                            onPickJre21 = {
+                                                scope.launch {
+                                                    pickJavaExecutable("选择Java21可执行文件")?.let { jre21Path = it }
+                                                }
+                                            },
                                             jre8Path = jre8Path,
-                                            onJre8Change = { jre8Path = it }
+                                            onJre8Change = { jre8Path = it },
+                                            onPickJre8 = {
+                                                scope.launch {
+                                                    pickJavaExecutable("选择Java8可执行文件")?.let { jre8Path = it }
+                                                }
+                                            }
                                         )
                                     }
                                 }
 
                                 SettingCategory.Network -> {
                                     NetworkSettings(
-                                        useMirror = useMirror,
-                                        onUseMirrorChange = { useMirror = it },
+                                        preferModMirror = preferModMirror,
+                                        onPreferModMirrorChange = { preferModMirror = it },
+                                        preferMcMirror = preferMcMirror,
+                                        onPreferMcMirrorChange = { preferMcMirror = it },
                                         carrier = carrier,
                                         onCarrierChange = { carrier = it },
                                         proxyEnabled = proxyEnabled,
@@ -446,6 +459,7 @@ private fun AccountSettings(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun JavaSettings(
     totalMemoryMb: Int,
@@ -453,8 +467,10 @@ private fun JavaSettings(
     onMaxMemoryChange: (String) -> Unit,
     jre21Path: String,
     onJre21Change: (String) -> Unit,
+    onPickJre21: () -> Unit,
     jre8Path: String,
-    onJre8Change: (String) -> Unit
+    onJre8Change: (String) -> Unit,
+    onPickJre8: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Text("内存信息 总可用 ${totalMemoryMb}MB")
@@ -472,29 +488,61 @@ private fun JavaSettings(
             // HwSpec memory display is desktop-only and handled by SettingsService
         }
         Space8h()
-        OutlinedTextField(
-            label = { Text("Java21主程序路径（可选 留空自带）") },
-            value = jre21Path,
-            onValueChange = onJre21Change,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                label = { Text("Java21主程序路径（可选 留空自带）") },
+                value = jre21Path,
+                onValueChange = onJre21Change,
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            CircleIconButton(
+                icon = "\uE8B6",
+                tooltip = "选择Java21",
+                bgColor = MaterialColor.BLUE_800.color,
+                size = 36,
+                showText = false
+            ) {
+                onPickJre21()
+            }
+        }
         Space8h()
-        OutlinedTextField(
-            label = { Text("Java8主程序路径（可选 留空自带）") },
-            value = jre8Path,
-            onValueChange = onJre8Change,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                label = { Text("Java8主程序路径（可选 留空自带）") },
+                value = jre8Path,
+                onValueChange = onJre8Change,
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            CircleIconButton(
+                icon = "\uE8B6",
+                tooltip = "选择Java8",
+                bgColor = MaterialColor.BLUE_800.color,
+                size = 36,
+                showText = false
+            ) {
+                onPickJre8()
+            }
+        }
     }
 }
 
 
 @Composable
 private fun NetworkSettings(
-    useMirror: Boolean,
-    onUseMirrorChange: (Boolean) -> Unit,
+    preferModMirror: Boolean,
+    onPreferModMirrorChange: (Boolean) -> Unit,
+    preferMcMirror: Boolean,
+    onPreferMcMirrorChange: (Boolean) -> Unit,
     carrier: Int,
     onCarrierChange: (Int) -> Unit,
     proxyEnabled: Boolean,
@@ -512,8 +560,12 @@ private fun NetworkSettings(
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = useMirror, onCheckedChange = onUseMirrorChange)
-            Text("使用镜像源（下载更快）")
+            Checkbox(checked = preferMcMirror, onCheckedChange = onPreferMcMirrorChange)
+            Text("优先使用国内镜像下载MC资源")
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Checkbox(checked = preferModMirror, onCheckedChange = onPreferModMirrorChange)
+            Text("优先使用国内镜像下载Mod")
         }
         Space8h()
         CarrierSelector(

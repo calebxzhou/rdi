@@ -10,6 +10,7 @@ import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
+import net.peanuuutz.tomlkt.Toml
 import org.bson.BsonBinary
 import org.bson.UuidRepresentation
 import org.bson.codecs.kotlinx.BsonDecoder
@@ -32,7 +33,9 @@ val serdesJson = Json {
     isLenient = true // Allows parsing of malformed JSON
     coerceInputValues = true // Helps with default values and nulls
 }
-
+val serdesToml = Toml {
+    ignoreUnknownKeys = true
+}
 
 inline val <reified T> T.json: String
     get() = serdesJson.encodeToString<T>(this)

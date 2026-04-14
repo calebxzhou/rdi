@@ -19,7 +19,7 @@ import kotlin.io.path.exists
 
 
 object ModService {
-    var useMirror = true
+    var preferMirror = true
     val briefInfo: List<ModBriefInfo> by lazy { loadBriefInfo() }
     const val NEOFORGE_CONFIG_PATH = "META-INF/neoforge.mods.toml"
     const val FABRIC_CONFIG_PATH = "fabric.mod.json"
@@ -440,21 +440,19 @@ object ModService {
             .map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
-        val mirrorUrls = if (useMirror) {
-            listOf(officialUrl.ofMirrorUrl)
-                .map(String::trim)
-                .filter(String::isNotBlank)
-                .filterNot { it in officialUrls }
-                .distinct()
-        } else {
-            emptyList()
-        }
-        val allCandidateUrls = officialUrls + mirrorUrls
+        val mirrorUrls = listOf(officialUrl.ofMirrorUrl)
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .filterNot { it in officialUrls }
+            .distinct()
+        val primaryUrls = if (preferMirror) mirrorUrls else officialUrls
+        val fallbackUrls = if (preferMirror) officialUrls else mirrorUrls
+        val allCandidateUrls = primaryUrls + fallbackUrls
 
         val finalResult = runCatching {
             val downloadedPath = targetPath.downloadFileFrom(
-                primaryUrls = officialUrls,
-                fallbackUrls = mirrorUrls,
+                primaryUrls = primaryUrls,
+                fallbackUrls = fallbackUrls,
                 onProgress = onProgress
             ).getOrElse { throw it }
             val actualFingerprint = downloadedPath.murmur2
@@ -500,20 +498,18 @@ object ModService {
             .map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
-        val mirrorUrls = if (useMirror) {
-            officialUrls.map { it.ofMirrorUrl }
-                .filter(String::isNotBlank)
-                .filterNot { it in officialUrls }
-                .distinct()
-        } else {
-            emptyList()
-        }
-        val allCandidateUrls = officialUrls + mirrorUrls
+        val mirrorUrls = officialUrls.map { it.ofMirrorUrl }
+            .filter(String::isNotBlank)
+            .filterNot { it in officialUrls }
+            .distinct()
+        val primaryUrls = if (preferMirror) mirrorUrls else officialUrls
+        val fallbackUrls = if (preferMirror) officialUrls else mirrorUrls
+        val allCandidateUrls = primaryUrls + fallbackUrls
 
         val result = runCatching {
             val downloadedPath = targetPath.downloadFileFrom(
-                primaryUrls = officialUrls,
-                fallbackUrls = mirrorUrls,
+                primaryUrls = primaryUrls,
+                fallbackUrls = fallbackUrls,
                 onProgress = onProgress
             ).getOrElse { throw it }
 

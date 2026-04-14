@@ -24,17 +24,18 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.ModpackService.modpackInstallTaskKey
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
+import calebxzhou.rdi.client.service.codeeditor.CodeEditorValidation
+import calebxzhou.rdi.client.service.codeeditor.CodeLanguage
+import calebxzhou.rdi.client.service.codeeditor.validateCodeContent
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.CodeEditor
-import calebxzhou.rdi.client.ui.comp.CodeEditorValidation
-import calebxzhou.rdi.client.ui.comp.CodeLanguage
 import calebxzhou.rdi.client.ui.comp.ModpackManageCard
-import calebxzhou.rdi.client.ui.comp.validateCodeContent
 import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.Modpack
@@ -523,7 +524,7 @@ fun ModpackLocalManageScreen(
                     "\uDB86\uDDD8",
                     "网盘备用下包"
                 ) {
-                    onOpenModpackList?.invoke()
+                    openUrl("https://www.123684.com/s/iWSWvd-Gjtdd")
                 }
             }
             Space8h()

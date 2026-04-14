@@ -139,6 +139,35 @@ actual suspend fun pickLocalZipFile(title: String): File? =
         }
     }
 
+actual suspend fun pickJavaExecutable(title: String): String? =
+    withContext(Dispatchers.IO) {
+        val owner = Frame()
+        try {
+            val dialog = FileDialog(owner, title, FileDialog.LOAD).apply {
+                directory = File(System.getProperty("user.home")).absolutePath
+                file = if (System.getProperty("os.name").contains("windows", ignoreCase = true)) {
+                    "java.exe"
+                } else {
+                    "java"
+                }
+                filenameFilter = java.io.FilenameFilter { dir, name ->
+                    val target = File(dir, name)
+                    if (target.isDirectory) return@FilenameFilter true
+                    val lower = name.lowercase()
+                    lower == "java" || lower == "java.exe" || lower == "javaw.exe"
+                }
+            }
+            dialog.isVisible = true
+            val dir = dialog.directory ?: return@withContext null
+            val name = dialog.file ?: return@withContext null
+            File(dir, name)
+                .takeIf { it.exists() && it.isFile }
+                ?.absolutePath
+        } finally {
+            owner.dispose()
+        }
+    }
+
 actual fun checkCanCreateSymlink(): Boolean {
     return calebxzhou.mykotutils.std.canCreateSymlink()
 }

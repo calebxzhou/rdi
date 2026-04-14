@@ -71,7 +71,8 @@ object SettingsService {
      * Save settings configuration
      */
     suspend fun saveSettings(
-        useMirror: Boolean,
+        preferModMirror: Boolean,
+        preferMcMirror: Boolean,
         maxMemoryText: String,
         jre21Path: String,
         jre8Path: String,
@@ -89,7 +90,8 @@ object SettingsService {
         val proxyPort = proxyPortText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
 
         val config = AppConfig(
-            useMirror = useMirror,
+            preferModMirror = preferModMirror,
+            preferMcMirror = preferMcMirror,
             maxMemory = memoryValue ?: 0,
             jre21Path = jre21,
             jre8Path = jre8,

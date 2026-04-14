@@ -93,6 +93,8 @@ actual suspend fun pickLocalModpackFile(): File? = null
 
 actual suspend fun pickLocalZipFile(title: String): File? = null
 
+actual suspend fun pickJavaExecutable(title: String): String? = null
+
 actual fun checkCanCreateSymlink(): Boolean = true // Android doesn't need symlinks
 
 actual suspend fun runDesktopUpdateFlow(

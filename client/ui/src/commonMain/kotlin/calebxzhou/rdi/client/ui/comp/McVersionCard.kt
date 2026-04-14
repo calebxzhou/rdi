@@ -33,7 +33,7 @@ import calebxzhou.rdi.client.model.firstLoader
 import calebxzhou.rdi.client.model.firstLoaderVersion
 import calebxzhou.rdi.client.model.metadata
 import calebxzhou.rdi.client.service.GameService
-import calebxzhou.rdi.client.ui.screen.ClientTaskManager
+import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.isDesktop
@@ -127,15 +127,6 @@ fun McVersionCard(
                         CircleIconButton("\uF019", "下载全部", enabled = enabled) {
                             submitTask(GameService.downloadVersionTask2(mcver, mcver.firstLoader))
                         }
-                        /*CircleIconButton("\uF305", "仅下载MC核心", bgColor = Color.Gray, enabled = enabled, showText = false) {
-                            submitTask(GameService.downloadClientTask2(mcver.metadata))
-                        }
-                        CircleIconButton("\uDB84\uDE5F", "仅下载运行库", bgColor = Color.Gray, enabled = enabled, showText = false) {
-                            submitTask(GameService.downloadLibrariesTask2(mcver.metadata.libraries))
-                        }
-                        CircleIconButton("\uF001", "仅下载音频资源", bgColor = Color.Gray, enabled = enabled, showText = false) {
-                            submitTask(GameService.downloadAssetsTask2(mcver.metadata))
-                        }*/
                         mcver.loaderVersions.forEach { (loader, _) ->
                             CircleIconButton(
                                 "\uEEFF",

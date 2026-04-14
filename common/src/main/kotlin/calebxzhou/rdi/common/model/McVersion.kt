@@ -92,7 +92,7 @@ enum class McVersion(
         )
         ,enabled = false
     ),
-    /*V165(
+    V165(
         "1.16.5",
         "assets/icons/zoglin.webp", 8,
         mapOf(
@@ -103,7 +103,7 @@ enum class McVersion(
                 "e09ecf910e4d5eae12fb3564d9b7de212c1958b2"
             )
         ),enabled = false
-    ),*/
+    ),
 
     ;
 

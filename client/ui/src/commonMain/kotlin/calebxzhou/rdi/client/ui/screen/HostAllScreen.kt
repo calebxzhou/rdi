@@ -9,10 +9,10 @@ import calebxzhou.rdi.common.model.McVersion
 @Composable
 fun HostAllScreen(
     onBack: (() -> Unit),
-    onOpenHostInfo: ((String) -> Unit)? = null,
-    onOpenMcVersions: ((McVersion?) -> Unit)? = null,
-    onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenTaskList: ((String) -> Unit)? = null
+    onOpenHostInfo: ((String) -> Unit),
+    onOpenMcVersions: ((McVersion?) -> Unit),
+    onOpenMcPlay: ((McPlayArgs) -> Unit),
+    onOpenTaskList: ((String) -> Unit)
 ) {
     HostBrowserScreen(
         title = "房间大厅",

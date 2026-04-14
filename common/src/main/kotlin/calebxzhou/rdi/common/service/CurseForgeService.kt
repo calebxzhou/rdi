@@ -352,7 +352,7 @@ object CurseForgeService {
             body?.let { setBody(it) }
             this.method = method
         }
-        if (ignoreMirror || !ModService.useMirror) {
+        if (ignoreMirror || !ModService.preferMirror) {
             return doRequest(OFFICIAL_URL)
         }
 

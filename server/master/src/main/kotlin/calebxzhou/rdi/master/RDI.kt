@@ -91,7 +91,7 @@ fun main(): Unit = runBlocking {
         System.setProperty("javax.net.ssl.trustStoreType", "Windows-ROOT")
     }
     CommonConfig.updateProxyConfig(CONF.proxy)
-    ModService.useMirror = CONF.download.useMirror
+    ModService.preferMirror = CONF.download.useMirror
     CONF.storage.dlModsDir?.let { System.setProperty("rdi.modDir", it) }
 
     CRASH_REPORT_DIR.mkdirs()

@@ -271,7 +271,7 @@ object ModrinthService {
             this.method = method
         }
 
-        if (!ModService.useMirror) {
+        if (!ModService.preferMirror) {
             return doRequest(OFFICIAL_URL)
         }
 

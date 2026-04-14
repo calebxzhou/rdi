@@ -4,9 +4,9 @@ import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.CONF
 import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.ProxyConfig
+import calebxzhou.rdi.common.serdesToml
 import calebxzhou.rdi.common.service.ModService
 import kotlinx.serialization.Serializable
-import net.peanuuutz.tomlkt.Toml
 import java.io.File
 
 /**
@@ -14,7 +14,8 @@ import java.io.File
  */
 @Serializable
 data class AppConfig(
-    val useMirror: Boolean = true,
+    val preferModMirror: Boolean = true,
+    val preferMcMirror: Boolean = true,
     //不限制
     val maxMemory: Int=0,
     val jre21Path: String?=null,
@@ -30,7 +31,7 @@ data class AppConfig(
         fun load(): AppConfig {
             return if (configFile.exists()) {
                 try {
-                    Toml.decodeFromString(serializer(), configFile.readText())
+                    serdesToml.decodeFromString(serializer(), configFile.readText())
 
                 } catch (e: Exception) {
                     lgr.warn { "read config failed, use default and save" }
@@ -40,7 +41,7 @@ data class AppConfig(
             } else {
                 AppConfig().also { save(it) }
             }.also {
-                ModService.useMirror = it.useMirror
+                ModService.preferMirror = it.preferModMirror
                 CommonConfig.updateProxyConfig(it.proxyConfig)
             }
         }
@@ -48,10 +49,10 @@ data class AppConfig(
         fun save(config: AppConfig) {
             try {
                 CONF = config
-                ModService.useMirror = config.useMirror
+                ModService.preferMirror = config.preferModMirror
                 CommonConfig.updateProxyConfig(config.proxyConfig)
                 configFile.parentFile?.mkdirs()
-                configFile.writeText(Toml.encodeToString(serializer(), config))
+                configFile.writeText(serdesToml.encodeToString(serializer(), config))
             } catch (e: Exception) {
                 lgr.warn (e){ "save config failed\n" }
             }

@@ -24,13 +24,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.millisToHumanDateTime
+import calebxzhou.rdi.client.service.codeeditor.CodeEditorValidation
+import calebxzhou.rdi.client.service.codeeditor.CodeLanguage
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.Space8w
 import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.CodeEditor
-import calebxzhou.rdi.client.ui.comp.CodeEditorValidation
-import calebxzhou.rdi.client.ui.comp.CodeLanguage
 import calebxzhou.rdi.client.ui.comp.PlatformVerticalScrollbar
 import calebxzhou.rdi.common.model.Host
 

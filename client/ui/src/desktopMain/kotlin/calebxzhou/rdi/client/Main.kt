@@ -21,11 +21,14 @@ import androidx.compose.ui.window.rememberWindowState
 import calebxzhou.mykotutils.std.decodeBase64
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.jarResource
+import calebxzhou.rdi.CONF
 import calebxzhou.rdi.client.net.lgr
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.ClientDirs
+import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.PlayerService
+import calebxzhou.rdi.client.service.refreshNodeSettings
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.AppTypography
@@ -48,6 +51,7 @@ fun main() {
     clearIncompleteModDownloadsOnStartup()
     clearPackProcDirOnStartup()
     warmUpCacheOnStartup()
+    refreshNodeSettingsOnStartup()
     initializeLoggedAccountOnStartup()
     LocalMcProxy.start(::println)
     application {
@@ -180,6 +184,10 @@ private fun clearPackProcDirOnStartup() = GlobalScope.launch {
 
 private fun warmUpCacheOnStartup() = GlobalScope.launch(Dispatchers.IO) {
     warmUpHwSpecCache()
+}
+
+private fun refreshNodeSettingsOnStartup() = GlobalScope.launch(Dispatchers.IO) {
+    refreshNodeSettings()
 }
 
 private fun clearIncompleteModDownloadsOnStartup() {

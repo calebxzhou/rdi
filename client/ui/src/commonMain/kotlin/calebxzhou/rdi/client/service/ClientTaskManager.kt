@@ -1,5 +1,6 @@
-package calebxzhou.rdi.client.ui.screen
+package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.ui.screen.ensurePlatformTaskExecutionForegroundService
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Entry
 import calebxzhou.rdi.common.service.Task2Controller

@@ -26,6 +26,7 @@ import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
+import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.ModpackService.modpackInstallTaskKey
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2

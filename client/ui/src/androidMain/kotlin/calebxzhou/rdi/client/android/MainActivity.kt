@@ -29,6 +29,7 @@ import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.service.ClientDirs
+import calebxzhou.rdi.client.service.refreshNodeSettings
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.checkLauncherInstalled
@@ -94,6 +95,7 @@ class MainActivity : ComponentActivity() {
         DL_MOD_DIR = ClientDirs.dlModsDir
         clearPackProcDirOnStartup()
         warmUpHwSpecCacheOnStartup()
+        refreshNodeSettingsOnStartup()
         setContent {
             val showFclDialog = remember { mutableStateOf(!checkLauncherInstalled()) }
             MaterialTheme {
@@ -143,6 +145,12 @@ class MainActivity : ComponentActivity() {
     private fun warmUpHwSpecCacheOnStartup() {
         startupScope.launch {
             warmUpHwSpecCache()
+        }
+    }
+
+    private fun refreshNodeSettingsOnStartup() {
+        startupScope.launch {
+            refreshNodeSettings()
         }
     }
 

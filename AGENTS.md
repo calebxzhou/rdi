@@ -13,7 +13,7 @@ this project is minecraft multiplayer platform, player can upload modpacks to cr
 - UI assets/icons are under `client/ui/src/main/resources/assets`.
 - when you reads or writes file content via powershell, use absolute path to avoid permission issues.
 - use CircleIconButton as more as possible when you are making buttons. do not forget @OptIn(ExperimentalMaterial3Api::class)
-- if you wanna remove any files, you can replace content to empty instead, if failed, tell me
+- if you wanna remove any files, you can replace content to empty and set its file name start with $$$ instead, if failed, tell me
 - use Syntactic sugar as more as possible
 - reply in mandarin，but add english notation for terminologies, no matter how input language is
 ## Build, Test, and Development Commands

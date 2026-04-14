@@ -13,7 +13,6 @@ import androidx.compose.material.*
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.TextFieldLabelPosition
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -30,7 +29,6 @@ import calebxzhou.rdi.client.CodeFontFamily
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.net.BACKUP_NODE
 import calebxzhou.rdi.client.service.PlayerService
-import calebxzhou.rdi.client.service.tryEnableBackupNodeForPeakHours
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.common.DEBUG
 import kotlinx.coroutines.Dispatchers
@@ -104,7 +102,6 @@ fun LoginScreen(
             symlinkError = """RDI需要权限为Mod及资源文件创建软连接。
 请点击上方【创建桌面快捷方式】按钮，从桌面图标运行RDI。"""
         }
-        tryEnableBackupNodeForPeakHours()
         if(Const.NO_UPDATE){
             updateCheckComplete=true
             updateDetail = "自动更新已关闭"

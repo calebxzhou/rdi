@@ -1,3 +1,3 @@
-package calebxzhou.rdi.client.ui.comp
+package calebxzhou.rdi.client.service.codeeditor
 
 internal expect fun validateYamlSyntaxMessage(text: String): String?

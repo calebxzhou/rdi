@@ -28,6 +28,7 @@ import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.auth.updateLastPlayHost
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
 import calebxzhou.rdi.client.service.startPlay
 import calebxzhou.rdi.client.ui.CircleIconButton
@@ -49,12 +50,12 @@ import org.bson.types.ObjectId
 @Composable
 fun HostListScreen(
     onBack: (() -> Unit),
-    onOpenHostAll: (() -> Unit)? = null,
-    onOpenHostInfo: ((String) -> Unit)? = null,
-    onOpenHostCreate: (() -> Unit)? = null,
-    onOpenMcVersions: ((McVersion?) -> Unit)? = null,
-    onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenTaskList: ((String) -> Unit)? = null
+    onOpenHostAll: (() -> Unit),
+    onOpenHostInfo: ((String) -> Unit),
+    onOpenHostCreate: (() -> Unit),
+    onOpenMcVersions: ((McVersion?) -> Unit),
+    onOpenMcPlay: ((McPlayArgs) -> Unit),
+    onOpenTaskList: ((String) -> Unit)
 ) {
     HostBrowserScreen(
         title = "我的房间",
@@ -87,10 +88,10 @@ internal fun HostBrowserScreen(
     emptyStateText: String,
     listPathForPage: (Int) -> String,
     onBack: (() -> Unit),
-    onOpenHostInfo: ((String) -> Unit)? = null,
-    onOpenMcVersions: ((McVersion?) -> Unit)? = null,
-    onOpenMcPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenTaskList: ((String) -> Unit)? = null,
+    onOpenHostInfo: ((String) -> Unit),
+    onOpenMcVersions: ((McVersion?) -> Unit),
+    onOpenMcPlay: ((McPlayArgs) -> Unit),
+    onOpenTaskList: ((String) -> Unit),
     headerActions: @Composable RowScope.() -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
@@ -197,11 +198,7 @@ internal fun HostBrowserScreen(
                                         id = detail._id.toHexString(),
                                         name = detail.name
                                     )
-                                    if (onOpenMcPlay != null) {
-                                        onOpenMcPlay(args.args)
-                                    } else {
-                                        errorMessage = "暂不支持在此页面游玩"
-                                    }
+                                    onOpenMcPlay(args.args)
                                 }
 
                                 is StartPlayResult.NeedInstall -> {
@@ -210,13 +207,13 @@ internal fun HostBrowserScreen(
 
                                 is StartPlayResult.NeedMc -> {
                                     errorMessage = "未安装MC版本资源：${args.ver.mcVer}，请先下载"
-                                    onOpenMcVersions?.invoke(args.ver)
+                                    onOpenMcVersions.invoke(args.ver)
                                 }
                             }
                         }
                     },
                     onClick = {
-                        onOpenHostInfo?.invoke(host._id.toHexString())
+                        onOpenHostInfo.invoke(host._id.toHexString())
                     }
                 )
             }
@@ -269,22 +266,17 @@ internal fun HostBrowserScreen(
 
     installConfirmTask?.let { task ->
         AlertDialog(
-            onDismissRequest = { installConfirmTask = null },
+            onDismissRequest = { },
             title = { Text("未下载整合包") },
             text = { Text("未下载此房间的整合包，是否立即下载？") },
             confirmButton = {
                 TextButton(onClick = {
-                    installConfirmTask = null
                     val runId = ClientTaskManager.submit(task)
-                    if (onOpenTaskList != null) {
-                        onOpenTaskList(runId)
-                    } else {
-                        errorMessage = "已加入任务列表"
-                    }
+                    onOpenTaskList(runId)
                 }) { Text("下载") }
             },
             dismissButton = {
-                TextButton(onClick = { installConfirmTask = null }) { Text("取消") }
+                TextButton(onClick = { }) { Text("取消") }
             }
         )
     }

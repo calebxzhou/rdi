@@ -114,7 +114,7 @@ fun ModpackManageCard(
                         )
                     }
                     Text(
-                        text = "${packdir.createTime.millisToHumanDateTime}",
+                        text = packdir.createTime.millisToHumanDateTime,
                         style = MaterialTheme.typography.body2,
                         color = MaterialColor.GRAY_700.color
                     )

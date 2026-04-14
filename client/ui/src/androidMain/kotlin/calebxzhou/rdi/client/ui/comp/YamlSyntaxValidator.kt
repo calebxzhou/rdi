@@ -1,4 +1,4 @@
-package calebxzhou.rdi.client.ui.comp
+package calebxzhou.rdi.client.service.codeeditor
 
 import org.yaml.snakeyaml.Yaml
 

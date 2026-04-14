@@ -70,6 +70,12 @@ expect suspend fun pickLocalModpackFile(): File?
 expect suspend fun pickLocalZipFile(title: String): File?
 
 /**
+ * Pick a Java executable path with a platform file dialog.
+ * Desktop: opens a native chooser for java/java.exe/javaw.exe. Android: returns null.
+ */
+expect suspend fun pickJavaExecutable(title: String): String?
+
+/**
  * Check whether the OS supports creating symlinks.
  * Desktop: delegates to canCreateSymlink().
  * Android: always returns true (no symlink needed).

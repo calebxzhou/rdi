@@ -3,6 +3,7 @@ package calebxzhou.rdi.client.net
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.ip2region.Ip2RegionResult
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.model.Response
 import calebxzhou.rdi.common.net.*
@@ -32,15 +33,31 @@ data class ServerNode(
     val id: Int,
     val name: String,
     val gameAddr: String,
+    val applyPred: (Ip2RegionResult) -> Boolean = {true},
 )
 val SERVER_NODES = listOf(
-    ServerNode(0, "电信专用优化", if(DEBUG)"${RServer.OFFICIAL_DEBUG.ip}:65230" else "rdi.calebxzhou.cn:65230"),
-    ServerNode(1, "广东互通", "frp-leg.com:65230"),
-    ServerNode(2, "浙江互通", "frp-shy.com:65230"),
-    ServerNode(3, "山东互通", "frp-rug.com:65230"),
-    ServerNode(4, "西安互通", "frp-arm.com:55230"),
-    ServerNode(5, "重庆互通", "frp-dog.com:65230"),
-    ServerNode(10, "国际出口", "frp-pet.com:65230"),
+    ServerNode(0, "电信专用优化", if(DEBUG)"${RServer.OFFICIAL_DEBUG.ip}:65230" else "rdi.calebxzhou.cn:65230"){
+        it.isCT
+    },
+    ServerNode(1, "广州互通", "frp-leg.com:65230"){ result ->
+        listOf("广东","广西","湖南","江西","福建","海南","湖北","安徽","贵州","河北","河南").any { result.province.contains(it) }
+    },
+    ServerNode(2, "上海互通", "frp-shy.com:65230"){ result ->
+        listOf("浙江","上海","江苏",).any { result.province.contains(it) }
+    },
+    ServerNode(3, "天津互通", "frp-rug.com:65230"){ result ->
+        listOf("北京","天津","山东","辽宁","吉林","黑龙江").any { result.province.contains(it) }
+    },
+    ServerNode(4, "西安互通", "frp-arm.com:55230"){ result ->
+        listOf("新疆","西藏","陕西","山西","内蒙古","甘肃","宁夏").any { result.province.contains(it) }
+    },
+    ServerNode(5, "重庆互通", "frp-dog.com:65230"){ result ->
+        listOf("四川","云南","重庆").any { result.province.contains(it) }
+    },
+    ServerNode(10, "国际出口", "frp-pet.com:65230"){ result ->
+        listOf("香港","澳门","台湾").any { result.province.contains(it) }
+                || !result.isChina
+    },
 ).associateBy { it.id }
 
 class RServer(

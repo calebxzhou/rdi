@@ -1,9 +1,6 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
@@ -17,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.McVersionCard
 import calebxzhou.rdi.common.model.McVersion
@@ -57,82 +55,70 @@ fun McVersionScreen(
                 }
             }
             Space8h()
+            Text("若下载不成功，从网盘下载，然后手动导入。（不限速，需要手机号登录，免费）")
+            if (requiredMcVer != null) {
+                Text(
+                    text = "请先下载所需版本：${requiredMcVer.mcVer}",
+                    color = MaterialTheme.colors.error
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+            }
+            Space8h()
             Box(
-                modifier = Modifier.fillMaxSize(),
+                modifier = Modifier.fillMaxWidth(),
                 contentAlignment = Alignment.TopCenter
             ) {
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .widthIn(max = 1040.dp)
-                        .padding(bottom = 16.dp)
+                Column(
+                    modifier = Modifier.width(540.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    val portrait = maxHeight > maxWidth
-                    Column(
-                        modifier = Modifier.fillMaxSize()
-                    ) {
-                        Text("若下载不成功，从网盘下载，然后手动导入。（不限速，需要手机号登录，免费）")
-                        if (requiredMcVer != null) {
-                            Text(
-                                text = "请先下载所需版本：${requiredMcVer.mcVer}",
-                                color = MaterialTheme.colors.error
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                        }
-                        Space8h()
-                        LazyVerticalGrid(
-                            columns = GridCells.Fixed(if (portrait) 1 else 2),
-                            horizontalArrangement = Arrangement.spacedBy(20.dp),
-                            verticalArrangement = Arrangement.spacedBy(20.dp),
-                            modifier = Modifier.fillMaxSize()
-                        ) {
-                            items(McVersion.entries) { mcver ->
-                                McVersionCard(
-                                    mcver = mcver,
-                                    highlight = requiredMcVer == mcver,
-                                    onOpenFclDialog = { text, dirName ->
-                                        fclDialogText = text
-                                        fclDialogDirName = dirName
-                                    },
-                                    onOpenTaskList = onOpenTaskList
-                                )
-                            }
-                        }
+                    McVersion.entries.forEach { mcver ->
+                        McVersionCard(
+                            mcver = mcver,
+                            highlight = requiredMcVer == mcver,
+                            onOpenFclDialog = { text, dirName ->
+                                fclDialogText = text
+                                fclDialogDirName = dirName
+                            },
+                            onOpenTaskList = onOpenTaskList
+                        )
                     }
                 }
             }
         }
-    }
 
-    fclDialogText?.let {
-        AlertDialog(
-            onDismissRequest = {
-                fclDialogText = null
-                fclDialogDirName = null
-            },
-            title = { Text("FCL下载提示") },
-            text = { Text(it.asIconText, color = MaterialColor.GRAY_900.color) },
-            dismissButton = {
-                TextButton(onClick = {
+
+        fclDialogText?.let {
+            AlertDialog(
+                onDismissRequest = {
                     fclDialogText = null
                     fclDialogDirName = null
-                }) {
-                    Text("取消")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val dirName = fclDialogDirName
-                    if (!dirName.isNullOrBlank()) {
-                        copyToClipboard(dirName)
+                },
+                title = { Text("FCL下载提示") },
+                text = { Text(it.asIconText, color = MaterialColor.GRAY_900.color) },
+                dismissButton = {
+                    TextButton(onClick = {
+                        fclDialogText = null
+                        fclDialogDirName = null
+                    }) {
+                        Text("取消")
                     }
-                    openGameLauncher()
-                    fclDialogText = null
-                    fclDialogDirName = null
-                }) {
-                    Text("复制版本名称并启动FCL")
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        val dirName = fclDialogDirName
+                        if (!dirName.isNullOrBlank()) {
+                            copyToClipboard(dirName)
+                        }
+                        openGameLauncher()
+                        fclDialogText = null
+                        fclDialogDirName = null
+                    }) {
+                        Text("复制版本名称并启动FCL")
+                    }
                 }
-            }
-        )
+            )
+        }
     }
 }

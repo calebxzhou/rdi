@@ -13,7 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import calebxzhou.rdi.client.R
 import calebxzhou.rdi.client.android.MainActivity
-import calebxzhou.rdi.client.ui.screen.ClientTaskManager
+import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.common.model.Task2Entry
 import calebxzhou.rdi.common.model.Task2Status
 import kotlinx.coroutines.CoroutineScope

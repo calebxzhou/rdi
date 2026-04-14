@@ -91,9 +91,9 @@ object GameService {
             .filter { it.isNotBlank() }
             .filterNot { it in officialUrls }
             .distinct()
-        return if (CONF.useMirror) {
+        return if (CONF.preferMcMirror) {
             DownloadSourcePlan(
-                primaryUrls = if (mirrorUrls.isNotEmpty()) mirrorUrls else officialUrls,
+                primaryUrls = mirrorUrls.ifEmpty { officialUrls },
                 fallbackUrls = if (mirrorUrls.isNotEmpty()) officialUrls else emptyList()
             )
         } else {

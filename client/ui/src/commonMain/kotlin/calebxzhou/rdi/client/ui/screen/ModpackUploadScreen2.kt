@@ -17,6 +17,7 @@ import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientDirs
+import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.LoadedLocalModpack
 import calebxzhou.rdi.client.service.ModpackTester
 import calebxzhou.rdi.client.service.ModpackService
