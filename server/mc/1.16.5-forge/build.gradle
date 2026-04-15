@@ -21,6 +21,10 @@ repositories {
     }
 }
 
+java {
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_1_8
+}
+
 mixin {
     add sourceSets.main, "rdi.mixins.refmap.json"
     config "rdi.mixins.json"  // Add this line

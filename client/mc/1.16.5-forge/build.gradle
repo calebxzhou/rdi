@@ -9,6 +9,30 @@ base {
 version = "5-mc-client-${mcVersion}-forge"
 evaluationDependsOn(":c-mc-common")
 
+java {
+    /*toolchain {
+        languageVersion = JavaLanguageVersion.of(8)
+    }*/
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_1_8
+}
+/*
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = "UTF-8"
+    options.release.set(8)
+}
+
+tasks.withType(JavaExec).configureEach {
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(8)
+    })
+}
+
+tasks.withType(Test).configureEach {
+    javaLauncher.set(javaToolchains.launcherFor {
+        languageVersion = JavaLanguageVersion.of(8)
+    })
+}*/
+
 mixin {
     add sourceSets.main, "rdi.mixins.refmap.json"
     config "rdi.mixins.json"

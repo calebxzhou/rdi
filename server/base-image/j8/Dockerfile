@@ -1,5 +1,4 @@
-
-FROM eclipse-temurin:21-jdk
+FROM eclipse-temurin:8-jdk
 RUN apt-get update \
     && apt-get install -y --no-install-recommends tzdata bash gosu locales iproute2 iptables \
     && rm -rf /var/lib/apt/lists/*
@@ -28,5 +27,5 @@ WORKDIR /
 
 # Configure Docker to send SIGTERM for graceful shutdown
 STOPSIGNAL SIGTERM
- 
+
 ENTRYPOINT ["/usr/local/bin/start-server.sh"]
