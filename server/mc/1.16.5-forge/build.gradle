@@ -1,31 +1,32 @@
-buildscript {
-    repositories {
-        maven { url = 'https://files.minecraftforge.net/maven' }
-        maven { url = "https://repo.spongepowered.org/maven" }
-        maven { url = 'https://maven.parchmentmc.org' } // Add this line
-    }
-    dependencies {
-        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '5.+', changing: true
-        classpath group: 'org.spongepowered', name: 'mixingradle', version: '0.7-SNAPSHOT'
-        classpath 'org.parchmentmc:librarian:1.+'
-    }
+plugins {
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.spongepowered.mixin' version '0.7+'
+    id 'org.parchmentmc.librarian.forgegradle' version '1.+'
 }
-apply plugin: 'net.minecraftforge.gradle'
-apply plugin: 'org.spongepowered.mixin'
-apply plugin: 'org.parchmentmc.librarian.forgegradle'
+
 base {
     archivesName = "rdi"
 }
 
 version = "5-mc-server-${mcVersion}-forge"
 evaluationDependsOn(":s-mc-common")
-sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8'
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+
+    maven {
+        name = "Forge Maven"
+        url = "https://maven.minecraftforge.net/"
+    }
+}
 
 mixin {
     add sourceSets.main, "rdi.mixins.refmap.json"
     config "rdi.mixins.json"  // Add this line
+    debug.verbose = true
+    debug.export = true
 }
-
 minecraft {
     mappings channel: 'parchment', version: "2022.03.06-${project.mcVersion}"
 
@@ -37,9 +38,9 @@ minecraft {
             source sourceSets.main
             properties "rdi.ihq.url": "127.0.0.1:65231"
             properties "rdi.host.id": "695f9e5ad05510e77c09ea1a"
+           // arg "-mixin.debug=true"
+            //arg "-mixin.checks.interfaces=true"
             arg "-mixin.config=rdi.mixins.json"
-            jvmArg "-Dmixin.debug=true"
-            jvmArg "-Dmixin.checks.interfaces=true"
             arg "--nogui"
         }
     }
@@ -52,24 +53,27 @@ sourceSets {
         }
     }
 }
-jarJar.enable()
+def shadedConfiguration = configurations.maybeCreate('shaded')
+
 dependencies {
     minecraft "net.minecraftforge:forge:${project.mcVersion}-${project.forgeVersion}"
     annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
     evaluationDependsOn(':s-mc-common')
     implementation project(':s-mc-common')
-//    additionalRuntimeClasspath project(':s-mc-common')
-    jarJar(implementation('com.neovisionaries:nv-websocket-client:[2.0,3)'))
+    implementation 'com.neovisionaries:nv-websocket-client:2.14'
+    shaded 'com.neovisionaries:nv-websocket-client:2.14'
 }
-tasks.named('jarJar') {
+
+tasks.named('jar') {
     archiveClassifier = ''
 }
 
-// Also disable the regular jar if you only want the jarJar output
-tasks.named('jar') {
-    archiveClassifier = 'slim'  // or use enabled = false to skip it entirely
-}
 jar {
+    from({
+        shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
+    }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
     from(sourceSets.main.output) {
         include "rdi.mixins.refmap.json"
     }

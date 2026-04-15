@@ -1,35 +1,24 @@
-buildscript {
-    repositories {
-        maven { url = 'https://files.minecraftforge.net/maven' }
-        maven { url = "https://repo.spongepowered.org/maven" }
-        maven { url = 'https://maven.parchmentmc.org' } // Add this line
-    }
-    dependencies {
-        classpath group: 'net.minecraftforge.gradle', name: 'ForgeGradle', version: '5.+', changing: true
-        classpath group: 'org.spongepowered', name: 'mixingradle', version: '0.7-SNAPSHOT'
-        classpath 'org.parchmentmc:librarian:1.+'
-    }
+plugins {
+    id 'net.minecraftforge.gradle' version '[6.0,6.2)'
+    id 'org.spongepowered.mixin' version '0.7+'
+    id 'org.parchmentmc.librarian.forgegradle' version '1.+'
 }
-apply plugin: 'net.minecraftforge.gradle'
-apply plugin: 'org.spongepowered.mixin'
-apply plugin: 'org.parchmentmc.librarian.forgegradle'
-
 base {
     archivesName = "rdi"
 }
 version = "5-mc-client-${mcVersion}-forge"
 evaluationDependsOn(":c-mc-common")
-sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8'
 
 mixin {
     add sourceSets.main, "rdi.mixins.refmap.json"
+    config "rdi.mixins.json"
 }
 
 minecraft {
     mappings channel: 'parchment', version: "2022.03.06-${project.mcVersion}"
 
     runs {
-        client = {
+        client {
             properties 'forge.logging.markers': ''
             properties 'forge.logging.console.level': 'debug'
             workingDirectory project.file('run').canonicalPath

@@ -1,6 +1,7 @@
 package calebxzhou.rdi.common.model
 
 import calebxzhou.rdi.common.RDI
+import kotlin.collections.plusAssign
 
 //https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json
 enum class McVersion(
@@ -9,6 +10,7 @@ enum class McVersion(
     val jreVer: Int,
     //预留多loader支持
     val loaderVersions: Map<ModLoader, ModLoader.Version>,
+    val plusJvmArgs: List<String> = listOf(),
     val enabled: Boolean = true,
 ) {
 
@@ -65,6 +67,22 @@ enum class McVersion(
             )
         )
     ),
+    V165(
+        "1.16.5",
+        "assets/icons/zoglin.webp", 21,
+        mapOf(
+            ModLoader.forge to ModLoader.Version(
+                ModLoader.forge,
+                "1.16.5-forge-36.2.42",
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.42/forge-1.16.5-36.2.42-installer.jar",
+                "e09ecf910e4d5eae12fb3564d9b7de212c1958b2"
+            )
+        ),
+        """--add-exports=java.base/sun.security.util=ALL-UNNAMED
+                        --add-exports=jdk.naming.dns/com.sun.jndi.dns=java.naming
+                        --add-opens=java.base/java.util.jar=ALL-UNNAMED""".trimIndent().split("\n"),
+        enabled = true,
+    ),
     V122(
         "1.12.2",
         "assets/icons/terracotta.png", 21,
@@ -92,18 +110,7 @@ enum class McVersion(
         )
         ,enabled = false
     ),
-    V165(
-        "1.16.5",
-        "assets/icons/zoglin.webp", 8,
-        mapOf(
-            ModLoader.forge to ModLoader.Version(
-                ModLoader.forge,
-                "1.16.5-forge-36.2.42",
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.42/forge-1.16.5-36.2.42-installer.jar",
-                "e09ecf910e4d5eae12fb3564d9b7de212c1958b2"
-            )
-        ),enabled = false
-    ),
+
 
     ;
 
