@@ -3,7 +3,8 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 val ktorVersion = "3.4.2"
 val zstdVer = "1.5.7-7"
-val version = "5.12.3"
+val desugarVersion = "2.1.5"
+val version = "5.12.4"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
@@ -16,6 +17,10 @@ plugins {
     id("org.jetbrains.compose") version "1.10.3"
     id("com.android.application") version "8.12.3"
     idea
+}
+
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:$desugarVersion")
 }
 
 tasks.named<Wrapper>("wrapper") {
@@ -196,6 +201,7 @@ android {
     sourceSets["main"].assets.srcDir("src/commonMain/resources")
 
     compileOptions {
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }

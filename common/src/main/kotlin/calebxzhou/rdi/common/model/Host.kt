@@ -158,4 +158,9 @@ data class Host(
         val content: String
     )
 
+    @Serializable
+    data class DeleteDto(
+        val deleteWorld: Boolean = false
+    )
+
 }

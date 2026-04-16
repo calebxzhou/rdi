@@ -1,11 +1,15 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.client.model.firstLoaderDir
+import calebxzhou.rdi.client.model.loaderManifest
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.displaySlugOrProject
+import calebxzhou.rdi.common.json
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -15,14 +19,17 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileNotFoundException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import kotlin.random.Random
 
 enum class TestStatus {
     NOT_RUN, RUNNING, PASSED, FAILED, STOPPED
 }
 
 private const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
+private const val CLIENT_TEST_VERSION_PREFIX = "_rdi_client_test_"
 
 class ModpackTester(
     private val loadedModpack: LoadedLocalModpack
@@ -213,7 +220,176 @@ class ModpackTester(
     }
 }
 
+class ClientModpackTester(
+    private val loadedModpack: LoadedLocalModpack
+) {
+    private val _status = MutableStateFlow(TestStatus.NOT_RUN)
+    val status: StateFlow<TestStatus> = _status.asStateFlow()
+
+    private val _passSeconds = MutableStateFlow<String?>(null)
+    val passSeconds: StateFlow<String?> = _passSeconds.asStateFlow()
+
+    private val _testedModsSignature = MutableStateFlow<String?>(null)
+    val testedModsSignature: StateFlow<String?> = _testedModsSignature.asStateFlow()
+
+    private var crashTriggered = false
+    private var testProcess: ClientTestProcessHandle? = null
+    private var testVersionDir: File? = null
+    private var startedAtMillis: Long = 0L
+
+    fun isRunning(): Boolean = testProcess?.isAlive() == true
+
+    fun currentModsSignature(mods: List<Mod>): String =
+        mods.asSequence()
+            .sortedBy { modStableKey(it) }
+            .joinToString("|") { "${modStableKey(it)}:${it.side.name}" }
+
+    fun onModsChangedAfterManualEdit() {
+        _testedModsSignature.value = null
+        if (_status.value == TestStatus.PASSED) {
+            _status.value = TestStatus.NOT_RUN
+            _passSeconds.value = null
+        }
+    }
+
+    fun dispose(uiScope: CoroutineScope) {
+        stop(uiScope, markStopped = false)
+        cleanupTestDir()
+    }
+
+    fun stop(
+        uiScope: CoroutineScope,
+        markStopped: Boolean = true,
+        appendLog: (String) -> Unit = {}
+    ) {
+        if (terminateProcessOnly()) {
+            if (markStopped && _status.value != TestStatus.PASSED) {
+                _status.value = TestStatus.STOPPED
+            }
+            uiScope.launch {
+                appendLog("[RDI] 已发送停止客户端测试指令")
+            }
+        }
+    }
+
+    fun start(
+        uiScope: CoroutineScope,
+        getMods: () -> List<Mod>,
+        onError: (String?) -> Unit,
+        appendLog: (String) -> Unit
+    ) {
+        if (!loadedModpack.mcVersion.firstLoaderDir.exists()) {
+            uiScope.launch { onError("缺少${loadedModpack.mcVersion.mcVer}客户端资源，请先在MC资源页安装") }
+            return
+        }
+        stop(uiScope, markStopped = false)
+        cleanupTestDir()
+        crashTriggered = false
+        _status.value = TestStatus.RUNNING
+        _passSeconds.value = null
+        _testedModsSignature.value = null
+        startedAtMillis = System.currentTimeMillis()
+        uiScope.launch {
+            onError(null)
+            appendLog("[RDI] 启动客户端测试...")
+        }
+
+        uiScope.launch {
+            runCatching {
+                val versionDir = createClientTestVersionDir(
+                    loadedModpack = loadedModpack,
+                    mods = getMods()
+                )
+                testVersionDir = versionDir
+                val process = GameService.startClientTestProcess(
+                    mcVer = loadedModpack.mcVersion,
+                    versionId = versionDir.name,
+                    versionDir = versionDir
+                ) { line ->
+                    uiScope.launch {
+                        appendLog(line)
+                        if (line.contains(CLIENT_TEST_SUCCESS_MARKER)) {
+                            markClientTestPassed(getMods(), appendLog)
+                            terminateProcessWithDelay(500L)
+                            return@launch
+                        }
+                        if (CLIENT_CRASH_TRIGGER_KEYWORDS.any { keyword -> line.contains(keyword, ignoreCase = true) }) {
+                            if (_status.value == TestStatus.RUNNING) {
+                                crashTriggered = true
+                                _status.value = TestStatus.FAILED
+                                terminateProcessWithDelay(1000L)
+                            }
+                        }
+                    }
+                }
+                testProcess = process
+
+                val exitCode = process.waitFor()
+                uiScope.launch {
+                    if (testProcess == process) {
+                        testProcess = null
+                    }
+                    if (_status.value == TestStatus.PASSED) return@launch
+                    if (_status.value == TestStatus.RUNNING) {
+                        _status.value = if (crashTriggered) TestStatus.FAILED else TestStatus.STOPPED
+                    }
+                    if (exitCode != 0 && crashTriggered) {
+                        onError("客户端测试异常退出: $exitCode")
+                    }
+                }
+            }.onFailure {
+                uiScope.launch {
+                    _status.value = TestStatus.FAILED
+                    onError("启动客户端测试失败: ${it.message}")
+                    stop(uiScope, markStopped = false)
+                }
+            }
+        }
+    }
+
+    private fun terminateProcessOnly(): Boolean {
+        val process = testProcess ?: return false
+        runCatching {
+            if (process.isAlive()) process.destroy()
+            if (process.isAlive()) process.destroyForcibly()
+        }
+        testProcess = null
+        return true
+    }
+
+    private suspend fun terminateProcessWithDelay(delayMillis: Long) {
+        if (delayMillis > 0L) delay(delayMillis)
+        terminateProcessOnly()
+    }
+
+    private fun markClientTestPassed(
+        mods: List<Mod>,
+        appendLog: (String) -> Unit
+    ) {
+        if (_status.value != TestStatus.RUNNING) return
+        val elapsed = ((System.currentTimeMillis() - startedAtMillis) / 1000.0)
+        _passSeconds.value = "%.1f".format(elapsed)
+        _status.value = TestStatus.PASSED
+        _testedModsSignature.value = currentModsSignature(mods)
+        appendLog("[RDI] 客户端测试通过")
+    }
+
+    private fun cleanupTestDir() {
+        testVersionDir?.let { dir ->
+            runCatching { dir.deleteRecursivelyNoSymlink() }
+        }
+        testVersionDir = null
+    }
+}
+
 internal expect class ServerTestProcessHandle {
+    fun isAlive(): Boolean
+    fun destroy()
+    fun destroyForcibly()
+    suspend fun waitFor(): Int
+}
+
+internal expect class ClientTestProcessHandle {
     fun isAlive(): Boolean
     fun destroy()
     fun destroyForcibly()
@@ -226,6 +402,13 @@ internal expect fun GameService.startServerTestProcess(
     workDir: File,
     onLine: (String) -> Unit
 ): ServerTestProcessHandle
+
+internal expect fun GameService.startClientTestProcess(
+    mcVer: McVersion,
+    versionId: String,
+    versionDir: File,
+    onLine: (String) -> Unit
+): ClientTestProcessHandle
 
 private fun modStableKey(mod: Mod): String =
     "${mod.platform}:${mod.projectId}:${mod.fileId}:${mod.hash}"
@@ -267,39 +450,16 @@ private suspend fun createServerTestWorkDir(
         }
     }
     val sourceDir = loadedModpack.sourceDir
-    val overridesDir = sourceDir.resolve("overrides")
-    if (overridesDir.exists() && overridesDir.isDirectory) {
-        copyDirectoryContent(overridesDir, testDir)
-    } else {
-        sourceDir.listFiles()?.forEach { child ->
-            if (isClientOnlyMarkedModFile(child)) return@forEach
-            if (child.name.equals("mods", ignoreCase = true)) return@forEach
-            if (child.name.equals("manifest.json", ignoreCase = true)) return@forEach
-            if (child.name.equals("modrinth.index.json", ignoreCase = true)) return@forEach
-            val target = testDir.resolve(child.name)
-            if (child.isDirectory) {
-                child.copyRecursively(target, overwrite = true)
-            } else {
-                target.parentFile?.mkdirs()
-                Files.copy(child.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            }
-        }
-    }
+    copyTestPackBaseContent(
+        sourceDir = sourceDir,
+        targetDir = testDir,
+        skipRootChild = ::isClientOnlyMarkedModFile
+    )
     val modsDir = testDir.resolve("mods").apply { mkdirs() }
-    mods.filter {
-        it.side != Mod.Side.CLIENT &&
-            !isClientOnlyMarkedModName(it.fileName) &&
-            it.fileName !in excludedOriginalNames
-    }.forEach { mod ->
-        val source = DL_MOD_DIR.resolve(mod.fileName)
-        if (!source.exists()) return@forEach
-        val target = modsDir.resolve(source.name)
-        runCatching {
-            Files.deleteIfExists(target.toPath())
-            Files.createSymbolicLink(target.toPath(), source.toPath())
-        }.onFailure {
-            Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        }
+    stageDownloadedMods(modsDir, mods) { mod ->
+        mod.side != Mod.Side.CLIENT &&
+            !isClientOnlyMarkedModName(mod.fileName) &&
+            mod.fileName !in excludedOriginalNames
     }
     modsDir.listFiles()?.forEach { file ->
         if (!file.isFile) return@forEach
@@ -314,13 +474,7 @@ private fun copyDirectoryContent(source: File, target: File) {
     source.listFiles()?.forEach { child ->
         if (isClientOnlyMarkedModFile(child)) return@forEach
         val dest = target.resolve(child.name)
-        if (child.isDirectory) {
-            if (!dest.exists()) dest.mkdirs()
-            copyDirectoryContent(child, dest)
-        } else {
-            dest.parentFile?.mkdirs()
-            Files.copy(child.toPath(), dest.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        }
+        copyFileOrDirectory(child, dest)
     }
 }
 
@@ -519,5 +673,97 @@ private fun isClientOnlyMarkedModFile(file: File): Boolean {
         file.extension.equals("jar", ignoreCase = true)
 }
 
+private val CLIENT_CRASH_TRIGGER_KEYWORDS = listOf(
+    "Preparing crash report",
+    "MixinTransformerError",
+    "Failed to create mod instance",
+    "Mod Loading has failed",
+    "NoClassDefFoundError",
+    "ClassNotFoundException",
+    "Missing mandatory dependencies"
+)
+
+const val CLIENT_TEST_SUCCESS_MARKER = "开始运行客户端测试"
+
+private suspend fun createClientTestVersionDir(
+    loadedModpack: LoadedLocalModpack,
+    mods: List<Mod>
+) = withContext(Dispatchers.IO) {
+    val versionId = CLIENT_TEST_VERSION_PREFIX + System.currentTimeMillis() + "_" + Random.nextInt(1000, 9999)
+    val versionDir = ClientDirs.packProcDir.resolve(versionId).apply {
+        if (exists()) deleteRecursivelyNoSymlink()
+        mkdirs()
+    }
+    val sourceDir = loadedModpack.sourceDir
+    copyTestPackBaseContent(sourceDir, versionDir)
+    val modsDir = versionDir.resolve("mods").apply { mkdirs() }
+    stageDownloadedMods(modsDir, mods) { it.side != Mod.Side.SERVER }
+    ModpackService.writeOptions(versionDir)
+    //ModpackService.installRdiCore(loadedModpack.mcVersion, loadedModpack.modloader, modsDir)
+    try {
+        versionDir.resolve("$versionId.json")
+            .writeText(loadedModpack.mcVersion.loaderManifest.copy(id = versionId).json)
+    } catch (e: FileNotFoundException) {
+        throw IllegalStateException("没有找到${loadedModpack.mcVersion.mcVer}版本的${loadedModpack.modloader.name}，请先安装")
+    }
+    versionDir
+}
+
 private fun isClientOnlyMarkedModName(fileName: String): Boolean =
     fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
+
+private fun copyTestPackBaseContent(
+    sourceDir: File,
+    targetDir: File,
+    skipRootChild: (File) -> Boolean = { false }
+) {
+    val overridesDir = sourceDir.resolve("overrides")
+    if (overridesDir.exists() && overridesDir.isDirectory) {
+        copyDirectoryContent(overridesDir, targetDir)
+        return
+    }
+    sourceDir.listFiles()?.forEach { child ->
+        if (skipRootChild(child)) return@forEach
+        if (child.name.equals("mods", ignoreCase = true)) return@forEach
+        if (child.name.equals("manifest.json", ignoreCase = true)) return@forEach
+        if (child.name.equals("modrinth.index.json", ignoreCase = true)) return@forEach
+        copyFileOrDirectory(child, targetDir.resolve(child.name))
+    }
+}
+
+private fun copyFileOrDirectory(source: File, target: File) {
+    if (source.isDirectory) {
+        if (!target.exists()) target.mkdirs()
+        copyDirectoryContent(source, target)
+        return
+    }
+    target.parentFile?.mkdirs()
+    Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+}
+
+private fun stageDownloadedMods(
+    modsDir: File,
+    mods: List<Mod>,
+    includeMod: (Mod) -> Boolean
+) {
+    mods.asSequence()
+        .filter(includeMod)
+        .forEach { mod ->
+            stageDownloadedModFile(modsDir, mod.fileName)
+        }
+}
+
+private fun stageDownloadedModFile(modsDir: File, fileName: String) {
+    val source = DL_MOD_DIR.resolve(fileName)
+    if (!source.exists()) return
+    linkOrCopyFile(source, modsDir.resolve(source.name))
+}
+
+private fun linkOrCopyFile(source: File, target: File) {
+    runCatching {
+        Files.deleteIfExists(target.toPath())
+        Files.createSymbolicLink(target.toPath(), source.toPath())
+    }.onFailure {
+        Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+    }
+}

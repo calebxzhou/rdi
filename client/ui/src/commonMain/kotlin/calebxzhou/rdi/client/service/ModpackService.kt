@@ -373,17 +373,7 @@ object ModpackService {
         }
 
         val writeOptionsTask = Task2.Leaf("写入配置文件") { ctx ->
-            val optionsFile = versionDir.resolve("options.txt")
-            optionsFile.writeText(
-                mergeMinecraftOptions(
-                    original = optionsFile.takeIf(File::exists)?.readText().orEmpty(),
-                    overrides = linkedMapOf(
-                        "lang" to "zh_cn",
-                        "darkMojangStudiosBackground" to "true",
-                        "forceUnicodeFont" to "true"
-                    )
-                )
-            )
+            writeOptions(versionDir)
             try {
                 versionDir.resolve(versionDir.name + ".json")
                     .writeText(mcVersion.loaderManifest.copy(id = versionDir.name).json)
@@ -394,9 +384,23 @@ object ModpackService {
         }
         return listOf(prepareVersionDirTask, extractTask, copyModsTask, writeOptionsTask)
     }
+
+    fun writeOptions(versionDir: File) {
+        val optionsFile = versionDir.resolve("options.txt")
+        optionsFile.writeText(
+            mergeMinecraftOptions(
+                original = optionsFile.takeIf(File::exists)?.readText().orEmpty(),
+                overrides = linkedMapOf(
+                    "lang" to "zh_cn",
+                    "darkMojangStudiosBackground" to "true",
+                    "forceUnicodeFont" to "true"
+                )
+            )
+        )
+    }
 }
 
-private fun mergeMinecraftOptions(
+fun mergeMinecraftOptions(
     original: String,
     overrides: Map<String, String>
 ): String {
@@ -487,6 +491,8 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             "$port\n"+
             "${loggedAccount.uuid}\n"+
             loggedAccount.name
+    val activeBaseMods = version.mods
+        .filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }
 
     return StartPlayResult.Ready(
         McPlayArgs(
@@ -494,6 +500,9 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             mcVer = modpack.mcVer,
             versionId = versionId,
             playArg = playArg,
+            activeBaseMods = activeBaseMods,
+            disabledBaseMods = disabledMods,
+            manageHostBaseMods = true,
             extraMods = extraMods,
             manageHostExtraMods = true
         )

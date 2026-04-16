@@ -907,6 +907,7 @@ private fun readResourcepackEntry(
 
 private val disallowedClientPathPrefixes = setOf(
     "config/fancymenu/",
+    "packmenu",
     "shaderpacks/",
     "kubejs/probe/"
 )

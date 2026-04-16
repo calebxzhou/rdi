@@ -83,6 +83,8 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.bson.Document
 import org.bson.conversions.Bson
 import org.bson.types.ObjectId
@@ -170,7 +172,7 @@ fun Route.hostRoutes() = route("/host") {
             ok()
         }
         delete {
-            call.hostContext().needOwner.delete()
+            call.hostContext().needOwner.delete(call.receiveNullable<Host.DeleteDto>() ?: Host.DeleteDto())
             ok()
         }
         get {
@@ -330,6 +332,7 @@ object HostService {
     private val skipWorldSizeUpdate = ConcurrentHashMap.newKeySet<ObjectId>()
     private val onlinePlayersCache = ConcurrentHashMap<ObjectId, OnlinePlayersCacheEntry>()
     private val onlinePlayersRefreshJobs = ConcurrentHashMap<ObjectId, Job>()
+    private val memberMutationLocks = ConcurrentHashMap<String, Mutex>()
     private val staleCleanupJob: Job
 
     private const val PORT_START = 50000
@@ -363,6 +366,24 @@ object HostService {
         val playerIds: List<ObjectId>,
         val updatedAt: Long
     )
+
+    private suspend fun <T> withMemberMutationLocks(
+        vararg keys: String,
+        block: suspend () -> T
+    ): T {
+        val locks = keys.distinct()
+            .sorted()
+            .map { memberMutationLocks.computeIfAbsent(it) { Mutex() } }
+
+        suspend fun acquire(index: Int): T {
+            if (index >= locks.size) return block()
+            return locks[index].withLock {
+                acquire(index + 1)
+            }
+        }
+
+        return acquire(0)
+    }
 
 
     init {
@@ -432,6 +453,10 @@ object HostService {
                 McVersion.V201,
                 McVersion.V211 -> {
                     loaderVersion.serverArgsPath(true)
+                }
+
+                McVersion.V165 -> {
+                    McVersion.V165.plusJvmArgs.joinToString(" ")+" -jar ${loaderVersion.serverJarName}"
                 }
                 //1.16-
                 else
@@ -532,7 +557,7 @@ object HostService {
     fun HostContext.requireRole(level: Role): HostContext {
         member.let {
             val allowed = when (level) {
-                Role.MEMBER -> true
+                Role.MEMBER -> member.role != Role.GUEST || host.isPublic
                 Role.ADMIN -> member.role.level <= Role.ADMIN.level
                 Role.OWNER -> member.role == Role.OWNER
                 else -> false
@@ -1197,7 +1222,7 @@ object HostService {
                         .withTarget("/opt/server/mods/${mod.fileName}")
                 }
             //1.16.5以下装入核心
-            if (modpack.mcVer == McVersion.V122 || modpack.mcVer == McVersion.V071) {
+            if (listOf(McVersion.V165,McVersion.V122 ,McVersion.V071).any{it == modpack.mcVer}) {
                 this += Mount()
                     .withType(MountType.BIND)
                     .withSource(sharedLibsDir.resolve(loaderVer.serverJarName).absolutePath)
@@ -1234,10 +1259,11 @@ object HostService {
         } ?: throw RequestError("不支持的mod加载器")
     }
 
-    suspend fun HostContext.delete() {
+    suspend fun HostContext.delete(payload: Host.DeleteDto = Host.DeleteDto()) {
         if (host.status == HostStatus.PLAYABLE) {
             graceStop()
         }
+        val worldIdToDelete = host.worldId.takeIf { payload.deleteWorld }
         host.dir.deleteRecursivelyNoSymlink()
         host.dir.delete()
         DockerService.deleteContainer(host._id.str)
@@ -1252,6 +1278,7 @@ object HostService {
         skipWorldSizeUpdate.remove(host._id)
 
         dbcl.deleteOne(eq("_id", host._id))
+        worldIdToDelete?.let { WorldService.delete(player._id, it) }
     }
 
     suspend fun HostContext.changeVersion(packVer: String?) {
@@ -2243,22 +2270,24 @@ object HostService {
     }
 
     suspend fun HostContext.addMember(qq: String) {
-        val current = getById(host._id) ?: throw RequestError("无此房间")
         val target = PlayerService.getByQQ(qq) ?: throw RequestError("无此账号")
-        if (current.hasMember(target._id)) {
-            throw RequestError("该用户已是成员")
+        withMemberMutationLocks("host:${host._id}", "player:${target._id}") {
+            val current = getById(host._id) ?: throw RequestError("无此房间")
+            if (current.hasMember(target._id)) {
+                throw RequestError("该用户已是成员")
+            }
+            if (!current.isPublic && current.members.size >= 10) {
+                throw RequestError("该房间最多只能有10名成员")
+            }
+            val joinedCount = dbcl.countDocuments(eq("${Host::members.name}.${Host.Member::id.name}", target._id))
+            if (joinedCount >= 10) {
+                throw RequestError("该用户已加入9张房间，无法继续加入")
+            }
+            dbcl.updateOne(
+                eq("_id", current._id),
+                Updates.push(Host::members.name, Host.Member(target._id, Role.MEMBER))
+            )
         }
-        if (!current.isPublic && current.members.size >= 10) {
-            throw RequestError("该房间最多只能有10名成员")
-        }
-        val joinedCount = dbcl.countDocuments(eq("${Host::members.name}.${Host.Member::id.name}", target._id))
-        if (joinedCount >= 10) {
-            throw RequestError("该用户已加入 9 张房间，无法继续加入")
-        }
-        dbcl.updateOne(
-            eq("_id", current._id),
-            Updates.push(Host::members.name, Host.Member(target._id, Role.MEMBER))
-        )
     }
 
     suspend fun HostContext.setRole(role: Role) {

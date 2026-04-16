@@ -69,7 +69,7 @@ enum class McVersion(
     ),
     V165(
         "1.16.5",
-        "assets/icons/zoglin.webp", 21,
+        "assets/icons/zoglin.webp", 8,
         mapOf(
             ModLoader.forge to ModLoader.Version(
                 ModLoader.forge,
@@ -78,9 +78,10 @@ enum class McVersion(
                 "e09ecf910e4d5eae12fb3564d9b7de212c1958b2"
             )
         ),
-        """--add-exports=java.base/sun.security.util=ALL-UNNAMED
-                        --add-exports=jdk.naming.dns/com.sun.jndi.dns=java.naming
-                        --add-opens=java.base/java.util.jar=ALL-UNNAMED""".trimIndent().split("\n"),
+        //jdk21+运行j8mc用
+        /*"""--add-exports=java.base/sun.security.util=ALL-UNNAMED
+--add-exports=jdk.naming.dns/com.sun.jndi.dns=java.naming
+--add-opens=java.base/java.util.jar=ALL-UNNAMED""".trimIndent().split("\n"),*/
         enabled = true,
     ),
     V122(
@@ -116,7 +117,9 @@ enum class McVersion(
 
     //1.16及以下 服务端核心
     val serverJarName get() = "minecraft_server.${mcVer}.jar"
-
+    val vMajor get() = mcVer.split(".")[0]
+    val vMinor get() = mcVer.split(".")[1]
+    val vPatch get() = mcVer.split(".")[2]
     companion object {
         fun from(mcVer: String): McVersion? = entries.firstOrNull { it.mcVer == mcVer }
     }

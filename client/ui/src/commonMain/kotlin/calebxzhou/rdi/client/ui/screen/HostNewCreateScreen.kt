@@ -28,6 +28,7 @@ import calebxzhou.rdi.client.ui.comp.ImageCard
 import calebxzhou.rdi.client.ui.comp.ModpackManageCard
 import calebxzhou.rdi.client.ui.comp.WorldCard
 import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.World
 import calebxzhou.rdi.common.serdesJson
 import io.ktor.http.*
@@ -78,17 +79,26 @@ fun HostNewCreateScreen(
     var selectedWorldId by remember { mutableStateOf<ObjectId?>(null) }
     var difficulty by remember { mutableStateOf(2) }
     var gameMode by remember { mutableStateOf(0) }
+    var currentMcVersion by remember { mutableStateOf<McVersion?>(null) }
     var levelType by remember { mutableStateOf("minecraft:normal") }
     var levelChoice by remember { mutableStateOf(0) }
     var whitelist by remember { mutableStateOf(false) }
     var allowCheats by remember { mutableStateOf(false) }
 
     fun isEditMode() = editHostId != null
-    fun updateLevelChoiceFromType(type: String) {
+    fun skyblockLevelType(mcVersion: McVersion?): String {
+        val minor = mcVersion?.vMinor?.toIntOrNull()
+        return if (minor != null && minor <= 16) {
+            "skyblockbuilder:custom_skyblock"
+        } else {
+            "skyblockbuilder:skyblock"
+        }
+    }
+    fun updateLevelChoiceFromType(type: String, mcVersion: McVersion? = currentMcVersion) {
         when {
             type.contains("skyblock", ignoreCase = true) -> {
                 levelChoice = 2
-                levelType = "skyblockbuilder:skyblock"
+                levelType = mcVersion?.let(::skyblockLevelType) ?: type
             }
 
             type == "minecraft:flat" -> {
@@ -129,6 +139,7 @@ fun HostNewCreateScreen(
         if (rawHostId.isNullOrBlank() || !ObjectId.isValid(rawHostId)) {
             title = "创建新房间"
             editHostId = null
+            currentMcVersion = selectedPack?.vo?.mcVer
             return@LaunchedEffect
         }
         editHostId = ObjectId(rawHostId)
@@ -144,9 +155,10 @@ fun HostNewCreateScreen(
                 packVerText = detail.packVer
                 difficulty = detail.difficulty
                 gameMode = detail.gameMode
+                currentMcVersion = detail.modpack.mcVer
                 whitelist = detail.whitelist
                 allowCheats = detail.allowCheats
-                updateLevelChoiceFromType(detail.levelType)
+                updateLevelChoiceFromType(detail.levelType, detail.modpack.mcVer)
                 if (detail.worldId == null) {
                     editPreferNoSave = true
                 } else {
@@ -178,6 +190,12 @@ fun HostNewCreateScreen(
         } ?: return@LaunchedEffect
         if (selectedPack?.versionId != matched.versionId) {
             selectedPack = matched
+        }
+        if (currentMcVersion != matched.vo.mcVer) {
+            currentMcVersion = matched.vo.mcVer
+            if (levelChoice == 2) {
+                levelType = skyblockLevelType(matched.vo.mcVer)
+            }
         }
     }
 
@@ -352,16 +370,20 @@ fun HostNewCreateScreen(
                                 packdir = packdir,
                                 selected = packdir.versionId == selectedPack?.versionId ||
                                         (packdir.vo.id.toHexString() == modpackIdText && packdir.verName == packVerText),
-                                onClick = if (isEditMode()) {
-                                    null
-                                } else {
-                                    {
-                                        selectedPack = packdir
-                                        modpackIdText = packdir.vo.id.toHexString()
-                                        packVerText = packdir.verName
-                                    }
-                                }
-                            )
+                                        onClick = if (isEditMode()) {
+                                            null
+                                        } else {
+                                            {
+                                                selectedPack = packdir
+                                                currentMcVersion = packdir.vo.mcVer
+                                                modpackIdText = packdir.vo.id.toHexString()
+                                                packVerText = packdir.verName
+                                                if (levelChoice == 2) {
+                                                    levelType = skyblockLevelType(packdir.vo.mcVer)
+                                                }
+                                            }
+                                        }
+                                    )
                         }
                     }
                 }
@@ -526,7 +548,7 @@ fun HostNewCreateScreen(
                                                         selected = levelChoice == 2,
                                                         onClick = {
                                                             levelChoice = 2
-                                                            levelType = "skyblockbuilder:skyblock"
+                                                            levelType = skyblockLevelType(currentMcVersion)
                                                         }
                                                     )
                                                 }

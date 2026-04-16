@@ -368,6 +368,9 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
                 mcVer = args.mcVer,
                 versionId = args.versionId,
                 playArg = args.playArg,
+                activeBaseMods = args.activeBaseMods,
+                disabledBaseMods = args.disabledBaseMods,
+                manageHostBaseMods = args.manageHostBaseMods,
                 extraMods = args.extraMods,
                 manageHostExtraMods = args.manageHostExtraMods,
                 onBack = {

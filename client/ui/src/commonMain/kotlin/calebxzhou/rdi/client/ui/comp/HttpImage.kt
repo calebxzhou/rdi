@@ -13,8 +13,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import calebxzhou.rdi.client.service.HttpImageState
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 /**
  * calebxzhou @ 2026-01-12 23:34
@@ -26,11 +24,16 @@ fun HttpImage(
     contentDescription: String? = null,
     contentScale: ContentScale = ContentScale.Crop
 ) {
-    val state = produceState(initialValue = HttpImageState.loading(), imgUrl) {
-        value = HttpImageState.loading()
-        value = withContext(Dispatchers.IO) {
-            HttpImageState.fetch(imgUrl)
+    val state = produceState(
+        initialValue = HttpImageState.peek(imgUrl) ?: HttpImageState.loading(),
+        key1 = imgUrl
+    ) {
+        HttpImageState.peek(imgUrl)?.let { cached ->
+            value = cached
+            return@produceState
         }
+        value = HttpImageState.loading()
+        value = HttpImageState.fetch(imgUrl)
     }.value
 
     Box(modifier = modifier, contentAlignment = Alignment.Center) {

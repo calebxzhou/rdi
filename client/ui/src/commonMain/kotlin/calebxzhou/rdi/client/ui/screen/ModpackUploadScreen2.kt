@@ -14,9 +14,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.CONF
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.CLIENT_TEST_SUCCESS_MARKER
 import calebxzhou.rdi.client.service.ClientDirs
+import calebxzhou.rdi.client.service.ClientModpackTester
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.LoadedLocalModpack
 import calebxzhou.rdi.client.service.ModpackTester
@@ -46,6 +49,7 @@ import calebxzhou.rdi.lgr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.util.jar.JarFile
 
 private enum class UploadMode { CREATE, UPDATE }
@@ -77,9 +81,11 @@ fun ModpackUploadScreen2(
     var progressFraction by remember { mutableStateOf<Float?>(null) }
     var downloadTaskRunId by remember { mutableStateOf<String?>(null) }
     var askServerPackAfterLoad by remember { mutableStateOf(false) }
+    var clientTester by remember { mutableStateOf<ClientModpackTester?>(null) }
     var serverTester by remember { mutableStateOf<ModpackTester?>(null) }
     var uploadMode by remember { mutableStateOf(UploadMode.CREATE) }
     var uploadedModpacks by remember { mutableStateOf<List<Modpack.BriefVo>>(emptyList()) }
+    var uploadedModpacksLoading by remember { mutableStateOf(false) }
     var uploadedModpacksLoaded by remember { mutableStateOf(false) }
     var selectedUpdateTarget by remember { mutableStateOf<Modpack.BriefVo?>(null) }
     var showUploadModeDialog by remember { mutableStateOf(false) }
@@ -87,32 +93,78 @@ fun ModpackUploadScreen2(
     val downloadTaskEntry = remember(taskEntries, downloadTaskRunId) {
         downloadTaskRunId?.let { runId -> taskEntries.firstOrNull { it.runId == runId } }
     }
+    val clientTestStatus = clientTester?.status?.collectAsState()
+    val clientTestPassSeconds = clientTester?.passSeconds?.collectAsState()
+    val clientTestConsoleState = remember { ConsoleState(4000) }
     val serverTestStatus = serverTester?.status?.collectAsState()
     val serverTestPassSeconds = serverTester?.passSeconds?.collectAsState()
     val serverTestConsoleState = remember { ConsoleState(4000) }
-
-    LaunchedEffect(Unit) {
-        runCatching {
-            uploadedModpacks = server.makeRequest<List<Modpack>>("modpack/my").data
-                .orEmpty()
-                .sortedByDescending { pack -> pack.versions.maxOfOrNull { it.time } ?: 0L }
-                .map { it.toLocalBriefVo() }
-        }.onFailure { error ->
-            lgr.error { error }
-            errorText = error.message ?: "读取已上传整合包失败"
-        }
-        uploadedModpacksLoaded = true
-    }
+    val canSubmitUpload = !loading &&
+        serverTester?.isRunning() == false &&
+        clientTester?.isRunning() == false &&
+        (uploadMode == UploadMode.CREATE || selectedUpdateTarget != null)
 
     fun resetTestState() {
+        clientTestConsoleState.clear()
         serverTestConsoleState.clear()
+    }
+
+    fun loadUploadedModpacks(openDialogAfterLoad: Boolean = false) {
+        if (uploadedModpacksLoading) return
+        if (uploadedModpacksLoaded) {
+            if (openDialogAfterLoad) showUploadModeDialog = true
+            return
+        }
+        scope.launch {
+            uploadedModpacksLoading = true
+            runCatching {
+                server.makeRequest<List<Modpack>>("modpack/my").data
+                    .orEmpty()
+                    .sortedByDescending { pack -> pack.versions.maxOfOrNull { it.time } ?: 0L }
+                    .map { it.toLocalBriefVo() }
+            }.onSuccess { packs ->
+                uploadedModpacks = packs
+                uploadedModpacksLoaded = true
+                if (openDialogAfterLoad) {
+                    showUploadModeDialog = true
+                }
+            }.onFailure { error ->
+                lgr.error { error }
+                errorText = error.message ?: "读取已上传整合包失败"
+            }
+            uploadedModpacksLoading = false
+        }
+    }
+
+    fun uploadRuntimeRequirementMessageOrNull(mcVersion: calebxzhou.rdi.common.model.McVersion): String? {
+        if (!isDesktop || mcVersion.jreVer != 8) return null
+        val configuredPath = CONF.jre8Path?.trim().orEmpty()
+        if (configuredPath.isBlank()) {
+            return """MC${mcVersion.mcVer}需要Java8。请前往群文件下载安装包，然后在设置界面中选择""".trimIndent()
+        }
+        return null
+    }
+
+    fun ensureUploadRuntimeReady(mcVersion: calebxzhou.rdi.common.model.McVersion): Boolean {
+        val requirementMessage = uploadRuntimeRequirementMessageOrNull(mcVersion) ?: return true
+        errorText = requirementMessage
+        askServerPackAfterLoad = false
+        return false
     }
 
 
     fun enterEditMode() {
         loadedModpack?.let {
+            if (!ensureUploadRuntimeReady(it.mcVersion)) return
+            clientTester?.dispose(scope)
             serverTester?.dispose(scope)
-            serverTester = ModpackTester(it.copy(mods = mods))
+            if (isDesktop) {
+                clientTester = ClientModpackTester(it.copy(mods = mods))
+                serverTester = ModpackTester(it.copy(mods = mods))
+            } else {
+                clientTester = null
+                serverTester = null
+            }
         }
         resetTestState()
         editMode = true
@@ -134,6 +186,7 @@ fun ModpackUploadScreen2(
 
     DisposableEffect(Unit) {
         onDispose {
+            clientTester?.dispose(scope)
             serverTester?.dispose(scope)
         }
     }
@@ -189,6 +242,7 @@ fun ModpackUploadScreen2(
     fun applyServerPack(serverMods: List<Mod>) {
         mods = mergeClientAndServerMods(mods, serverMods)
         serverPackName = "已选择服务端(${serverMods.size}个mod)"
+        clientTester?.onModsChangedAfterManualEdit()
         serverTester?.onModsChangedAfterManualEdit()
     }
 
@@ -212,6 +266,23 @@ fun ModpackUploadScreen2(
         modpackName = target.name
         selectedCategories = target.categories
         showUploadModeDialog = false
+    }
+
+    fun startUpdateModeSelection() {
+        uploadMode = UploadMode.UPDATE
+        selectedCategories = selectedUpdateTarget?.categories ?: emptyList()
+        loadUploadedModpacks(openDialogAfterLoad = true)
+    }
+
+    fun openUploadModeDialog() {
+        loadUploadedModpacks(openDialogAfterLoad = true)
+    }
+
+    fun closeUploadModeDialog() {
+        showUploadModeDialog = false
+        if (uploadMode == UploadMode.UPDATE && selectedUpdateTarget == null) {
+            chooseCreateMode()
+        }
     }
 
     fun continueAfterSidesReady() {
@@ -261,8 +332,13 @@ fun ModpackUploadScreen2(
             return null
         }
         val normalizedMods = if (DEBUG) normalizeUnknownSidedMods(mods) else mods
-        val currentTester = serverTester
-        if (!DEBUG && currentTester != null && currentTester.status.value != TestStatus.PASSED) {
+        val currentClientTester = clientTester
+        val currentServerTester = serverTester
+        if (!DEBUG && isDesktop && currentClientTester != null && currentClientTester.status.value != TestStatus.PASSED) {
+            errorText = "请先完成客户端测试并通过"
+            return null
+        }
+        if (!DEBUG && isDesktop && currentServerTester != null && currentServerTester.status.value != TestStatus.PASSED) {
             errorText = "请先完成服务端测试并通过"
             return null
         }
@@ -324,6 +400,10 @@ fun ModpackUploadScreen2(
                 errorText = error.message ?: "读取整合包失败"
                 return@launch
             }
+            if (!ensureUploadRuntimeReady(loadResult.mcVersion)) {
+                finishLoading()
+                return@launch
+            }
 
             loadedModpack = loadResult
             modpackName = loadResult.packName
@@ -341,28 +421,6 @@ fun ModpackUploadScreen2(
             selectedTab = 0
             finishLoading()
             askServerPackAfterLoad = true
-        }
-    }
-
-    fun selectServerPack() {
-        scope.launch {
-            val file = pickLocalZipFile("选择服务端安装包") ?: return@launch
-            errorText = null
-            loading = true
-            progressText = "已选择服务端: ${file.name}"
-            progressFraction = null
-            val serverMods = runCatching {
-                loadServerPackMods(file, mods) { progress ->
-                    scope.launch { mapProgress(progress) }
-                }.getOrThrow()
-            }.getOrElse { error ->
-                finishLoading()
-                lgr.error { error }
-                errorText = error.message ?: "读取服务端包失败"
-                return@launch
-            }
-            applyServerPack(serverMods)
-            finishLoading()
         }
     }
 
@@ -395,6 +453,10 @@ fun ModpackUploadScreen2(
     }
 
     fun startServerTest() {
+        if (!isDesktop) {
+            errorText = "当前平台暂不支持服务端测试"
+            return
+        }
         val currentTester = serverTester
         if (currentTester == null) {
             errorText = "请先选择整合包文件"
@@ -419,6 +481,34 @@ fun ModpackUploadScreen2(
         )
     }
 
+    fun startClientTest() {
+        if (!isDesktop) {
+            errorText = "当前平台暂不支持客户端测试"
+            return
+        }
+        val currentTester = clientTester
+        if (currentTester == null) {
+            errorText = "请先选择整合包文件"
+        } else if (currentTester.isRunning()) {
+            errorText = "测试客户端已经在运行中"
+        } else {
+            clientTestConsoleState.clear()
+            currentTester.start(
+                uiScope = scope,
+                getMods = { mods },
+                onError = { msg -> msg?.let { errorText = it } },
+                appendLog = { line -> clientTestConsoleState.append(line) }
+            )
+        }
+    }
+
+    fun stopClientTest() {
+        clientTester?.stop(
+            uiScope = scope,
+            appendLog = { line -> clientTestConsoleState.append(line) }
+        )
+    }
+
     Box(modifier = Modifier.fillMaxSize()) {
         MainColumn {
             errorText?.let { AlertErr(it) }
@@ -437,7 +527,7 @@ fun ModpackUploadScreen2(
                         "\uF058",
                         "开始传包",
                         bgColor = MaterialColor.GREEN_900.color,
-                        enabled = !loading && serverTester?.isRunning() == false,
+                        enabled = canSubmitUpload,
                         onClick = ::startUploadTask
                     )
 
@@ -472,6 +562,11 @@ fun ModpackUploadScreen2(
                     Tab(
                         selected = selectedTab == 2,
                         onClick = { selectedTab = 2 },
+                        text = { Text("客户端测试") }
+                    )
+                    Tab(
+                        selected = selectedTab == 3,
+                        onClick = { selectedTab = 3 },
                         text = { Text("服务端测试") }
                     )
                 }
@@ -507,10 +602,7 @@ fun ModpackUploadScreen2(
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             RadioButton(
                                                 selected = uploadMode == UploadMode.UPDATE,
-                                                onClick = {
-                                                    uploadMode = UploadMode.UPDATE
-                                                    selectedCategories = selectedUpdateTarget?.categories ?: emptyList()
-                                                }
+                                                onClick = ::startUpdateModeSelection
                                             )
                                             Text("更新已有包")
                                         }
@@ -540,8 +632,8 @@ fun ModpackUploadScreen2(
                                 CircleIconButton(
                                     "\uE8B8",
                                     "选择整合包",
-                                    enabled = !loading && uploadedModpacksLoaded && uploadMode == UploadMode.UPDATE,
-                                    onClick = { showUploadModeDialog = true }
+                                    enabled = !loading && !uploadedModpacksLoading && uploadMode == UploadMode.UPDATE,
+                                    onClick = ::openUploadModeDialog
                                 )
                             }
                             Row(
@@ -612,6 +704,7 @@ fun ModpackUploadScreen2(
                                         modKey = modStableKey(uiMod.mod),
                                         newSide = newSide
                                     )
+                                    clientTester?.onModsChangedAfterManualEdit()
                                     serverTester?.onModsChangedAfterManualEdit()
                                 }
                             }
@@ -621,10 +714,24 @@ fun ModpackUploadScreen2(
                     2 -> {
                         TestConsolePane(
                             statusText = testStatusText(
+                                clientTestStatus?.value ?: TestStatus.NOT_RUN,
+                                clientTestPassSeconds?.value
+                            ),
+                            consoleState = clientTestConsoleState,
+                            "创建单机存档，在聊天框发送 $CLIENT_TEST_SUCCESS_MARKER",
+                            onStart = ::startClientTest,
+                            onStop = ::stopClientTest
+                        )
+                    }
+
+                    3 -> {
+                        TestConsolePane(
+                            statusText = testStatusText(
                                 serverTestStatus?.value ?: TestStatus.NOT_RUN,
                                 serverTestPassSeconds?.value
                             ),
                             consoleState = serverTestConsoleState,
+                            "",
                             onStart = ::startServerTest,
                             onStop = ::stopServerTest
                         )
@@ -728,7 +835,7 @@ fun ModpackUploadScreen2(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text("选择整合包")
-                            TextButton(onClick = { showUploadModeDialog = false }) {
+                            TextButton(onClick = ::closeUploadModeDialog) {
                                 Text("关闭")
                             }
                         }
@@ -761,6 +868,7 @@ fun ModpackUploadScreen2(
 private fun TestConsolePane(
     statusText: String,
     consoleState: ConsoleState,
+    tipText: String,
     onStart: () -> Unit,
     onStop: () -> Unit
 ) {
@@ -771,6 +879,8 @@ private fun TestConsolePane(
         ) {
             Text("测试状态：$statusText")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(tipText)
+                Space8w()
                 CircleIconButton(
                     "\uF04B",
                     "启动测试",
@@ -834,8 +944,11 @@ private fun Modpack.toLocalBriefVo(): Modpack.BriefVo = Modpack.BriefVo(
     categories = categories
 )
 
-private fun modMergeKey(mod: Mod): String {
-    val modId = readInstalledModId(mod)
+private fun modMergeKey(
+    mod: Mod,
+    installedModIdCache: MutableMap<String, String?>
+): String {
+    val modId = readInstalledModId(mod, installedModIdCache)
     return when {
         !modId.isNullOrBlank() -> "modid:$modId"
         mod.slug.isNotBlank() -> "slug:${mod.slug.lowercase()}"
@@ -848,32 +961,43 @@ private fun mergeClientAndServerMods(
     clientMods: List<Mod>,
     serverMods: List<Mod>
 ): List<Mod> {
-    val clientByKey = clientMods.associateBy(::modMergeKey)
-    val serverByKey = serverMods.associateBy(::modMergeKey)
+    val installedModIdCache = mutableMapOf<String, String?>()
+    fun mergeKey(mod: Mod) = modMergeKey(mod, installedModIdCache)
+
+    val clientModsWithKey = clientMods.map { it to mergeKey(it) }
+    val serverModsWithKey = serverMods.map { it to mergeKey(it) }
+    val clientByKey = clientModsWithKey.associate { (mod, key) -> key to mod }
+    val serverByKey = serverModsWithKey.associate { (mod, key) -> key to mod }
     val merged = mutableListOf<Mod>()
 
-    clientMods.forEach { clientMod ->
-        val key = modMergeKey(clientMod)
+    clientModsWithKey.forEach { (clientMod, key) ->
         val mergedSide = if (serverByKey.containsKey(key)) Mod.Side.BOTH else Mod.Side.CLIENT
         merged += clientMod.toUiMod().withSide(mergedSide).toMod()
     }
 
-    serverMods.forEach { serverMod ->
-        val key = modMergeKey(serverMod)
+    serverModsWithKey.forEach { (serverMod, key) ->
         if (clientByKey.containsKey(key)) return@forEach
         merged += serverMod.toUiMod().withSide(Mod.Side.SERVER).toMod()
     }
 
     return merged
-        .distinctBy(::modMergeKey)
+        .distinctBy(::mergeKey)
         .sortedBy { it.slug.lowercase() }
 }
 
-private fun readInstalledModId(mod: Mod): String? = runCatching {
-    val file = mod.targetPath.toFile().takeIf { it.exists() && it.isFile } ?: return@runCatching null
-    ModService.run {
-        JarFile(file).use { jar ->
-            jar.readNeoForgeConfig()?.modId?.trim()?.lowercase()?.ifBlank { null }
-        }
+private fun readInstalledModId(
+    mod: Mod,
+    installedModIdCache: MutableMap<String, String?>
+): String? {
+    val cacheKey = mod.targetPath.toString()
+    return installedModIdCache.getOrPut(cacheKey) {
+        runCatching {
+            val file = mod.targetPath.toFile().takeIf { it.exists() && it.isFile } ?: return@getOrPut null
+            ModService.run {
+                JarFile(file).use { jar ->
+                    jar.readNeoForgeConfig()?.modId?.trim()?.lowercase()?.ifBlank { null }
+                }
+            }
+        }.getOrNull()
     }
-}.getOrNull()
+}

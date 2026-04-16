@@ -71,7 +71,7 @@ class ModpackTest {
 	@Test
 	fun loadCurseForgeModpack(): Unit = runBlocking {
 		val zipPath = "C:\\Users\\calebxzhou\\Downloads\\ftb-skies-2-1.9.2.zip"
-		val modpackData = CurseForgeService.loadModpack(zipPath)
+		val modpackData = CurseForgeService.loadModpack(zipPath).getOrThrow()
         print(modpackData.manifest.files.mapMods().json)
 		assertNotNull(modpackData.manifest)
 	}

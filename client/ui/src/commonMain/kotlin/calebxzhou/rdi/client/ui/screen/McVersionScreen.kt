@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.ui.screen
 
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.MaterialTheme
@@ -65,11 +67,15 @@ fun McVersionScreen(
             }
             Space8h()
             Box(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = false),
                 contentAlignment = Alignment.TopCenter
             ) {
                 Column(
-                    modifier = Modifier.width(540.dp),
+                    modifier = Modifier
+                        .width(540.dp)
+                        .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {

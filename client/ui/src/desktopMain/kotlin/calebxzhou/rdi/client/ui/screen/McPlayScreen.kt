@@ -12,6 +12,7 @@ import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.startDesktop
+import calebxzhou.rdi.client.service.syncHostManagedBaseMods
 import calebxzhou.rdi.client.service.syncHostExtraMods
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainColumn
@@ -36,6 +37,9 @@ fun McPlayScreen(
     mcVer: McVersion,
     versionId: String,
     playArg: String? = null,
+    activeBaseMods: List<Mod> = emptyList(),
+    disabledBaseMods: List<Mod> = emptyList(),
+    manageHostBaseMods: Boolean = false,
     extraMods: List<Mod> = emptyList(),
     manageHostExtraMods: Boolean = false,
     vararg jvmArgs: String,
@@ -55,6 +59,15 @@ fun McPlayScreen(
         preparing = true
         scope.launch {
             try {
+                if (manageHostBaseMods) {
+                    consoleState.append("[RDI] 检查房间基础Mod...")
+                    syncHostManagedBaseMods(versionId, activeBaseMods, disabledBaseMods) { progress ->
+                        scope.launch {
+                            appendSyncProgress(consoleState, progress)
+                        }
+                    }
+                    consoleState.append("[RDI] 房间基础Mod已同步")
+                }
                 if (manageHostExtraMods) {
                     consoleState.append("[RDI] 检查房间附加Mod...")
                     syncHostExtraMods(versionId, extraMods) { progress ->

@@ -19,8 +19,6 @@ import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import kotlinx.io.files.FileNotFoundException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerializationException
@@ -56,22 +54,34 @@ object CurseForgeService {
             logo?.url?.takeIf { it.isNotBlank() }?.let { add(it) }
         }
         val resolvedName = (name ?: slug).ifBlank { slug }
-        val iconBytes = modFile?.let {
-            runCatching { JarFile(it).use { jar -> jar.modLogo } }.getOrNull()
-        }
+        val localMeta = modFile?.readLocalModCardMeta()
         val introText = summary?.takeIf { it.isNotBlank() }?.trim()
-            ?: modFile?.let { JarFile(it).readNeoForgeConfig()?.modDescription }
+            ?: localMeta?.description
             ?: "暂无介绍"
 
         return Mod.CardVo(
             name = resolvedName,
             nameCn = briefInfo?.nameCn,
             intro = briefInfo?.intro ?: introText,
-            iconData = iconBytes,
+            iconData = localMeta?.iconBytes,
             iconUrls = icons,
             side = Mod.Side.BOTH
         )
     }
+
+    private data class LocalModCardMeta(
+        val iconBytes: ByteArray? = null,
+        val description: String? = null
+    )
+
+    private fun File.readLocalModCardMeta(): LocalModCardMeta = runCatching {
+        JarFile(this).use { jar ->
+            LocalModCardMeta(
+                iconBytes = jar.modLogo,
+                description = jar.readNeoForgeConfig()?.modDescription
+            )
+        }
+    }.getOrDefault(LocalModCardMeta())
 
 
     suspend fun getInfosFromHash(
@@ -245,15 +255,13 @@ object CurseForgeService {
      * @return Parsed manifest and list of override entries with their root prefix
      * @throws ModpackError if validation fails
      */
-    suspend fun loadModpack(zipPath: String): CurseForgeModpackData {
+    suspend fun loadModpack(zipPath: String): Result<CurseForgeModpackData> = runCatching {
         val zipFile = File(zipPath)
         if (!zipFile.exists() || !zipFile.isFile) {
             throw ModpackError("找不到整合包文件: ${zipFile.path}")
         }
 
-        val zip = zipFile.openChineseZip()
-
-        try {
+        zipFile.openChineseZip().use { zip ->
             val entries = zip.entries().asSequence().toList()
             entries.find { it.name == ".minecraft" }
                 ?.let { throw ModpackError("你应该选整合包 而不是客户端\n你可以用PCL的导出功能 将客户端转换为整合包") }
@@ -308,19 +316,14 @@ object CurseForgeService {
                 versionName = "1.0"
             }
 
-            return CurseForgeModpackData(
+            CurseForgeModpackData(
                 manifest = manifest,
                 file = zipFile,
             )
-        } catch (e: ModpackError) {
-            throw e
-        } catch (e: Exception) {
-            throw ModpackError("处理整合包时出错: ${e.message}")
-        } finally {
-            withContext(Dispatchers.IO) {
-                zip.close()
-            }
         }
+    }.recoverCatching { error ->
+        if (error is ModpackError) throw error
+        throw ModpackError("处理整合包时出错: ${error.message}")
     }
 
 
@@ -411,13 +414,13 @@ object CurseForgeService {
         data class CFModsRequest(val modIds: List<Int>, val filterPcOnly: Boolean = true)
 
         @Serializable
-        data class CFModsResponse(val data: List<CurseForgeModInfo>? = null)
+        data class CFModsResponse(val data: List<CurseForgeModInfo> = emptyList())
         return makeRequest(
             "mods",
             HttpMethod.Post,
             CFModsRequest(modIds),
             official
-        ).body<CFModsResponse>().data!!.filter { it.isMod }
+        ).body<CFModsResponse>().data.filter { it.isMod }
 
     }
 

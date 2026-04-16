@@ -633,6 +633,35 @@ object GameService {
         return "${library.name}|$artifactPath|$classifierKey"
     }
 
+    private val classpathOverrideArtifacts = setOf(
+        "org.apache.logging.log4j:log4j-api",
+        "org.apache.logging.log4j:log4j-core",
+        "org.apache.logging.log4j:log4j-slf4j18-impl",
+        "org.apache.logging.log4j:log4j-slf4j2-impl",
+        "org.slf4j:slf4j-api",
+    )
+
+    private fun classpathOverrideKey(library: MojangLibrary): String? {
+        val coords = library.name.split(':')
+        if (coords.size < 2) return null
+        return "${coords[0]}:${coords[1]}".takeIf { it in classpathOverrideArtifacts }
+    }
+
+    private fun addClasspathCompatibilityLibraries(entries: List<String>): List<String> {
+        val files = entries.map(::File).toMutableList()
+        val hasSlf4jBinding = files.any { it.name.startsWith("log4j-slf4j18-impl-") }
+        val hasSlf4jApi = files.any { it.name.startsWith("slf4j-api-") }
+        if (hasSlf4jBinding && !hasSlf4jApi) {
+            val slf4jApiCandidates = listOf(
+                libsDir.resolve("org/slf4j/slf4j-api/1.8.0-beta4/slf4j-api-1.8.0-beta4.jar"),
+                libsDir.resolve("org/slf4j/slf4j-api/2.0.1/slf4j-api-2.0.1.jar"),
+                libsDir.resolve("org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar")
+            )
+            slf4jApiCandidates.firstOrNull(File::exists)?.let { files += it }
+        }
+        return files.map{it.absolutePath}.distinct()
+    }
+
     @Serializable
     data class LoaderInstallProfile(
         val serverJarPath: String? = null,
@@ -1012,7 +1041,33 @@ object GameService {
             .toMutableList()
             .distinct()
             .toList()
-        return entries
+        return addClasspathCompatibilityLibraries(entries)
+    }
+
+    internal fun buildClasspath(
+        baseLibraries: List<MojangLibrary>,
+        overrideLibraries: List<MojangLibrary>
+    ): List<String> {
+        val filteredBaseLibraries = baseLibraries.filter { it.shouldDownloadByArch() }
+        val filteredOverrideLibraries = overrideLibraries.filter { it.shouldDownloadByArch() }
+        val overrideByKey = filteredOverrideLibraries
+            .mapNotNull { library -> classpathOverrideKey(library)?.let { it to library } }
+            .toMap()
+        val usedOverrideKeys = mutableSetOf<String>()
+        val mergedLibraries = filteredBaseLibraries.map { library ->
+            val key = classpathOverrideKey(library) ?: return@map library
+            overrideByKey[key]?.also { usedOverrideKeys += key } ?: library
+        } + filteredOverrideLibraries.filter { library ->
+            val key = classpathOverrideKey(library)
+            key == null || key !in usedOverrideKeys
+        }
+        val entries = mergedLibraries
+            .asSequence()
+            .mapNotNull { lib -> lib.downloads.artifact.path }
+            .map { File(libsDir, it).absolutePath }
+            .distinct()
+            .toList()
+        return addClasspathCompatibilityLibraries(entries)
     }
 }
 

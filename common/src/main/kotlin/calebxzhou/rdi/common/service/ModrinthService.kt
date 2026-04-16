@@ -43,7 +43,7 @@ object ModrinthService {
         val modloader: ModLoader
     )
 
-    suspend fun loadModpack(modpackFile: File): Result<LoadedModpack> {
+    suspend fun loadModpack(modpackFile: File): Result<LoadedModpack> = runCatching {
         if (!modpackFile.exists()) {
             throw ModpackError("找不到整合包文件: ${modpackFile.path}")
         }
@@ -177,14 +177,12 @@ object ModrinthService {
 
         val mods = matchedMrMods + matchedCfMods
 
-        return Result.success(
-            LoadedModpack(
-                index = index,
-                file = modpackFile,
-                mods = mods,
-                mcVersion = parsedMcVersion,
-                modloader = parsedModloader
-            )
+        LoadedModpack(
+            index = index,
+            file = modpackFile,
+            mods = mods,
+            mcVersion = parsedMcVersion,
+            modloader = parsedModloader
         )
     }
 
@@ -222,22 +220,34 @@ object ModrinthService {
             iconUrl?.takeIf { it.isNotBlank() }?.let { add(it) }
         }
         val resolvedName = (title ?: slug).ifBlank { slug }
-        val iconBytes = modFile?.let {
-            runCatching { JarFile(it).use { jar -> jar.modLogo } }.getOrNull()
-        }
+        val localMeta = modFile?.readLocalModCardMeta()
         val introText = description?.takeIf { it.isNotBlank() }?.trim()
-            ?: modFile?.let { JarFile(it).readNeoForgeConfig()?.modDescription }
+            ?: localMeta?.description
             ?: "暂无介绍"
 
         return Mod.CardVo(
             name = resolvedName,
             nameCn = briefInfo?.nameCn,
             intro = briefInfo?.intro ?: introText,
-            iconData = iconBytes,
+            iconData = localMeta?.iconBytes,
             iconUrls = icons,
             side = Mod.Side.BOTH
         )
     }
+
+    private data class LocalModCardMeta(
+        val iconBytes: ByteArray? = null,
+        val description: String? = null
+    )
+
+    private fun File.readLocalModCardMeta(): LocalModCardMeta = runCatching {
+        JarFile(this).use { jar ->
+            LocalModCardMeta(
+                iconBytes = jar.modLogo,
+                description = jar.readNeoForgeConfig()?.modDescription
+            )
+        }
+    }.getOrDefault(LocalModCardMeta())
     @Deprecated("")
     suspend fun List<Mod>.fillModrinthVo(projects: List<ModrinthProject>?): List<Mod> {
         val modsNeedingVo = filter { it.vo == null && it.platform.equals("mr", ignoreCase = true) }

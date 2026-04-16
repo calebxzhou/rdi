@@ -34,6 +34,16 @@ internal actual class ServerTestProcessHandle {
     actual suspend fun waitFor(): Int = 0
 }
 
+internal actual class ClientTestProcessHandle {
+    actual fun isAlive(): Boolean = false
+
+    actual fun destroy() = Unit
+
+    actual fun destroyForcibly() = Unit
+
+    actual suspend fun waitFor(): Int = 0
+}
+
 internal actual fun GameService.startServerTestProcess(
     mcVer: McVersion,
     loaderVer: ModLoader.Version,
@@ -41,4 +51,13 @@ internal actual fun GameService.startServerTestProcess(
     onLine: (String) -> Unit
 ): ServerTestProcessHandle {
     throw UnsupportedOperationException("当前平台暂不支持服务端测试")
+}
+
+internal actual fun GameService.startClientTestProcess(
+    mcVer: McVersion,
+    versionId: String,
+    versionDir: File,
+    onLine: (String) -> Unit
+): ClientTestProcessHandle {
+    throw UnsupportedOperationException("当前平台暂不支持客户端测试")
 }

@@ -28,6 +28,11 @@ import kotlin.concurrent.thread
  * Download logic is now in commonMain GameService.
  */
 private val lgr by Loggers
+private val utf8LoggingJvmArgs = listOf(
+    "-Dfile.encoding=UTF-8",
+    "-Dsun.stdout.encoding=UTF-8",
+    "-Dsun.stderr.encoding=UTF-8"
+)
 
 // ---- Installer Bootstrapper (desktop actual) ----
 
@@ -101,11 +106,25 @@ internal actual fun GameService.runServerInstallerBootstrapperDesktop(
 
 // ---- Desktop-only game launching ----
 
-fun GameService.startDesktop(mcVer: McVersion, versionId: String, vararg jvmArgs: String, onLine: (String) -> Unit): Process {
+fun GameService.startDesktop(mcVer: McVersion, versionId: String, vararg jvmArgs: String, onLine: (String) -> Unit): Process =
+    startDesktopInDir(
+        mcVer,
+        versionId,
+        versionListDir.resolve(versionId),
+        *jvmArgs,
+        onLine = onLine
+    )
+
+internal fun GameService.startDesktopInDir(
+    mcVer: McVersion,
+    versionId: String,
+    versionDir: File,
+    vararg jvmArgs: String,
+    onLine: (String) -> Unit
+): Process {
     val loaderManifest = mcVer.loaderManifest
     val manifest = mcVer.manifest
     val nativesDir = mcVer.nativesDir
-    val versionDir = versionListDir.resolve(versionId)
     val hostOs = LibraryOsArch.detectHostOs()
     val gameArgs = resolveArgumentList(manifest.arguments.game + loaderManifest.arguments.game).map {
         it.replace("\${auth_player_name}", loggedAccount.name)
@@ -121,10 +140,10 @@ fun GameService.startDesktop(mcVer: McVersion, versionId: String, vararg jvmArgs
     val (physicalWidth, physicalHeight) = resolvePhysicalScreenSize()
     gameArgs += listOf("--width", "$physicalWidth", "--height", "$physicalHeight")
     val resolvedJvmArgs = resolveArgumentList(manifest.arguments.jvm + loaderManifest.arguments.jvm)
-    val classpath = (manifest.buildClasspath() + loaderManifest.buildClasspath())
-        .distinct()
-        .toMutableList()
-        .joinToString(File.pathSeparator)
+    val classpath = buildClasspath(
+        baseLibraries = manifest.libraries,
+        overrideLibraries = loaderManifest.libraries
+    ).joinToString(File.pathSeparator)
     val useMemStr = runCatching {
         if (CONF.maxMemory > 0) {
             "-Xmx${CONF.maxMemory}M"
@@ -148,6 +167,7 @@ fun GameService.startDesktop(mcVer: McVersion, versionId: String, vararg jvmArgs
             .replace("\${classpath_separator}", File.pathSeparator)
     }.toMutableList().apply {
         this += useMemStr
+        this += utf8LoggingJvmArgs
         this += jvmArgs
         if(DEBUG){
             this +=  "-Djavax.net.ssl.trustStoreType=Windows-ROOT"
@@ -188,7 +208,7 @@ fun GameService.startDesktop(mcVer: McVersion, versionId: String, vararg jvmArgs
             }
             val exitCode = process.waitFor()
             if (exitCode != 0) {
-                onLine("启动失败，退出代码: $exitCode")
+                onLine("MC已结束，退出代码: $exitCode")
             } else {
                 onLine("已退出")
             }
@@ -213,6 +233,7 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
     val command = mutableListOf(
         jrePath,
         "-Xmx6G",
+        *utf8LoggingJvmArgs.toTypedArray(),
     ).apply {
         when (mcVer) {
             McVersion.V182,
@@ -222,9 +243,10 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
                 this += loaderVer.serverArgsPath(hostOs.isUnixLike)
                 this += "%*"
             }
-            else -> {}
-           /* McVersion.V165 -> {
+
+            McVersion.V165 -> {
                 if (loaderVer.loader == ModLoader.forge) {
+                    McVersion.V165.plusJvmArgs.forEach { this += it }
                     val jarFileName = "forge-${loaderVer.id}.jar"
                     this += "-jar"
                     this += jarFileName
@@ -233,7 +255,9 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
                         ClientDirs.mcDir.resolve(jarFileName).toPath()
                     )
                 }
-            }*/
+            }
+
+            else -> {}
         }
         this += "--nogui"
     }

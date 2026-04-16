@@ -72,6 +72,7 @@ fun HostInfoScreen(
     var hostDetail by remember { mutableStateOf<Host.DetailVo?>(null) }
     var modpackDetail by remember { mutableStateOf<Modpack.DetailVo?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var deleteWorldWhenDeleteHost by remember { mutableStateOf(false) }
     var showUpdateConfirm by remember { mutableStateOf(false) }
     var roleChangeConfirm by remember { mutableStateOf<RoleChange?>(null) }
     var transferConfirm by remember { mutableStateOf<ObjectId?>(null) }
@@ -510,7 +511,10 @@ fun HostInfoScreen(
                                 icon = "\uEA81",
                                 tooltip = "删除",
                                 bgColor = MaterialColor.RED_900.color
-                            ) { showDeleteConfirm = true }
+                            ) {
+                                deleteWorldWhenDeleteHost = false
+                                showDeleteConfirm = true
+                            }
                         }
                     }
 
@@ -610,7 +614,7 @@ fun HostInfoScreen(
                                             val infoColumn = @Composable {
                                                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                                     Text("整合包：${host.modpack.name} ${host.packVer}".asIconText)
-                                                    RowV {
+                                                    FlowRowV {
                                                         Text("在线人数：${host.onlinePlayerIds.size}人")
                                                         Space8w()
                                                         host.onlinePlayerIds.forEach {
@@ -1046,22 +1050,68 @@ fun HostInfoScreen(
     }
 
     if (showDeleteConfirm) {
-        ConfirmDialog(
-            title = "确认删除",
-            message = "确认删除房间吗？\n（仅删除成员列表。\n存档不会被删除，可导出或重复利用）",
-            onConfirm = {
-                scope.rdiRequestU(
-                    path = "host/$hostId",
-                    method = HttpMethod.Delete,
-                    onOk = {
-                        okMessage = "已删除"
-                        onBack()
-                    },
-                    onErr = { errorMessage = it.message ?: "删除失败" }
-                )
-                showDeleteConfirm = false
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirm = false },
+            title = { Text("确认删除") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("确认删除房间吗？")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = deleteWorldWhenDeleteHost,
+                            enabled = hostDetail?.worldId != null,
+                            onCheckedChange = { deleteWorldWhenDeleteHost = it }
+                        )
+                        Text(
+                            if (hostDetail?.worldId != null) {
+                                "同时删除关联存档（不可恢复）"
+                            } else {
+                                "该房间没有关联存档"
+                            },
+                            color = if (hostDetail?.worldId != null) {
+                                MaterialTheme.colors.onSurface
+                            } else {
+                                MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                            }
+                        )
+                    }
+                    Text(
+                        if (deleteWorldWhenDeleteHost && hostDetail?.worldId != null) {
+                            "房间和存档都会被删除，无法恢复。"
+                        } else {
+                            "默认仅删除房间，存档会保留，可导出或复用。"
+                        }
+                    )
+                }
             },
-            onDismiss = { showDeleteConfirm = false }
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        scope.rdiRequestU(
+                            path = "host/$hostId",
+                            method = HttpMethod.Delete,
+                            body = serdesJson.encodeToString(
+                                Host.DeleteDto(
+                                    deleteWorld = deleteWorldWhenDeleteHost && hostDetail?.worldId != null
+                                )
+                            ),
+                            onOk = {
+                                okMessage = "已删除"
+                                onBack()
+                            },
+                            onErr = { errorMessage = it.message ?: "删除失败" }
+                        )
+                        showDeleteConfirm = false
+                    }
+                ) {
+                    Text("删除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirm = false }) {
+                    Text("取消")
+                }
+            }
         )
     }
 

@@ -7,6 +7,7 @@ import java.util.*;
  * calebxzhou @ 2026-01-06 19:34
  */
 public class RDI {
+    public static final boolean LOCAL_TEST_MODE;
     public static final String IHQ_URL;
     public static final String GAME_IP;
     public static final String HOST_NAME;
@@ -16,6 +17,7 @@ public class RDI {
     //nullable
     public static String PLAYER_NAME;
     static {
+        LOCAL_TEST_MODE = Boolean.parseBoolean(System.getProperty("rdi.localTestMode", "false"));
         String playData = System.getProperty("rdi.play");
         if (playData != null) {
             byte[] decodedBytes = Base64.getDecoder().decode(playData.trim());
@@ -31,36 +33,7 @@ public class RDI {
             HOST_PORT = Integer.parseInt(lines[3].trim());
             PLAYER_ID = UUID.fromString(lines[4].trim());
             PLAYER_NAME = lines[5].trim();
-        } else {
-            String ihqUrl = System.getProperty("rdi.ihq.url");
-            if (ihqUrl == null) {
-                throw new IllegalArgumentException("启动方式错误：找不到服务器地址1");
-            }
-            IHQ_URL = ihqUrl;
-
-            String gameIp = System.getProperty("rdi.game.ip");
-            if (gameIp == null) {
-                throw new IllegalArgumentException("启动方式错误：找不到服务器地址2");
-            }
-            GAME_IP = gameIp;
-
-            String hostName = System.getProperty("rdi.host.name");
-            if (hostName == null) {
-                throw new IllegalArgumentException("启动方式错误：找不到主机名");
-            }
-            HOST_NAME = hostName;
-
-            String hostPortStr = System.getProperty("rdi.host.port");
-            if (hostPortStr == null) {
-                throw new IllegalArgumentException("启动方式错误：找不到服务器端口");
-            }
-            try {
-                HOST_PORT = Integer.parseInt(hostPortStr);
-            } catch (NumberFormatException e) {
-                // Matches Kotlin's String.toInt() behavior – throws if not a valid integer
-                throw new NumberFormatException("Invalid port value: " + hostPortStr);
-            }
-        }
+        }else throw new IllegalStateException("RDI参数错误，找不到游玩参数！");
     }
 
     public static String getTextureQueryUrl(UUID profileId, String authlibVer) {

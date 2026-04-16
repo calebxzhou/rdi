@@ -80,7 +80,7 @@ private fun syncHostExtraModLinks(
 
 private fun extraModTargetFileName(mod: Mod): String = EXTRA_MOD_PREFIX + mod.fileName
 
-private fun File.pointsTo(source: File): Boolean {
+internal fun File.pointsTo(source: File): Boolean {
     val targetPath = toPath()
     if (!Files.exists(targetPath, LinkOption.NOFOLLOW_LINKS)) return false
     return runCatching {

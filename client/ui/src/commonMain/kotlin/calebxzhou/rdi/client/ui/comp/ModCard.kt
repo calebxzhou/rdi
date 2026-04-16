@@ -1,20 +1,25 @@
 package calebxzhou.rdi.client.ui.comp
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzhou.rdi.client.ui.decodeImageBitmap
 import calebxzhou.rdi.client.ui.wM
 import calebxzhou.rdi.common.model.Mod
 
@@ -28,6 +33,8 @@ fun Mod.CardVo.ModCard(
     onSideChange: ((Mod.Side) -> Unit)? = null
 ) {
     val (clientEnabled, serverEnabled) = sideToFlags(currentSide)
+    val hasChineseName = !nameCn.isNullOrBlank()
+    val primaryText = if (hasChineseName) nameCn!!.trim() else name.trim()
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -37,13 +44,14 @@ fun Mod.CardVo.ModCard(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Icon
-        HttpImage(
-            imgUrl = iconUrls.firstOrNull { it.isNotBlank() } ?: "",
+        ModCardIcon(
+            iconData = iconData,
+            iconUrls = iconUrls,
+            modName = primaryText.ifBlank { name.trim() },
             modifier = Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(240, 240, 240, 255)),
-            contentDescription = name
+                .background(Color(240, 240, 240, 255))
         )
 
         Spacer(modifier = Modifier.width(16.dp))
@@ -52,9 +60,6 @@ fun Mod.CardVo.ModCard(
             modifier = Modifier.weight(1f),
             horizontalAlignment = Alignment.Start
         ) {
-            val hasChineseName = !nameCn.isNullOrBlank()
-            val primaryText = if (hasChineseName) nameCn!!.trim() else name.trim()
-
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
@@ -115,6 +120,51 @@ fun Mod.CardVo.ModCard(
                 overflow = TextOverflow.Ellipsis,
                 lineHeight = 15.6.sp // 1.2 * 13sp
             )
+        }
+    }
+}
+
+@Composable
+private fun ModCardIcon(
+    iconData: ByteArray?,
+    iconUrls: List<String>,
+    modName: String,
+    modifier: Modifier = Modifier
+) {
+    val localBitmap = remember(iconData) {
+        iconData?.let { bytes ->
+            runCatching { decodeImageBitmap(bytes) }.getOrNull()
+        }
+    }
+    val iconUrl = iconUrls.firstOrNull { it.isNotBlank() }.orEmpty()
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        when {
+            localBitmap != null -> {
+                Image(
+                    bitmap = localBitmap,
+                    contentDescription = modName,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            iconUrl.isNotBlank() -> {
+                HttpImage(
+                    imgUrl = iconUrl,
+                    modifier = Modifier.fillMaxSize(),
+                    contentDescription = modName,
+                    contentScale = ContentScale.Crop
+                )
+            }
+
+            else -> {
+                Text(
+                    text = modName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "M",
+                    color = MaterialColor.GRAY_700.color,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
+                )
+            }
         }
     }
 }

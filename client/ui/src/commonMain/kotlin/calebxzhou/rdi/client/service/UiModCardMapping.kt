@@ -2,12 +2,12 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.common.model.CurseForgeModInfo
 import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.model.ModBriefInfo
 import calebxzhou.rdi.common.model.ModrinthProject
 import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.service.ModService.modDescription
 import calebxzhou.rdi.common.service.ModService.modLogo
 import calebxzhou.rdi.common.service.ModService.readNeoForgeConfig
-import calebxzhou.rdi.common.service.ModService.toVo
 import calebxzhou.rdi.common.service.ModrinthService
 import java.io.File
 import java.util.jar.JarFile
@@ -19,21 +19,18 @@ internal fun Mod.toLocalCardVo(): Mod.CardVo? {
         "mr" -> ModrinthService.slugBriefInfo[slug.trim().lowercase()]
         else -> null
     }
-    val iconBytes = localFile?.let {
-        runCatching { JarFile(it).use { jar -> jar.modLogo } }.getOrNull()
+    val localMeta = localFile?.let {
+        runCatching { it.readLocalModCardMeta() }.getOrNull()
     }
-    val introText = localFile?.let {
-        runCatching { JarFile(it).readNeoForgeConfig()?.modDescription }.getOrNull()
-    }?.takeIf { it.isNotBlank() }
+    val iconBytes = localMeta?.iconBytes
+    val introText = localMeta?.introText
     if (briefInfo == null && iconBytes == null && introText == null) return null
 
-    return (briefInfo?.toVo(localFile) ?: Mod.CardVo(
+    return briefInfo?.toUiCardVo(localMeta, side)?.copy(
+        intro = briefInfo.intro.ifBlank { introText ?: "暂无介绍" }
+    ) ?: Mod.CardVo(
         name = slug.ifBlank { projectId },
         intro = introText ?: "暂无介绍",
-        iconData = iconBytes,
-        side = side
-    )).copy(
-        intro = briefInfo?.intro?.ifBlank { introText ?: "暂无介绍" } ?: (introText ?: "暂无介绍"),
         iconData = iconBytes,
         side = side
     )
@@ -47,14 +44,15 @@ internal fun CurseForgeModInfo.toUiCardVo(modFile: File? = null): Mod.CardVo {
         logo?.url?.takeIf { it.isNotBlank() }?.let { add(it) }
     }
     val resolvedName = name.ifBlank { slug }
-    val iconBytes = modFile?.let {
-        runCatching { JarFile(it).use { jar -> jar.modLogo } }.getOrNull()
+    val localMeta = modFile?.let {
+        runCatching { it.readLocalModCardMeta() }.getOrNull()
     }
+    val iconBytes = localMeta?.iconBytes
     val introText = summary?.takeIf { it.isNotBlank() }?.trim()
-        ?: modFile?.let { JarFile(it).readNeoForgeConfig()?.modDescription }
+        ?: localMeta?.introText
         ?: "暂无介绍"
 
-    return briefInfo?.toVo(modFile)?.copy(
+    return briefInfo?.toUiCardVo(localMeta)?.copy(
         intro = briefInfo.intro.ifBlank { introText }
     ) ?: Mod.CardVo(
         name = resolvedName,
@@ -73,14 +71,15 @@ internal fun ModrinthProject.toUiCardVo(modFile: File? = null): Mod.CardVo {
         iconUrl?.takeIf { it.isNotBlank() }?.let { add(it) }
     }
     val resolvedName = title.ifBlank { slug }
-    val iconBytes = modFile?.let {
-        runCatching { JarFile(it).use { jar -> jar.modLogo } }.getOrNull()
+    val localMeta = modFile?.let {
+        runCatching { it.readLocalModCardMeta() }.getOrNull()
     }
+    val iconBytes = localMeta?.iconBytes
     val introText = description?.takeIf { it.isNotBlank() }?.trim()
-        ?: modFile?.let { JarFile(it).readNeoForgeConfig()?.modDescription }
+        ?: localMeta?.introText
         ?: "暂无介绍"
 
-    return briefInfo?.toVo(modFile)?.copy(
+    return briefInfo?.toUiCardVo(localMeta)?.copy(
         intro = briefInfo.intro.ifBlank { introText }
     ) ?: Mod.CardVo(
         name = resolvedName,
@@ -91,3 +90,29 @@ internal fun ModrinthProject.toUiCardVo(modFile: File? = null): Mod.CardVo {
         side = Mod.Side.BOTH
     )
 }
+
+private data class LocalModCardMeta(
+    val iconBytes: ByteArray? = null,
+    val introText: String? = null
+)
+
+private fun File.readLocalModCardMeta(): LocalModCardMeta = JarFile(this).use { jar ->
+    LocalModCardMeta(
+        iconBytes = jar.modLogo,
+        introText = jar.readNeoForgeConfig()?.modDescription?.takeIf { it.isNotBlank() }
+    )
+}
+
+private fun ModBriefInfo.toUiCardVo(
+    localMeta: LocalModCardMeta? = null,
+    side: Mod.Side = Mod.Side.BOTH
+): Mod.CardVo = Mod.CardVo(
+    name = name,
+    nameCn = nameCn,
+    intro = intro,
+    iconData = localMeta?.iconBytes,
+    iconUrls = buildList {
+        if (logoUrl.isNotBlank()) add(logoUrl)
+    },
+    side = side
+)
