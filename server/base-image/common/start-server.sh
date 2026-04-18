@@ -3,53 +3,9 @@ set -euo pipefail
 
 : "${START_PARAMS:?START_PARAMS env is required}"
 
-fix_owner() {
-    local path="$1"
-    local recursive="${2:-0}"
-    [ -e "${path}" ] || return 0
-
-    if [ "${recursive}" = "1" ]; then
-        if ! chown -R rdi:rdi "${path}" >/dev/null 2>&1; then
-            echo "Warning: failed to recursively chown ${path}, continue with current ownership" >&2
-        fi
-        return
-    fi
-
-    if ! chown rdi:rdi "${path}" >/dev/null 2>&1; then
-        echo "Warning: failed to chown ${path}, continue with current ownership" >&2
-    fi
-}
-
-can_write_as_rdi() {
-    local path="$1"
-    gosu rdi sh -c 'test -d "$1" && test -r "$1" && test -x "$1" && touch "$1/.rdi-write-test" && rm -f "$1/.rdi-write-test"' _ "${path}" >/dev/null 2>&1
-}
-
-pick_runtime_user() {
-    local runtime_user="rdi"
-    local writable_paths=(/home/rdi /opt/server)
-
-    if [ -d /opt/server/world ]; then
-        writable_paths+=(/opt/server/world)
-    fi
-
-    for path in "${writable_paths[@]}"; do
-        if ! can_write_as_rdi "${path}"; then
-            echo "Warning: ${path} is not writable for user rdi, fallback to root" >&2
-            runtime_user="root"
-            break
-        fi
-    done
-
-    printf '%s\n' "${runtime_user}"
-}
 
 #ls -la /opt/server >&2
-fix_owner /home/rdi 1
-fix_owner /data 1
-fix_owner /opt/server
-fix_owner /opt/server/world
-
+chown -R rdi:rdi /home/rdi /opt/server /data
 # Get the Docker host IP (default gateway)
 HOST_IP=$(ip route | grep default | awk '{print $3}')
 echo "Detected Docker host IP (gateway): ${HOST_IP}" >&2
@@ -154,9 +110,4 @@ iptables -P OUTPUT DROP
 cd /opt/server
 export HOME=/home/rdi
 eval "JAVA_ARGS=(${START_PARAMS})"
-
-RUNTIME_USER=$(pick_runtime_user)
-if [ "${RUNTIME_USER}" = "root" ]; then
-    exec java "${JAVA_ARGS[@]}"
-fi
-exec gosu "${RUNTIME_USER}" java "${JAVA_ARGS[@]}"
+exec gosu rdi java "${JAVA_ARGS[@]}"

@@ -50,8 +50,12 @@ lateinit var ScreenSize: Pair<Dp, Dp>
 fun main() {
     clearIncompleteModDownloadsOnStartup()
     clearPackProcDirOnStartup()
-    warmUpCacheOnStartup()
-    refreshNodeSettingsOnStartup()
+    GlobalScope.launch(Dispatchers.IO) {
+        warmUpHwSpecCache()
+    }
+    GlobalScope.launch(Dispatchers.IO) {
+        refreshNodeSettings()
+    }
     initializeLoggedAccountOnStartup()
     LocalMcProxy.start(::println)
     application {
@@ -105,10 +109,9 @@ fun main() {
                 val initScreenName = System.getProperty("rdi.init.screen")?.trim()
                 val startDestination: Any = when (initScreenName) {
                     "wd" -> Wardrobe
-                    "mail" -> Mail
-                    "hl" -> HostList
-                    "wl" -> WorldList
-                    "ml" -> ModpackList
+                    "mail" -> HostRoute(HostTab.Mail.name)
+                    "hl" -> HostRoute(HostTab.MyHosts.name)
+                    "wl" -> HostRoute(HostTab.Worlds.name)
                     else -> Login
                 }
                 AppNavigation(startDestination = startDestination)
@@ -180,14 +183,6 @@ private fun clearPackProcDirOnStartup() = GlobalScope.launch {
             packProcDir.mkdirs()
         }
     }
-}
-
-private fun warmUpCacheOnStartup() = GlobalScope.launch(Dispatchers.IO) {
-    warmUpHwSpecCache()
-}
-
-private fun refreshNodeSettingsOnStartup() = GlobalScope.launch(Dispatchers.IO) {
-    refreshNodeSettings()
 }
 
 private fun clearIncompleteModDownloadsOnStartup() {

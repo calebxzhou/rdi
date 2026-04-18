@@ -1,6 +1,9 @@
 package calebxzhou.rdi.client.proxy
 
 actual object LocalMcProxy {
+    private const val LOCAL_BIND_HOST = "127.0.0.1"
+    private const val PREFERRED_BIND_PORT = 55667
+
     @Volatile
     private var logSink: (String) -> Unit = {}
 
@@ -18,13 +21,20 @@ actual object LocalMcProxy {
         server.stop()
     }
 
+    internal fun currentEndpointFromCarrier(): ProxyEndpoint =
+        ProxyEndpointResolver.currentEndpointFromCarrier()
 
-    actual internal fun currentEndpointFromCarrier(): ProxyEndpoint =
-        LocalMcProxyCommon.currentEndpointFromCarrier()
-
-    actual internal fun reportLog(message: String) {
+    internal fun reportLog(message: String) {
         val formatted = "[LocalMcProxy] $message"
         println(formatted)
         runCatching { logSink(formatted) }
     }
+
+    internal fun gameAddr(port: Int): String = "$LOCAL_BIND_HOST:$port"
+
+    internal val localBindHost: String
+        get() = LOCAL_BIND_HOST
+
+    internal val preferredBindPort: Int
+        get() = PREFERRED_BIND_PORT
 }

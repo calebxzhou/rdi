@@ -45,7 +45,7 @@ dependencies {
     implementation("net.peanuuutz.tomlkt:tomlkt:0.5.0")
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.6")
     // Source: https://mvnrepository.com/artifact/org.mongodb/bson-kotlinx
-    implementation("org.mongodb:bson-kotlinx:5.6.3")
+    implementation("org.mongodb:bson-kotlinx:5.6.5")
     implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.5.1")
     implementation("net.benwoodworth.knbt:knbt:0.11.8")
     implementation("com.github.docker-java:docker-java:3.7.0")
@@ -53,7 +53,7 @@ dependencies {
     implementation("org.apache.commons:commons-compress:1.27.1")
     implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
     implementation("org.eclipse.angus:jakarta.mail:2.0.5")
-
+    implementation("org.lionsoul:ip2region:3.3.7")
     implementation("calebxzhou.mykotutils:std:0.1")
     implementation("calebxzhou.mykotutils:log:0.1")
     implementation("calebxzhou.mykotutils:curseforge:0.1")

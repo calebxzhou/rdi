@@ -1,19 +1,21 @@
 package calebxzhou.rdi.client.ui
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
-import androidx.compose.runtime.Composable
 import androidx.navigation.compose.composable
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.mykotutils.std.readAllString
 import calebxzhou.rdi.RDIClient
 import calebxzhou.rdi.client.service.getCachedOrFetchHwSpecJson
-import calebxzhou.rdi.client.ui.screen.HostList
+import calebxzhou.rdi.client.ui.comp.ModpackList
+import calebxzhou.rdi.client.ui.screen.HostRoute
+import calebxzhou.rdi.client.ui.screen.HostTab
 import calebxzhou.rdi.client.ui.screen.McPlayView
-import calebxzhou.rdi.client.ui.screen.Menu
-import calebxzhou.rdi.client.ui.screen.ModpackList
-import calebxzhou.rdi.client.ui.screen.TaskList
 import calebxzhou.rdi.client.ui.screen.ModpackUpload
+import calebxzhou.rdi.client.ui.screen.ResourceRoute
+import calebxzhou.rdi.client.ui.screen.ResourceTab
+import calebxzhou.rdi.client.ui.screen.TaskList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
@@ -379,7 +381,7 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
                     if (callback != null) {
                         callback()
                     } else {
-                        navController.navigate(HostList)
+                        navController.navigate(HostRoute(HostTab.MyHosts.name))
                     }
                 }
             )
@@ -390,8 +392,8 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
     composable<ModpackUpload> {
         calebxzhou.rdi.client.ui.screen.ModpackUploadScreen2(
             onBack = {
-                navController.navigate(ModpackList) {
-                    popUpTo<ModpackList> { inclusive = true }
+                navController.navigate(ResourceRoute(ResourceTab.All.name)) {
+                    popUpTo<ModpackUpload> { inclusive = true }
                     launchSingleTop = true
                     restoreState = false
                 }

@@ -1,1 +1,1 @@
-add disabledMods field for every document in Host collection
+collection Modpack +field playCount

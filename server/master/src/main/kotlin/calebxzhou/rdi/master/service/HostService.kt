@@ -1134,8 +1134,8 @@ object HostService {
                     }
                     host.dir.mkdir()
 
-                    ctx.emit(LoadProgress.Phase("准备Docker容器"))
-                    MailService.changeMail(mailId, runningTitle, newContent = "准备Docker容器")
+                    ctx.emit(LoadProgress.Phase("准备运行库"))
+                    MailService.changeMail(mailId, runningTitle, newContent = "准备运行库")
                     host.makeContainer(host.worldId, modpack, version)
 
                     modpack.installToHost(host.packVer, host) {

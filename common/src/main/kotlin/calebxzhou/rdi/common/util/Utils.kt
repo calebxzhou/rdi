@@ -9,7 +9,12 @@ import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 import java.net.URI
 import java.nio.ByteBuffer
+import java.time.DayOfWeek
+import java.time.Instant
 import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.temporal.ChronoUnit
 import java.util.*
 
 fun ObjectId.toUUID(): UUID {
@@ -73,4 +78,39 @@ val periodOfDay: String get() = when (LocalDateTime.now().hour) {
     in 13..17 -> "下午"
     in 18..23 -> "晚上"
     else -> ""
+}
+fun Long.toFriendlyDateTime(
+    nowMillis: Long = System.currentTimeMillis(),
+    zoneId: ZoneId = ZoneId.systemDefault()
+): String {
+    if (this <= 0L) return "--"
+    val target = Instant.ofEpochMilli(this).atZone(zoneId)
+    val now = Instant.ofEpochMilli(nowMillis).atZone(zoneId)
+    val targetDate = target.toLocalDate()
+    val nowDate = now.toLocalDate()
+    val dayDiff = ChronoUnit.DAYS.between(targetDate, nowDate)
+    val timeText = target.toFriendlyClockText()
+    return when {
+        dayDiff == 0L -> "今天$timeText"
+        dayDiff == 1L -> "昨天$timeText"
+        dayDiff == 2L -> "前天$timeText"
+        dayDiff == -1L -> "明天$timeText"
+        dayDiff == -2L -> "后天$timeText"
+        dayDiff in -6L..6L -> "${target.dayOfWeek.toFriendlyWeekdayText()}$timeText"
+        target.year == now.year -> "${target.monthValue}月${target.dayOfMonth}日$timeText"
+        else -> "${target.year}年${target.monthValue}月${target.dayOfMonth}日$timeText"
+    }
+}
+
+private fun ZonedDateTime.toFriendlyClockText(): String =
+    "${hour}:${minute.toString().padStart(2, '0')}"
+
+private fun DayOfWeek.toFriendlyWeekdayText(): String = when (this) {
+    DayOfWeek.MONDAY -> "周一"
+    DayOfWeek.TUESDAY -> "周二"
+    DayOfWeek.WEDNESDAY -> "周三"
+    DayOfWeek.THURSDAY -> "周四"
+    DayOfWeek.FRIDAY -> "周五"
+    DayOfWeek.SATURDAY -> "周六"
+    DayOfWeek.SUNDAY -> "周日"
 }

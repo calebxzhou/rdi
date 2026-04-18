@@ -83,12 +83,39 @@ private val localConfigEditableExtensions = setOf(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun ModpackLocalManageScreen(
+fun InstalledResourceScreen(
     onBack: () -> Unit,
     onOpenPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenModpackList: (() -> Unit)? = null,
     onOpenMcVersionManage: (() -> Unit)? = null,
     onOpenTaskList: ((String) -> Unit)? = null
+) {
+    var titleActions by remember { mutableStateOf<ResourceScreenTitleActions?>(null) }
+    MainBox {
+        MainColumn {
+            TitleRow("已安装资源", onBack) {
+                titleActions?.invoke(this)
+            }
+            Space8h()
+            InstalledResourcePane(
+                onOpenPlay = onOpenPlay,
+                onOpenMcVersionManage = onOpenMcVersionManage,
+                onOpenTaskList = onOpenTaskList,
+                onTitleActionsChange = { titleActions = it }
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@Composable
+fun InstalledResourcePane(
+    onOpenPlay: ((McPlayArgs) -> Unit)? = null,
+    onOpenMcVersionManage: (() -> Unit)? = null,
+    onOpenTaskList: ((String) -> Unit)? = null,
+    showMcVersionShortcut: Boolean = true,
+    showPaneActions: Boolean = false,
+    onTitleActionsChange: (ResourceScreenTitleActions?) -> Unit = {},
+    modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
     var loading by remember { mutableStateOf(true) }
@@ -347,6 +374,42 @@ fun ModpackLocalManageScreen(
         }
     }
 
+    val titleActions: ResourceScreenTitleActions = remember(showMcVersionShortcut, onOpenMcVersionManage, onOpenTaskList) {
+        {
+            CircleIconButton(
+                "\uDB82\uDD5D",
+                "导入RDI整合包",
+                bgColor = MaterialColor.GREEN_800.color,
+            ) {
+                importRdiModpack()
+            }
+            if (showMcVersionShortcut) {
+                Space8w()
+                ImageIconButton("grass_block", "MC资源", bgColor = MaterialColor.GREEN_200.color) {
+                    onOpenMcVersionManage?.invoke()
+                }
+            }
+            Space8w()
+            CircleIconButton(
+                "\uDB86\uDDD8",
+                "网盘备用下包"
+            ) {
+                openUrl("https://www.123684.com/s/iWSWvd-Gjtdd")
+            }
+        }
+    }
+
+    if (!showPaneActions) {
+        SideEffect {
+            onTitleActionsChange(titleActions)
+        }
+        DisposableEffect(Unit) {
+            onDispose {
+                onTitleActionsChange(null)
+            }
+        }
+    }
+
     @Composable
     fun PackActionPanel(
         selected: ModpackLocalDir?,
@@ -357,6 +420,135 @@ fun ModpackLocalManageScreen(
         val secondaryActionColor = MaterialColor.BLUE_GRAY_800.color
         val utilityActionColor = MaterialColor.TEAL_800.color
         val size = 32
+
+        @Composable
+        fun ActionButtons() {
+            CircleIconButton(
+                "\uEA81",
+                "删除",
+                size = size,
+                bgColor = MaterialColor.RED_900.color,
+                enabled = selected != null
+            ) {
+                deleteConfirmPack = selected
+                deleteIncludedMods = false
+            }
+            if (isDesktop) {
+                CircleIconButton(
+                    "\uDB82\uDD5E",
+                    "导出RDI包",
+                    size = size,
+                    bgColor = MaterialColor.BLUE_800.color,
+                    enabled = selected != null
+                ) {
+                    val packdir = selected ?: return@CircleIconButton
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            packActionMessage = "开始导出..."
+                            exportRdiModpack(packdir) { msg -> packActionMessage = msg }
+                        }
+                        if (result.isFailure) {
+                            errorMessage = result.exceptionOrNull()?.message ?: "导出失败"
+                            packActionMessage = null
+                        } else {
+                            packActionMessage = "导出完成"
+                        }
+                    }
+                }
+            }
+            CircleIconButton(
+                "\uDB81\uDC53",
+                "重新下载",
+                size = size,
+                enabled = selected != null,
+                bgColor = secondaryActionColor
+            ) {
+                reinstallConfirmPack = selected
+            }
+            CircleIconButton(
+                "\uE713",
+                "配置文件",
+                size = size,
+                enabled = selected != null,
+                bgColor = MaterialColor.DEEP_PURPLE_700.color
+            ) {
+                val packdir = selected ?: return@CircleIconButton
+                resetLocalConfigEditorState()
+                configEditorPack = packdir
+                loadLocalConfigFiles(packdir)
+            }
+            CircleIconButton(
+                "\uE8C8",
+                "复制数据",
+                size = size,
+                enabled = selected != null && localDirs.size > 1,
+                bgColor = utilityActionColor
+            ) {
+                val packdir = selected ?: return@CircleIconButton
+                copyDataSourcePack = packdir
+                copyDataTargetVersionId = localDirs.firstOrNull {
+                    it.versionId != packdir.versionId
+                }?.versionId
+                copyDataSelectedKeys = personalDataCopyEntries.map { it.key }.toSet()
+            }
+            if (isDesktop) {
+                CircleIconButton(
+                    "\uEAED",
+                    "安装目录",
+                    size = size,
+                    enabled = selected != null,
+                    bgColor = MaterialColor.GREEN_800.color
+                ) {
+                    val packdir = selected ?: return@CircleIconButton
+                    val dir = packdir.dir
+                    if (!dir.exists()) {
+                        errorMessage = "目录不存在: ${dir.absolutePath}"
+                    } else {
+                        runCatching { openFolder(dir.absolutePath) }
+                            .onFailure { errorMessage = "无法打开目录: ${it.message}" }
+                    }
+                }
+            }
+            CircleIconButton(
+                "\uEB9B",
+                "单机运行",
+                size = size,
+                enabled = selected != null,
+                bgColor = primaryActionColor
+            ) {
+                selected?.let { packdir ->
+                    val playArgs = McPlayArgs(
+                        title = "单机 - ${packdir.vo.name} ${packdir.verName}",
+                        mcVer = packdir.vo.mcVer,
+                        versionId = packdir.versionId,
+                        "${server.hqUrl}\n" +
+                            "127.0.0.1:55667\n" +
+                            "test\n" +
+                            "55555\n" +
+                            "${loggedAccount.uuid}\n" +
+                            loggedAccount.name
+                    )
+                    onOpenPlay?.invoke(playArgs)
+                }
+            }
+            if (isDesktop) {
+                CircleIconButton(
+                    "\uEF11",
+                    "导出日志",
+                    size = size,
+                    bgColor = MaterialColor.GRAY_800.color,
+                    enabled = selected != null
+                ) {
+                    val packdir = selected ?: return@CircleIconButton
+                    scope.launch {
+                        val result = exportLogsPack(packdir)
+                        if (result.isFailure) {
+                            errorMessage = result.exceptionOrNull()?.message ?: "导出日志失败"
+                        }
+                    }
+                }
+            }
+        }
 
         Column(
             modifier = modifier,
@@ -370,217 +562,88 @@ fun ModpackLocalManageScreen(
             packActionMessage?.let {
                 Text(it, color = MaterialTheme.colors.primary)
             }
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                    CircleIconButton(
-                        "\uEA81",
-                        "删除",
-                        size = size,
-                        bgColor = MaterialColor.RED_900.color,
-                        enabled = selected != null
-                    ) {
-                        deleteConfirmPack = selected
-                        deleteIncludedMods = false
-                    }
-                if (isDesktop) {
-                        CircleIconButton(
-                            "\uDB82\uDD5E",
-                            "导出RDI包",
-                            size = size,
-                            bgColor = MaterialColor.BLUE_800.color,
-                            enabled = selected != null
-                        ) {
-                            val packdir = selected ?: return@CircleIconButton
-                            scope.launch {
-                                val result = withContext(Dispatchers.IO) {
-                                    packActionMessage = "开始导出..."
-                                    exportRdiModpack(packdir) { msg -> packActionMessage = msg }
-                                }
-                                if (result.isFailure) {
-                                    errorMessage = result.exceptionOrNull()?.message ?: "导出失败"
-                                    packActionMessage = null
-                                } else {
-                                    packActionMessage = "导出完成"
-                                }
-                            }
-                        }
+            if (portrait) {
+                FlowRowV(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ActionButtons()
                 }
-                    CircleIconButton(
-                        "\uDB81\uDC53",
-                        "重新下载",
-                        size = size,
-                        enabled = selected != null,
-                        bgColor = secondaryActionColor
-                    ) {
-                        reinstallConfirmPack = selected
-                    }
-                    CircleIconButton(
-                        "\uE713",
-                        "配置文件",
-                        size = size,
-                        enabled = selected != null,
-                        bgColor = MaterialColor.DEEP_PURPLE_700.color
-                    ) {
-                        val packdir = selected ?: return@CircleIconButton
-                        resetLocalConfigEditorState()
-                        configEditorPack = packdir
-                        loadLocalConfigFiles(packdir)
-                    }
-                    CircleIconButton(
-                        "\uE8C8",
-                        "复制数据",
-                        size = size,
-                        enabled = selected != null && localDirs.size > 1,
-                        bgColor = utilityActionColor
-                    ) {
-                        val packdir = selected ?: return@CircleIconButton
-                        copyDataSourcePack = packdir
-                        copyDataTargetVersionId = localDirs.firstOrNull {
-                            it.versionId != packdir.versionId
-                        }?.versionId
-                        copyDataSelectedKeys = personalDataCopyEntries.map { it.key }.toSet()
-                    }
-
-                if (isDesktop) {
-                        CircleIconButton(
-                            "\uEAED",
-                            "安装目录",
-                            size = size,
-                            enabled = selected != null,
-                            bgColor = MaterialColor.GREEN_800.color
-                        ) {
-                            val packdir = selected ?: return@CircleIconButton
-                            val dir = packdir.dir
-                            if (!dir.exists()) {
-                                errorMessage = "目录不存在: ${dir.absolutePath}"
-                            } else {
-                                runCatching { openFolder(dir.absolutePath) }
-                                    .onFailure { errorMessage = "无法打开目录: ${it.message}" }
-                            }
-                        }
-                    }
-                    CircleIconButton(
-                        "\uEB9B",
-                        "单机运行",
-                        size = size,
-                        enabled = selected != null,
-                        bgColor = primaryActionColor
-                    ) {
-                        selected?.let { packdir ->
-                            val playArgs = McPlayArgs(
-                                title = "单机 - ${packdir.vo.name} ${packdir.verName}",
-                                mcVer = packdir.vo.mcVer,
-                                versionId = packdir.versionId,
-                                "${server.hqUrl}\n" +
-                                    "127.0.0.1:55667\n" +
-                                    "test\n" +
-                                    "55555\n" +
-                                    "${loggedAccount.uuid}\n" +
-                                    loggedAccount.name
-                            )
-                            onOpenPlay?.invoke(playArgs)
-                        }
-                    }
-                if (isDesktop) {
-                        CircleIconButton(
-                            "\uEF11",
-                            "导出日志",
-                            size = size,
-                            bgColor = MaterialColor.GRAY_800.color,
-                            enabled = selected != null
-                        ) {
-                            val packdir = selected ?: return@CircleIconButton
-                            scope.launch {
-                                val result = exportLogsPack(packdir)
-                                if (result.isFailure) {
-                                    errorMessage = result.exceptionOrNull()?.message ?: "导出日志失败"
-                                }
-                            }
-                        }
+            } else {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ActionButtons()
                 }
             }
         }
     }
 
-    MainBox {
-        MainColumn {
-            TitleRow("整合包管理", onBack) {
-                errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
-                CircleIconButton(
-                    "\uDB82\uDD5D",
-                    "导入RDI整合包",
-                    bgColor = MaterialColor.GREEN_800.color,
-                ) {
-                    importRdiModpack()
-                }
-                Space8w()
-                ImageIconButton("grass_block", "MC资源", bgColor = MaterialColor.GREEN_200.color) {
-                    onOpenMcVersionManage?.invoke()
-                }
-                Space8w()
-                CircleIconButton(
-                    "\uDB86\uDDD8",
-                    "网盘备用下包"
-                ) {
-                    openUrl("https://www.123684.com/s/iWSWvd-Gjtdd")
+    Column(modifier = modifier.fillMaxSize()) {
+        FlowRowV(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(
+                text = "管理已安装整合包",
+                style = MaterialTheme.typography.subtitle1
+            )
+            if (showPaneActions) {
+                RowV(horizontalArrangement = Arrangement.End) {
+                    titleActions(this)
                 }
             }
+        }
+        Space8h()
+        errorMessage?.let {
+            Text(it, color = MaterialTheme.colors.error)
             Space8h()
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val portrait = maxHeight > maxWidth
-                val selected = selectedPack
-                if (portrait) {
+        }
+        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val portrait = maxHeight > maxWidth
+            val selected = selectedPack
+            if (portrait) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    PackActionPanel(
+                        selected = selected,
+                        portrait = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    PackGrid(
+                        portrait = true,
+                        modifier = Modifier.fillMaxWidth().weight(1f)
+                    )
+                }
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxSize(),
+                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                    verticalAlignment = Alignment.Top
+                ) {
                     Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        PackGrid(
+                            portrait = false,
+                            modifier = Modifier.fillMaxWidth().weight(1f, fill = false)
+                        )
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .width(140.dp)
+                            .verticalScroll(rememberScrollState())
                     ) {
                         PackActionPanel(
                             selected = selected,
-                            portrait = true,
+                            portrait = false,
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Text(
-                            text = "管理已安装整合包",
-                            style = MaterialTheme.typography.subtitle1
-                        )
-                        PackGrid(
-                            portrait = true,
-                            modifier = Modifier.fillMaxWidth().weight(1f)
-                        )
-                    }
-                } else {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        horizontalArrangement = Arrangement.spacedBy(20.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Column(
-                            modifier = Modifier.weight(1f),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Text(
-                                text = "管理已安装整合包",
-                                style = MaterialTheme.typography.subtitle1
-                            )
-                            PackGrid(
-                                portrait = false,
-                                modifier = Modifier.fillMaxWidth().weight(1f, fill = false)
-                            )
-                        }
-
-                        Column(
-                            modifier = Modifier
-                                .width(140.dp)
-                                .verticalScroll(rememberScrollState())
-                        ) {
-                            PackActionPanel(
-                                selected = selected,
-                                portrait = false,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
                     }
                 }
             }

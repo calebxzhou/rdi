@@ -12,5 +12,3 @@ plugins {
 }
 include(":common")
 project(":common").projectDir = file("../../common")
-include(":ip2region")
-project(":ip2region").projectDir = file("../../ip2region")

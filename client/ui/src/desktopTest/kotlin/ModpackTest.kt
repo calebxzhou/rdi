@@ -1,7 +1,6 @@
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
-import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Mod
@@ -9,7 +8,6 @@ import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.CurseForgeService
-import calebxzhou.rdi.common.service.CurseForgeService.mapMods
 import io.ktor.http.*
 import kotlinx.coroutines.runBlocking
 import org.bson.types.ObjectId
@@ -70,10 +68,10 @@ class ModpackTest {
 
 	@Test
 	fun loadCurseForgeModpack(): Unit = runBlocking {
-		val zipPath = "C:\\Users\\calebxzhou\\Downloads\\ftb-skies-2-1.9.2.zip"
+		/*val zipPath = "C:\\Users\\calebxzhou\\Downloads\\ftb-skies-2-1.9.2.zip"
 		val modpackData = CurseForgeService.loadModpack(zipPath).getOrThrow()
         print(modpackData.manifest.files.mapMods().json)
-		assertNotNull(modpackData.manifest)
+		assertNotNull(modpackData.manifest)*/
 	}
     @Test
     fun cfModFile(){

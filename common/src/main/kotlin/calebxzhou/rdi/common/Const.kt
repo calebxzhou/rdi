@@ -12,6 +12,8 @@ val VALID_NAME_REGEX =
 
 val UNKNOWN_PLAYER_ID = ObjectId(ByteArray(12))
 var DEBUG = System.getProperty("rdi.debug").toBoolean()
+val IGNORE_MODPACK_TEST: Boolean
+    get() = System.getProperty("rdi.ignoreModpackTest").toBoolean()
 
 val CONFIG_EXCLUDE_PATH_PREFIX = listOf("yes_steve_model/builtin")
 

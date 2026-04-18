@@ -51,6 +51,12 @@ import kotlinx.coroutines.launch
 val DEFAULT_MODPACK_ICON by lazy { iconBitmap("modpack") }
 val DEFAULT_HOST_ICON by lazy { iconBitmap("host") }
 
+data class TitleTabItem<T>(
+    val value: T,
+    val icon: String,
+    val label: String
+)
+
 val Int.wM: Modifier
     get() = Modifier.width(this.dp)
 
@@ -386,6 +392,34 @@ private fun IconButtonBase(
 fun SimpleTextButton(text:String, color: Color = MaterialTheme.colors.primary, onClick: () -> Unit){
     TextButton(onClick,colors = ButtonDefaults.buttonColors(backgroundColor = color)){Text(text)}
 }
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun <T> TitleTabBar(
+    items: List<TitleTabItem<T>>,
+    selected: T,
+    modifier: Modifier = Modifier,
+    buttonSize: Int = 34,
+    onSelect: (T) -> Unit
+) {
+    FlowRowV(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items.forEach { item ->
+            CircleIconButton(
+                icon = item.icon,
+                tooltip = item.label,
+                bgColor = if (selected == item.value) MaterialColor.BLUE_700.color else MaterialColor.GRAY_200.color,
+                iconColor = if (selected == item.value) Color.White else MaterialColor.GRAY_900.color,
+                size = buttonSize
+            ) {
+                onSelect(item.value)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun CircleIconButton(

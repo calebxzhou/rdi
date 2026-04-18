@@ -30,16 +30,6 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-        <!--<service
-            android:name=".proxy.LocalMcProxyService"
-            android:enabled="false"
-            android:exported="false"
-            android:stopWithTask="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="minecraft_local_proxy" />
-        </service>-->
         <service
             android:name=".service.TaskExecutionService"
             android:enabled="true"

@@ -14,7 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
-import calebxzhou.rdi.client.net.SERVER_NODES
+import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
@@ -53,7 +53,6 @@ fun SettingScreen(
     var maxMemoryText by remember { mutableStateOf("") }
     var jre21Path by remember { mutableStateOf("") }
     var jre8Path by remember { mutableStateOf("") }
-    var carrier by remember { mutableStateOf(0) }
     var proxyEnabled by remember { mutableStateOf(false) }
     var proxySystem by remember { mutableStateOf(false) }
     var proxyHost by remember { mutableStateOf("127.0.0.1") }
@@ -71,7 +70,6 @@ fun SettingScreen(
                 maxMemoryText = if (config.maxMemory <= 0) "" else config.maxMemory.toString()
                 jre21Path = config.jre21Path.orEmpty()
                 jre8Path = config.jre8Path.orEmpty()
-                carrier = config.carrier
                 proxyEnabled = config.proxyConfig?.enabled ?: false
                 proxySystem = config.proxyConfig?.systemProxy ?: false
                 proxyHost = config.proxyConfig?.host ?: "127.0.0.1"
@@ -143,7 +141,6 @@ fun SettingScreen(
                             maxMemoryText = maxMemoryText,
                             jre21Path = jre21Path,
                             jre8Path = jre8Path,
-                            carrier = carrier,
                             proxyEnabled = proxyEnabled,
                             proxySystem = proxySystem,
                             proxyHost = proxyHost,
@@ -213,8 +210,6 @@ fun SettingScreen(
                                         onPreferModMirrorChange = { preferModMirror = it },
                                         preferMcMirror = preferMcMirror,
                                         onPreferMcMirrorChange = { preferMcMirror = it },
-                                        carrier = carrier,
-                                        onCarrierChange = { carrier = it },
                                         proxyEnabled = proxyEnabled,
                                         proxySystem = proxySystem,
                                         proxyHost = proxyHost,
@@ -543,8 +538,6 @@ private fun NetworkSettings(
     onPreferModMirrorChange: (Boolean) -> Unit,
     preferMcMirror: Boolean,
     onPreferMcMirrorChange: (Boolean) -> Unit,
-    carrier: Int,
-    onCarrierChange: (Int) -> Unit,
     proxyEnabled: Boolean,
     proxySystem: Boolean,
     proxyHost: String,
@@ -568,10 +561,7 @@ private fun NetworkSettings(
             Text("优先使用国内镜像下载Mod")
         }
         Space8h()
-        CarrierSelector(
-            selected = carrier,
-            onSelect = onCarrierChange
-        )
+        AutoRouteStatus()
 
         // Proxy settings — desktop only
         if (isDesktop) {
@@ -646,41 +636,18 @@ private fun NetworkSettings(
 }
 
 @Composable
-private fun CarrierSelector(
-    selected: Int,
-    onSelect: (Int) -> Unit
-) {
-
+private fun AutoRouteStatus() {
+    val routeState by RServer.routeState.collectAsState()
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Text(
-            text = "运营商节点"
+            text = "网络入口"
         )
-
-        // ← This is the key change
-        FlowRow(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),  // space between options
-            verticalArrangement = Arrangement.spacedBy(8.dp)      // space between rows when wrapped
-        ) {
-            SERVER_NODES.values.forEach { (index, name) ->
-                // Each radio + label is now one self-contained item
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .clickable { onSelect(index) }   // whole row is clickable (better UX)
-                        .padding(vertical = 4.dp)
-                ) {
-                    RadioButton(
-                        selected = selected == index,
-                        onClick = { onSelect(index) }
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = name)
-                }
-            }
+        routeState.nodeName?.let {
+            Text("当前节点: $it")
         }
+        Text(if (routeState.useBackupNode) "当前使用加速入口" else "当前使用主入口")
     }
 }
 

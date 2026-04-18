@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -22,7 +23,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.auth.LocalCredentials
@@ -32,9 +32,11 @@ import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
 import calebxzhou.rdi.client.service.startPlay
 import calebxzhou.rdi.client.ui.CircleIconButton
+import calebxzhou.rdi.client.ui.FlowRowV
 import calebxzhou.rdi.client.ui.MainColumn
 import calebxzhou.rdi.client.ui.McPlayArgs
-import calebxzhou.rdi.client.ui.Space8w
+import calebxzhou.rdi.client.ui.TitleTabBar
+import calebxzhou.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.common.model.Host
@@ -46,53 +48,107 @@ import org.bson.types.ObjectId
 /**
  * calebxzhou @ 2026-01-15 14:15
  */
-@OptIn(ExperimentalMaterial3Api::class)
+enum class HostTab(
+    val icon: String,
+    val label: String
+) {
+    MyHosts("\uF04B", "我的房间"),
+    AllHosts("\uF0C0", "所有房间"),
+    Mail("\uEB1C", "信箱"),
+    Worlds("\uDB85\uDC5C", "存档");
+
+    companion object {
+        fun fromRouteValue(value: String?): HostTab {
+            return entries.firstOrNull { it.name == value } ?: MyHosts
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HostListScreen(
     onBack: (() -> Unit),
-    onOpenHostAll: (() -> Unit),
-    onOpenHostInfo: ((String) -> Unit),
+    onOpenHostInfo: ((String, Boolean) -> Unit),
     onOpenHostCreate: (() -> Unit),
     onOpenMcVersions: ((McVersion?) -> Unit),
     onOpenMcPlay: ((McPlayArgs) -> Unit),
-    onOpenTaskList: ((String) -> Unit)
+    onOpenTaskList: ((String) -> Unit),
+    initialTab: HostTab = HostTab.MyHosts,
+    onOpenMailDetail: (String) -> Unit = {},
+    onOpenBirdView: (String) -> Unit = {},
+    onOpenLocalBirdView: (() -> Unit)? = null
 ) {
-    HostBrowserScreen(
-        title = "我的房间",
-        emptyStateText = "暂无你的房间，点击右上角创建或等待朋友邀请",
-        listPathForPage = { pageIndex -> "host/my/$pageIndex" },
-        onBack = onBack,
-        onOpenHostInfo = onOpenHostInfo,
-        onOpenMcVersions = onOpenMcVersions,
-        onOpenMcPlay = onOpenMcPlay,
-        onOpenTaskList = onOpenTaskList
-    ) {
-        Text("显示你创建/受邀的房间")
-        Space8w()
-        onOpenHostAll?.let {
-            CircleIconButton("\uF0C0", "房间大厅") {
-                it()
-            }
-            Space8w()
+    var currentTab by remember(initialTab) { mutableStateOf(initialTab) }
+
+    MainColumn {
+        TitleRow("房间", onBack = onBack) {
+            TitleTabBar(
+                items = remember {
+                    HostTab.entries.map { TitleTabItem(it, it.icon, it.label) }
+                },
+                selected = currentTab,
+                onSelect = { currentTab = it }
+            )
         }
-        CircleIconButton("\uDB81\uDC90", "创建新房间") {
-            onOpenHostCreate?.invoke()
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when (currentTab) {
+            HostTab.MyHosts -> HostBrowserPane(
+                title = "我的房间",
+                emptyStateText = "暂无你的房间，点击上方创建新房间或等待朋友邀请",
+                listPathForPage = { pageIndex -> "host/my/$pageIndex" },
+                onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, false) },
+                onOpenMcVersions = onOpenMcVersions,
+                onOpenMcPlay = onOpenMcPlay,
+                onOpenTaskList = onOpenTaskList
+            ) {
+                FlowRowV(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text("显示你创建/受邀的房间")
+                    CircleIconButton("\uDB81\uDC90", "创建新房间") {
+                        onOpenHostCreate()
+                    }
+                }
+            }
+
+            HostTab.AllHosts -> HostBrowserPane(
+                title = "所有房间",
+                emptyStateText = "暂无可展示的房间",
+                listPathForPage = { pageIndex -> "host/list/$pageIndex" },
+                onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, true) },
+                onOpenMcVersions = onOpenMcVersions,
+                onOpenMcPlay = onOpenMcPlay,
+                onOpenTaskList = onOpenTaskList
+            )
+
+            HostTab.Mail -> MailPane(
+                onOpenDetail = onOpenMailDetail,
+                modifier = Modifier.fillMaxSize()
+            )
+
+            HostTab.Worlds -> WorldListPane(
+                onOpenBirdView = onOpenBirdView,
+                onOpenLocalBirdView = onOpenLocalBirdView,
+                modifier = Modifier.fillMaxSize()
+            )
         }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun HostBrowserScreen(
+internal fun HostBrowserPane(
     title: String,
     emptyStateText: String,
     listPathForPage: (Int) -> String,
-    onBack: (() -> Unit),
     onOpenHostInfo: ((String) -> Unit),
     onOpenMcVersions: ((McVersion?) -> Unit),
     onOpenMcPlay: ((McPlayArgs) -> Unit),
     onOpenTaskList: ((String) -> Unit),
-    headerActions: @Composable RowScope.() -> Unit = {}
+    modifier: Modifier = Modifier,
+    headerActions: (@Composable ColumnScope.() -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     var hosts by remember { mutableStateOf<List<Host.BriefVo>>(emptyList()) }
@@ -149,13 +205,14 @@ internal fun HostBrowserScreen(
             }
     }
 
-    MainColumn {
-        TitleRow(title, onBack = onBack) {
-            errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
-            if (errorMessage != null) {
-                Space8w()
-            }
-            headerActions()
+    Column(modifier = modifier.fillMaxSize()) {
+        if (errorMessage != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(errorMessage!!, color = MaterialTheme.colors.error)
+        }
+        if (headerActions != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            headerActions.invoke(this)
         }
         Spacer(modifier = Modifier.height(16.dp))
 
@@ -167,8 +224,7 @@ internal fun HostBrowserScreen(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = emptyStateText,
-                    style = MaterialTheme.typography.h6,
-                    color = Color.Gray
+                    style = MaterialTheme.typography.h6
                 )
             }
         } else {
@@ -231,7 +287,7 @@ internal fun HostBrowserScreen(
                     }
                 } else {
                     item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text("暂无可游玩的房间", color = Color.Gray)
+                        Text("暂无可游玩的房间")
                     }
                 }
 
@@ -239,8 +295,7 @@ internal fun HostBrowserScreen(
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             "以下房间由于不在线或已启用白名单，无法游玩",
-                            style = MaterialTheme.typography.subtitle1,
-                            color = Color.Gray
+                            style = MaterialTheme.typography.subtitle1
                         )
                     }
                     items(nonPlayableHosts) { host ->

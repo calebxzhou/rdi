@@ -40,6 +40,7 @@ import calebxzhou.rdi.client.ui.comp.ModpackCategorySelector
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.client.ui.comp.Task2DetailDialog
 import calebxzhou.rdi.common.DEBUG
+import calebxzhou.rdi.common.IGNORE_MODPACK_TEST
 import calebxzhou.rdi.common.model.LoadProgress
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
@@ -99,6 +100,7 @@ fun ModpackUploadScreen2(
     val serverTestStatus = serverTester?.status?.collectAsState()
     val serverTestPassSeconds = serverTester?.passSeconds?.collectAsState()
     val serverTestConsoleState = remember { ConsoleState(4000) }
+    val allowUploadWithoutTests = DEBUG || IGNORE_MODPACK_TEST
     val canSubmitUpload = !loading &&
         serverTester?.isRunning() == false &&
         clientTester?.isRunning() == false &&
@@ -236,6 +238,9 @@ fun ModpackUploadScreen2(
         }
     }
 
+    fun normalizeVersionNameInput(value: String): String =
+        value.replace(' ', '_')
+
     fun modsNeedDownload(source: List<Mod>): List<Mod> =
         source.filterNot(ModService::isDownloadedModFileValid)
 
@@ -331,14 +336,20 @@ fun ModpackUploadScreen2(
             errorText = "版本号不能为空"
             return null
         }
-        val normalizedMods = if (DEBUG) normalizeUnknownSidedMods(mods) else mods
+        val normalizedMods = if (DEBUG || IGNORE_MODPACK_TEST) normalizeUnknownSidedMods(mods) else mods
         val currentClientTester = clientTester
         val currentServerTester = serverTester
-        if (!DEBUG && isDesktop && currentClientTester != null && currentClientTester.status.value != TestStatus.PASSED) {
+        if (!allowUploadWithoutTests && isDesktop &&
+            currentClientTester != null &&
+            currentClientTester.status.value != TestStatus.PASSED
+        ) {
             errorText = "请先完成客户端测试并通过"
             return null
         }
-        if (!DEBUG && isDesktop && currentServerTester != null && currentServerTester.status.value != TestStatus.PASSED) {
+        if (!allowUploadWithoutTests && isDesktop &&
+            currentServerTester != null &&
+            currentServerTester.status.value != TestStatus.PASSED
+        ) {
             errorText = "请先完成服务端测试并通过"
             return null
         }
@@ -407,7 +418,7 @@ fun ModpackUploadScreen2(
 
             loadedModpack = loadResult
             modpackName = loadResult.packName
-            versionName = loadResult.packVersion
+            versionName = normalizeVersionNameInput(loadResult.packVersion)
             iconUrl = ""
             sourceUrl = ""
             infoText = ""
@@ -512,6 +523,9 @@ fun ModpackUploadScreen2(
     Box(modifier = Modifier.fillMaxSize()) {
         MainColumn {
             errorText?.let { AlertErr(it) }
+            if (IGNORE_MODPACK_TEST) {
+                AlertWarn("已启用rdi.ignoreModpackTest=true，当前允许跳过客户端测试(client test)和服务端测试(server test)直接上传")
+            }
 
             TitleRow(
                 title = title,
@@ -648,9 +662,10 @@ fun ModpackUploadScreen2(
                                 )
                                 OutlinedTextField(
                                     value = versionName,
-                                    onValueChange = { versionName = it },
+                                    onValueChange = { versionName = normalizeVersionNameInput(it) },
                                     modifier = Modifier.weight(1f),
-                                    label = { Text("版本") }
+                                    label = { Text("版本") },
+                                    singleLine = true
                                 )
                             }
                             Text("MC版本 $mcVersionText $modloaderText")
@@ -939,6 +954,7 @@ private fun Modpack.toLocalBriefVo(): Modpack.BriefVo = Modpack.BriefVo(
     modloader = modloader,
     modCount = versions.maxOfOrNull { it.mods.size } ?: 0,
     fileSize = versions.lastOrNull()?.totalSize ?: 0L,
+    lastUpdatedTime = versions.lastOrNull()?.time ?: 0L,
     icon = iconUrl,
     info = info,
     categories = categories

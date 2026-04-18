@@ -14,11 +14,10 @@ fun HostAllScreen(
     onOpenMcPlay: ((McPlayArgs) -> Unit),
     onOpenTaskList: ((String) -> Unit)
 ) {
-    HostBrowserScreen(
+    HostBrowserPane(
         title = "房间大厅",
         emptyStateText = "暂无可展示的房间",
         listPathForPage = { pageIndex -> "host/list/$pageIndex" },
-        onBack = onBack,
         onOpenHostInfo = onOpenHostInfo,
         onOpenMcVersions = onOpenMcVersions,
         onOpenMcPlay = onOpenMcPlay,

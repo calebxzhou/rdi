@@ -17,7 +17,10 @@ object Wardrobe
     val hostId: String? = null,
     val fromAllHosts: Boolean = false,
 )
-@Serializable object ModpackList
+@Serializable data class ResourceRoute(
+    val tab: String = ResourceTab.All.name,
+    val requiredMcVer: String? = null
+)
 @Serializable data class ModpackInfo(
     val modpackId: String,
     val fromHostId: String? = null,
@@ -29,14 +32,9 @@ object Wardrobe
 @Serializable object Sponsor
 @Serializable data class Register(val msa: Boolean)
 @Serializable object Setting
-@Serializable object ModpackLocalManage
-@Serializable object HostList
-@Serializable object HostAll
+@Serializable data class HostRoute(val tab: String = HostTab.MyHosts.name)
 @Serializable data class HostInfo(val hostId: String, val fromAllHosts: Boolean = false)
-@Serializable object Mail
 @Serializable data class MailDetail(val mailId: String)
-@Serializable object WorldList
 @Serializable data class WorldBirdView(val worldId: String)
 @Serializable data class TaskList(val selectedRunId: String? = null)
 @Serializable object McPlayView
-@Serializable data class RMcVersion(val mcVer: String? = null)

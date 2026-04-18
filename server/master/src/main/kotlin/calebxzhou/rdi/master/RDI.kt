@@ -105,6 +105,9 @@ fun main(): Unit = runBlocking {
     accountCol.createIndex(Indexes.ascending("qq"), IndexOptions().unique(true))
     accountCol.createIndex(Indexes.ascending("name"), IndexOptions().unique(true))
     ModpackService.dbcl.createIndex(Indexes.ascending(Modpack::name.name), IndexOptions().unique(true))
+    ModpackService.dbcl.createIndex(Indexes.ascending(Modpack::categories.name))
+    ModpackService.dbcl.createIndex(Indexes.ascending(Modpack::mcVer.name))
+    ModpackService.dbcl.createIndex(Indexes.descending(Modpack::playCount.name))
 
     ModpackService.recoverUnfinishedVersionBuildsOnStartup()
     HostService.startIdleMonitor()
@@ -319,6 +322,7 @@ private fun Application.configureServer() {
         updateRoutes()
         receiptRoutes()
         yggdrasilRoutes()
+        gameNodeRoutes()
         /*get("/sponsors") {
                 call.respondText("""
                     2025-04-11,ChenQu,100

@@ -678,8 +678,6 @@ private val CLIENT_CRASH_TRIGGER_KEYWORDS = listOf(
     "MixinTransformerError",
     "Failed to create mod instance",
     "Mod Loading has failed",
-    "NoClassDefFoundError",
-    "ClassNotFoundException",
     "Missing mandatory dependencies"
 )
 

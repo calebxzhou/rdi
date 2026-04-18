@@ -27,7 +27,7 @@ import androidx.compose.ui.window.Dialog
 import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.CodeFontFamily
 import calebxzhou.rdi.client.auth.LocalCredentials
-import calebxzhou.rdi.client.net.BACKUP_NODE
+import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.common.DEBUG
@@ -45,6 +45,7 @@ fun LoginScreen(
     onLoginSuccess: (() -> Unit)? = null,
     onOpenRegister: ((Boolean) -> Unit)? = null
 ) {
+    val routeState by RServer.routeState.collectAsState()
     var showPassword by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val creds = remember { LocalCredentials.read() }
@@ -281,7 +282,7 @@ fun LoginScreen(
                                     "\uDB80\uDF42",
                                     if (submitting) "登录中.." else "登录",
                                     enabled = !submitting && updateCheckComplete,
-                                    bgColor = if(BACKUP_NODE) MaterialColor.YELLOW_200.color else MaterialColor.BLUE_200.color, iconColor = Color.Black
+                                    bgColor = if(routeState.useBackupNode) MaterialColor.YELLOW_200.color else MaterialColor.BLUE_200.color, iconColor = Color.Black
                                 )  {
                                     attemptLogin()
                                 }

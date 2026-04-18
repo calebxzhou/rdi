@@ -38,6 +38,22 @@ fun MailScreen(
     onBack: () -> Unit = {},
     onOpenDetail: (String) -> Unit = {}
 ) {
+    MainColumn {
+        TitleRow("信箱", onBack = onBack) {}
+        Spacer(modifier = Modifier.height(8.dp))
+        MailPane(
+            onOpenDetail = onOpenDetail,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MailPane(
+    onOpenDetail: (String) -> Unit = {},
+    modifier: Modifier = Modifier
+) {
     val scope = rememberCoroutineScope()
     var mails by remember { mutableStateOf<List<Mail.Vo>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
@@ -77,35 +93,45 @@ fun MailScreen(
 
     val allSelected = mails.isNotEmpty() && selectedIds.size == mails.size
 
-    MainColumn {
-        TitleRow("信箱", onBack = onBack) {
-            errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
-            Checkbox(
-                checked = allSelected,
-                onCheckedChange = { checked ->
-                    selectedIds = if (checked) {
-                        mails.map { it.id }.toSet()
-                    } else {
-                        emptySet()
-                    }
+    Column(modifier = modifier) {
+        FlowRowV(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("信箱", style = MaterialTheme.typography.subtitle1)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                errorMessage?.let {
+                    Text(it, color = MaterialTheme.colors.error)
+                    Spacer(12.wM)
                 }
-            )
-            Text("全选")
-            Spacer(12.wM)
-            CircleIconButton(
-                "\uEA81",
-                "删除所选邮件",
-                enabled = selectedIds.isNotEmpty(),
-                contentPadding = PaddingValues(start = 1.dp, top = 0.dp, end = 0.dp, bottom = 1.dp),
-                bgColor = MaterialColor.RED_900.color
-            ) {
-                if (selectedIds.isEmpty()) {
-                    errorMessage = "请选择至少一封邮件"
-                } else {
-                    confirmDelete = true
+                Checkbox(
+                    checked = allSelected,
+                    onCheckedChange = { checked ->
+                        selectedIds = if (checked) {
+                            mails.map { it.id }.toSet()
+                        } else {
+                            emptySet()
+                        }
+                    }
+                )
+                Text("全选")
+                Spacer(12.wM)
+                CircleIconButton(
+                    "\uEA81",
+                    "删除所选邮件",
+                    enabled = selectedIds.isNotEmpty(),
+                    contentPadding = PaddingValues(start = 1.dp, top = 0.dp, end = 0.dp, bottom = 1.dp),
+                    bgColor = MaterialColor.RED_900.color
+                ) {
+                    if (selectedIds.isEmpty()) {
+                        errorMessage = "请选择至少一封邮件"
+                    } else {
+                        confirmDelete = true
+                    }
                 }
             }
         }
+        Spacer(modifier = Modifier.height(16.dp))
 
         if (loading) {
             Row(
@@ -122,7 +148,10 @@ fun MailScreen(
             Text("什么都没有~", color = Color.Black)
         }
 
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        LazyColumn(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.fillMaxSize()
+        ) {
             items(mails, key = { it.id.toHexString() }) { mail ->
                 Row(
                     modifier = Modifier

@@ -3,9 +3,9 @@ package calebxzhou.rdi.client.net
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.exception.RequestError
-import calebxzhou.rdi.common.ip2region.Ip2RegionResult
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.model.Response
+import calebxzhou.rdi.common.model.ServerEntry
 import calebxzhou.rdi.common.net.*
 import calebxzhou.rdi.common.serdesJson
 import io.ktor.client.call.*
@@ -17,48 +17,27 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.sse.ServerSentEvent
 import kotlinx.coroutines.*
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import java.nio.file.Paths
 
+private const val DEFAULT_GAME_NODE_ADDR = "rdi.calebxzhou.cn:65230"
+private const val DEFAULT_PRIMARY_HOST = "rdi.calebxzhou.cn"
+
+data class ServerRouteState(
+    val useBackupNode: Boolean = false,
+    val entryHost: String = DEFAULT_PRIMARY_HOST,
+    val nodeName: String? = null,
+    val gameAddr: String = DEFAULT_GAME_NODE_ADDR,
+)
+
 val server
     get() = RServer.now
 var loggedAccount: RAccount = RAccount.DEFAULT
 val lgr by Loggers
-var BACKUP_NODE = false
-
-data class ServerNode(
-    val id: Int,
-    val name: String,
-    val gameAddr: String,
-    val applyPred: (Ip2RegionResult) -> Boolean = {true},
-)
-val SERVER_NODES = listOf(
-    ServerNode(0, "电信专用优化", if(DEBUG)"${RServer.OFFICIAL_DEBUG.ip}:65230" else "rdi.calebxzhou.cn:65230"){
-        it.isCT
-    },
-    ServerNode(1, "广州互通", "frp-leg.com:65230"){ result ->
-        listOf("广东","广西","湖南","江西","福建","海南","湖北","安徽","贵州","河北","河南").any { result.province.contains(it) }
-    },
-    ServerNode(2, "上海互通", "frp-shy.com:65230"){ result ->
-        listOf("浙江","上海","江苏",).any { result.province.contains(it) }
-    },
-    ServerNode(3, "天津互通", "frp-rug.com:65230"){ result ->
-        listOf("北京","天津","山东","辽宁","吉林","黑龙江").any { result.province.contains(it) }
-    },
-    ServerNode(4, "西安互通", "frp-arm.com:55230"){ result ->
-        listOf("新疆","西藏","陕西","山西","内蒙古","甘肃","宁夏").any { result.province.contains(it) }
-    },
-    ServerNode(5, "重庆互通", "frp-dog.com:65230"){ result ->
-        listOf("四川","云南","重庆").any { result.province.contains(it) }
-    },
-    ServerNode(10, "国际出口", "frp-pet.com:65230"){ result ->
-        listOf("香港","澳门","台湾").any { result.province.contains(it) }
-                || !result.isChina
-    },
-).associateBy { it.id }
 
 class RServer(
     var ip: String,
@@ -70,20 +49,32 @@ class RServer(
     val hqUrl get() = "${if (noHttps) "http" else "https"}://${ip}:${if (noHttps) httpPort else httpsPort}"
 
     companion object {
-        val OFFICIAL_DEBUG = RServer(
+        val routeState = MutableStateFlow(ServerRouteState())
+
+        val DBG = RServer(
             "localhost", 65231, 65331
         )
         val OFFICIAL_NNG = RServer(
-            "rdi.calebxzhou.cn", 65231, 65331
+            DEFAULT_PRIMARY_HOST, 65231, 65331
         )
-        val OFFICIAL_NNG2 = RServer(
-            "bkrdi.calebxzhou.cn", 443, 443
-        )
+        val OFFICIAL_NNG2 get() = RServer(routeState.value.entryHost, 443, 443)
         val now: RServer
-            get() = if (DEBUG) OFFICIAL_DEBUG
-            else if (BACKUP_NODE) OFFICIAL_NNG2
+            get() = if (DEBUG) DBG
+            else if (routeState.value.useBackupNode) OFFICIAL_NNG2
             else OFFICIAL_NNG
 
+        val currentGameAddr
+            get() = routeState.value.gameAddr.ifBlank { DEFAULT_GAME_NODE_ADDR }
+
+        fun updateServerEntry(entry: ServerEntry) {
+            lgr.info { "update server entry: $entry" }
+            routeState.value = routeState.value.copy(
+                useBackupNode = entry.useBackupNode,
+                entryHost = entry.api?.trim().orEmpty().ifBlank { DEFAULT_PRIMARY_HOST },
+                nodeName = entry.nodeName.ifBlank { null },
+                gameAddr = entry.gameAddr.trim().ifBlank { DEFAULT_GAME_NODE_ADDR }
+            )
+        }
     }
 
     suspend inline fun createRequest(
@@ -147,7 +138,9 @@ class RServer(
 }
 
 fun HttpRequestBuilder.accountAuthHeader() {
-    header(HttpHeaders.Authorization, "Bearer ${loggedAccount.jwt}")
+    loggedAccount.jwt?.let { jwt ->
+        header(HttpHeaders.Authorization, "Bearer $jwt")
+    }
 }
 
 fun CoroutineScope.sse(
@@ -190,9 +183,6 @@ fun CoroutineScope.sse(
             }
             try {
                 incoming.collect { event ->
-                    /*if (DEBUG) {
-                        lgr.info { "[SSE] Event: ${event.event}, data: ${event.data?.take(100)}" }
-                    }*/
                     when (event.event) {
                         "heartbeat" -> {}
                         "error" -> onError(RequestError(event.data))
@@ -257,4 +247,3 @@ inline fun <reified T> CoroutineScope.rdiRequest(
         onDone()
     }
 }
-

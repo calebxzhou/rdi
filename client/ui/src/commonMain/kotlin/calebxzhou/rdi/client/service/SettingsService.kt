@@ -76,7 +76,6 @@ object SettingsService {
         maxMemoryText: String,
         jre21Path: String,
         jre8Path: String,
-        carrier: Int,
         proxyEnabled: Boolean,
         proxySystem: Boolean,
         proxyHost: String,
@@ -95,7 +94,6 @@ object SettingsService {
             maxMemory = memoryValue ?: 0,
             jre21Path = jre21,
             jre8Path = jre8,
-            carrier = carrier,
             proxyConfig = ProxyConfig(
                 enabled = proxyEnabled,
                 systemProxy = proxySystem,

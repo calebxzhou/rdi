@@ -27,8 +27,7 @@ import org.bson.types.ObjectId
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun MenuScreen(
-    onOpenModpackLocalManage: () -> Unit,
-    onOpenModpackList: () -> Unit,
+    onOpenResources: () -> Unit,
     onOpenSponsor: () -> Unit,
     onOpenTaskList: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -85,8 +84,7 @@ fun MenuScreen(
                             .widthIn(min = 92.dp, max = buttonAreaWidth),
                         compact = true,
                         showBottomActionsInline = true,
-                        onOpenModpackLocalManage = onOpenModpackLocalManage,
-                        onOpenModpackList = onOpenModpackList,
+                        onOpenResources = onOpenResources,
                         onOpenSponsor = onOpenSponsor,
                         onOpenTaskList = onOpenTaskList,
                         onOpenSettings = onOpenSettings,
@@ -118,8 +116,7 @@ fun MenuScreen(
                         modifier = Modifier.widthIn(min = if (compact) 180.dp else 220.dp),
                         compact = compact,
                         showBottomActionsInline = false,
-                        onOpenModpackLocalManage = onOpenModpackLocalManage,
-                        onOpenModpackList = onOpenModpackList,
+                        onOpenResources = onOpenResources,
                         onOpenSponsor = onOpenSponsor,
                         onOpenTaskList = onOpenTaskList,
                         onOpenSettings = onOpenSettings,
@@ -211,8 +208,7 @@ private fun MenuActionButtons(
     modifier: Modifier = Modifier,
     compact: Boolean,
     showBottomActionsInline: Boolean,
-    onOpenModpackLocalManage: () -> Unit,
-    onOpenModpackList: () -> Unit,
+    onOpenResources: () -> Unit,
     onOpenSponsor: () -> Unit,
     onOpenTaskList: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -241,21 +237,12 @@ private fun MenuActionButtons(
         ) {
             onOpenSettings()
         }
-        ImageIconButton("grass_block", "版本下载", bgColor = MaterialColor.GREEN_200.color) {
-            onOpenModpackList()
-        }
-        ImageIconButton("chest", "版本管理", bgColor = MaterialColor.AMBER_200.color) {
-            onOpenModpackLocalManage()
-        }
-        CircleIconButton("\uEB1C", "信箱") {
-            onOpenMail()
-        }
-        CircleIconButton("\uDB85\uDC5C", "存档") {
-            onOpenWorldList()
+        ImageIconButton("grass_block", "资源", bgColor = MaterialColor.GREEN_200.color) {
+            onOpenResources()
         }
         CircleIconButton(
             "\uF04B",
-            "房间",
+            "游玩",
             bgColor = MaterialColor.GREEN_900.color,
             contentPadding = PaddingValues(start = 2.dp)
         ) {

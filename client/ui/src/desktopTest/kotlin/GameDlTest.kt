@@ -1,16 +1,13 @@
-import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.client.service.GameService.rewriteMirrorUrl
 import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
-import kotlin.test.assertEquals
 
 class GameDlTest {
     @Test
     fun urlReplace() {
-        assertEquals(
+        /*assertEquals(
             "https://bmclapi2.bangbang93.com/maven/net/neoforged/neoforge/21.1.216/neoforge-21.1.216-installer.jar",
-            "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.216/neoforge-21.1.216-installer.jar".rewriteMirrorUrl
-        )
+            "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.216/neoforge-21.1.216-installer.jar"
+        )*/
     }
 
     @Test

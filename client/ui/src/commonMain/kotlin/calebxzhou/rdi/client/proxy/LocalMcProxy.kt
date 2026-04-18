@@ -6,8 +6,4 @@ expect object LocalMcProxy {
     fun start(onLog: (String) -> Unit)
 
     fun stop()
-
-    internal fun currentEndpointFromCarrier(): ProxyEndpoint
-
-    internal fun reportLog(message: String)
 }

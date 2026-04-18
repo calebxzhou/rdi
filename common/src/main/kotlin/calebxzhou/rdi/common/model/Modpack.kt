@@ -15,6 +15,7 @@ class Modpack(
     val modloader: ModLoader,
     val mcVer: McVersion,
     val sourceUrl: String? = null,
+    val playCount: Int = 0,
     val categories: List<Category> = emptyList(),
     val versions: MutableList<Version> = arrayListOf(),
 ) {
@@ -27,31 +28,26 @@ class Modpack(
 
     @Serializable
     enum class Category(val label: String) {
-        LARGE("大型"),
-        MEDIUM("中型"),
-        SMALL("小型"),
-        MAGIC("魔法"),
-        HARDCORE("硬核"),
-        MINIGAME("小游戏"),
-        QUEST("任务"),
-        SKYBLOCK("空岛"),
-        EDUCATION("教育"),
-        VANILLA("纯净"),
-        TECH("科技"),
-        STORY("剧情"),
-        ADVENTURE("探险"),
-        CASUAL("休闲"),
-        MANAGE("经营"),
-        NURTURE("养成"),
-        SCENERY("风景"),
-        APOCALYPSE("末日"),
-        WAR("战争"),
-        HEAVY_MOD("魔改"),
-        RPG("RPG"),
-        COMBAT("战斗"),
-        LIGHT_MOD("轻量"),
-        OPTIMIZE("优化"),
-        OTHER("其他");
+        LARGE("\uDB84\uDFA7 大型"),
+        MEDIUM("\uDB84\uDFA5 中型"),
+        SMALL("\uDB84\uDFA4 小型"),
+        MAGIC("\uDB86\uDC44 魔法"),
+        HARDCORE("\uE646 硬核"),
+        SKYBLOCK("\uDB84\uDC4F 空岛"),
+        VANILLA("\uDB81\uDD8C 纯净"),
+        TECH("\uE266 科技"),
+        STORY("\uDB84\uDFAD 剧情"),
+        ADVENTURE("\uE6A0 探险"),
+        CASUAL("\uE2A2 休闲"),
+        MANAGE("\uF157 经营"),
+        APOCALYPSE("\uDB82\uDEC1 末日"),
+        WAR("\uDB81\uDF03 战争"),
+        HEAVY_MOD("\uDB80\uDEA2 魔改"),
+        RPG("\uDB85\uDFDD RPG"),
+        COMBAT("\uDB81\uDF87 战斗"),
+        LIGHT_MOD("\uEDF7 轻量"),
+        OPTIMIZE("\uF4BC 优化"),
+        OTHER("\uDB82\uDC17 其他");
 
         companion object {
             val allLabels = entries.map(Category::label)
@@ -104,6 +100,8 @@ class Modpack(
         val modloader: ModLoader = ModLoader.neoforge,
         val modCount: Int = 0,
         val fileSize: Long = 0L,
+        val playCount: Int = 0,
+        val lastUpdatedTime: Long = 0L,
         val icon: String? = null,
         val info: String? = null,
         val categories: List<Category> = emptyList(),
@@ -118,6 +116,7 @@ class Modpack(
         val authorId: ObjectId,
         val authorName: String = "",
         val modCount: Int,
+        val playCount: Int = 0,
         val sourceUrl: String? = null,
         val icon: String? = null,
         val info: String? = null,
@@ -125,6 +124,23 @@ class Modpack(
         val mcVer: McVersion,
         val categories: List<Category> = emptyList(),
         val versions: List<Version> = arrayListOf(),
+    )
+
+    @Serializable
+    enum class SearchSort {
+        RELEVANCE,
+        UPDATED,
+        POPULAR,
+        NAME,
+    }
+
+    @Serializable
+    data class SearchResultVo(
+        val items: List<BriefVo> = emptyList(),
+        val total: Int = 0,
+        val offset: Int = 0,
+        val limit: Int = 24,
+        val hasMore: Boolean = false,
     )
 
     @Serializable

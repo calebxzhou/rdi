@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -30,6 +31,24 @@ fun WorldListScreen(
     onBack: (() -> Unit)? = null,
     onOpenBirdView: (String) -> Unit = {},
     onOpenLocalBirdView: (() -> Unit)? = null
+) {
+    MainColumn {
+        TitleRow("存档", onBack = { onBack?.invoke() ?: Unit }) {}
+        Spacer(modifier = Modifier.height(8.dp))
+        WorldListPane(
+            onOpenBirdView = onOpenBirdView,
+            onOpenLocalBirdView = onOpenLocalBirdView,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WorldListPane(
+    onOpenBirdView: (String) -> Unit = {},
+    onOpenLocalBirdView: (() -> Unit)? = null,
+    modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
     var worlds by remember { mutableStateOf<List<World.Vo>>(emptyList()) }
@@ -66,58 +85,67 @@ fun WorldListScreen(
             okMessage = null
         }
     }
-    MainBox {
-        MainColumn {
-            TitleRow("区块管理", onBack = { onBack?.invoke() ?: Unit }) {
-                errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
-                val canOperate = selectedWorld != null
-                CircleIconButton(
-                    "\uDB85\uDDC6", "俯视图开发中", enabled = canOperate && DEBUG,
-                ) {
-                    selectedWorld?.let { onOpenBirdView(it.id.toHexString()) }
-                }
-                if (isDesktop && onOpenLocalBirdView != null) {
+    Box(modifier = modifier) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            FlowRowV(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("存档", style = MaterialTheme.typography.subtitle1)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    errorMessage?.let {
+                        Text(it, color = MaterialTheme.colors.error)
+                        Space8w()
+                    }
+                    val canOperate = selectedWorld != null
+                    CircleIconButton(
+                        "\uDB85\uDDC6", "俯视图开发中", enabled = canOperate && DEBUG,
+                    ) {
+                        selectedWorld?.let { onOpenBirdView(it.id.toHexString()) }
+                    }
+                    if (isDesktop && onOpenLocalBirdView != null) {
+                        Space8w()
+                        CircleIconButton(
+                            "\uF07C",
+                            "打开本地存档"
+                        ) {
+                            onOpenLocalBirdView()
+                        }
+                    }
                     Space8w()
                     CircleIconButton(
-                        "\uF07C",
-                        "打开本地存档"
+                        icon = "\uDB80\uDD67",
+                        tooltip = "上传存档(开发中)",
+                        enabled = false,
                     ) {
-                        onOpenLocalBirdView()
                     }
-                }
-                Space8w()
-                CircleIconButton(
-                    icon = "\uDB80\uDD67",
-                    tooltip = "上传存档(开发中)",
-                    enabled = false,
-                ) {
-                }
-                Space8w()
-                CircleIconButton(
-                    icon = "\uDB80\uDD62",
-                    tooltip = "下载存档(开发中)",
-                    enabled = false,
-                ) {
+                    Space8w()
+                    CircleIconButton(
+                        icon = "\uDB80\uDD62",
+                        tooltip = "下载存档(开发中)",
+                        enabled = false,
+                    ) {
 
-                }
-                Space8w()
-                CircleIconButton(
-                    icon = "\uF0C5",
-                    tooltip = "复制",
-                    enabled = canOperate,
-                    
-                ) {
-                    selectedWorld?.let { confirmCopy = it }
-                }
-                Space8w()
-                CircleIconButton(
-                    icon = "\uEA81",
-                    tooltip = "删除",
-                    enabled = canOperate,
-                    bgColor = Color.Red,
-                    
-                ) {
-                    selectedWorld?.let { confirmDelete = it }
+                    }
+                    Space8w()
+                    CircleIconButton(
+                        icon = "\uF0C5",
+                        tooltip = "复制",
+                        enabled = canOperate,
+
+                    ) {
+                        selectedWorld?.let { confirmCopy = it }
+                    }
+                    Space8w()
+                    CircleIconButton(
+                        icon = "\uEA81",
+                        tooltip = "删除",
+                        enabled = canOperate,
+                        bgColor = Color.Red,
+
+                    ) {
+                        selectedWorld?.let { confirmDelete = it }
+                    }
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
@@ -130,8 +158,6 @@ fun WorldListScreen(
                     CircularProgressIndicator()
                 }
             }
-
-
 
             if (!loading && worlds.isEmpty()) {
                 Text("没有存档。", color = Color.Gray)

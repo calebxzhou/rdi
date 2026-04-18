@@ -41,8 +41,11 @@ import calebxzhou.rdi.master.service.ModpackService.validateVerName
 import calebxzhou.rdi.master.service.PlayerService.getPlayerNames
 import com.mongodb.ErrorCategory
 import com.mongodb.MongoWriteException
+import com.mongodb.client.model.IndexOptions
+import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Filters.*
 import com.mongodb.client.model.Projections
+import com.mongodb.client.model.Sorts
 import com.mongodb.client.model.UpdateOptions
 import com.mongodb.client.model.Updates
 import com.mongodb.kotlin.client.coroutine.MongoCollection
@@ -216,6 +219,10 @@ fun Route.modpackRoutes() {
             get("/name") {
                 response(data = call.modpackGuardContext().modpack.name)
             }
+            post("/play") {
+                ModpackService.incrementPlayCount(idParam("modpackId"))
+                ok()
+            }
             delete {
                 call.modpackGuardContext().requireAuthor().deleteModpack()
                 ok()
@@ -281,6 +288,9 @@ fun Route.modpackRoutes() {
             val modpacks = ModpackService.searchByName(name)
             response(data = modpacks)
         }
+        get("/search") {
+            response(data = ModpackService.search(call))
+        }
 
 
     }
@@ -297,6 +307,8 @@ class ModpackContext(
 object ModpackService {
     private val lgr by Loggers
     private const val MAX_MODPACK_PER_USER = 10
+    private const val DEFAULT_SEARCH_LIMIT = 24
+    private const val MAX_SEARCH_LIMIT = 60
     private val STEP_PROGRESS_REGEX = Regex("""^Step\s+(\d+)/(\d+)""")
     private val realDbcl = DB.getCollection<Modpack>("modpack")
     internal var testDbcl: MongoCollection<Modpack>? = null
@@ -356,10 +368,105 @@ object ModpackService {
 
     suspend fun getById(id: ObjectId): Modpack? = dbcl.find(eq("_id", id)).firstOrNull()
 
+    suspend fun incrementPlayCount(modpackId: ObjectId) {
+        dbcl.updateOne(
+            eq(Modpack::_id.name, modpackId),
+            Updates.inc(Modpack::playCount.name, 1)
+        )
+    }
+
     suspend fun searchByName(name: String): List<Modpack> {
         if (name.isBlank()) return emptyList()
         //Uses MongoDB's regex filter with case-insensitive flag ("i")
         return dbcl.find(regex(Modpack::name.name, name, "i")).toList()
+    }
+
+    suspend fun search(call: ApplicationCall): Modpack.SearchResultVo {
+        val keyword = call.paramNull("q")?.trim().orEmpty()
+        val category = call.paramNull("category")
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.let { catStr ->
+                runCatching { Modpack.Category.valueOf(catStr) }.getOrElse {
+                    throw ParamError("category无效: $catStr")
+                }
+            }
+        val mcVer = call.paramNull("mcVer")
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.let {
+                McVersion.from(it) ?: throw ParamError("mcVer无效")
+            }
+        val sort = call.paramNull("sort")
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.uppercase()
+            ?.let {
+                runCatching { Modpack.SearchSort.valueOf(it) }.getOrElse {
+                    throw ParamError("sort无效: $it")
+                }
+            } ?: Modpack.SearchSort.RELEVANCE
+        val onlyMine = call.paramNull("mine")?.trim()?.toBooleanStrictOrNull() ?: false
+        val limit = call.paramNull("limit")?.toIntOrNull()
+            ?.coerceIn(1, MAX_SEARCH_LIMIT)
+            ?: DEFAULT_SEARCH_LIMIT
+        val offset = call.paramNull("offset")?.toIntOrNull()?.coerceAtLeast(0) ?: 0
+
+        val filters = buildList {
+            if (onlyMine) {
+                add(eq(Modpack::authorId.name, call.uid))
+            }
+            if (keyword.isNotBlank()) {
+                add(or(
+                    regex(Modpack::name.name, keyword, "i"),
+                    regex(Modpack::info.name, keyword, "i")
+                ))
+            }
+            category?.let {
+                add(eq(Modpack::categories.name, it))
+            }
+            mcVer?.let {
+                add(eq(Modpack::mcVer.name, it))
+            }
+        }
+
+        val filter = when (filters.size) {
+            0 -> Document()
+            1 -> filters.first()
+            else -> and(filters)
+        }
+
+        val sortDef = when (sort) {
+            Modpack.SearchSort.RELEVANCE -> when {
+                keyword.isNotBlank() -> Sorts.orderBy(
+                    Sorts.descending(Modpack::playCount.name),
+                    Sorts.descending("${Modpack::versions.name}.${Modpack.Version::time.name}"),
+                    Sorts.ascending(Modpack::name.name)
+                )
+
+                else -> Sorts.descending("${Modpack::versions.name}.${Modpack.Version::time.name}")
+            }
+
+            Modpack.SearchSort.UPDATED -> Sorts.descending("${Modpack::versions.name}.${Modpack.Version::time.name}")
+            Modpack.SearchSort.POPULAR -> Sorts.descending(Modpack::playCount.name)
+            Modpack.SearchSort.NAME -> Sorts.ascending(Modpack::name.name)
+        }
+
+        val total = dbcl.countDocuments(filter).toInt()
+        val modpacks = dbcl.find(filter)
+            .sort(sortDef)
+            .skip(offset)
+            .limit(limit)
+            .toList()
+        val items = toModpackVoList(modpacks)
+
+        return Modpack.SearchResultVo(
+            items = items,
+            total = total,
+            offset = offset,
+            limit = limit,
+            hasMore = offset + items.size < total
+        )
     }
 
     suspend fun listAll(): List<Modpack.BriefVo> {
@@ -402,6 +509,8 @@ object ModpackService {
                 authorName = authorNames[pack.authorId] ?: "未知作者",
                 modCount = pack.versions.maxOfOrNull { it.mods.size } ?: 0,
                 fileSize = pack.versions.lastOrNull()?.totalSize ?: 0L,
+                playCount = pack.playCount,
+                lastUpdatedTime = pack.versions.lastOrNull()?.time ?: 0L,
                 icon = pack.iconUrl,
                 mcVer = pack.mcVer,
                 modloader = pack.modloader,
@@ -421,6 +530,8 @@ object ModpackService {
             mcVer = mcVer,
             modCount = versions.maxOfOrNull { it.mods.size } ?: 0,
             fileSize = versions.lastOrNull()?.totalSize ?: 0L,
+            playCount = playCount,
+            lastUpdatedTime = versions.lastOrNull()?.time ?: 0L,
             icon = iconUrl,
             modloader = modloader,
             info = info,
@@ -437,6 +548,7 @@ object ModpackService {
             authorId = authorId,
             authorName = authorName,
             modCount = versions.maxOfOrNull { it.mods.size } ?: 0,
+            playCount = playCount,
             sourceUrl = sourceUrl,
             icon = iconUrl,
             info = info,
@@ -464,6 +576,7 @@ object ModpackService {
             mcVer = mcVer,
             modloader = modLoader,
             sourceUrl = sourceUrl?.trim()?.ifBlank { null },
+            playCount = 0,
             categories = normalizedCategories
         )
         modpack.dir.mkdirs()

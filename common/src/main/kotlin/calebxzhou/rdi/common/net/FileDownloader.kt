@@ -17,6 +17,7 @@ import kotlinx.coroutines.sync.withPermit
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import java.io.RandomAccessFile
+import java.net.URI
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.AtomicMoveNotSupportedException
@@ -947,7 +948,14 @@ private fun rangeWorkerLimitForSources(sources: List<DownloadSource>): Int {
 }
 
 private fun extractHost(url: String): String = runCatching {
-    Url(url).host.lowercase()
+    URI(url).host?.lowercase()
+        ?.takeIf(String::isNotBlank)
+        ?: url.substringAfter("://", url)
+            .substringBefore('/')
+            .substringBefore('?')
+            .substringBefore('#')
+            .substringBefore(':')
+            .lowercase()
 }.getOrElse {
     url
 }

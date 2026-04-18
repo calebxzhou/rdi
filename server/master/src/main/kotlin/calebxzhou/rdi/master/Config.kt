@@ -16,7 +16,8 @@ data class DatabaseConfig(
 @Serializable
 data class ServerConfig(
     val port: Int = 65231,
-    val httpsPort: Int = 65331
+    val httpsPort: Int = 65331,
+    val bgpUrl: String = "bkrdi.calebxzhou.cn"
 )
 
 @Serializable
@@ -83,6 +84,21 @@ data class EmailConfig(
 )
 
 @Serializable
+data class GameNodeRuleConfig(
+    val id: Int,
+    val name: String,
+    val gameAddr: String,
+    val provinces: List<String> = emptyList(),
+    val carriers: List<String> = emptyList(),
+    val matchOutsideChina: Boolean = false,
+)
+
+@Serializable
+data class GameNodeConfig(
+    val nodes: List<GameNodeRuleConfig> = emptyList()
+)
+
+@Serializable
 data class AppConfig(
     val database: DatabaseConfig = DatabaseConfig(),
     val server: ServerConfig = ServerConfig(),
@@ -93,6 +109,7 @@ data class AppConfig(
     val jwt: JwtConfig = JwtConfig(),
     val storage: StorageConfig = StorageConfig(),
     val email: EmailConfig = EmailConfig(),
+    val gameNode: GameNodeConfig = GameNodeConfig(),
 ) {
     companion object {
         private val configFile = File("config.toml")
@@ -121,4 +138,3 @@ data class AppConfig(
         }
     }
 }
-

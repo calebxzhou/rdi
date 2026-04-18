@@ -6,8 +6,8 @@ import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.CONF
 import calebxzhou.rdi.client.model.firstLoaderDir
 import calebxzhou.rdi.client.model.loaderManifest
-import calebxzhou.rdi.client.net.SERVER_NODES
 import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.isDesktop
@@ -481,9 +481,8 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         val verDir = ModpackService.getVersionDir(version.modpackId,version.name)
         ModpackService.installRdiCore(modpack.mcVer,modpack.modloader,verDir)
         //安卓端暂时不支持本地代理
-        gameAddr = (SERVER_NODES[CONF.carrier]?:SERVER_NODES[0])?.gameAddr!!
+        gameAddr = RServer.currentGameAddr
     }
-    //val gameAddr = SERVER_NODES[CONF.carrier]?.gameAddr?:SERVER_NODES[0]
     val versionId = "${modpack.id.str}_${version.name}"
     val playArg = "${server.hqUrl}\n" +
             "${gameAddr}\n"+
@@ -493,6 +492,10 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             loggedAccount.name
     val activeBaseMods = version.mods
         .filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }
+
+    runCatching {
+        server.makeRequest<Unit>("modpack/${modpack.id}/play", HttpMethod.Post)
+    }
 
     return StartPlayResult.Ready(
         McPlayArgs(

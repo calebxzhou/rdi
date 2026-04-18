@@ -22,8 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.navigation.compose.composable
 import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.getCachedOrFetchHwSpecJson
-import calebxzhou.rdi.client.ui.screen.ModpackList
 import calebxzhou.rdi.client.ui.screen.ModpackUpload
+import calebxzhou.rdi.client.ui.screen.ResourceRoute
 import calebxzhou.rdi.common.hwspec.HwSpec
 import java.io.File
 
@@ -200,8 +200,8 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
         ) {
             Text("Android 暂不支持上传整合包")
             TextButton(onClick = {
-                navController.navigate(ModpackList) {
-                    popUpTo<ModpackList> { inclusive = true }
+                navController.navigate(ResourceRoute) {
+                    popUpTo<ResourceRoute> { inclusive = true }
                     launchSingleTop = true
                     restoreState = false
                 }
