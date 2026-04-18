@@ -68,11 +68,11 @@ unimined.minecraft {
         loader "0.3.31-alpha"
         runs.auth.username = minecraft_username
         runs.all {
-            systemProperty("rdi.ihq.url", "http://127.0.0.1:65231")
-            systemProperty("rdi.game.ip", "127.0.0.1:65230")
-            systemProperty("rdi.host.name", "测试测试12123大世界")
-            systemProperty("rdi.host.port", "25565")
-            systemProperty("crl.dev.mixin", "${mod_id}.mixins.json")
+            jvmArgs(
+                "-Drdi.ihq.url=127.0.0.1:65231",
+                "-Drdi.host.id=695f9e5ad05510e77c09ea1a",
+                    "-Dcrl.dev.mixin=rdi.mixins.json"
+            )
             def extraArgs = propertyString('extra_jvm_args')
             if (extraArgs != null && !extraArgs.trim().isEmpty()) {
                 jvmArgs += extraArgs.split { "\\s+" }.toList()
@@ -84,9 +84,7 @@ unimined.minecraft {
             if (propertyBool('is_coremod')) {
                 systemProperty("fml.coreMods.load", propertyString('coremod_plugin_class_name'))
             }
-            args("--width", "2560", "--height", "1440", "--username", "哇塞的哇塞的"
-                    , "--uuid"
-                    , "68b314bbadaf52ddab96b5ed00000000")
+            args("nogui","--nogui")
             return
         }
     }
@@ -126,6 +124,8 @@ dependencies {
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
     implementation(project(":s-mc-common"))
+    // Use contain so Cleanroom bundles the non-mod library into the built jar.
+    contain 'com.neovisionaries:nv-websocket-client:2.14'
 }
 
 apply from: 'gradle/scripts/dependencies.gradle'
@@ -218,6 +218,9 @@ jar {
         finalizedBy(tasks.named("remapShadowJar"))
     } else {
         finalizedBy(tasks.named("remapJar"))
+    }
+    from(sourceSets.main.output) {
+        include "rdi.mixins.refmap.json"
     }
 }
 

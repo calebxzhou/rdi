@@ -1,3 +1,5 @@
+import java.nio.charset.Charset
+
 plugins {
     id 'java'
     id 'java-library'
@@ -67,12 +69,12 @@ unimined.minecraft {
         }
         loader "0.3.31-alpha"
         runs.auth.username = minecraft_username
+        def playArg = "http://127.0.0.1:65231\n127.0.0.1:65230\n测试测试12123大世界\n25565\n68b314bb-adaf-52dd-ab96-b5ed00000000\n哇塞的哇塞的"
         runs.all {
-            systemProperty("rdi.ihq.url", "http://127.0.0.1:65231")
-            systemProperty("rdi.game.ip", "127.0.0.1:65230")
-            systemProperty("rdi.host.name", "测试测试12123大世界")
-            systemProperty("rdi.host.port", "25565")
-            systemProperty("crl.dev.mixin", "${mod_id}.mixins.json")
+            jvmArgs(
+                    "-Drdi.play=${Base64.encoder.encodeToString(playArg.getBytes(Charset.forName("UTF-8")))}",
+                    "-Dcrl.dev.mixin=${mod_id}.mixins.json"
+            )
             def extraArgs = propertyString('extra_jvm_args')
             if (extraArgs != null && !extraArgs.trim().isEmpty()) {
                 jvmArgs += extraArgs.split { "\\s+" }.toList()

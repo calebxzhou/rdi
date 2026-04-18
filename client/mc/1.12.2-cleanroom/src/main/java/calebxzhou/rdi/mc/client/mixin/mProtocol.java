@@ -1,4 +1,4 @@
-package calebxzhou.rdi.mc.server.mixin;
+package calebxzhou.rdi.mc.client.mixin;
 
 import calebxzhou.rdi.mc.common.RDI;
 import com.mojang.authlib.GameProfile;
@@ -24,7 +24,7 @@ class mServerboundHelloPacket {
     @Shadow
     private GameProfile profile;
 
-    @Inject(method = "writePacketData",at=@At("TAIL"))
+    @Inject(method = "writePacketData",at=@At("HEAD"))
     private void RDI$WriteUUIDPacket(PacketBuffer buffer, CallbackInfo ci){
         buffer.writeUniqueId(this.profile.getId());
     }
