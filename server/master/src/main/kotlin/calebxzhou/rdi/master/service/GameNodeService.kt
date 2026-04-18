@@ -7,6 +7,8 @@ import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.param
 import calebxzhou.rdi.master.net.response
 import io.ktor.server.routing.*
+import java.time.LocalTime
+import java.time.ZoneId
 
 private val ipv4Regex =
     Regex("""^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$""")
@@ -23,13 +25,18 @@ object GameNodeService {
         val region = CarrierDetectService.detectResult(ipv4)
         val node = selectNode(region)
         val backupApi = CONF.server.bgpUrl.trim()
-        val useBackupNode = backupApi.isNotBlank() && !region.isCT
+        val useBackupNode = backupApi.isNotBlank() && !region.isCT && isBackupNodeTimeWindow()
         return ServerEntry(
             api = backupApi.takeIf { useBackupNode },
             useBackupNode = useBackupNode,
-            nodeName = node.name,
+            nodeName = node.name+"-"+region.province.substring(0..1)+region.carrierName,
             gameAddr = node.gameAddr
         )
+    }
+
+    private fun isBackupNodeTimeWindow(): Boolean {
+        val now = LocalTime.now(BEIJING_ZONE_ID)
+        return now.hour in 18..23
     }
 
     private fun requireIpv4(ipv4: String) {
@@ -68,3 +75,5 @@ object GameNodeService {
     }
 
 }
+
+private val BEIJING_ZONE_ID: ZoneId = ZoneId.of("Asia/Shanghai")
