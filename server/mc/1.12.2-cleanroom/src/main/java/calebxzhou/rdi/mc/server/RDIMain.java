@@ -5,6 +5,7 @@ import calebxzhou.rdi.mc.common.WebSocketClient;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.world.WorldServer;
+import net.minecraftforge.common.DimensionManager;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.event.FMLServerStartedEvent;
@@ -29,13 +30,13 @@ public class RDIMain {
 
     @Mod.EventHandler
     public void started(FMLServerStartedEvent e) {
+        applyGameRules();
         WebSocketClient.start(new WsHandler1122(server));
     }
 
     @Mod.EventHandler
     public void starting(FMLServerStartingEvent e) {
         server = (DedicatedServer) e.getServer();
-        applyGameRules(server);
     }
 
     @Mod.EventHandler
@@ -52,8 +53,8 @@ public class RDIMain {
         }
     }
 
-    private static void applyGameRules(DedicatedServer server) {
-        for (WorldServer world : server.worlds) {
+    private static void applyGameRules() {
+        for (WorldServer world : DimensionManager.getWorlds()) {
             if (world == null) {
                 continue;
             }

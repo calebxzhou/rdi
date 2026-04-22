@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "calebxzhou.rdi.mc.server.mixin",
+  "compatibilityLevel": "JAVA_8",
+  "target": "@env(MOD)",
+  "mixins": [],
+  "client": [],
+  "server": [],
+  "setSourceFile": true,
+  "minVersion": "0.8.7"
+}

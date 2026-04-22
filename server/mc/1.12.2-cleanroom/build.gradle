@@ -24,10 +24,10 @@ setDefaultProperty 'generate_javadocs_jar', true, false
 setDefaultProperty 'minecraft_username', true, 'Developer'
 setDefaultProperty 'extra_jvm_args', false, ''
 
-version = propertyString('mod_version')
-group = propertyString('root_package')
+version = "5-mc-server-${mcVersion}-cleanroom"
+group = "rdi"
 base {
-    archivesName.set('rdi-5-mc-server-' + project.mcVersion + "-cleanroom")
+    archivesName.set('rdi')
 }
 evaluationDependsOn(":s-mc-common")
 
@@ -71,7 +71,7 @@ unimined.minecraft {
             jvmArgs(
                 "-Drdi.ihq.url=127.0.0.1:65231",
                 "-Drdi.host.id=695f9e5ad05510e77c09ea1a",
-                    "-Dcrl.dev.mixin=rdi.mixins.json"
+                    "-Dcrl.dev.mixin=${mod_id}.default.mixin.json,${mod_id}.mod.mixin.json"
             )
             def extraArgs = propertyString('extra_jvm_args')
             if (extraArgs != null && !extraArgs.trim().isEmpty()) {
@@ -96,7 +96,7 @@ unimined.minecraft {
             mixinRemap {
                 enableBaseMixin()
                 enableMixinExtra()
-                disableRefmap()
+               // disableRefmap()
             }
         }
     } else {
@@ -104,7 +104,7 @@ unimined.minecraft {
             mixinRemap {
                 enableBaseMixin()
                 enableMixinExtra()
-                disableRefmap()
+               // disableRefmap()
             }
         }
     }
@@ -197,7 +197,7 @@ jar {
         manifest {
             def attribute_map = [:]
             attribute_map['ModType'] = "CRL"
-            attribute_map['MixinConfigs'] = "${mod_id}.mixins.json"
+            attribute_map['MixinConfigs'] = "${mod_id}.default.mixin.json,${mod_id}.mod.mixin.json"
             if (configurations.contain.size() > 0) {
                 attribute_map['ContainedDeps'] = configurations.contain.collect { it.name }.join(' ')
                 attribute_map['NonModDeps'] = true
@@ -220,7 +220,7 @@ jar {
         finalizedBy(tasks.named("remapJar"))
     }
     from(sourceSets.main.output) {
-        include "rdi.mixins.refmap.json"
+        include "*.refmap.json"
     }
 }
 
