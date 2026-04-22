@@ -246,10 +246,14 @@ object GameService {
         return downloads.classifiers?.get(key)
     }
 
+    private fun MojangLibrary.mainArtifact(): MojangDownloadArtifact? = downloads.artifact
+
     private val List<MojangLibrary>.filterNativeOnly
         get() = this.filter { it.nativeArtifact() != null }
             .filter { it.shouldDownloadByArch() }
-    val MojangLibrary.file get() = File(libsDir, this.downloads.artifact.path!!)
+    val MojangLibrary.file
+        get() = mainArtifact()?.path?.let { File(libsDir, it) }
+            ?: error("库${name}缺少artifact路径")
 
 
     private suspend fun downloadLibraryArtifact(
@@ -257,7 +261,8 @@ object GameService {
         installer: File? = null,
         onProgress: (DownloadProgress) -> Unit
     ): Result<File> {
-        val artifact = library.downloads.artifact
+        val artifact = library.mainArtifact()
+            ?: return Result.failure(IllegalStateException("运行库${library.name}缺少artifact"))
         val relativePath = artifact.path ?: return Result.failure(IllegalStateException("缺少库路径"))
         val target = File(libsDir, relativePath)
         return downloadLibraryArtifact(artifact, target, installer, onProgress)
@@ -628,12 +633,25 @@ object GameService {
     }
 
     private fun libraryKey(library: MojangLibrary): String {
-        val artifactPath = library.downloads.artifact.path.orEmpty()
+        val artifactPath = library.downloads.artifact?.path.orEmpty()
         val classifierKey = library.downloads.classifiers?.keys?.sorted()?.joinToString(";").orEmpty()
         return "${library.name}|$artifactPath|$classifierKey"
     }
 
     private val classpathOverrideArtifacts = setOf(
+        "com.google.code.gson:gson",
+        "com.google.guava:guava",
+        "commons-codec:commons-codec",
+        "commons-io:commons-io",
+        "commons-logging:commons-logging",
+        "it.unimi.dsi:fastutil",
+        "net.java.dev.jna:jna",
+        "net.java.jinput:jinput",
+        "net.sf.jopt-simple:jopt-simple",
+        "org.apache.commons:commons-compress",
+        "org.apache.commons:commons-lang3",
+        "org.apache.httpcomponents:httpclient",
+        "org.apache.httpcomponents:httpcore",
         "org.apache.logging.log4j:log4j-api",
         "org.apache.logging.log4j:log4j-core",
         "org.apache.logging.log4j:log4j-slf4j18-impl",
@@ -641,10 +659,26 @@ object GameService {
         "org.slf4j:slf4j-api",
     )
 
+    // Cleanroom ships full replacements for a few legacy 1.12 libraries.
+    private val cleanroomRemovedBaseArtifacts = setOf(
+        "org.lwjgl.lwjgl:lwjgl",
+        "org.lwjgl.lwjgl:lwjgl_util",
+        "org.lwjgl.lwjgl:lwjgl-platform",
+        "com.ibm.icu:icu4j-core-mojang",
+        "net.java.dev.jna:platform",
+        "oshi-project:oshi-core",
+    )
+
     private fun classpathOverrideKey(library: MojangLibrary): String? {
         val coords = library.name.split(':')
         if (coords.size < 2) return null
         return "${coords[0]}:${coords[1]}".takeIf { it in classpathOverrideArtifacts }
+    }
+
+    private fun libraryGroupArtifact(library: MojangLibrary): String? {
+        val coords = library.name.split(':')
+        if (coords.size < 2) return null
+        return "${coords[0]}:${coords[1]}"
     }
 
     private fun addClasspathCompatibilityLibraries(entries: List<String>): List<String> {
@@ -681,7 +715,8 @@ object GameService {
             return path == "realms/lang/en_us.json"
         }
         if (path.startsWith("minecraft/lang/")) {
-            return path.equals("minecraft/lang/zh_cn.json", ignoreCase = true)
+            return path.equals("minecraft/lang/zh_cn.json", ignoreCase = true) ||
+             path.equals("minecraft/lang/zh_cn.lang", ignoreCase = true)
         }
         if (path.startsWith("minecraft/sounds/")) {
             val rest = path.removePrefix("minecraft/sounds/")
@@ -866,14 +901,16 @@ object GameService {
         installer: File? = null
     ) {
         ctx.emit(Task2Progress("开始下载...", 0f))
-        downloadLibraryArtifact(library, installer = installer) { progress ->
-            ctx.emit(
-                Task2Progress(
-                    "${library.name} ${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
-                    progress.fraction
+        library.mainArtifact()?.let {
+            downloadLibraryArtifact(library, installer = installer) { progress ->
+                ctx.emit(
+                    Task2Progress(
+                        "${library.name} ${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
+                        progress.fraction
+                    )
                 )
-            )
-        }.getOrThrow()
+            }.getOrThrow()
+        }
         library.nativeArtifact()?.let { nativeArtifact ->
             val nativePath = nativeArtifact.path ?: return@let
             val nativeFile = File(libsDir, nativePath)
@@ -1001,6 +1038,20 @@ object GameService {
         return args
     }
 
+    internal fun MojangVersionManifest.resolveGameArgumentList(): List<String> {
+        val modernArgs = resolveArgumentList(arguments.game)
+        if (modernArgs.isNotEmpty()) return modernArgs
+        return minecraftArguments
+            ?.trim()
+            ?.split(Regex("\\s+"))
+            ?.filter { it.isNotBlank() }
+            ?: emptyList()
+    }
+
+    internal fun MojangVersionManifest.resolveJvmArgumentList(): List<String> {
+        return resolveArgumentList(arguments.jvm)
+    }
+
     internal fun rulesAllow(rules: List<MojangRule>?): Boolean {
         if (rules.isNullOrEmpty()) return true
         var allowed = false
@@ -1036,7 +1087,7 @@ object GameService {
         val entries = this.libraries
             .asSequence()
             .filter { lib -> lib.shouldDownloadByArch() }
-            .mapNotNull { lib -> lib.downloads.artifact.path }
+            .mapNotNull { lib -> lib.downloads.artifact?.path }
             .map { File(libsDir, it).absolutePath }
             .toMutableList()
             .distinct()
@@ -1048,8 +1099,16 @@ object GameService {
         baseLibraries: List<MojangLibrary>,
         overrideLibraries: List<MojangLibrary>
     ): List<String> {
-        val filteredBaseLibraries = baseLibraries.filter { it.shouldDownloadByArch() }
         val filteredOverrideLibraries = overrideLibraries.filter { it.shouldDownloadByArch() }
+        val overrideGroupArtifacts = filteredOverrideLibraries.mapNotNull(::libraryGroupArtifact).toSet()
+        val removedBaseArtifacts = buildSet {
+            if ("com.cleanroommc:lwjglxx" in overrideGroupArtifacts) {
+                addAll(cleanroomRemovedBaseArtifacts)
+            }
+        }
+        val filteredBaseLibraries = baseLibraries
+            .filter { it.shouldDownloadByArch() }
+            .filterNot { libraryGroupArtifact(it) in removedBaseArtifacts }
         val overrideByKey = filteredOverrideLibraries
             .mapNotNull { library -> classpathOverrideKey(library)?.let { it to library } }
             .toMap()
@@ -1063,7 +1122,7 @@ object GameService {
         }
         val entries = mergedLibraries
             .asSequence()
-            .mapNotNull { lib -> lib.downloads.artifact.path }
+            .mapNotNull { lib -> lib.downloads.artifact?.path }
             .map { File(libsDir, it).absolutePath }
             .distinct()
             .toList()

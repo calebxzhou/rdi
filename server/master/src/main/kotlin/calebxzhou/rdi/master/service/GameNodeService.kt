@@ -25,7 +25,7 @@ object GameNodeService {
         val region = CarrierDetectService.detectResult(ipv4)
         val node = selectNode(region)
         val backupApi = CONF.server.bgpUrl.trim()
-        val useBackupNode = backupApi.isNotBlank() && !region.isCT && isBackupNodeTimeWindow()
+        val useBackupNode = backupApi.isNotBlank() && !region.isCT && isPeekHour()
         return ServerEntry(
             api = backupApi.takeIf { useBackupNode },
             useBackupNode = useBackupNode,
@@ -34,7 +34,7 @@ object GameNodeService {
         )
     }
 
-    private fun isBackupNodeTimeWindow(): Boolean {
+    private fun isPeekHour(): Boolean {
         val now = LocalTime.now(BEIJING_ZONE_ID)
         return now.hour in 18..23
     }
@@ -48,11 +48,15 @@ object GameNodeService {
     private fun selectNode(region: Ip2RegionResult): GameNodeRuleConfig {
         val nodes = CONF.gameNode.nodes
         return nodes.firstOrNull { it.matches(region) }
-            ?: nodes.firstOrNull()
-            ?: throw ParamError("未配置游戏节点")
+            // `id=0`是显式声明的国内兜底节点，不再依赖配置顺序里的“第一个节点”。
+            ?: nodes.firstOrNull { it.id == FALLBACK_GAME_NODE_ID }
+            ?: throw ParamError("未配置id=$FALLBACK_GAME_NODE_ID 的兜底游戏节点")
     }
 
     private fun GameNodeRuleConfig.matches(region: Ip2RegionResult): Boolean {
+        if (peekHourOnly && !isPeekHour()) {
+            return false
+        }
         // `matchOutsideChina`是兜底的国际节点规则：
         // 只要IP不在中国，或者命中了港澳台，就直接匹配。
         if (matchOutsideChina && (!region.isChina || region.province in listOf("香港", "澳门", "台湾"))) {
@@ -76,4 +80,5 @@ object GameNodeService {
 
 }
 
+private const val FALLBACK_GAME_NODE_ID = 0
 private val BEIJING_ZONE_ID: ZoneId = ZoneId.of("Asia/Shanghai")

@@ -22,6 +22,7 @@ import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ClientModpackTester
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.LoadedLocalModpack
+import calebxzhou.rdi.client.service.LoadedServerPackResult
 import calebxzhou.rdi.client.service.ModpackTester
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.TestStatus
@@ -50,7 +51,6 @@ import calebxzhou.rdi.lgr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.util.jar.JarFile
 
 private enum class UploadMode { CREATE, UPDATE }
@@ -102,9 +102,9 @@ fun ModpackUploadScreen2(
     val serverTestConsoleState = remember { ConsoleState(4000) }
     val allowUploadWithoutTests = DEBUG || IGNORE_MODPACK_TEST
     val canSubmitUpload = !loading &&
-        serverTester?.isRunning() == false &&
-        clientTester?.isRunning() == false &&
-        (uploadMode == UploadMode.CREATE || selectedUpdateTarget != null)
+            serverTester?.isRunning() == false &&
+            clientTester?.isRunning() == false &&
+            (uploadMode == UploadMode.CREATE || selectedUpdateTarget != null)
 
     fun resetTestState() {
         clientTestConsoleState.clear()
@@ -138,13 +138,39 @@ fun ModpackUploadScreen2(
         }
     }
 
+    fun uploadSupportedConfiguredJavaMajors(
+        mcVersion: calebxzhou.rdi.common.model.McVersion
+    ): List<Int> = mcVersion.supportedJreVers
+
+    fun hasConfiguredUploadJavaPath(major: Int): Boolean = when (major) {
+        8 -> !CONF.jre8Path?.trim().isNullOrEmpty()
+        21 -> !CONF.jre21Path?.trim().isNullOrEmpty()
+        25 -> !CONF.jre25Path?.trim().isNullOrEmpty()
+        else -> false
+    }
+
+    fun isCurrentJavaSupportedForUpload(
+        currentMajor: Int,
+        mcVersion: calebxzhou.rdi.common.model.McVersion
+    ): Boolean = mcVersion.supportsCurrentJava(currentMajor)
+
     fun uploadRuntimeRequirementMessageOrNull(mcVersion: calebxzhou.rdi.common.model.McVersion): String? {
-        if (!isDesktop || mcVersion.jreVer != 8) return null
-        val configuredPath = CONF.jre8Path?.trim().orEmpty()
-        if (configuredPath.isBlank()) {
-            return """MC${mcVersion.mcVer}需要Java8。请前往群文件下载安装包，然后在设置界面中选择""".trimIndent()
+        if (!isDesktop) return null
+        val currentMajor = currentPlatformJavaMajor()
+        if (currentMajor != null && isCurrentJavaSupportedForUpload(currentMajor, mcVersion)) {
+            return null
         }
-        return null
+        val supportedConfiguredMajors = uploadSupportedConfiguredJavaMajors(mcVersion)
+        if (supportedConfiguredMajors.any(::hasConfiguredUploadJavaPath)) {
+            return null
+        }
+        val javaText = supportedConfiguredMajors.joinToString("或") { "Java$it" }
+        val configHint = if (supportedConfiguredMajors.size == 1) {
+            "请前往群文件下载安装包，然后在设置界面中选择${javaText}路径"
+        } else {
+            "请前往群文件下载安装包，然后在设置界面中配置任意一个"
+        }
+        return "MC${mcVersion.mcVer}需要${javaText}。$configHint"
     }
 
     fun ensureUploadRuntimeReady(mcVersion: calebxzhou.rdi.common.model.McVersion): Boolean {
@@ -244,9 +270,20 @@ fun ModpackUploadScreen2(
     fun modsNeedDownload(source: List<Mod>): List<Mod> =
         source.filterNot(ModService::isDownloadedModFileValid)
 
-    fun applyServerPack(serverMods: List<Mod>) {
-        mods = mergeClientAndServerMods(mods, serverMods)
-        serverPackName = "已选择服务端(${serverMods.size}个mod)"
+    fun applyServerPack(serverPack: LoadedServerPackResult) {
+        mods = mergeClientAndServerMods(mods, serverPack.mods)
+        loadedModpack = loadedModpack?.copy(serverExtraFiles = serverPack.serverExtraFiles)
+        serverPackName = buildString {
+            append("已选择服务端(")
+            append(serverPack.mods.size)
+            append("个mod")
+            if (serverPack.serverExtraFiles.isNotEmpty()) {
+                append(" + ")
+                append(serverPack.serverExtraFiles.size)
+                append("个额外文件")
+            }
+            append(")")
+        }
         clientTester?.onModsChangedAfterManualEdit()
         serverTester?.onModsChangedAfterManualEdit()
     }
@@ -399,15 +436,14 @@ fun ModpackUploadScreen2(
             loading = true
             progressText = "已选择: ${file.name}"
             progressFraction = null
-            val loadResult = runCatching {
-                ModpackService.load(file) { progress ->
-                    scope.launch {
-                        mapProgress(progress)
-                    }
-                }.getOrThrow()
+            val loadResult = ModpackService.load(file) { progress ->
+                scope.launch {
+                    mapProgress(progress)
+                }
             }.getOrElse { error ->
                 finishLoading()
                 lgr.error { error }
+                error.printStackTrace()
                 errorText = error.message ?: "读取整合包失败"
                 return@launch
             }
@@ -442,22 +478,36 @@ fun ModpackUploadScreen2(
 
     fun handleServerPromptHasServer() {
         scope.launch {
-            val file = pickLocalZipFile("选择服务端安装包") ?: return@launch
+            val missingClientMods = runCatching {
+                withContext(Dispatchers.IO) { modsNeedDownload(mods) }
+            }.getOrElse { error ->
+                lgr.error { error }
+                errorText = error.message ?: "检查客户端Mod失败"
+                return@launch
+            }
+            if (missingClientMods.isNotEmpty()) {
+                downloadTaskRunId = ClientTaskManager.submit(
+                    ModService.downloadModsTask2(missingClientMods)
+                )
+                errorText = "已先开始下载客户端Mod，下载完成后再点“有”选择服务端目录"
+                return@launch
+            }
+            val file = pickLocalDirectory("选择服务端安装目录") ?: return@launch
             errorText = null
             loading = true
-            progressText = "已选择服务端: ${file.name}"
+            progressText = "已选择服务端目录: ${file.name}"
             progressFraction = null
-            val serverMods = runCatching {
+            val serverPack = runCatching {
                 loadServerPackMods(file, mods) { progress ->
                     scope.launch { mapProgress(progress) }
                 }.getOrThrow()
             }.getOrElse { error ->
                 finishLoading()
                 lgr.error { error }
-                errorText = error.message ?: "读取服务端包失败"
+                errorText = error.message ?: "读取服务端目录失败"
                 return@launch
             }
-            applyServerPack(serverMods)
+            applyServerPack(serverPack)
             finishLoading()
             continueAfterSidesReady()
         }
@@ -1011,7 +1061,7 @@ private fun readInstalledModId(
             val file = mod.targetPath.toFile().takeIf { it.exists() && it.isFile } ?: return@getOrPut null
             ModService.run {
                 JarFile(file).use { jar ->
-                    jar.readNeoForgeConfig()?.modId?.trim()?.lowercase()?.ifBlank { null }
+                    jar.readModMeta()?.primaryModId?.trim()?.lowercase()?.ifBlank { null }
                 }
             }
         }.getOrNull()

@@ -5,9 +5,8 @@ import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModBriefInfo
 import calebxzhou.rdi.common.model.ModrinthProject
 import calebxzhou.rdi.common.service.CurseForgeService
-import calebxzhou.rdi.common.service.ModService.modDescription
 import calebxzhou.rdi.common.service.ModService.modLogo
-import calebxzhou.rdi.common.service.ModService.readNeoForgeConfig
+import calebxzhou.rdi.common.service.ModService.readModMeta
 import calebxzhou.rdi.common.service.ModrinthService
 import java.io.File
 import java.util.jar.JarFile
@@ -99,7 +98,7 @@ private data class LocalModCardMeta(
 private fun File.readLocalModCardMeta(): LocalModCardMeta = JarFile(this).use { jar ->
     LocalModCardMeta(
         iconBytes = jar.modLogo,
-        introText = jar.readNeoForgeConfig()?.modDescription?.takeIf { it.isNotBlank() }
+        introText = jar.readModMeta()?.description?.takeIf { it.isNotBlank() }
     )
 }
 

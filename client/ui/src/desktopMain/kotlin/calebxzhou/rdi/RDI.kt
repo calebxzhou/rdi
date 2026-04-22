@@ -1,11 +1,10 @@
 package calebxzhou.rdi
 
-import calebxzhou.mykotutils.std.javaExePath
 import java.io.File
 
 object RDIClient {
     val DIR: File = File(System.getProperty("user.dir")).absoluteFile
-    val JRE21 = javaExePath
+
     init {
         lgr.info { "RDI启动中" }
         DIR.mkdir()

@@ -42,6 +42,20 @@ data class Mod(
     ) {
     }
 }
+
+@Serializable
+data class ModRef(
+    val projectId: String,
+    val fileId: String,
+)
+
+@Serializable
+data class ModBatchReplaceItem(
+    val projectId: String,
+    val fileId: String,
+    val mod: Mod,
+)
+
 val EXTRA_MOD_PREFIX = $$"X$_"
 val Mod.isPlatformCf get() = platform=="cf"
 val Mod.isPlatformMr get() = platform=="mr"

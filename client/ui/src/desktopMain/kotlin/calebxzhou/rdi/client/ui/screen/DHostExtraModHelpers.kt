@@ -12,31 +12,22 @@ import calebxzhou.rdi.common.service.ModService.readNeoForgeConfig
 import calebxzhou.rdi.common.service.ModrinthService
 import calebxzhou.rdi.common.service.ModrinthService.mapModrinthVersions
 import calebxzhou.rdi.common.service.ModrinthService.toCardVo
+import calebxzhou.rdi.client.ui.pickAwtOpenFiles
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.maven.artifact.versioning.DefaultArtifactVersion
 import org.apache.maven.artifact.versioning.VersionRange
 import java.io.File
 import java.util.jar.JarFile
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 actual fun selectHostExtraModFiles(): List<File>? {
-    val chooser = JFileChooser().apply {
-        dialogTitle = "选择额外Mod JAR"
-        fileSelectionMode = JFileChooser.FILES_ONLY
-        isMultiSelectionEnabled = true
-        currentDirectory = File("C:/Users/${System.getProperty("user.name")}/Downloads")
-        fileFilter = FileNameExtensionFilter("Mod JAR (*.jar)", "jar")
-    }
-    val result = chooser.showOpenDialog(null)
-    if (result != JFileChooser.APPROVE_OPTION) return null
-    val files = chooser.selectedFiles?.toList()
-        ?: chooser.selectedFile?.let { listOf(it) }
-        ?: return null
-    return files.filter { it.exists() && it.isFile && it.extension.equals("jar", ignoreCase = true) }
-        .distinctBy { it.absolutePath }
-        .takeIf { it.isNotEmpty() }
+    return pickAwtOpenFiles(
+        title = "选择额外Mod JAR",
+        filenameFilter = { _, name -> name.endsWith(".jar", ignoreCase = true) }
+    )
+        ?.filter { it.extension.equals("jar", ignoreCase = true) }
+        ?.distinctBy { it.absolutePath }
+        ?.takeIf { it.isNotEmpty() }
 }
 
 actual suspend fun matchHostExtraModFiles(
@@ -49,7 +40,7 @@ actual suspend fun matchHostExtraModFiles(
         .distinctBy { it.absolutePath }
     if (inputFiles.isEmpty()) return@withContext HostExtraModMatchResult(emptyList(), emptyList())
 
-    onProgress("先检查Mod支持的MC版本")
+    reportHostExtraModProgress(onProgress, "先检查Mod支持的MC版本")
     val versionCheck = validateHostExtraModsForMcVersion(inputFiles, hostMcVersion)
     val compatibleFiles = versionCheck.compatibleFiles
     if (compatibleFiles.isEmpty()) {
@@ -59,11 +50,11 @@ actual suspend fun matchHostExtraModFiles(
         )
     }
 
-    onProgress("正在读取mod信息，请稍等一分钟")
+    reportHostExtraModProgress(onProgress, "正在读取mod信息，请稍等一分钟")
     val mrResult = matchHostExtraModsMR(compatibleFiles)
     val remaining = compatibleFiles.filterNot { it in mrResult.removeFiles }
 
-    onProgress("在CurseForge搜索mod信息中，请稍等1分钟")
+    reportHostExtraModProgress(onProgress, "在CurseForge搜索mod信息中，请稍等1分钟")
     val cfResult = matchHostExtraModsCF(remaining)
     val selectedMods = selectLatestMatchedMods(mrResult.mods + cfResult.mods)
 
@@ -71,6 +62,13 @@ actual suspend fun matchHostExtraModFiles(
         matchedMods = selectedMods.map(UiMod::toMod),
         rejectedFiles = versionCheck.rejectedFiles + cfResult.rejectedFiles
     )
+}
+
+private suspend fun reportHostExtraModProgress(
+    onProgress: (String) -> Unit,
+    text: String
+) = withContext(Dispatchers.Main) {
+    onProgress(text)
 }
 
 private data class SelectedLocalMod(

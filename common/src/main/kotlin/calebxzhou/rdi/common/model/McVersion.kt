@@ -1,13 +1,11 @@
 package calebxzhou.rdi.common.model
 
-import calebxzhou.rdi.common.RDI
-import kotlin.collections.plusAssign
-
 //https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json
 enum class McVersion(
     val mcVer: String,
     val icon: String,
-    val jreVer: Int,
+    val jreSupport: Int,
+    val alterJreVer: Int = jreSupport,
     //预留多loader支持
     val loaderVersions: Map<ModLoader, ModLoader.Version>,
     val plusJvmArgs: List<String> = listOf(),
@@ -17,6 +15,7 @@ enum class McVersion(
     V211(
         "1.21.1",
         "assets/icons/mace.png",
+        25,
         21,
         // "https://piston-meta.mojang.com/v1/packages/a56257b4bc475ecac33571b51b68b33ac046fc72/1.21.1.json",
         mapOf(
@@ -30,7 +29,7 @@ enum class McVersion(
     ),
     V201(
         "1.20.1",
-        "assets/icons/brush.png", 21,
+        "assets/icons/brush.png", 25,21,
         // "https://piston-meta.mojang.com/v1/packages/9318a951bbc903b54a21463a7eb8c4d451f7b132/1.20.1.json",
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -43,7 +42,7 @@ enum class McVersion(
     ),
     V192(
         "1.19.2",
-        "assets/icons/frog.png", 21,
+        "assets/icons/frog.png", 21,21,
         mapOf(
             ModLoader.forge to ModLoader.Version(
                 ModLoader.forge,
@@ -56,7 +55,7 @@ enum class McVersion(
     ),
     V182(
         "1.18.2",
-        "assets/icons/copper.png", 21,
+        "assets/icons/copper.png", 21,21,
         //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -69,7 +68,7 @@ enum class McVersion(
     ),
     V165(
         "1.16.5",
-        "assets/icons/zoglin.webp", 8,
+        "assets/icons/zoglin.webp", 8,8,
         mapOf(
             ModLoader.forge to ModLoader.Version(
                 ModLoader.forge,
@@ -86,20 +85,20 @@ enum class McVersion(
     ),
     V122(
         "1.12.2",
-        "assets/icons/terracotta.png", 21,
+        "assets/icons/terracotta.png", 25,25,
         //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
         mapOf(
             ModLoader.cleanroom to ModLoader.Version(
                 ModLoader.cleanroom,
-                "cleanroom-0.4.4-alpha",
-                "https://repo.cleanroommc.com/releases/com/cleanroommc/cleanroom/0.4.4-alpha/cleanroom-0.4.4-alpha-installer.jar",
-                "7ba9df42bac465cad51a06bd0f2e53816c6e6d2b"
+                "cleanroom-0.5.6-alpha",
+                "https://repo.cleanroommc.com/releases/com/cleanroommc/cleanroom/0.5.6-alpha/cleanroom-0.5.6-alpha-installer.jar",
+                "167dff16a41a845690f338f6cbe50e3cb0bf7cf4"
             )
-        ),enabled = false
+        ),enabled = true
     ),
     V071(
         "1.7.10",
-        "assets/icons/acacia_log.webp", 21,
+        "assets/icons/acacia_log.webp", 25,25,
         //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -117,9 +116,28 @@ enum class McVersion(
 
     //1.16及以下 服务端核心
     val serverJarName get() = "minecraft_server.${mcVer}.jar"
+    val supportedJreVers get() = buildList {
+        add(jreSupport)
+        if (alterJreVer != jreSupport) {
+            add(alterJreVer)
+        }
+    }
     val vMajor get() = mcVer.split(".")[0]
     val vMinor get() = mcVer.split(".")[1]
     val vPatch get() = mcVer.split(".")[2]
+
+    fun supportsConfiguredJava(major: Int): Boolean = major in supportedJreVers
+
+    fun supportsCurrentJava(major: Int): Boolean {
+        if (supportsConfiguredJava(major)) {
+            return true
+        }
+        if (jreSupport == 8) {
+            return false
+        }
+        return major >= jreSupport
+    }
+
     companion object {
         fun from(mcVer: String): McVersion? = entries.firstOrNull { it.mcVer == mcVer }
     }

@@ -208,8 +208,8 @@ private fun ModpackCardMeta(
         }
         modloader.cardIconName?.let { iconName ->
             Surface(
-                shape = RoundedCornerShape(7.dp),
-                color = MaterialColor.BLUE_GRAY_700.color
+                shape = RoundedCornerShape(5.dp),
+                color = MaterialColor.BLUE_GRAY_100.color
             ) {
                 Image(
                     bitmap = iconBitmap(iconName),
@@ -247,7 +247,7 @@ private val ModLoader.cardIconName: String?
     get() = when (this) {
         ModLoader.forge -> "forge"
         ModLoader.neoforge -> "neoforge"
-        ModLoader.cleanroom -> null
+        ModLoader.cleanroom ->  "cleanroom"
     }
 
 private fun Int.toCompactCountText(): String {

@@ -1,6 +1,7 @@
 package calebxzhou.rdi.common.model
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import net.peanuuutz.tomlkt.TomlElement
 
 @Serializable
@@ -43,4 +44,26 @@ data class ModsTomlDependency(
     val referralUrl: String? = null,
     val mandatory: Boolean? = null,
     val optional: Boolean = false
+)
+
+data class JarModMeta(
+    val modIds: List<String> = emptyList(),
+    val version: String? = null,
+    val description: String? = null
+) {
+    val primaryModId: String?
+        get() = modIds.firstOrNull()
+}
+
+@Serializable
+data class LegacyMcmodInfoEntry(
+    @SerialName("modid")
+    val modId: String = "",
+    val version: String? = null,
+    val description: String? = null
+)
+
+@Serializable
+data class LegacyMcmodInfoContainer(
+    val modList: List<LegacyMcmodInfoEntry> = emptyList()
 )

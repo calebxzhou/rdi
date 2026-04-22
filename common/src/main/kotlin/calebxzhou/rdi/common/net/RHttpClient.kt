@@ -17,6 +17,7 @@ import io.ktor.client.statement.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import okhttp3.Cache
+import okhttp3.OkHttpClient
 import java.io.File
 import java.io.IOException
 import java.net.*
@@ -48,22 +49,7 @@ val ktorClient by lazy {
                 readTimeout(0, TimeUnit.SECONDS)
                 proxySelector(DynamicProxySelector())
                 cache(Cache(httpCacheDir.apply { mkdirs() }, HTTP_CACHE_SIZE_BYTES))
-
-                // Trust all certificates in DEBUG mode (for self-signed certs)
-                if (DEBUG) {
-                    val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
-                        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
-                        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
-                        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
-                    })
-
-                    val sslContext = SSLContext.getInstance("TLS").apply {
-                        init(null, trustAllCerts, SecureRandom())
-                    }
-
-                    sslSocketFactory(sslContext.socketFactory, trustAllCerts[0] as X509TrustManager)
-                    hostnameVerifier { _, _ -> true }
-                }
+                configureDebugTlsForSelfSigned()
             }
         }
         BrowserUserAgent()
@@ -90,6 +76,21 @@ val ktorClient by lazy {
             socketTimeoutMillis = 60_000
         }
     }
+}
+
+internal fun OkHttpClient.Builder.configureDebugTlsForSelfSigned() {
+    if (!DEBUG) return
+    val trustAllCerts = arrayOf<TrustManager>(object : X509TrustManager {
+        override fun checkClientTrusted(chain: Array<X509Certificate>, authType: String) {}
+        override fun checkServerTrusted(chain: Array<X509Certificate>, authType: String) {}
+        override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+    })
+    val trustManager = trustAllCerts[0] as X509TrustManager
+    val sslContext = SSLContext.getInstance("TLS").apply {
+        init(null, trustAllCerts, SecureRandom())
+    }
+    sslSocketFactory(sslContext.socketFactory, trustManager)
+    hostnameVerifier { _, _ -> true }
 }
 
 class DynamicProxySelector(

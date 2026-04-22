@@ -10,10 +10,9 @@ import calebxzhou.rdi.common.net.ktorClient
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.CurseForgeService.fillCurseForgeVo
 import calebxzhou.rdi.common.service.ModService.briefInfo
-import calebxzhou.rdi.common.service.ModService.modDescription
 import calebxzhou.rdi.common.service.ModService.modLogo
 import calebxzhou.rdi.common.service.ModService.ofMirrorUrl
-import calebxzhou.rdi.common.service.ModService.readNeoForgeConfig
+import calebxzhou.rdi.common.service.ModService.readModMeta
 import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
@@ -244,7 +243,7 @@ object ModrinthService {
         JarFile(this).use { jar ->
             LocalModCardMeta(
                 iconBytes = jar.modLogo,
-                description = jar.readNeoForgeConfig()?.modDescription
+                description = jar.readModMeta()?.description
             )
         }
     }.getOrDefault(LocalModCardMeta())

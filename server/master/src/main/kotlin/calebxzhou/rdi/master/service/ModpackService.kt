@@ -27,6 +27,8 @@ import calebxzhou.rdi.master.MODPACK_DATA_DIR
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.*
 import calebxzhou.rdi.master.service.HostService.status
+import calebxzhou.rdi.master.service.ModpackService.addVersionMod
+import calebxzhou.rdi.master.service.ModpackService.addVersionMods
 import calebxzhou.rdi.master.service.ModpackService.changeOptions
 import calebxzhou.rdi.master.service.ModpackService.createVersion
 import calebxzhou.rdi.master.service.ModpackService.createWithVersion
@@ -34,6 +36,10 @@ import calebxzhou.rdi.master.service.ModpackService.deleteModpack
 import calebxzhou.rdi.master.service.ModpackService.deleteVersion
 import calebxzhou.rdi.master.service.ModpackService.modpackGuardContext
 import calebxzhou.rdi.master.service.ModpackService.rebuildVersion
+import calebxzhou.rdi.master.service.ModpackService.removeVersionMod
+import calebxzhou.rdi.master.service.ModpackService.removeVersionMods
+import calebxzhou.rdi.master.service.ModpackService.replaceVersionMod
+import calebxzhou.rdi.master.service.ModpackService.replaceVersionMods
 import calebxzhou.rdi.master.service.ModpackService.requireAuthor
 import calebxzhou.rdi.master.service.ModpackService.toBriefVo
 import calebxzhou.rdi.master.service.ModpackService.toDetailVo
@@ -243,8 +249,47 @@ fun Route.modpackRoutes() {
                 get("/client/hash") {
                     call.modpackGuardContext().version.clientPackFile.let { response(data = it.sha1) }
                 }
-                get("/mods") {
-                    call.modpackGuardContext().version.mods.let { response(data = it) }
+                route("/mods"){
+                    get{
+                        call.modpackGuardContext().version.mods.let { response(data = it) }
+                    }
+                    post{
+                        val ctx = call.modpackGuardContext().requireAuthor()
+                        ctx.addVersionMod(call.receive<Mod>())
+                        ok()
+                    }
+                    post("/batch") {
+                        val ctx = call.modpackGuardContext().requireAuthor()
+                        ctx.addVersionMods(call.receive<List<Mod>>())
+                        ok()
+                    }
+                    put{
+                        val ctx = call.modpackGuardContext().requireAuthor()
+                        ctx.replaceVersionMod(
+                            projectId = param("projectId"),
+                            fileId = param("fileId"),
+                            newMod = call.receive<Mod>()
+                        )
+                        ok()
+                    }
+                    put("/batch") {
+                        val ctx = call.modpackGuardContext().requireAuthor()
+                        ctx.replaceVersionMods(call.receive<List<ModBatchReplaceItem>>())
+                        ok()
+                    }
+                    delete {
+                        val ctx = call.modpackGuardContext().requireAuthor()
+                        ctx.removeVersionMod(
+                            projectId = param("projectId"),
+                            fileId = param("fileId")
+                        )
+                        ok()
+                    }
+                    delete("/batch") {
+                        val ctx = call.modpackGuardContext().requireAuthor()
+                        ctx.removeVersionMods(call.receive<List<ModRef>>())
+                        ok()
+                    }
                 }
                 delete {
                     call.modpackGuardContext().requireAuthor().deleteVersion()
@@ -328,6 +373,171 @@ object ModpackService {
     fun ModpackContext.requireAuthor(): ModpackContext {
         if (!isAuthor) throw RequestError("不是你的整合包")
         return this
+    }
+
+    private fun ModRef.normalizedVersionModRef(): ModRef = copy(
+        projectId = projectId.trim(),
+        fileId = fileId.trim()
+    )
+
+    private fun Mod.versionModRef(): ModRef = ModRef(projectId, fileId).normalizedVersionModRef()
+
+    private fun Mod.normalizeVersionMutationMod(): Mod = copy(
+        platform = platform.trim().lowercase(),
+        projectId = projectId.trim(),
+        slug = slug.trim(),
+        fileId = fileId.trim(),
+        hash = hash.trim(),
+        downloadUrls = downloadUrls.map(String::trim).filter(String::isNotBlank)
+    )
+
+    private fun Mod.requireVersionMutationMod(): Mod {
+        val normalized = normalizeVersionMutationMod()
+        if (normalized.projectId.isBlank() || normalized.fileId.isBlank()) {
+            throw RequestError("Mod的projectId和fileId不能为空")
+        }
+        return normalized
+    }
+
+    private fun ModRef.requireVersionMutationRef(): ModRef {
+        val normalized = normalizedVersionModRef()
+        if (normalized.projectId.isBlank() || normalized.fileId.isBlank()) {
+            throw RequestError("projectId和fileId不能为空")
+        }
+        return normalized
+    }
+
+    private fun Mod.matchesVersionModRef(ref: ModRef): Boolean = versionModRef() == ref.normalizedVersionModRef()
+
+    private fun MutableList<Mod>.findVersionModIndex(ref: ModRef): Int {
+        val normalizedRef = ref.normalizedVersionModRef()
+        return indexOfFirst { it.matchesVersionModRef(normalizedRef) }
+    }
+
+    private fun MutableList<Mod>.findVersionModIndexOrThrow(ref: ModRef): Int {
+        return findVersionModIndex(ref)
+            .takeIf { it >= 0 }
+            ?: throw RequestError("版本内无此Mod")
+    }
+
+    private fun Collection<ModRef>.requireDistinctVersionMutationRefs(fieldName: String): List<ModRef> {
+        val normalizedRefs = map { it.requireVersionMutationRef() }
+        val duplicates = normalizedRefs.groupingBy { it }.eachCount().filterValues { it > 1 }.keys
+        if (duplicates.isNotEmpty()) {
+            throw RequestError("$fieldName 里有重复Mod")
+        }
+        return normalizedRefs
+    }
+
+    private fun Collection<Mod>.requireDistinctVersionMutationMods(fieldName: String): List<Mod> {
+        val normalizedMods = map { it.requireVersionMutationMod() }
+        val duplicates = normalizedMods.groupingBy { it.versionModRef() }.eachCount().filterValues { it > 1 }.keys
+        if (duplicates.isNotEmpty()) {
+            throw RequestError("$fieldName 里有重复Mod")
+        }
+        return normalizedMods
+    }
+
+    private fun ModpackContext.ensureVersionModsEditable() {
+        if (version.status == Modpack.Status.WAIT || version.status == Modpack.Status.BUILDING) {
+            throw RequestError("版本${version.name}正在构建中，暂时不能修改Mod列表")
+        }
+    }
+
+    private suspend fun ModpackContext.mutateVersionMods(mutator: (MutableList<Mod>) -> Unit) {
+        ensureVersionModsEditable()
+        val updatedMods = version.mods
+            .map { it.copy(downloadUrls = it.downloadUrls.toList()) }
+            .toMutableList()
+        mutator(updatedMods)
+        updatedMods.sortBy { it.slug.lowercase() }
+        val updatedVersion = version.copy(
+            mods = updatedMods,
+            time = System.currentTimeMillis(),
+            status = Modpack.Status.WAIT
+        )
+        updatedVersion.processMods(modpack)
+        updatedVersion.mods.sortBy { it.slug.lowercase() }
+        dbcl.updateOne(
+            eq(Modpack::_id.name, modpack._id),
+            Updates.combine(
+                Updates.set("${Modpack::versions.name}.$[elem].${Modpack.Version::mods.name}", updatedVersion.mods),
+                Updates.set("${Modpack::versions.name}.$[elem].${Modpack.Version::time.name}", updatedVersion.time),
+                Updates.set("${Modpack::versions.name}.$[elem].${Modpack.Version::status.name}", updatedVersion.status)
+            ),
+            UpdateOptions().arrayFilters(
+                listOf(
+                    Document("elem.name", version.name)
+                )
+            )
+        )
+        enqueueVersionBuild(player, modpack, updatedVersion)
+    }
+
+    suspend fun ModpackContext.addVersionMod(newMod: Mod) {
+        addVersionMods(listOf(newMod))
+    }
+
+    suspend fun ModpackContext.addVersionMods(newMods: List<Mod>) {
+        if (newMods.isEmpty()) throw RequestError("缺少要添加的Mod")
+        val normalizedMods = newMods.requireDistinctVersionMutationMods("新增Mod")
+        mutateVersionMods { mods ->
+            val existingRefs = mods.map { it.versionModRef() }.toSet()
+            normalizedMods.forEach { newMod ->
+                if (newMod.versionModRef() in existingRefs) {
+                    throw RequestError("版本内已存在Mod ${newMod.displaySlugOrProject}")
+                }
+            }
+            mods += normalizedMods
+        }
+    }
+
+    suspend fun ModpackContext.replaceVersionMod(projectId: String, fileId: String, newMod: Mod) {
+        replaceVersionMods(listOf(ModBatchReplaceItem(projectId, fileId, newMod)))
+    }
+
+    suspend fun ModpackContext.replaceVersionMods(items: List<ModBatchReplaceItem>) {
+        if (items.isEmpty()) throw RequestError("缺少要修改的Mod")
+        val normalizedItems = items.map {
+            ModBatchReplaceItem(
+                projectId = it.projectId.trim(),
+                fileId = it.fileId.trim(),
+                mod = it.mod.requireVersionMutationMod()
+            )
+        }
+        normalizedItems.map { ModRef(it.projectId, it.fileId) }.requireDistinctVersionMutationRefs("待修改Mod")
+        mutateVersionMods { mods ->
+            val targetIndices = normalizedItems.map { item ->
+                mods.findVersionModIndexOrThrow(ModRef(item.projectId, item.fileId))
+            }
+            if (targetIndices.size != targetIndices.toSet().size) {
+                throw RequestError("待修改Mod里有重复目标")
+            }
+            val replacedMods = mods.toMutableList()
+            normalizedItems.forEachIndexed { index, item ->
+                replacedMods[targetIndices[index]] = item.mod
+            }
+            val duplicates = replacedMods.groupingBy { it.versionModRef() }.eachCount().filterValues { it > 1 }.keys
+            if (duplicates.isNotEmpty()) {
+                throw RequestError("批量修改后版本内存在重复Mod")
+            }
+            mods.clear()
+            mods += replacedMods
+        }
+    }
+
+    suspend fun ModpackContext.removeVersionMod(projectId: String, fileId: String) {
+        removeVersionMods(listOf(ModRef(projectId, fileId)))
+    }
+
+    suspend fun ModpackContext.removeVersionMods(refs: List<ModRef>) {
+        if (refs.isEmpty()) throw RequestError("缺少要删除的Mod")
+        val normalizedRefs = refs.requireDistinctVersionMutationRefs("待删除Mod")
+        mutateVersionMods { mods ->
+            val targetIndices = normalizedRefs.map { ref -> mods.findVersionModIndexOrThrow(ref) }
+                .sortedDescending()
+            targetIndices.forEach(mods::removeAt)
+        }
     }
 
     suspend fun ModpackContext.changeOptions(payload: Modpack.OptionsDto) {
@@ -825,22 +1035,23 @@ object ModpackService {
 
             add(
                 guardedLeaf("校验整合包归档") { ctx ->
-                    val msg = "校验整合包归档"
+                    val entries = listArchiveEntries(version.fullPackFile)
+                    val archiveRoot = resolveServerInstallArchiveRoot(entries.map { it.path })
+                    val msg = "校验整合包归档(${archiveRoot.dirName}/)"
                     updateMailProgress(msg)
                     ctx.emit(LoadProgress.Phase(msg))
-                    val entries = listArchiveEntries(version.fullPackFile)
                     val total = entries.size.coerceAtLeast(1)
                     entries.forEachIndexed { index, entry ->
-                        extractOverridesRelativePath(entry.path)
+                        extractServerInstallRelativePath(entry.path, archiveRoot)
                         val fraction = (index + 1).toFloat() / total
                         ctx.emit(
                             LoadProgress.Percent(
-                                "校验整合包归档(${index + 1}/$total)",
+                                "校验整合包归档(${archiveRoot.dirName}/ ${index + 1}/$total)",
                                 fraction
                             )
                         )
                     }
-                    ctx.emit(LoadProgress.Percent("整合包归档校验完成", 1f))
+                    ctx.emit(LoadProgress.Percent("整合包归档校验完成(${archiveRoot.dirName}/)", 1f))
                 }
             )
 
@@ -996,9 +1207,10 @@ object ModpackService {
         includeClientOnlyMarkedMods: Boolean = true,
         skipHostAssetFiles: Boolean = false
     ) {
+        val archiveRoot = resolveServerInstallArchiveRoot(archiveFile)
         val versionDirPath = targetDir.toPath()
         forEachArchiveEntry(archiveFile) { entry ->
-            val relativePath = extractOverridesRelativePath(entry.path) ?: return@forEachArchiveEntry
+            val relativePath = extractServerInstallRelativePath(entry.path, archiveRoot) ?: return@forEachArchiveEntry
             if (!includeClientOnlyMarkedMods && isClientOnlyMarkedModPath(relativePath)) {
                 return@forEachArchiveEntry
             }
@@ -1313,6 +1525,41 @@ object ModpackService {
         dbcl.deleteOne(eq("_id", modpack._id))
     }
 
+    private fun resolveServerInstallArchiveRoot(archiveFile: File): ServerInstallArchiveRoot {
+        return resolveServerInstallArchiveRoot(listArchiveEntries(archiveFile).map { it.path })
+    }
+
+    private fun resolveServerInstallArchiveRoot(entryPaths: List<String>): ServerInstallArchiveRoot {
+        val hasServerDir = entryPaths.any { entryPath ->
+            hasArchiveRootDir(entryPath, ServerInstallArchiveRoot.SERVER.dirName)
+        }
+        return if (hasServerDir) {
+            ServerInstallArchiveRoot.SERVER
+        } else {
+            ServerInstallArchiveRoot.OVERRIDES
+        }
+    }
+
+    private fun extractServerInstallRelativePath(
+        entryName: String,
+        archiveRoot: ServerInstallArchiveRoot
+    ): String? = extractArchiveRootRelativePath(entryName, archiveRoot.dirName)
+
+    private fun hasArchiveRootDir(entryName: String, rootDirName: String): Boolean {
+        val normalized = entryName.replace('\\', '/').trim('/')
+        if (normalized.isEmpty()) return false
+        val prefix = "$rootDirName/"
+        return normalized.startsWith(prefix, ignoreCase = true)
+    }
+
+    private fun extractArchiveRootRelativePath(entryName: String, rootDirName: String): String? {
+        if (entryName.isBlank()) return null
+        val normalized = entryName.replace('\\', '/').trim('/')
+        if (normalized.isEmpty()) return null
+        val prefix = "$rootDirName/"
+        if (!normalized.startsWith(prefix, ignoreCase = true)) return null
+        return normalized.substring(prefix.length).takeIf { it.isNotBlank() }
+    }
 
     fun extractOverridesRelativePath(entryName: String): String? {
         if (entryName.isBlank()) return null
@@ -1338,6 +1585,11 @@ object ModpackService {
         if (!normalized.startsWith("mods/")) return false
         val fileName = normalized.substringAfterLast('/').lowercase()
         return fileName.endsWith(".jar") && fileName.contains("rgp-client")
+    }
+
+    private enum class ServerInstallArchiveRoot(val dirName: String) {
+        SERVER("server"),
+        OVERRIDES("overrides")
     }
 
     private fun createVersionBuildDir(version: Modpack.Version, buildId: String): File {

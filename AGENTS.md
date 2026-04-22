@@ -19,7 +19,7 @@ this project is minecraft multiplayer platform, player can upload modpacks to cr
 ## Build, Test, and Development Commands
 if you are an ai you are not needed to execute gradle commands unless explictly declared
 Run commands inside each module directory (there is no repo-root wrapper).
-
+use pwsh instead of powershell
 - Client UI:
   - `cd client/ui && .\gradlew.bat run` — start desktop app.
   - `cd client/ui && .\gradlew.bat compileKotlin` — compile check.
@@ -38,6 +38,7 @@ Run commands inside each module directory (there is no repo-root wrapper).
 - Compose screens use `*Screen.kt`; reusable widgets use `*Card.kt`, `*Button.kt`, etc.
 - Keep shared DTO/model changes in `common` first, then adapt client/server callers.
 - no need to add spaces between chinese characters and numbers,letters. e.g. Mod数量8个 is ok, Mod 数量 8 个 is not ok
+- when using kotlin string template feature, if there's variable called abc next to chinese e.g. "测试$abc测试测试", this situation entire abc测试测试 will be parsed as a variable making compile fail, we should make abc bracketed "测试${abc}测试测试"
 - do not use file.deleteRecursively() function, use file.deleteRecursivelyNoSymlink() instead (extension from calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink), because it will delete the symlink target on windows
 ## Testing Guidelines
 - Frameworks: Kotlin test + JUnit Platform.

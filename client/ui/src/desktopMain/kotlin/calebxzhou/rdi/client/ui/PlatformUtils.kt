@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.navigation.compose.composable
@@ -8,7 +9,7 @@ import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.mykotutils.std.readAllString
 import calebxzhou.rdi.RDIClient
 import calebxzhou.rdi.client.service.getCachedOrFetchHwSpecJson
-import calebxzhou.rdi.client.ui.comp.ModpackList
+import calebxzhou.rdi.client.ui.comp.DesktopWebViewHost
 import calebxzhou.rdi.client.ui.screen.HostRoute
 import calebxzhou.rdi.client.ui.screen.HostTab
 import calebxzhou.rdi.client.ui.screen.McPlayView
@@ -26,8 +27,6 @@ import java.awt.datatransfer.StringSelection
 import java.awt.image.BufferedImage
 import java.io.File
 import java.net.URI
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 actual val isDesktop: Boolean = true
 
@@ -58,33 +57,28 @@ actual fun openMsaVerificationUrl(url: String) {
     }
 }
 
+@Composable
+actual fun PlatformWebView(
+    url: String,
+    modifier: Modifier
+) {
+    DesktopWebViewHost(url = url, modifier = modifier)
+}
+
 actual suspend fun pickSaveFile(suggestedName: String, extension: String): File? =
     withContext(Dispatchers.IO) {
-        val chooser = JFileChooser().apply {
-            dialogTitle = "选择保存位置"
-            fileSelectionMode = JFileChooser.FILES_ONLY
-            selectedFile = File(System.getProperty("user.home"), suggestedName)
-            fileFilter = FileNameExtensionFilter("${extension.uppercase()} 文件 (*.${extension})", extension)
-        }
-        val result = chooser.showSaveDialog(null)
-        if (result != JFileChooser.APPROVE_OPTION) return@withContext null
-        var file = chooser.selectedFile
-        if (!file.name.endsWith(".$extension", ignoreCase = true)) {
-            file = File(file.parentFile, "${file.name}.$extension")
-        }
-        file
+        pickAwtSaveFile(
+            title = "选择保存位置",
+            defaultFileName = suggestedName,
+            defaultDirectory = File(System.getProperty("user.home")),
+            requiredExtension = extension,
+            filenameFilter = { _, name -> name.endsWith(".$extension", ignoreCase = true) }
+        )
     }
 
 actual suspend fun pickLocalMinecraftWorldDir(): String? =
     withContext(Dispatchers.IO) {
-        val chooser = JFileChooser().apply {
-            dialogTitle = "选择本地存档目录"
-            fileSelectionMode = JFileChooser.DIRECTORIES_ONLY
-            isAcceptAllFileFilterUsed = true
-        }
-        val result = chooser.showOpenDialog(null)
-        if (result != JFileChooser.APPROVE_OPTION) return@withContext null
-        chooser.selectedFile?.takeIf { it.isDirectory }?.absolutePath
+        pickAwtDirectory("选择本地存档目录")?.absolutePath
     }
 
 actual suspend fun pickLocalModpackFile(): File? =
@@ -139,6 +133,11 @@ actual suspend fun pickLocalZipFile(title: String): File? =
         } finally {
             owner.dispose()
         }
+    }
+
+actual suspend fun pickLocalDirectory(title: String): File? =
+    withContext(Dispatchers.IO) {
+        pickAwtDirectory(title)
     }
 
 actual suspend fun pickJavaExecutable(title: String): String? =
@@ -358,6 +357,8 @@ actual fun validatePlatformJavaPath(rawPath: String, expectedMajor: Int): Result
     }
     return Result.success(Unit)
 }
+
+actual fun currentPlatformJavaMajor(): Int? = Runtime.version().feature()
 
 actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
     navController: androidx.navigation.NavHostController

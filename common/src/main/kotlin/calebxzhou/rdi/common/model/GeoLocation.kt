@@ -61,7 +61,6 @@ data class GeoLocation(
                 return serdesJson.decodeFromString<GeoLocation>(dataElement.jsonPrimitive.content).also { now=it }
             } catch (e: Exception) {
                 lgr.error { "无法获取位置信息 ${e.message}" }
-                lgr.error ( resp.bodyAsText() )
                 return DEFAULT
             }
         }

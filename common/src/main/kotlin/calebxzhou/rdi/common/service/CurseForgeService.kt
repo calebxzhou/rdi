@@ -8,10 +8,9 @@ import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.net.ktorClient
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.ModService.briefInfo
-import calebxzhou.rdi.common.service.ModService.modDescription
 import calebxzhou.rdi.common.service.ModService.modLogo
 import calebxzhou.rdi.common.service.ModService.ofMirrorUrl
-import calebxzhou.rdi.common.service.ModService.readNeoForgeConfig
+import calebxzhou.rdi.common.service.ModService.readModMeta
 import calebxzhou.rdi.common.service.ModService.toVo
 import calebxzhou.rdi.common.service.ModrinthService.getMultipleProjects
 import calebxzhou.rdi.common.service.ModrinthService.getVersionsFromHashes
@@ -78,7 +77,7 @@ object CurseForgeService {
         JarFile(this).use { jar ->
             LocalModCardMeta(
                 iconBytes = jar.modLogo,
-                description = jar.readNeoForgeConfig()?.modDescription
+                description = jar.readModMeta()?.description
             )
         }
     }.getOrDefault(LocalModCardMeta())

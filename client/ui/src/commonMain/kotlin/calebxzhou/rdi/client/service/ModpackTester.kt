@@ -22,6 +22,7 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.util.zip.ZipFile
 import kotlin.random.Random
 
 enum class TestStatus {
@@ -551,6 +552,77 @@ private data class CrashModSection(
     val hasClientNoClassDef: Boolean
 )
 
+private fun isClientSideClassCrashLine(line: String): Boolean {
+    val trimmed = line.trim()
+    if (trimmed.contains("java.lang.NoClassDefFoundError: net/minecraft/client", ignoreCase = true)) {
+        return true
+    }
+    return trimmed.contains("Attempted to load class", ignoreCase = true) &&
+        trimmed.contains("invalid side SERVER", ignoreCase = true)
+}
+
+private fun normalizeCrashModToken(value: String): String =
+    value.lowercase().filter(Char::isLetterOrDigit)
+
+private fun parseCrashReportModSourceMap(lines: List<String>): Map<String, String> {
+    val result = linkedMapOf<String, String>()
+    lines.forEach { line ->
+        val trimmed = line.trim()
+        if (!trimmed.startsWith("|")) return@forEach
+        val cols = trimmed.split('|').map(String::trim).filter(String::isNotBlank)
+        if (cols.size < 4) return@forEach
+        val modId = cols.getOrNull(1).orEmpty()
+        val source = cols.getOrNull(3).orEmpty()
+        if (modId.isBlank() || source.isBlank()) return@forEach
+        if (modId.equals("id", ignoreCase = true) || source.equals("source", ignoreCase = true)) return@forEach
+        if (!source.endsWith(".jar", ignoreCase = true)) return@forEach
+        result.putIfAbsent(modId.lowercase(), source)
+    }
+    return result
+}
+
+private fun findMatchedCrashMod(
+    mods: List<Mod>,
+    reportedId: String?,
+    reportedFileName: String?,
+    alreadyFixed: Set<String>
+): Mod? {
+    val normalizedId = reportedId
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+        ?.let(::normalizeCrashModToken)
+    val rawFileName = reportedFileName
+        ?.substringAfterLast('/')
+        ?.substringAfterLast('\\')
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+    val normalizedFileName = rawFileName?.let(::normalizeCrashModToken)
+
+    return mods.firstOrNull { mod ->
+        if (mod.side == Mod.Side.CLIENT) return@firstOrNull false
+        val key = modStableKey(mod)
+        if (key in alreadyFixed) return@firstOrNull false
+
+        val modSlugNorm = normalizeCrashModToken(mod.slug)
+        val modFileNameNorm = normalizeCrashModToken(mod.fileName)
+        val modFileStemNorm = normalizeCrashModToken(mod.fileName.substringBeforeLast('.').substringBefore("_${mod.platform}_"))
+
+        val byId = normalizedId != null && (
+            mod.slug.equals(reportedId, ignoreCase = true) ||
+                modSlugNorm == normalizedId ||
+                modFileStemNorm == normalizedId ||
+                modFileNameNorm.contains(normalizedId)
+            )
+        val byFile = rawFileName != null && (
+            rawFileName.equals(mod.fileName, ignoreCase = true) ||
+                rawFileName.contains(mod.hash, ignoreCase = true) ||
+                rawFileName.contains(mod.slug, ignoreCase = true) ||
+                (normalizedFileName != null && modFileNameNorm == normalizedFileName)
+            )
+        byId || byFile
+    }
+}
+
 private fun findClientNoClassDefFailureFix(
     mods: List<Mod>,
     lines: List<String>,
@@ -559,6 +631,7 @@ private fun findClientNoClassDefFailureFix(
     alreadyFixed: Set<String>,
     alreadyRenamed: Set<String>
 ): CrashAutoFixMatch? {
+    val modSourceMap = parseCrashReportModSourceMap(lines)
     val sections = mutableListOf<CrashModSection>()
     var sectionSlug: String? = null
     var sectionFile: String? = null
@@ -582,25 +655,19 @@ private fun findClientNoClassDefFailureFix(
         if (trimmed.startsWith("Mod File:", ignoreCase = true)) {
             sectionFile = trimmed.substringAfter(":").trim().substringAfterLast('/').substringAfterLast('\\')
         }
-        if (trimmed.contains("java.lang.NoClassDefFoundError: net/minecraft/client", ignoreCase = true)) {
+        if (isClientSideClassCrashLine(trimmed)) {
             sectionClientNoClassDef = true
         }
     }
     flushSection()
 
     sections.filter { it.hasClientNoClassDef }.forEach { section ->
-        val matchedMod = mods.firstOrNull { mod ->
-            if (mod.side == Mod.Side.CLIENT) return@firstOrNull false
-            val key = modStableKey(mod)
-            if (key in alreadyFixed) return@firstOrNull false
-            val bySlug = section.slug?.let { slug -> slug == mod.slug.lowercase() } == true
-            val byFile = section.modFileName?.let { fileName ->
-                fileName.equals(mod.fileName, true) ||
-                    fileName.contains(mod.hash, ignoreCase = true) ||
-                    fileName.contains(mod.slug, ignoreCase = true)
-            } == true
-            bySlug || byFile
-        }
+        val matchedMod = findMatchedCrashMod(
+            mods = mods,
+            reportedId = section.slug,
+            reportedFileName = section.modFileName ?: section.slug?.let(modSourceMap::get),
+            alreadyFixed = alreadyFixed
+        )
         if (matchedMod != null) {
             return CrashAutoFixMatch(
                 modKey = modStableKey(matchedMod),
@@ -624,7 +691,376 @@ private fun findClientNoClassDefFailureFix(
             }
         }
     }
+    findClientNoClassDefFailureFixFromLoaderException(
+        mods = mods,
+        crashLines = lines,
+        modSourceMap = modSourceMap,
+        workDir = workDir,
+        sourceDir = sourceDir,
+        alreadyFixed = alreadyFixed,
+        alreadyRenamed = alreadyRenamed
+    )?.let { return it }
+    findClientNoClassDefFailureFixFromSuspectedMods(
+        mods = mods,
+        crashLines = lines,
+        modSourceMap = modSourceMap,
+        workDir = workDir,
+        sourceDir = sourceDir,
+        alreadyFixed = alreadyFixed,
+        alreadyRenamed = alreadyRenamed
+    )?.let { return it }
+    findClientNoClassDefFailureFixFromDebugLog(
+        mods = mods,
+        crashLines = lines,
+        workDir = workDir,
+        modSourceMap = modSourceMap,
+        sourceDir = sourceDir,
+        alreadyFixed = alreadyFixed,
+        alreadyRenamed = alreadyRenamed
+    )?.let { return it }
+    findClientNoClassDefFailureFixFromMissingClassReference(
+        mods = mods,
+        crashLines = lines,
+        workDir = workDir,
+        sourceDir = sourceDir,
+        modSourceMap = modSourceMap,
+        alreadyFixed = alreadyFixed,
+        alreadyRenamed = alreadyRenamed
+    )?.let { return it }
     return null
+}
+
+private fun findClientNoClassDefFailureFixFromLoaderException(
+    mods: List<Mod>,
+    crashLines: List<String>,
+    modSourceMap: Map<String, String>,
+    workDir: File,
+    sourceDir: File,
+    alreadyFixed: Set<String>,
+    alreadyRenamed: Set<String>
+): CrashAutoFixMatch? {
+    if (crashLines.none(::isClientSideClassCrashLine)) {
+        return null
+    }
+    val modCrashRegex = Regex(
+        """LoaderExceptionModCrash:\s+Caught exception from .* \(([^)]+)\)""",
+        RegexOption.IGNORE_CASE
+    )
+    val loadClassRegex = Regex(
+        """LoaderException:\s+([^\s]+)\s+Failed load class:""",
+        RegexOption.IGNORE_CASE
+    )
+    val reportedId = crashLines
+        .asSequence()
+        .mapNotNull { line ->
+            modCrashRegex.find(line)?.groupValues?.getOrNull(1)
+                ?: loadClassRegex.find(line)?.groupValues?.getOrNull(1)
+        }
+        .map(String::trim)
+        .firstOrNull(String::isNotBlank)
+        ?: return null
+
+    val matchedMod = findMatchedCrashMod(
+        mods = mods,
+        reportedId = reportedId,
+        reportedFileName = modSourceMap[reportedId.lowercase()],
+        alreadyFixed = alreadyFixed
+    )
+    if (matchedMod != null) {
+        return CrashAutoFixMatch(
+            modKey = modStableKey(matchedMod),
+            modName = matchedMod.displaySlugOrProject
+        )
+    }
+
+    val rawFileName = modSourceMap[reportedId.lowercase()]
+    if (!rawFileName.isNullOrBlank() && rawFileName.endsWith(".jar", ignoreCase = true)) {
+        val renamed = renameUnknownClientOnlyJar(
+            workDir = workDir,
+            sourceDir = sourceDir,
+            rawModFileName = rawFileName
+        )
+        if (renamed != null && renamed !in alreadyRenamed) {
+            return CrashAutoFixMatch(
+                modKey = null,
+                modName = rawFileName,
+                renamedFileName = renamed
+            )
+        }
+    }
+    return null
+}
+
+private fun findClientNoClassDefFailureFixFromSuspectedMods(
+    mods: List<Mod>,
+    crashLines: List<String>,
+    modSourceMap: Map<String, String>,
+    workDir: File,
+    sourceDir: File,
+    alreadyFixed: Set<String>,
+    alreadyRenamed: Set<String>
+): CrashAutoFixMatch? {
+    if (crashLines.none(::isClientSideClassCrashLine)) {
+        return null
+    }
+    val ignoredModIds = setOf(
+        "minecraft",
+        "mcp",
+        "cleanroom",
+        "mixinbooter",
+        "configanytime",
+        "kirino_engine",
+        "kirino_ecs",
+        "kirino_gl",
+        "fml",
+        "forge"
+    )
+    val suspectedLine = crashLines.firstOrNull { it.contains("Suspected Mods:", ignoreCase = true) } ?: return null
+    val regex = Regex("""\(([^)]+)\)""")
+    val reportedId = regex.findAll(suspectedLine)
+        .map { it.groupValues[1].trim() }
+        .firstOrNull { it.isNotBlank() && it.lowercase() !in ignoredModIds }
+        ?: return null
+
+    val matchedMod = findMatchedCrashMod(
+        mods = mods,
+        reportedId = reportedId,
+        reportedFileName = modSourceMap[reportedId.lowercase()],
+        alreadyFixed = alreadyFixed
+    )
+    if (matchedMod != null) {
+        return CrashAutoFixMatch(
+            modKey = modStableKey(matchedMod),
+            modName = matchedMod.displaySlugOrProject
+        )
+    }
+
+    val rawFileName = modSourceMap[reportedId.lowercase()]
+    if (!rawFileName.isNullOrBlank() && rawFileName.endsWith(".jar", ignoreCase = true)) {
+        val renamed = renameUnknownClientOnlyJar(
+            workDir = workDir,
+            sourceDir = sourceDir,
+            rawModFileName = rawFileName
+        )
+        if (renamed != null && renamed !in alreadyRenamed) {
+            return CrashAutoFixMatch(
+                modKey = null,
+                modName = rawFileName,
+                renamedFileName = renamed
+            )
+        }
+    }
+    return null
+}
+
+private fun findClientNoClassDefFailureFixFromDebugLog(
+    mods: List<Mod>,
+    crashLines: List<String>,
+    workDir: File,
+    modSourceMap: Map<String, String>,
+    sourceDir: File,
+    alreadyFixed: Set<String>,
+    alreadyRenamed: Set<String>
+): CrashAutoFixMatch? {
+    if (crashLines.none(::isClientSideClassCrashLine)) {
+        return null
+    }
+    val debugLog = workDir.resolve("logs").resolve("debug.log")
+    val lines = runCatching { debugLog.readLines() }.getOrNull() ?: return null
+    val crashIndex = lines.indexOfFirst { line ->
+        isClientSideClassCrashLine(line) ||
+            line.contains("Encountered an unexpected exception", ignoreCase = true)
+    }
+    if (crashIndex == -1) return null
+
+    val eventRegex = Regex("""Sending event \S+ to mod ([^\s]+)""")
+    val slug = (crashIndex - 1 downTo maxOf(0, crashIndex - 200))
+        .asSequence()
+        .mapNotNull { index -> eventRegex.find(lines[index])?.groupValues?.getOrNull(1) }
+        .firstOrNull()
+        ?: return null
+
+    val matchedMod = findMatchedCrashMod(
+        mods = mods,
+        reportedId = slug,
+        reportedFileName = modSourceMap[slug.lowercase()],
+        alreadyFixed = alreadyFixed
+    )
+    if (matchedMod != null) {
+        return CrashAutoFixMatch(
+            modKey = modStableKey(matchedMod),
+            modName = matchedMod.displaySlugOrProject
+        )
+    }
+
+    val rawFileName = modSourceMap[slug.lowercase()]
+    if (!rawFileName.isNullOrBlank() && rawFileName.endsWith(".jar", ignoreCase = true)) {
+        val renamed = renameUnknownClientOnlyJar(
+            workDir = workDir,
+            sourceDir = sourceDir,
+            rawModFileName = rawFileName
+        )
+        if (renamed != null && renamed !in alreadyRenamed) {
+            return CrashAutoFixMatch(
+                modKey = null,
+                modName = rawFileName,
+                renamedFileName = renamed
+            )
+        }
+    }
+    return null
+}
+
+private fun findClientNoClassDefFailureFixFromMissingClassReference(
+    mods: List<Mod>,
+    crashLines: List<String>,
+    workDir: File,
+    sourceDir: File,
+    modSourceMap: Map<String, String>,
+    alreadyFixed: Set<String>,
+    alreadyRenamed: Set<String>
+): CrashAutoFixMatch? {
+    if (crashLines.none(::isClientSideClassCrashLine)) {
+        return null
+    }
+
+    val missingClassNames = extractInvalidSideClassNames(crashLines)
+    if (missingClassNames.isEmpty()) {
+        return null
+    }
+
+    val knownSources = modSourceMap.values
+        .asSequence()
+        .map { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }
+        .toSet()
+    val mentionedJars = parseCrashReportJarMentions(crashLines)
+    val candidateFiles = linkedSetOf<File>().apply {
+        listOf(
+            workDir.resolve("mods"),
+            sourceDir.resolve("mods"),
+            sourceDir.resolve("overrides").resolve("mods")
+        ).forEach { dir ->
+            dir.listFiles()
+                ?.filterTo(this) { file ->
+                    file.isFile &&
+                        file.extension.equals("jar", ignoreCase = true) &&
+                        !isClientOnlyMarkedModName(file.name)
+                }
+        }
+    }
+    val orderedCandidates = buildList {
+        addAll(candidateFiles.filter { it.name.lowercase() in mentionedJars && it.name.lowercase() !in knownSources })
+        addAll(candidateFiles.filter { it.name.lowercase() !in mentionedJars && it.name.lowercase() !in knownSources })
+        addAll(candidateFiles.filter { it.name.lowercase() in mentionedJars && it.name.lowercase() in knownSources })
+        addAll(candidateFiles.filter { it.name.lowercase() !in mentionedJars && it.name.lowercase() in knownSources })
+    }
+
+    val matchedFile = orderedCandidates.firstOrNull { file ->
+        missingClassNames.any { missingClassName ->
+            jarContainsClassReference(file, missingClassName)
+        }
+    } ?: return null
+
+    val matchedMod = findMatchedCrashMod(
+        mods = mods,
+        reportedId = null,
+        reportedFileName = matchedFile.name,
+        alreadyFixed = alreadyFixed
+    )
+    if (matchedMod != null) {
+        return CrashAutoFixMatch(
+            modKey = modStableKey(matchedMod),
+            modName = matchedMod.displaySlugOrProject
+        )
+    }
+
+    val renamed = renameUnknownClientOnlyJar(
+        workDir = workDir,
+        sourceDir = sourceDir,
+        rawModFileName = matchedFile.name
+    )
+    if (renamed != null && renamed !in alreadyRenamed) {
+        return CrashAutoFixMatch(
+            modKey = null,
+            modName = matchedFile.name,
+            renamedFileName = renamed
+        )
+    }
+    return null
+}
+
+private fun extractInvalidSideClassNames(lines: List<String>): List<String> {
+    val result = linkedSetOf<String>()
+    val patterns = listOf(
+        Regex("""NoClassDefFoundError:\s+([A-Za-z0-9_/$.\-]+)""", RegexOption.IGNORE_CASE),
+        Regex("""ClassNotFoundException:\s+([A-Za-z0-9_/$.\-]+)""", RegexOption.IGNORE_CASE),
+        Regex("""Attempted to load class\s+([A-Za-z0-9_/$.\-]+)\s+for invalid side SERVER""", RegexOption.IGNORE_CASE)
+    )
+    lines.forEach { line ->
+        patterns.forEach { pattern ->
+            pattern.find(line)?.groupValues?.getOrNull(1)
+                ?.let(::normalizeMissingClassReference)
+                ?.let(result::add)
+        }
+    }
+    return result.toList()
+}
+
+private fun normalizeMissingClassReference(raw: String): String? {
+    val trimmed = raw.trim().removePrefix("L").removeSuffix(";")
+    if (trimmed.isBlank()) return null
+    val withoutObfPrefix = if ('/' in trimmed && '.' in trimmed) {
+        trimmed.substringAfter('/')
+    } else {
+        trimmed
+    }
+    return withoutObfPrefix
+        .replace('.', '/')
+        .trim()
+        .takeIf { it.contains('/') }
+}
+
+private fun parseCrashReportJarMentions(lines: List<String>): Set<String> {
+    val regex = Regex("""\(([^)]+\.jar)\)""", RegexOption.IGNORE_CASE)
+    return lines.asSequence()
+        .mapNotNull { line -> regex.find(line)?.groupValues?.getOrNull(1) }
+        .map { it.substringAfterLast('/').substringAfterLast('\\').lowercase() }
+        .toSet()
+}
+
+private fun jarContainsClassReference(file: File, internalClassName: String): Boolean {
+    val internalNameBytes = internalClassName.toByteArray()
+    val dottedNameBytes = internalClassName.replace('/', '.').toByteArray()
+    return runCatching {
+        ZipFile(file).use { zip ->
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                if (entry.isDirectory || !entry.name.endsWith(".class", ignoreCase = true)) continue
+                val matched = zip.getInputStream(entry).use { input ->
+                    val bytes = input.readBytes()
+                    bytes.containsSubsequence(internalNameBytes) || bytes.containsSubsequence(dottedNameBytes)
+                }
+                if (matched) return@use true
+            }
+            false
+        }
+    }.getOrDefault(false)
+}
+
+private fun ByteArray.containsSubsequence(needle: ByteArray): Boolean {
+    if (needle.isEmpty() || size < needle.size) return false
+    for (start in 0..size - needle.size) {
+        var matched = true
+        for (offset in needle.indices) {
+            if (this[start + offset] != needle[offset]) {
+                matched = false
+                break
+            }
+        }
+        if (matched) return true
+    }
+    return false
 }
 
 private fun renameUnknownClientOnlyJar(

@@ -42,6 +42,7 @@ import calebxzhou.rdi.client.ui.comp.HttpImage
 import calebxzhou.rdi.client.ui.comp.ModGrid
 import calebxzhou.rdi.client.ui.comp.ModpackCategoryChips
 import calebxzhou.rdi.client.ui.comp.ModpackCategorySelector
+import calebxzhou.rdi.client.ui.comp.WebPagePane
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.isDav
@@ -62,6 +63,7 @@ fun ModpackInfoScreen(
     modpackId: String,
     onBack: () -> Unit,
     onOpenTaskList: ((String) -> Unit)? = null,
+    onOpenVersionEdit: ((String) -> Unit)? = null,
     onCreateHost: ((String, String, String, Boolean) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
@@ -302,7 +304,14 @@ fun ModpackInfoScreen(
                                     Text(statusText.asIconText, color = statusColor)
                                     Space8w()
                                     if (isAuthor) {
-                                        Space8w()
+                                        onOpenVersionEdit?.let { openVersionEdit ->
+                                            CircleIconButton(
+                                                icon = "\uF044",
+                                                tooltip = "编辑版本Mod",
+                                                bgColor = MaterialColor.PURPLE_700.color
+                                            ) { openVersionEdit(version.name) }
+                                            Space8w()
+                                        }
                                         CircleIconButton(
                                             icon = "\uEA81",
                                             tooltip = "删除版本",
@@ -542,6 +551,16 @@ private fun ModpackIntroTabContent(
     sourceIntroLoading: Boolean,
     sourceIntroError: String?
 ) {
+    val sourceUrl = pack.sourceUrl?.trim()?.takeIf(String::isNotBlank)
+    if (sourceUrl != null) {
+        WebPagePane(
+            url = sourceUrl,
+            title = sourceUrl ?: "来源网页",
+            modifier = Modifier.fillMaxSize()
+        )
+        return
+    }
+
     val scrollState = rememberScrollState()
     val displaySummary = sourceIntro?.summary?.takeIf(String::isNotBlank) ?: pack.info?.takeIf(String::isNotBlank)
     val displayBody = sourceIntro?.bodyMarkdown

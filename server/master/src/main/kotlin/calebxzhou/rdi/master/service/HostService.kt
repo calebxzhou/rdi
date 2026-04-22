@@ -458,11 +458,11 @@ object HostService {
                 McVersion.V165 -> {
                     McVersion.V165.plusJvmArgs.joinToString(" ")+" -jar ${loaderVersion.serverJarName}"
                 }
-                //1.16-
-                else
-                    //V122 V071
-                    -> {
-                    "-jar ${loaderVersion.serverJarName}"
+                McVersion.V122 -> {
+                    McVersion.V122.plusJvmArgs.joinToString(" ")+" -jar ${loaderVersion.serverJarName}"
+                }
+                McVersion.V071 -> {
+                    McVersion.V071.plusJvmArgs.joinToString(" ")+" -jar ${loaderVersion.serverJarName}"
                 }
             }
 
@@ -1247,7 +1247,7 @@ object HostService {
                     .withTmpfsOptions(TmpfsOptions().withSizeBytes(512 * 1024 * 1024))
             }
         }
-        val image = "rdi:j${modpack.mcVer.jreVer}"
+        val image = "rdi:j${modpack.mcVer.jreSupport}"
         modpack.mcVer.loaderVersions[modpack.modloader]?.let { modLoaderVersion ->
             DockerService.createContainer(
                 port,

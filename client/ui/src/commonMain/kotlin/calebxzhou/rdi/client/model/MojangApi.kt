@@ -21,7 +21,8 @@ data class MojangVersionManifest(
 	val libraries: List<MojangLibrary> = emptyList(),
 	val logging: Map<String, MojangLoggingConfig>? = null,
 	val minimumLauncherVersion: Int? = null,
-	val arguments: MojangArguments,
+	val arguments: MojangArguments = MojangArguments(),
+	val minecraftArguments: String? = null,
 	val inheritsFrom: String? = null,
 	val jar: String? = null,
 	val javaVersion: MojangJavaVersion? = null,
@@ -102,7 +103,7 @@ data class MojangLibrary(
 
 @Serializable
 data class MojangLibraryDownloads(
-	val artifact: MojangDownloadArtifact,
+	val artifact: MojangDownloadArtifact? = null,
 	val classifiers: Map<String, MojangDownloadArtifact>? = null,
 )
 

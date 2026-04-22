@@ -9,7 +9,26 @@
 #include <string>
 #include <utility>
 
+static bool webview2_debug_enabled() {
+    static const bool enabled = [] {
+        wchar_t value[16] = {};
+        const DWORD size = GetEnvironmentVariableW(L"RDI_WEBVIEW2_DEBUG", value, static_cast<DWORD>(std::size(value)));
+        if (size == 0 || size >= std::size(value)) {
+            return false;
+        }
+        return
+            _wcsicmp(value, L"1") == 0 ||
+            _wcsicmp(value, L"true") == 0 ||
+            _wcsicmp(value, L"yes") == 0 ||
+            _wcsicmp(value, L"on") == 0;
+    }();
+    return enabled;
+}
+
 static void dbg(const char* fmt, ...) {
+    if (!webview2_debug_enabled()) {
+        return;
+    }
     FILE* f = fopen("C:\\Users\\calebxzhou\\rdi_webview2_debug.txt", "a");
     if (!f) return;
     va_list args;

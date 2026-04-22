@@ -8,6 +8,7 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.archive.TarZstArchiveWriter
 import calebxzhou.rdi.common.archive.extractArchiveToDir
+import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.deser
 import calebxzhou.rdi.common.exception.ModpackError
 import calebxzhou.rdi.common.isExcludedConfigPath
@@ -16,21 +17,18 @@ import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.service.CurseForgeService.loadInfoCurseForge
 import calebxzhou.rdi.common.service.ModService
+import calebxzhou.rdi.common.service.ModService.readModMeta
 import calebxzhou.rdi.common.service.ModrinthService
-import calebxzhou.rdi.common.service.runInline
 import calebxzhou.rdi.common.service.ModrinthService.mapModrinthVersions
 import calebxzhou.rdi.common.service.ModrinthService.toCardVo
+import calebxzhou.rdi.common.service.runInline
 import calebxzhou.rdi.common.util.ok
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.request.forms.*
 import io.ktor.http.*
 import io.ktor.utils.io.streams.*
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.io.buffered
@@ -55,7 +53,13 @@ data class UploadPayload(
     val modloader: ModLoader,
     val sourceName: String,
     val sourceVersion: String,
-    var embeddedModOriginalFileNames: Map<String, String> = emptyMap()
+    var embeddedModOriginalFileNames: Map<String, String> = emptyMap(),
+    val serverExtraFiles: List<ServerExtraFile> = emptyList()
+)
+
+data class LoadedServerPackResult(
+    val mods: List<Mod>,
+    val serverExtraFiles: List<ServerExtraFile>
 )
 
 suspend fun loadLocalModpack(
@@ -88,15 +92,20 @@ suspend fun loadLocalModpack(
             onProgress = onProgress
         ).getOrThrow()
         onProgress.phase("Mod列表整理完成，共${mods.size}个，准备进入编辑")
+        //forge包可以视作cleanroom试运行
+        val loader = if (parsedPayload.modloader == ModLoader.forge && parsedPayload.mcVersion == McVersion.V122) {
+            ModLoader.cleanroom
+        } else parsedPayload.modloader
         LoadedLocalModpack(
             sourceType = parsedPayload.sourceType,
             sourceDir = parsedPayload.sourceDir,
             packName = parsedPayload.sourceName,
             packVersion = parsedPayload.sourceVersion,
             mcVersion = parsedPayload.mcVersion,
-            modloader = parsedPayload.modloader,
+            modloader = loader,
             mods = mods,
-            embeddedModOriginalFileNames = parsedPayload.embeddedModOriginalFileNames
+            embeddedModOriginalFileNames = parsedPayload.embeddedModOriginalFileNames,
+            serverExtraFiles = parsedPayload.serverExtraFiles
         )
     }.fold(
         onSuccess = ::ok,
@@ -115,7 +124,8 @@ fun LoadedLocalModpack.toUploadPayload(): UploadPayload = UploadPayload(
     modloader = modloader,
     sourceName = packName,
     sourceVersion = packVersion,
-    embeddedModOriginalFileNames = embeddedModOriginalFileNames
+    embeddedModOriginalFileNames = embeddedModOriginalFileNames,
+    serverExtraFiles = serverExtraFiles
 )
 
 fun UploadPayload.toLoadedLocalModpack(): LoadedLocalModpack = LoadedLocalModpack(
@@ -126,7 +136,8 @@ fun UploadPayload.toLoadedLocalModpack(): LoadedLocalModpack = LoadedLocalModpac
     mcVersion = mcVersion,
     modloader = modloader,
     mods = mods.toList(),
-    embeddedModOriginalFileNames = embeddedModOriginalFileNames
+    embeddedModOriginalFileNames = embeddedModOriginalFileNames,
+    serverExtraFiles = serverExtraFiles
 )
 
 fun parseUploadPayload(
@@ -136,18 +147,16 @@ fun parseUploadPayload(
     var prepared: PreparedModpack? = null
     return runCatching {
         onProgress(LoadProgress.Phase("准备解析整合包概要"))
+        onProgress(LoadProgress.Phase("快速检查整合包结构"))
+        val preflight = preflightPackStructure(file)
         prepared = runCatching {
             prepareModpackSource(file, onProgress)
         }.getOrElse { e ->
             throw ModpackError("读取整合包文件失败", e)
         }
         val preparedPack = prepared
-        onProgress(LoadProgress.Phase("识别整合包格式"))
-        val packType = detectPackType(preparedPack.rootDir)
-        if (packType != PackType.UNKNOWN && !hasOverridesDir(preparedPack.rootDir)) {
-            throw ModpackError("找不到包中overrides目录")
-        }
-        when (packType) {
+        onProgress(LoadProgress.Phase("整合包结构检查完成"))
+        when (preflight.packType) {
             PackType.MODRINTH -> {
                 onProgress(LoadProgress.Phase("读取Modrinth概要文件"))
                 inspectModrinthUploadPayload(preparedPack.rootDir)
@@ -221,40 +230,51 @@ suspend fun loadServerPackMods(
     file: File,
     clientMods: List<Mod>,
     onProgress: LoadProgressConsumer
-): Result<List<Mod>> = withContext(Dispatchers.IO) {
-    var prepared: PreparedModpack? = null
+): Result<LoadedServerPackResult> = withContext(Dispatchers.IO) {
     runCatching {
-        onProgress.phase("开始读取服务端包")
-        prepared = prepareModpackSource(file, onProgress)
-        val preparedPack = prepared ?: throw ModpackError("读取服务端包失败")
-        val modFiles = collectEmbeddedModFiles(preparedPack.rootDir)
-        if (modFiles.isEmpty()) {
-            throw ModpackError("服务端mods文件夹必须位于压缩包根目录")
+        onProgress.phase("开始读取服务端目录")
+        if (!file.exists() || !file.isDirectory) {
+            throw ModpackError("请选择服务端根目录")
         }
-        val matched = matchLocalModFiles(modFiles, onProgress)
-        val modIdMatched = matchServerModsByClientModId(
-            files = matched.unmatchedFiles,
-            clientMods = clientMods,
+        val modsDir = file.resolve("mods")
+        if (!modsDir.exists() || !modsDir.isDirectory) {
+            throw ModpackError("请选择服务端根目录，目录下应有mods文件夹")
+        }
+        val modFiles = collectServerPackModFiles(file)
+        if (modFiles.isEmpty()) {
+            throw ModpackError("请选择服务端根目录，目录下应有mods文件夹")
+        }
+        val clientModsByModId = buildClientModsByModId(clientMods)
+        val matchedByModId = matchServerModsByClientModId(
+            files = modFiles,
+            clientModsByModId = clientModsByModId,
             onProgress = onProgress
         )
-        val finalMatchedMods = (matched.mods + modIdMatched.mods)
+        val matched = matchLocalModFiles(matchedByModId.unmatchedFiles, onProgress)
+        val finalMatchedMods = (matched.mods + matchedByModId.mods)
             .distinctBy(::serverModMergeKey)
-        val finalUnmatchedFiles = modIdMatched.unmatchedFiles
+        val matchedFiles = matched.matchedFiles + matchedByModId.matchedFiles
+        val finalUnmatchedFiles = matched.unmatchedFiles
         persistMatchedEmbeddedMods(finalMatchedMods)
         if (finalUnmatchedFiles.isNotEmpty()) {
             val preview = finalUnmatchedFiles.take(5).joinToString("、") { it.nameWithoutExtension }
             val suffix = if (finalUnmatchedFiles.size > 5) "等${finalUnmatchedFiles.size}个" else ""
-            onProgress.warn("服务端包中有${finalUnmatchedFiles.size}个mod未识别，已忽略：$preview$suffix")
+            onProgress.warn("服务端目录中有${finalUnmatchedFiles.size}个mod未识别，将作为额外服务端文件带上：$preview$suffix")
         }
-        finalMatchedMods.map { it.withFile(null).toMod() }.toMutableList().also {
+        val resolvedMods = finalMatchedMods.map { it.withFile(null).toMod() }.toMutableList().also {
             ModService.run { it.postProcessModSides() }
         }
+        val serverExtraFiles = collectServerPackExtraFiles(
+            rootDir = file,
+            matchedModFiles = matchedFiles
+        )
+        LoadedServerPackResult(
+            mods = resolvedMods,
+            serverExtraFiles = serverExtraFiles
+        )
     }.fold(
         onSuccess = ::ok,
-        onFailure = { error ->
-            prepared?.rootDir?.let { runCatching { it.deleteRecursivelyNoSymlink() } }
-            Result.failure(error)
-        }
+        onFailure = { error -> Result.failure(error) }
     )
 }
 
@@ -350,7 +370,7 @@ private suspend fun matchLocalModFiles(
     onProgress: (LoadProgress) -> Unit
 ): EmbeddedMergedResult {
     if (files.isEmpty()) return EmbeddedMergedResult(emptyList(), emptySet(), emptyList())
-    onProgress.phase("发现zip中的mod${files.size}个，上网搜索信息中")
+    onProgress.phase("发现服务端目录中的mod${files.size}个，上网搜索信息中")
     val mrResult = runCatching {
         matchEmbeddedModsMR(files)
     }.getOrElse { e ->
@@ -370,38 +390,51 @@ private suspend fun matchLocalModFiles(
     return EmbeddedMergedResult(mergedMods, matchedFiles, cfResult.unmatchedFiles)
 }
 
+private fun buildClientModsByModId(clientMods: List<Mod>): Map<String, Mod> {
+    if (clientMods.isEmpty()) return emptyMap()
+    val clientModsByModId = linkedMapOf<String, Mod>()
+    clientMods.forEach { clientMod ->
+        val clientFile = clientMod.targetPath.toFile().takeIf { it.exists() && it.isFile } ?: return@forEach
+        val modId = readPrimaryModId(clientFile) ?: return@forEach
+        val previous = clientModsByModId.putIfAbsent(modId, clientMod)
+        if (previous != null && previous != clientMod) {
+            lgr.warn { "多个客户端mod共用了同一个modId=$modId，将保留第一个${previous.slug}，忽略${clientMod.slug}" }
+        }
+    }
+    return clientModsByModId
+}
+
 private fun matchServerModsByClientModId(
     files: List<File>,
-    clientMods: List<Mod>,
+    clientModsByModId: Map<String, Mod>,
     onProgress: LoadProgressConsumer
 ): EmbeddedMatchResult {
-    if (files.isEmpty() || clientMods.isEmpty()) {
+    if (files.isEmpty() || clientModsByModId.isEmpty()) {
         return EmbeddedMatchResult(emptyList(), emptySet(), files)
     }
     onProgress.phase("平台未识别的服务端mod，按modId与客户端已下载mod对比")
-    val clientModsByModId = clientMods.mapNotNull { clientMod ->
-        val clientFile = clientMod.targetPath.toFile().takeIf { it.exists() && it.isFile } ?: return@mapNotNull null
-        val modId = readPrimaryModId(clientFile) ?: return@mapNotNull null
-        modId to clientMod
-    }.toMap()
-    if (clientModsByModId.isEmpty()) {
-        return EmbeddedMatchResult(emptyList(), emptySet(), files)
-    }
     val matchedMods = mutableListOf<UiMod>()
     val matchedFiles = mutableSetOf<File>()
-    val usedClientKeys = mutableSetOf<String>()
+    val ignoredFiles = mutableSetOf<File>()
+    val usedServerModIds = mutableSetOf<String>()
     files.forEach { serverFile ->
         val serverModId = readPrimaryModId(serverFile) ?: return@forEach
+        if (!usedServerModIds.add(serverModId)) {
+            lgr.warn { "服务端目录里有多个jar共用了同一个modId=$serverModId，将保留第一个并忽略后续文件" }
+            ignoredFiles += serverFile
+            matchedFiles += serverFile
+            return@forEach
+        }
         val clientMod = clientModsByModId[serverModId] ?: return@forEach
-        val clientKey = "${clientMod.platform}:${clientMod.projectId}:${clientMod.fileId}:${clientMod.hash}"
-        if (!usedClientKeys.add(clientKey)) return@forEach
-        matchedMods += clientMod.toUiMod().withFile(serverFile)
+        matchedMods += clientMod.toUiMod()
+            .withSide(Mod.Side.BOTH)
+            .withFile(serverFile)
         matchedFiles += serverFile
     }
     return EmbeddedMatchResult(
         mods = matchedMods,
         matchedFiles = matchedFiles,
-        unmatchedFiles = files.filterNot { it in matchedFiles }
+        unmatchedFiles = files.filterNot { it in matchedFiles || it in ignoredFiles }
     )
 }
 
@@ -420,6 +453,10 @@ private data class PreparedModpack(
     val name: String
 )
 
+private data class PackStructurePreflight(
+    val packType: PackType
+)
+
 private data class AssetProcessInput(
     val relativePath: String,
     val relativeLower: String,
@@ -430,6 +467,31 @@ private fun formatPercent(fraction: Float): String = "${(fraction.coerceIn(0f, 1
 
 private fun displayProgressFileName(path: String): String =
     path.substringAfterLast('/').ifBlank { path }
+
+private fun preflightPackStructure(input: File): PackStructurePreflight {
+    return runCatching {
+        if (!input.exists()) {
+            throw ModpackError("找不到整合包文件: ${input.path}")
+        }
+        val archiveEntryNames = if (input.isDirectory) {
+            null
+        } else {
+            listArchiveEntries(input).map { it.path }
+        }
+        val packType = archiveEntryNames?.let(::detectPackType) ?: detectPackType(input)
+        if (packType == PackType.UNKNOWN) {
+            throw ModpackError("找不到此包的概要文件(manifest.json/modrinth.index.json)")
+        }
+        val hasOverrides = archiveEntryNames?.let { hasOverridesDir(it, packType) } ?: hasOverridesDir(input)
+        if (!hasOverrides) {
+            throw ModpackError("找不到包中overrides目录")
+        }
+        PackStructurePreflight(packType)
+    }.getOrElse { error ->
+        if (error is ModpackError) throw error
+        throw ModpackError("读取整合包文件失败", error)
+    }
+}
 
 private fun prepareModpackSource(input: File, onProgress: (LoadProgress) -> Unit): PreparedModpack {
     val tempDir = Files.createTempDirectory(ClientDirs.packProcDir.toPath(), "pack-").toFile()
@@ -454,6 +516,23 @@ private fun detectPackType(rootDir: File): PackType {
     rootDir.walkTopDown().forEach { file ->
         if (!file.isFile) return@forEach
         when (file.name) {
+            "modrinth.index.json" -> hasMrIndex = true
+            "manifest.json" -> hasCfManifest = true
+        }
+        if (hasMrIndex || hasCfManifest) return@forEach
+    }
+    return when {
+        hasMrIndex -> PackType.MODRINTH
+        hasCfManifest -> PackType.CURSEFORGE
+        else -> PackType.UNKNOWN
+    }
+}
+
+private fun detectPackType(entryNames: List<String>): PackType {
+    var hasMrIndex = false
+    var hasCfManifest = false
+    entryNames.forEach { entryName ->
+        when (entryName.replace('\\', '/').trimStart('/').substringAfterLast('/')) {
             "modrinth.index.json" -> hasMrIndex = true
             "manifest.json" -> hasCfManifest = true
         }
@@ -554,6 +633,14 @@ private fun collectEmbeddedModFiles(rootDir: File): List<File> {
         .map { grouped -> grouped.maxWithOrNull(::compareEmbeddedModFileVersion) ?: grouped.first() }
 }
 
+private fun collectServerPackModFiles(rootDir: File): List<File> {
+    val modsDir = rootDir.resolve("mods")
+    if (!modsDir.exists() || !modsDir.isDirectory) return emptyList()
+    return modsDir.walkTopDown()
+        .filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
+        .toList()
+}
+
 private data class EmbeddedModConfigInfo(
     val modId: String?,
     val version: String?
@@ -586,15 +673,66 @@ private fun readEmbeddedModVersion(file: File): String {
 private fun readPrimaryModConfig(file: File): EmbeddedModConfigInfo? = runCatching {
     ModService.run {
         JarFile(file).use { jar ->
-            jar.readNeoForgeConfig()?.mods?.firstOrNull()?.let { mod ->
+            jar.readModMeta()?.let { meta ->
                 EmbeddedModConfigInfo(
-                    modId = mod.modId.trim().lowercase().ifBlank { null },
-                    version = mod.version?.trim()?.ifBlank { null }
+                    modId = meta.primaryModId?.trim()?.lowercase()?.ifBlank { null },
+                    version = meta.version?.trim()?.ifBlank { null }
                 )
             }
         }
     }
 }.getOrNull()
+
+private fun collectServerPackExtraFiles(
+    rootDir: File,
+    matchedModFiles: Set<File>
+): List<ServerExtraFile> {
+    val canonicalMatchedFiles = matchedModFiles.mapTo(mutableSetOf()) { it.canonicalFile }
+    return rootDir.walkTopDown()
+        .onEnter { dir -> !shouldSkipServerExtraDir(rootDir, dir) }
+        .filter { it.isFile }
+        .filterNot { it.canonicalFile in canonicalMatchedFiles }
+        .mapNotNull { file ->
+            val relativePath = file.relativeTo(rootDir).invariantSeparatorsPath
+            if (relativePath.isBlank()) return@mapNotNull null
+            if (shouldSkipServerExtraFile(relativePath, file)) return@mapNotNull null
+            ServerExtraFile(
+                sourceFile = file,
+                relativePath = relativePath
+            )
+        }
+        .toList()
+}
+
+private fun shouldSkipServerExtraDir(rootDir: File, dir: File): Boolean {
+    if (dir == rootDir) return false
+    val relativePath = dir.relativeTo(rootDir).invariantSeparatorsPath.lowercase()
+    val name = dir.name.lowercase()
+    if (name == "cache" || name == "logs" || name == "crash-reports") return true
+    if (relativePath.startsWith("libraries/")) return true
+    val childDirNames = dir.listFiles()
+        ?.asSequence()
+        ?.filter { it.isDirectory }
+        ?.map { it.name.lowercase() }
+        ?.toSet()
+        .orEmpty()
+    return setOf("bin", "lib", "jmods").all { it in childDirNames }
+}
+
+private fun shouldSkipServerExtraFile(relativePath: String, file: File): Boolean {
+    val relativeLower = relativePath.lowercase()
+    val fileNameLower = file.name.lowercase()
+    if (relativeLower.startsWith("libraries/")) return true
+    if (relativeLower.startsWith("logs/") || relativeLower.startsWith("crash-reports/")) return true
+    if (fileNameLower == ".ds_store" || fileNameLower == "desktop.ini") return true
+    if (file.extension.equals("db", ignoreCase = true)) return true
+    if (file.extension.lowercase() in serverExtraMediaExtensions) return true
+    val isInsideMods = relativeLower.startsWith("mods/")
+    if (!isInsideMods && file.extension.equals("jar", ignoreCase = true)) return true
+    if (!isInsideMods && file.extension.equals("exe", ignoreCase = true)) return true
+    if (!isInsideMods && file.extension.isBlank()) return true
+    return false
+}
 
 private fun String.substringBeforeVersionSuffix(): String {
     val match = Regex("""^(.*?)(?:[-_.]?\d.*)$""").matchEntire(this)
@@ -630,13 +768,47 @@ private fun compareLooseVersionStrings(left: String, right: String): Int {
     return left.compareTo(right)
 }
 
+private val serverExtraMediaExtensions = setOf(
+    "psd",
+    "png",
+    "jpg",
+    "jpeg",
+    "webp",
+    "mp4",
+    "ogg",
+    "wav"
+)
+
 private fun hasOverridesDir(rootDir: File): Boolean {
     return rootDir.walkTopDown().any { it.isDirectory && it.name.equals("overrides", ignoreCase = true) }
+}
+
+private fun hasOverridesDir(entryNames: List<String>, packType: PackType): Boolean {
+    if (packType == PackType.UNKNOWN) return false
+    val metaFileName = when (packType) {
+        PackType.MODRINTH -> "modrinth.index.json"
+        PackType.CURSEFORGE -> "manifest.json"
+        PackType.UNKNOWN -> return false
+    }
+    val metaPath = entryNames.firstOrNull {
+        it.replace('\\', '/').trimStart('/').substringAfterLast('/') == metaFileName
+    } ?: return false
+    val rootPrefix = metaPath.replace('\\', '/')
+        .trimStart('/')
+        .substringBeforeLast('/', missingDelimiterValue = "")
+        .let { if (it.isBlank()) "" else "$it/" }
+    val overridesPath = rootPrefix + "overrides"
+    val overridesPrefix = "$overridesPath/"
+    return entryNames.any { rawName ->
+        val normalized = rawName.replace('\\', '/').trimStart('/')
+        normalized == overridesPath || normalized.startsWith(overridesPrefix)
+    }
 }
 
 private suspend fun buildZipFromDir(
     rootDir: File,
     baseName: String,
+    serverExtraFiles: List<ServerExtraFile> = emptyList(),
     onProgress: LoadProgressConsumer = {}
 ): File {
     val safeName = baseName.ifBlank { "modpack" }
@@ -669,8 +841,15 @@ private suspend fun buildZipFromDir(
             }
         )
         val addedDirs = mutableSetOf<String>()
+        val needsPatchedFancyMenuOptions = fileEntries.none { file ->
+            !file.isDirectory && file.relativeTo(rootDir).invariantSeparatorsPath.lowercase() == PATCHED_FANCYMENU_OPTIONS_PATH
+        }
         TarZstArchiveWriter(target).use { out ->
-            val totalWriteEntries = fileEntries.size.coerceAtLeast(1)
+            val totalWriteEntries = (
+                fileEntries.size +
+                    serverExtraFiles.size +
+                    if (needsPatchedFancyMenuOptions) 1 else 0
+                ).coerceAtLeast(1)
             var writtenEntries = 0
             var wrotePatchedFancyMenuOptions = false
             for (file in fileEntries) {
@@ -709,6 +888,31 @@ private suspend fun buildZipFromDir(
             if (!wrotePatchedFancyMenuOptions) {
                 ensureArchiveParents(PATCHED_FANCYMENU_OPTIONS_PATH, out, addedDirs)
                 out.addFile(PATCHED_FANCYMENU_OPTIONS_PATH, patchedFancyMenuOptionsTxtBytes())
+                writtenEntries++
+                val fraction = writtenEntries.toFloat() / totalWriteEntries.toFloat()
+                onProgress(
+                    LoadProgress.Percent(
+                        "正在写入整合包文件${displayProgressFileName(PATCHED_FANCYMENU_OPTIONS_PATH)}($writtenEntries/$totalWriteEntries) ${formatPercent(fraction)}",
+                        0.5f + fraction * 0.5f
+                    )
+                )
+            }
+            for (extraFile in serverExtraFiles) {
+                val relative = "server/${extraFile.relativePath.trimStart('/')}"
+                val sourceFile = extraFile.sourceFile
+                if (!sourceFile.exists() || !sourceFile.isFile) {
+                    throw ModpackError("服务端额外文件不存在: ${sourceFile.absolutePath}")
+                }
+                ensureArchiveParents(relative, out, addedDirs)
+                out.addFile(relative, sourceFile.readBytes(), sourceFile.lastModified())
+                writtenEntries++
+                val fraction = writtenEntries.toFloat() / totalWriteEntries.toFloat()
+                onProgress(
+                    LoadProgress.Percent(
+                        "正在写入整合包文件${displayProgressFileName(relative)}($writtenEntries/$totalWriteEntries) ${formatPercent(fraction)}",
+                        0.5f + fraction * 0.5f
+                    )
+                )
             }
         }
         onProgress(LoadProgress.Percent("整合包打包完成", 1f))
@@ -780,6 +984,7 @@ private fun shouldSkipEntry(
     isDirectory: Boolean,
     skipCacheDirectory: Boolean = true
 ): Boolean {
+    val relativeLower = relativeLower.replace("overrides/","")
     if (relativeLower == PATCHED_FANCYMENU_OPTIONS_PATH) return false
     if (disallowedClientPathPrefixes.any { relativeLower.startsWith(it) }) return true
     if (skipCacheDirectory && containsCacheDirectory(relativeLower)) return true
@@ -921,7 +1126,7 @@ private const val QUEST_LANG_PREFIX = "config/ftbquests/quests/lang/"
 private const val RESOURCEPACK_MAX_SIZE_BYTES = 1*1024L * 1024
 private const val OGG_MAX_DURATION_SECONDS = 5
 private const val OGG_OUTPUT_SAMPLE_RATE = 16_000
-private const val PATCHED_FANCYMENU_OPTIONS_PATH = "config/fancymenu/options.txt"
+private const val PATCHED_FANCYMENU_OPTIONS_PATH = "overrides/config/fancymenu/options.txt"
 private val PATCHED_FANCYMENU_OPTIONS_TXT = """
 ##[tutorial]
 
@@ -1118,7 +1323,12 @@ suspend fun uploadModpack(
 ) {
     onProgress("正在打包整合包...请等一两分钟")
     val uploadZip = try {
-        buildZipFromDir(payload.sourceDir, payload.sourceName, onPackProcessProgress)
+        buildZipFromDir(
+            rootDir = payload.sourceDir,
+            baseName = payload.sourceName,
+            serverExtraFiles = payload.serverExtraFiles,
+            onProgress = onPackProcessProgress
+        )
     } catch (e: Exception) {
         lgr.warn { "打包整合包失败: ${payload.sourceDir.absolutePath + "\n" + e}" }
         payload.sourceDir.deleteRecursivelyNoSymlink()
@@ -1191,11 +1401,12 @@ fun createUploadModpackTask2(
         var doneSummary: String? = null
         ctx.emit(Task2Progress("开始上传整合包", 0f))
         try {
-            builtClientZip = buildZipFromDir(
-                rootDir = payload.sourceDir,
-                baseName = payload.sourceName,
-                onProgress = { progress -> ctx.emit(progress) }
-            )
+                builtClientZip = buildZipFromDir(
+                    rootDir = payload.sourceDir,
+                    baseName = payload.sourceName,
+                    serverExtraFiles = payload.serverExtraFiles,
+                    onProgress = { progress -> ctx.emit(progress) }
+                )
             val uploadZip = builtClientZip ?: throw ModpackError("整合包打包失败")
             val totalBytes = uploadZip.length()
             val startTime = System.nanoTime()

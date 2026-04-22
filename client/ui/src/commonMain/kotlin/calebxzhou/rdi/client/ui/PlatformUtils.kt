@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.ui
 
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import java.io.File
 import java.io.InputStream
@@ -44,6 +45,17 @@ expect fun openUrl(url: String)
 expect fun openMsaVerificationUrl(url: String)
 
 /**
+ * Display an in-app web page.
+ * Desktop: placeholder until WebView2 host is wired in.
+ * Android: backed by system WebView.
+ */
+@Composable
+expect fun PlatformWebView(
+    url: String,
+    modifier: Modifier = Modifier
+)
+
+/**
  * Show a platform file save dialog.
  * @param suggestedName default file name
  * @param extension file extension filter (e.g. "zip")
@@ -68,6 +80,12 @@ expect suspend fun pickLocalModpackFile(): File?
  * Desktop: opens a native zip chooser. Android: returns null.
  */
 expect suspend fun pickLocalZipFile(title: String): File?
+
+/**
+ * Pick a local directory with a platform file dialog.
+ * Desktop: opens a native directory chooser. Android: returns null.
+ */
+expect suspend fun pickLocalDirectory(title: String): File?
 
 /**
  * Pick a Java executable path with a platform file dialog.
@@ -161,6 +179,12 @@ expect fun getPlatformTotalPhysicalMemoryMb(): Int
  * Desktop: resolves path and runs `java -version`. Android: returns success (not applicable).
  */
 expect fun validatePlatformJavaPath(rawPath: String, expectedMajor: Int): Result<Unit>
+
+/**
+ * Get the current app runtime Java major version.
+ * Desktop: returns Runtime.version().feature(). Android: returns null.
+ */
+expect fun currentPlatformJavaMajor(): Int?
 
 /**
  * Register desktop-only navigation routes (McPlayView, ModpackUpload) into the NavGraphBuilder.

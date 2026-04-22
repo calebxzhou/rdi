@@ -31,13 +31,13 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.Serializable
 import kotlinx.coroutines.launch
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.CircleIconButton
-import calebxzhou.rdi.client.ui.FlowRowV
 import calebxzhou.rdi.client.ui.MainColumn
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.MaterialColor
@@ -138,7 +138,7 @@ fun ResourceScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RemoteModpackPane(
     onOpenInfo: (String) -> Unit
@@ -156,6 +156,7 @@ private fun RemoteModpackPane(
     var hasMore by remember { mutableStateOf(false) }
     var requestKeyword by rememberSaveable { mutableStateOf("") }
     var requestVersion by remember { mutableStateOf(0) }
+    var compactFilterPanelExpanded by rememberSaveable { mutableStateOf(false) }
 
     suspend fun loadModpacks(reset: Boolean) {
         val offset = if (reset) 0 else modpacks.size
@@ -229,6 +230,16 @@ private fun RemoteModpackPane(
         }
     }
 
+    fun activeFilterCount(): Int {
+        var count = 0
+        if (requestKeyword.isNotBlank()) count += 1
+        if (onlyMine) count += 1
+        if (selectedCategory != null) count += 1
+        if (selectedMcVer != null) count += 1
+        if (selectedSort != Modpack.SearchSort.UPDATED) count += 1
+        return count
+    }
+
     @Composable
     fun FilterSidebar(modifier: Modifier = Modifier) {
         Column(
@@ -245,37 +256,19 @@ private fun RemoteModpackPane(
                 )
             }
             RemoteModpackFilterSection("排序") {
-                FlowRowV(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Modpack.SearchSort.entries.forEach { sort ->
-                        RemoteModpackFilterChip(
-                            text = sort.toLabel(),
-                            selected = selectedSort == sort,
-                            onClick = { selectedSort = sort }
-                        )
-                    }
-                }
+                RemoteModpackFilterGrid(
+                    texts = Modpack.SearchSort.entries.map { it.toLabel() },
+                    selectedIndex = Modpack.SearchSort.entries.indexOf(selectedSort),
+                    onChipClick = { index -> selectedSort = Modpack.SearchSort.entries[index] }
+                )
             }
             RemoteModpackFilterSection("MC版本") {
-                FlowRowV(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    RemoteModpackFilterChip(
-                        text = "全部",
-                        selected = selectedMcVer == null,
-                        onClick = { selectedMcVer = null }
-                    )
-                    McVersion.entries.filter { it.enabled }.forEach { ver ->
-                        RemoteModpackFilterChip(
-                            text = ver.mcVer,
-                            selected = selectedMcVer == ver,
-                            onClick = { selectedMcVer = ver }
-                        )
-                    }
-                }
+                val versions = listOf<McVersion?>(null) + McVersion.entries.filter { it.enabled }
+                RemoteModpackFilterGrid(
+                    texts = versions.map { it?.mcVer ?: "全部" },
+                    selectedIndex = versions.indexOf(selectedMcVer),
+                    onChipClick = { index -> selectedMcVer = versions[index] }
+                )
             }
             if (
                 requestKeyword.isNotBlank() ||
@@ -320,6 +313,31 @@ private fun RemoteModpackPane(
                 bgColor = MaterialColor.BLUE_700.color
             ) {
                 submitSearch()
+            }
+        }
+    }
+
+    @Composable
+    fun CompactFilterToggle() {
+        val expanded = compactFilterPanelExpanded
+        val activeFilterCount = activeFilterCount()
+        RowV(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            CircleIconButton(
+                icon = if (expanded) "\uE70D" else "\uE76C",
+                tooltip = if (expanded) "收起搜索与筛选" else "展开搜索与筛选",
+                bgColor = if (expanded) MaterialColor.GRAY_700.color else MaterialColor.BLUE_700.color
+            ) {
+                compactFilterPanelExpanded = !compactFilterPanelExpanded
+            }
+            if (activeFilterCount > 0) {
+                Text(
+                    text = "已启用$activeFilterCount 项筛选",
+                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f),
+                    style = MaterialTheme.typography.body2
+                )
             }
         }
     }
@@ -393,8 +411,11 @@ private fun RemoteModpackPane(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    SearchBar()
-                    FilterSidebar()
+                    CompactFilterToggle()
+                    if (compactFilterPanelExpanded) {
+                        SearchBar()
+                        FilterSidebar()
+                    }
                     ResultList(modifier = Modifier.weight(1f))
                 }
             } else {
@@ -444,7 +465,6 @@ private fun RemoteModpackFilterSection(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RemoteModpackCategoryFilter(
     selected: Modpack.Category?,
@@ -453,42 +473,43 @@ private fun RemoteModpackCategoryFilter(
     onOnlyMineChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    FlowRowV(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        RemoteModpackFilterChip(
+    val categoryItems = listOf(
+        RemoteModpackGridChipItem(
             text = "我的包",
             selected = onlyMine,
             onClick = { onOnlyMineChange(!onlyMine) }
-        )
-        RemoteModpackFilterChip(
+        ),
+        RemoteModpackGridChipItem(
             text = "全部",
             selected = selected == null,
             onClick = { onSelectedChange(null) }
         )
-        Modpack.Category.entries.forEach { category ->
-            RemoteModpackFilterChip(
-                text = category.label,
-                selected = selected == category,
-                onClick = {
-                    onSelectedChange(
-                        if (selected == category) null else category
-                    )
-                }
-            )
-        }
+    ) + Modpack.Category.entries.map { category ->
+        RemoteModpackGridChipItem(
+            text = category.label,
+            selected = selected == category,
+            onClick = {
+                onSelectedChange(
+                    if (selected == category) null else category
+                )
+            }
+        )
     }
+    RemoteModpackFilterGrid(
+        items = categoryItems,
+        modifier = modifier
+    )
 }
 
 @Composable
 private fun RemoteModpackFilterChip(
     text: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     androidx.compose.material.Surface(
-        modifier = Modifier.clickable(onClick = onClick),
+        modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
         color = if (selected) MaterialColor.BLUE_700.color else MaterialColor.GRAY_200.color
     ) {
@@ -496,7 +517,66 @@ private fun RemoteModpackFilterChip(
             text = text,
             color = if (selected) MaterialColor.WHITE.color else MaterialColor.GRAY_900.color,
             style = MaterialTheme.typography.body2,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 6.dp, vertical = 8.dp)
         )
+    }
+}
+
+private data class RemoteModpackGridChipItem(
+    val text: String,
+    val selected: Boolean,
+    val onClick: () -> Unit
+)
+
+@Composable
+private fun RemoteModpackFilterGrid(
+    texts: List<String>,
+    selectedIndex: Int,
+    onChipClick: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    RemoteModpackFilterGrid(
+        items = texts.mapIndexed { index, text ->
+            RemoteModpackGridChipItem(
+                text = text,
+                selected = index == selectedIndex,
+                onClick = { onChipClick(index) }
+            )
+        },
+        modifier = modifier
+    )
+}
+
+@Composable
+private fun RemoteModpackFilterGrid(
+    items: List<RemoteModpackGridChipItem>,
+    modifier: Modifier = Modifier,
+    columns: Int = 3
+) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items.chunked(columns).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                rowItems.forEach { item ->
+                    RemoteModpackFilterChip(
+                        text = item.text,
+                        selected = item.selected,
+                        onClick = item.onClick,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                repeat(columns - rowItems.size) {
+                    Spacer(modifier = Modifier.weight(1f))
+                }
+            }
+        }
     }
 }

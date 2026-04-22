@@ -38,6 +38,11 @@ enum class LocalModpackSourceType {
     CURSEFORGE
 }
 
+data class ServerExtraFile(
+    val sourceFile: File,
+    val relativePath: String
+)
+
 data class LoadedLocalModpack(
     val sourceType: LocalModpackSourceType,
     val sourceDir: File,
@@ -46,7 +51,8 @@ data class LoadedLocalModpack(
     val mcVersion: McVersion,
     val modloader: ModLoader,
     val mods: List<Mod>,
-    val embeddedModOriginalFileNames: Map<String, String> = emptyMap()
+    val embeddedModOriginalFileNames: Map<String, String> = emptyMap(),
+    val serverExtraFiles: List<ServerExtraFile> = emptyList()
 )
 
 /**
@@ -186,7 +192,8 @@ object ModpackService {
         mods: List<Mod>
     ): Task2 {
         var clientPackFile: File? = null
-        val downloadModsTask = ModService.downloadModsTask2(mods)
+        val installableMods = mods.filter(::isClientInstallableMod)
+        val downloadModsTask = ModService.downloadModsTask2(installableMods)
 
         val downloadClientPackTask = Task2.Leaf("下载客户端整合包") { ctx ->
             val hash = server.makeRequest<String>("modpack/$modpackId/version/$verName/client/hash").data
@@ -208,7 +215,7 @@ object ModpackService {
             modLoader = modLoader,
             modpackId = modpackId,
             verName = verName,
-            mods = mods
+            mods = installableMods
         ) {
             clientPackFile ?: throw IllegalStateException("客户端包未准备好")
         }
@@ -321,12 +328,14 @@ object ModpackService {
         embeddedModOriginalFileNames: Map<String, String> = emptyMap(),
         clientPackProvider: () -> File
     ): List<Task2> {
+        val installableMods = mods.filter(::isClientInstallableMod)
         val versionDir = getVersionDir(modpackId, verName)
         val prepareVersionDirTask = Task2.Leaf("准备安装目录") { ctx ->
             if (versionDir.exists()) {
                 ctx.emit(Task2Progress("清理旧版本文件...", null))
-                runCatching { versionDir.deleteRecursivelyNoSymlink() }
-                    .getOrElse { throw IllegalStateException("无法清理旧版本目录: ${versionDir.absolutePath}", it) }
+                runCatching {
+                    versionDir.deleteRecursivelyNoSymlink()
+                }.getOrElse { throw IllegalStateException("无法清理旧版本目录: ${versionDir.absolutePath}", it) }
             }
             if (!versionDir.exists()) {
                 versionDir.mkdirs()
@@ -350,7 +359,7 @@ object ModpackService {
 
         val copyModsTask = Task2.Leaf("复制mod文件") { ctx ->
             val modsDir = versionDir.resolve("mods").apply { mkdirs() }
-            val modFiles = mods.map { mod ->
+            val modFiles = installableMods.map { mod ->
                 val file = ClientDirs.dlModsDir.resolve(mod.fileName)
                 if (!file.exists()) {
                     throw IllegalStateException("缺少Mod文件: ${file.absolutePath}")
@@ -492,6 +501,7 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             loggedAccount.name
     val activeBaseMods = version.mods
         .filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }
+        .filter(::isClientInstallableMod)
 
     runCatching {
         server.makeRequest<Unit>("modpack/${modpack.id}/play", HttpMethod.Post)
@@ -511,6 +521,8 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         )
     )
 }
+
+private fun isClientInstallableMod(mod: Mod): Boolean = mod.side != Mod.Side.SERVER
 
 suspend fun ModpackService.getLocalPackDirs(): List<ModpackLocalDir> = coroutineScope {
     val pattern = Regex("^([0-9a-fA-F]{24})_(.+)$")

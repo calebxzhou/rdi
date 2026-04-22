@@ -8,17 +8,27 @@ import android.net.Uri
 import android.os.Environment
 import android.util.Log
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.remember
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.Modifier
+import android.annotation.SuppressLint
+import android.view.ViewGroup
+import android.webkit.WebChromeClient
+import android.webkit.WebSettings
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import androidx.navigation.compose.composable
 import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.getCachedOrFetchHwSpecJson
@@ -76,6 +86,47 @@ actual fun openMsaVerificationUrl(url: String) {
     openUrl(url)
 }
 
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+actual fun PlatformWebView(
+    url: String,
+    modifier: Modifier
+) {
+    val normalizedUrl = remember(url) {
+        when {
+            url.startsWith("http://", ignoreCase = true) || url.startsWith("https://", ignoreCase = true) -> url
+            else -> "https://$url"
+        }
+    }
+    Box(modifier = modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { context ->
+                WebView(context).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    webViewClient = WebViewClient()
+                    webChromeClient = WebChromeClient()
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+                    settings.loadsImagesAutomatically = true
+                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
+                    setBackgroundColor(android.graphics.Color.WHITE)
+                    loadUrl(normalizedUrl)
+                }
+            },
+            update = { webView ->
+                if (webView.url != normalizedUrl) {
+                    webView.loadUrl(normalizedUrl)
+                }
+            }
+        )
+    }
+}
+
 actual suspend fun pickSaveFile(suggestedName: String, extension: String): File? {
     // On Android, save directly to Downloads directory
     val downloadsDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
@@ -92,6 +143,8 @@ actual suspend fun pickLocalMinecraftWorldDir(): String? = null
 actual suspend fun pickLocalModpackFile(): File? = null
 
 actual suspend fun pickLocalZipFile(title: String): File? = null
+
+actual suspend fun pickLocalDirectory(title: String): File? = null
 
 actual suspend fun pickJavaExecutable(title: String): String? = null
 
@@ -188,6 +241,8 @@ actual fun getPlatformTotalPhysicalMemoryMb(): Int = 0
 
 actual fun validatePlatformJavaPath(rawPath: String, expectedMajor: Int): Result<Unit> =
     Result.success(Unit) // Not applicable on Android
+
+actual fun currentPlatformJavaMajor(): Int? = null
 
 actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
     navController: androidx.navigation.NavHostController

@@ -51,6 +51,7 @@ fun SettingScreen(
     var preferModMirror by remember { mutableStateOf(false) }
     var preferMcMirror by remember { mutableStateOf(false) }
     var maxMemoryText by remember { mutableStateOf("") }
+    var jre25Path by remember { mutableStateOf("") }
     var jre21Path by remember { mutableStateOf("") }
     var jre8Path by remember { mutableStateOf("") }
     var proxyEnabled by remember { mutableStateOf(false) }
@@ -68,6 +69,7 @@ fun SettingScreen(
                 preferModMirror = config.preferModMirror
                 preferMcMirror = config.preferMcMirror
                 maxMemoryText = if (config.maxMemory <= 0) "" else config.maxMemory.toString()
+                jre25Path = config.jre25Path.orEmpty()
                 jre21Path = config.jre21Path.orEmpty()
                 jre8Path = config.jre8Path.orEmpty()
                 proxyEnabled = config.proxyConfig?.enabled ?: false
@@ -114,13 +116,22 @@ fun SettingScreen(
                                 return@launch
                             }
                             // Validate Java paths
+                            val jre25 = jre25Path.trim().takeIf { it.isNotEmpty() }
                             val jre21 = jre21Path.trim().takeIf { it.isNotEmpty() }
                             val jre8 = jre8Path.trim().takeIf { it.isNotEmpty() }
+                            val java25Ok = withContext(Dispatchers.IO) {
+                                jre25?.let { svc.validateJavaPath(it, 25) } ?: Result.success(Unit)
+                            }
                             val java21Ok = withContext(Dispatchers.IO) {
                                 jre21?.let { svc.validateJavaPath(it, 21) } ?: Result.success(Unit)
                             }
                             val java8Ok = withContext(Dispatchers.IO) {
                                 jre8?.let { svc.validateJavaPath(it, 8) } ?: Result.success(Unit)
+                            }
+                            java25Ok.exceptionOrNull()?.let {
+                                errorMessage = it.message ?: "Java 25 路径无效"
+                                saving = false
+                                return@launch
                             }
                             java21Ok.exceptionOrNull()?.let {
                                 errorMessage = it.message ?: "Java 21 路径无效"
@@ -139,6 +150,7 @@ fun SettingScreen(
                             preferModMirror = preferModMirror,
                             preferMcMirror = preferMcMirror,
                             maxMemoryText = maxMemoryText,
+                            jre25Path = jre25Path,
                             jre21Path = jre21Path,
                             jre8Path = jre8Path,
                             proxyEnabled = proxyEnabled,
@@ -186,6 +198,13 @@ fun SettingScreen(
                                             totalMemoryMb = totalMemoryMb,
                                             maxMemoryText = maxMemoryText,
                                             onMaxMemoryChange = { maxMemoryText = it.trim() },
+                                            jre25Path = jre25Path,
+                                            onJre25Change = { jre25Path = it },
+                                            onPickJre25 = {
+                                                scope.launch {
+                                                    pickJavaExecutable("选择Java25可执行文件")?.let { jre25Path = it }
+                                                }
+                                            },
                                             jre21Path = jre21Path,
                                             onJre21Change = { jre21Path = it },
                                             onPickJre21 = {
@@ -460,6 +479,9 @@ private fun JavaSettings(
     totalMemoryMb: Int,
     maxMemoryText: String,
     onMaxMemoryChange: (String) -> Unit,
+    jre25Path: String,
+    onJre25Change: (String) -> Unit,
+    onPickJre25: () -> Unit,
     jre21Path: String,
     onJre21Change: (String) -> Unit,
     onPickJre21: () -> Unit,
@@ -489,7 +511,30 @@ private fun JavaSettings(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
-                label = { Text("Java21主程序路径（可选 留空自带）") },
+                label = { Text("Java25主程序路径（可选 留空自带）") },
+                value = jre25Path,
+                onValueChange = onJre25Change,
+                singleLine = true,
+                modifier = Modifier.weight(1f)
+            )
+            CircleIconButton(
+                icon = "\uE8B6",
+                tooltip = "选择Java25",
+                bgColor = MaterialColor.BLUE_800.color,
+                size = 36,
+                showText = false
+            ) {
+                onPickJre25()
+            }
+        }
+        Space8h()
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                label = { Text("Java21主程序路径（可选）") },
                 value = jre21Path,
                 onValueChange = onJre21Change,
                 singleLine = true,
@@ -512,7 +557,7 @@ private fun JavaSettings(
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
-                label = { Text("Java8主程序路径（可选 留空自带）") },
+                label = { Text("Java8主程序路径（可选）") },
                 value = jre8Path,
                 onValueChange = onJre8Change,
                 singleLine = true,

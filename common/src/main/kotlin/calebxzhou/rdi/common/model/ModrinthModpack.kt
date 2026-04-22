@@ -35,7 +35,7 @@ data class ModrinthModpackIndex(
     @Serializable
     data class Env(
         val client: EnvSide,
-        val server: EnvSide
+        val server: EnvSide?=null
     )
 
     @Serializable

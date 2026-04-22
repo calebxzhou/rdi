@@ -20,6 +20,29 @@ import javax.swing.SwingUtilities
 import javax.swing.Timer
 import kotlin.math.roundToInt
 
+private val WEBVIEW2_DEBUG_ENABLED: Boolean = run {
+    val value = System.getenv("RDI_WEBVIEW2_DEBUG")
+        ?: System.getProperty("rdi.webview2.debug")
+        ?: return@run false
+    value.equals("1", ignoreCase = true) ||
+        value.equals("true", ignoreCase = true) ||
+        value.equals("yes", ignoreCase = true) ||
+        value.equals("on", ignoreCase = true)
+}
+
+private inline fun webView2DebugLog(message: () -> String) {
+    if (WEBVIEW2_DEBUG_ENABLED) {
+        println(message())
+    }
+}
+
+private data class ScreenBounds(
+    val left: Int,
+    val top: Int,
+    val right: Int,
+    val bottom: Int
+)
+
 internal object DesktopWebView2Platform {
     fun createBackend(): DesktopEmbeddedWebViewBackend {
         return if (WebView2RuntimeLocator.isWindows()) {
@@ -37,7 +60,6 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
     private var pendingNavigatedUrl: String? = null
     private var bridgeLibrary: WebView2BridgeLibrary? = null
     private var bridgeHandle: Pointer? = null
-    private var creating = false
     private var hostComponentListener: ComponentAdapter? = null
     private var hostHierarchyListener: HierarchyListener? = null
     private var hostHierarchyBoundsListener: HierarchyBoundsAdapter? = null
@@ -95,13 +117,7 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
             .getOrElse {
                 currentHost.showStatus(
                     buildString {
-                        appendLine("未找到WebView2桥(native bridge)DLL。")
-                        appendLine()
-                        appendLine("需要提供rdi_webview2_bridge.dll。")
-                        appendLine("可放置位置:")
-                        appendLine("1. 程序工作目录")
-                        appendLine("2. lib/rdi_webview2_bridge.dll")
-                        appendLine("3. resources/webview2/win-x64/rdi_webview2_bridge.dll")
+                        appendLine("未找到内置WebView2桥(native bridge)DLL资源。")
                         appendLine()
                         append("错误: ${it.message ?: it::class.simpleName}")
                     }
@@ -128,8 +144,9 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
             }
         val userDataDir = WebView2RuntimeLocator.userDataDir().apply { mkdirs() }
 
-        println("[WebView2Debug] handle=${Pointer.nativeValue(handle)} hwnd=${hwnd.pointer} loaderPath=${loaderPath.absolutePath} userDataDir=${userDataDir.absolutePath}")
-        creating = true
+        webView2DebugLog {
+            "[WebView2Debug] handle=${Pointer.nativeValue(handle)} hwnd=${hwnd.pointer} loaderPath=${loaderPath.absolutePath} userDataDir=${userDataDir.absolutePath}"
+        }
         startPollingState()
         val attachHr = WinNT.HRESULT(
             bridge.rdi_webview2_attach(
@@ -144,7 +161,7 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
                 buildString {
                     append("请求创建WebView2环境失败: ")
                     append(formatHRESULT(attachHr))
-                    appendBridgeError(currentHost, bridge, handle)
+                    appendBridgeError(bridge, handle)
                 }
             )
             return
@@ -210,19 +227,14 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
         val transform = nativeHost.graphicsConfiguration?.defaultTransform
         val scaleX = transform?.scaleX ?: 1.0
         val scaleY = transform?.scaleY ?: 1.0
-        val width = maxOf(nativeHost.width, 1)
-        val height = maxOf(nativeHost.height, 1)
-        val left = (location.x * scaleX).roundToInt()
-        val top = (location.y * scaleY).roundToInt()
-        val right = ((location.x + width) * scaleX).roundToInt()
-        val bottom = ((location.y + height) * scaleY).roundToInt()
+        val bounds = scaledScreenBounds(nativeHost, location.x, location.y, scaleX, scaleY)
         val hr = WinNT.HRESULT(
             bridge.rdi_webview2_set_bounds(
                 handle,
-                left,
-                top,
-                right,
-                bottom
+                bounds.left,
+                bounds.top,
+                bounds.right,
+                bounds.bottom
             )
         )
         if (COMUtils.FAILED(hr)) {
@@ -230,15 +242,8 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
         }
     }
 
-    private fun notifyParentWindowPositionChanged() {
-        val currentHost = host ?: return
-        val bridge = bridgeLibrary ?: return
-        val handle = bridgeHandle ?: return
-        bridge.rdi_webview2_notify_parent_window_position_changed(handle)
-    }
-
     private fun setVisible(visible: Boolean) {
-        val currentHost = host ?: return
+        if (host == null) return
         val bridge = bridgeLibrary ?: return
         val handle = bridgeHandle ?: return
         bridge.rdi_webview2_set_visible(handle, if (visible) 1 else 0)
@@ -253,7 +258,6 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
 
             override fun componentMoved(e: ComponentEvent?) {
                 updateControllerBounds()
-                notifyParentWindowPositionChanged()
             }
 
             override fun componentShown(e: ComponentEvent?) {
@@ -276,7 +280,6 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
         hostHierarchyBoundsListener = object : HierarchyBoundsAdapter() {
             override fun ancestorMoved(e: HierarchyEvent?) {
                 updateControllerBounds()
-                notifyParentWindowPositionChanged()
             }
 
             override fun ancestorResized(e: HierarchyEvent?) {
@@ -286,31 +289,27 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
     }
 
     private fun startPollingState() {
-        statePollTimer?.stop()
+        stopPollingState()
         statePollTimer = Timer(120) {
             val currentHost = host ?: return@Timer
             val bridge = bridgeLibrary ?: return@Timer
             val handle = bridgeHandle ?: return@Timer
             val state = bridge.rdi_webview2_get_state(handle)
-            println("[WebView2Debug] polledState=$state")
+            webView2DebugLog { "[WebView2Debug] polledState=$state" }
             when (state) {
                 WebView2BridgeState.IDLE.value,
                 WebView2BridgeState.CREATING_ENVIRONMENT.value,
                 WebView2BridgeState.CREATING_CONTROLLER.value -> {
-                    creating = true
                     currentHost.showStatus("正在初始化WebView2环境...")
                 }
 
                 WebView2BridgeState.READY.value -> {
-                    creating = false
                     currentHost.clearStatus()
                     requestedUrl?.let(::navigateIfNeeded)
-                    statePollTimer?.stop()
-                    statePollTimer = null
+                    stopPollingState()
                 }
 
                 WebView2BridgeState.FAILED.value -> {
-                    creating = false
                     currentHost.showStatus(
                         bridgeErrorMessage(
                             prefix = "WebView2初始化失败。",
@@ -318,8 +317,7 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
                             handle = handle
                         )
                     )
-                    statePollTimer?.stop()
-                    statePollTimer = null
+                    stopPollingState()
                 }
             }
         }.apply {
@@ -329,9 +327,7 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
     }
 
     private fun detachInternal() {
-        statePollTimer?.stop()
-        statePollTimer = null
-        creating = false
+        stopPollingState()
         lastNavigatedUrl = null
         pendingNavigatedUrl = null
         host?.nativeHost()?.let { nativeHost ->
@@ -352,22 +348,14 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
         host = null
     }
 
-    private fun bridgeErrorMessage(
-        prefix: String,
-        bridge: WebView2BridgeLibrary,
-        handle: Pointer
-    ): String {
+    private fun bridgeErrorMessage(prefix: String, bridge: WebView2BridgeLibrary, handle: Pointer): String {
         return buildString {
             append(prefix)
-            appendBridgeError(host, bridge, handle)
+            appendBridgeError(bridge, handle)
         }
     }
 
-    private fun StringBuilder.appendBridgeError(
-        currentHost: DesktopWebViewHostPanel?,
-        bridge: WebView2BridgeLibrary,
-        handle: Pointer
-    ) {
+    private fun StringBuilder.appendBridgeError(bridge: WebView2BridgeLibrary, handle: Pointer) {
         val nativeErrPtr = bridge.rdi_webview2_get_last_error(handle)
         val nativeMessage = nativeErrPtr?.getWideString(0)
         if (!nativeMessage.isNullOrBlank()) {
@@ -382,7 +370,27 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
                 append("HRESULT: ${formatHRESULT(hr)}")
             }
         }
-        if (currentHost == null) return
+    }
+
+    private fun stopPollingState() {
+        statePollTimer?.stop()
+        statePollTimer = null
+    }
+
+    private fun scaledScreenBounds(
+        component: Component,
+        xOnScreen: Int,
+        yOnScreen: Int,
+        scaleX: Double,
+        scaleY: Double
+    ): ScreenBounds {
+        val width = maxOf(component.width, 1)
+        val height = maxOf(component.height, 1)
+        val left = (xOnScreen * scaleX).roundToInt()
+        val top = (yOnScreen * scaleY).roundToInt()
+        val right = ((xOnScreen + width) * scaleX).roundToInt()
+        val bottom = ((yOnScreen + height) * scaleY).roundToInt()
+        return ScreenBounds(left, top, right, bottom)
     }
 
     private fun runOnEdt(block: () -> Unit) {
@@ -470,7 +478,7 @@ internal object WebView2RuntimeLocator {
 private object WebView2BridgeLocator {
     fun load(): WebView2BridgeLibrary {
         val bridgeFile = resolveBridgePath()
-        println("[WebView2Debug] bridgePath=${bridgeFile.absolutePath}")
+        webView2DebugLog { "[WebView2Debug] bridgePath=${bridgeFile.absolutePath}" }
         return Native.load(
             bridgeFile.absolutePath,
             WebView2BridgeLibrary::class.java,
@@ -551,7 +559,6 @@ private interface WebView2BridgeLibrary : StdCallLibrary {
     ): Int
     fun rdi_webview2_set_visible(handle: Pointer, visible: Int): Int
     fun rdi_webview2_navigate(handle: Pointer, url: WString?): Int
-    fun rdi_webview2_notify_parent_window_position_changed(handle: Pointer): Int
     fun rdi_webview2_get_state(handle: Pointer): Int
     fun rdi_webview2_get_last_error(handle: Pointer): Pointer?
     fun rdi_webview2_get_last_hresult(handle: Pointer): Int

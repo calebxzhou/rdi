@@ -199,6 +199,9 @@ private fun MenuAccountSummary(
                 HeadButton(it, showName = false, avatarSize = 12.dp)
             }
         }
+        if(isDesktop && Runtime.version().feature()!=25){
+            Text("请在2026.5.6之前更新客户端内置java至25 否则届时无法启动 详见群文档")
+        }
     }
 }
 

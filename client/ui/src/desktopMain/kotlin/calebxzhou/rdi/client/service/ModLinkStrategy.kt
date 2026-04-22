@@ -10,6 +10,6 @@ actual fun linkOrCopyMod(source: File, target: File) {
     runCatching {
         Files.createSymbolicLink(dst, source.toPath())
     }.onFailure {
-        throw ModpackError("无管理员权限 无法创建Mod链接")
+        throw ModpackError("无法创建mod软链接 请进入系统设置打开开发人员模式")
     }
 }

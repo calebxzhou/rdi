@@ -1,12 +1,16 @@
+import org.gradle.api.JavaVersion
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.plugins.JavaPlugin
 import org.gradle.api.plugins.JavaPluginExtension
+import org.gradle.api.tasks.compile.JavaCompile
 import org.gradle.api.tasks.SourceSetContainer
 import org.gradle.api.tasks.bundling.Jar
 import org.gradle.api.tasks.javadoc.Javadoc
 import org.gradle.api.tasks.testing.Test
+import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
 	kotlin("jvm")
@@ -17,16 +21,38 @@ group = "calebxzhou.rdi.common"
 version = "0.1"
 
 val ktorVersion = "3.4.2"
-val kotlinLoggingVersion = "7.0.6"
+val kotlinLoggingVersion = "8.0.01"
+val commonJavaSdkVersion = 25
+val commonJvmTarget = JvmTarget.JVM_21
 repositories {
     mavenLocal()
     mavenCentral()
 }
+
+kotlin {
+    jvmToolchain(commonJavaSdkVersion)
+    compilerOptions {
+        jvmTarget.set(commonJvmTarget)
+    }
+}
+
+java {
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(commonJavaSdkVersion))
+    }
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(21)
+}
+
 dependencies {
     implementation("calebxzhou.mykotutils:std:0.1")
     implementation("calebxzhou.mykotutils:log:0.1")
     implementation("ch.qos.logback:logback-classic:1.5.32")
-    implementation("org.jsoup:jsoup:1.22.1")
+    implementation("org.jsoup:jsoup:1.22.2")
     implementation("org.mongodb:bson:5.6.5")
     // Source: https://mvnrepository.com/artifact/org.mongodb/bson-kotlinx
     implementation("org.mongodb:bson-kotlinx:5.6.5")

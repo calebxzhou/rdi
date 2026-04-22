@@ -3,6 +3,7 @@ package calebxzhou.rdi.common.service
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.common.DL_MOD_DIR
+import calebxzhou.rdi.common.deser
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.net.DownloadProgress
 import calebxzhou.rdi.common.net.downloadFileFrom
@@ -24,6 +25,7 @@ object ModService {
     const val NEOFORGE_CONFIG_PATH = "META-INF/neoforge.mods.toml"
     const val FABRIC_CONFIG_PATH = "fabric.mod.json"
     const val FORGE_CONFIG_PATH = "META-INF/mods.toml"
+    const val LEGACY_FORGE_CONFIG_PATH = "mcmod.info"
     private val lgr by Loggers
     private val modsToml = Toml { ignoreUnknownKeys = true }
     private val supportedModsTomlPaths = listOf(NEOFORGE_CONFIG_PATH, FORGE_CONFIG_PATH)
@@ -36,6 +38,27 @@ object ModService {
                 parseModsToml(reader.readText())
             }
         }
+    }
+
+    fun JarFile.readModMeta(): JarModMeta? {
+        readNeoForgeConfig()?.let { config ->
+            val modEntries = config.mods
+            val modIds = modEntries.mapNotNull { entry ->
+                entry.modId.trim().lowercase().ifBlank { null }
+            }.distinct()
+            if (modIds.isNotEmpty()) {
+                if (modIds.size > 1) {
+                    lgr.warn { "Jar ${name}声明了多个modId: ${modIds.joinToString()}，将使用第一个${modIds.first()}" }
+                }
+                val primary = modEntries.firstOrNull { it.modId.isNotBlank() }
+                return JarModMeta(
+                    modIds = modIds,
+                    version = primary?.version?.trim()?.ifBlank { null },
+                    description = primary?.description?.trim()?.ifBlank { null }
+                )
+            }
+        }
+        return readLegacyForgeModMeta()
     }
 
     val ModsTomlConfig.modId
@@ -157,8 +180,8 @@ object ModService {
     }
 
     private fun collectModIdsFromJar(jar: JarFile, installedModIds: MutableSet<String>) {
-        jar.readNeoForgeConfig()?.let { config ->
-            installedModIds += extractModIds(config)
+        jar.readModMeta()?.let { meta ->
+            installedModIds += meta.modIds
         }
 
         val entries = jar.entries()
@@ -214,6 +237,45 @@ object ModService {
         }.onFailure { err ->
             lgr.debug(err) { "Failed to parse mods.toml" }
         }.getOrNull()
+    }
+
+    private fun JarFile.readLegacyForgeModMeta(): JarModMeta? {
+        val mcmodInfoEntry = getJarEntry(LEGACY_FORGE_CONFIG_PATH) ?: return null
+        val entries = getInputStream(mcmodInfoEntry).bufferedReader().use { reader ->
+            parseLegacyForgeModEntries(reader.readText())
+        }
+        if (entries.isEmpty()) return null
+        val modIds = entries.mapNotNull { entry ->
+            entry.modId.trim().lowercase().ifBlank { null }
+        }.distinct()
+        if (modIds.isEmpty()) return null
+        if (modIds.size > 1) {
+            lgr.warn { "Jar ${name}声明了多个legacy modId: ${modIds.joinToString()}，将使用第一个${modIds.first()}" }
+        }
+        val primary = entries.firstOrNull { it.modId.isNotBlank() }
+        return JarModMeta(
+            modIds = modIds,
+            version = primary?.version?.trim()?.ifBlank { null },
+            description = primary?.description?.trim()?.ifBlank { null }
+        )
+    }
+
+    private fun parseLegacyForgeModEntries(raw: String): List<LegacyMcmodInfoEntry> {
+        val trimmed = raw.trim()
+        if (trimmed.isBlank()) return emptyList()
+        return when {
+            trimmed.startsWith("[") -> raw.deser<List<LegacyMcmodInfoEntry>>().getOrElse { err ->
+                lgr.debug(err) { "Failed to parse legacy mcmod.info array" }
+                emptyList()
+            }
+
+            trimmed.startsWith("{") -> raw.deser<LegacyMcmodInfoContainer>().map { it.modList }.getOrElse { err ->
+                lgr.debug(err) { "Failed to parse legacy mcmod.info object" }
+                emptyList()
+            }
+
+            else -> emptyList()
+        }
     }
 
     private fun extractModIds(config: ModsTomlConfig?): List<String> {

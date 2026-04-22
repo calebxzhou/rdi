@@ -11,6 +11,7 @@ import calebxzhou.rdi.common.archive.forEachArchiveEntry
 import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
+import calebxzhou.rdi.client.ui.pickAwtSaveFile
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Progress
 import kotlinx.coroutines.Dispatchers
@@ -23,8 +24,6 @@ import java.nio.file.Files
 import java.nio.file.StandardOpenOption
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import javax.swing.JFileChooser
-import javax.swing.filechooser.FileNameExtensionFilter
 
 actual fun selectRdiPackFiles(): List<File>? {
     val owner = Frame()
@@ -257,21 +256,15 @@ actual suspend fun exportLogsPack(packdir: ModpackLocalDir): Result<Unit> = with
             throw IllegalStateException("没有可导出的日志目录")
         }
 
-        val chooser = JFileChooser().apply {
-            dialogTitle = "选择日志保存位置"
-            fileSelectionMode = JFileChooser.FILES_ONLY
-            val safeName = packdir.vo.name.ifBlank { "modpack" }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            val defaultName = "${safeName}_${packdir.verName}_logs.zip"
-            selectedFile = java.io.File(System.getProperty("user.home"), defaultName)
-            fileFilter = FileNameExtensionFilter("ZIP 文件 (*.zip)", "zip")
-        }
-        val result = chooser.showSaveDialog(null)
-        if (result != JFileChooser.APPROVE_OPTION) return@runCatching
-
-        var outputFile = chooser.selectedFile
-        if (!outputFile.name.endsWith(".zip", ignoreCase = true)) {
-            outputFile = java.io.File(outputFile.parentFile, "${outputFile.name}.zip")
-        }
+        val safeName = packdir.vo.name.ifBlank { "modpack" }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val defaultName = "${safeName}_${packdir.verName}_logs.zip"
+        val outputFile = pickAwtSaveFile(
+            title = "选择日志保存位置",
+            defaultFileName = defaultName,
+            defaultDirectory = File(System.getProperty("user.home")),
+            requiredExtension = "zip",
+            filenameFilter = { _, name -> name.endsWith(".zip", ignoreCase = true) }
+        ) ?: return@runCatching
 
         ZipOutputStream(FileOutputStream(outputFile)).use { zipOut ->
             sourceDirs.forEach { dir ->

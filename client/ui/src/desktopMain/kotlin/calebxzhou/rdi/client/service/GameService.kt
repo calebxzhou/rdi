@@ -4,15 +4,15 @@ import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.javaExePath
 import calebxzhou.rdi.CONF
-import calebxzhou.rdi.RDIClient
 import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.ScreenSize
 import calebxzhou.rdi.client.model.*
 import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.service.GameService.resolveGameArgumentList
+import calebxzhou.rdi.client.service.GameService.resolveJvmArgumentList
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
-import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.util.toUUID
 import com.sun.management.OperatingSystemMXBean
 import java.awt.GraphicsEnvironment
@@ -125,8 +125,8 @@ internal fun GameService.startDesktopInDir(
     val loaderManifest = mcVer.loaderManifest
     val manifest = mcVer.manifest
     val nativesDir = mcVer.nativesDir
-    val hostOs = LibraryOsArch.detectHostOs()
-    val gameArgs = resolveArgumentList(manifest.arguments.game + loaderManifest.arguments.game).map {
+    val resolvedGameArgs = resolveLaunchGameArguments(manifest, loaderManifest)
+    val gameArgs = resolvedGameArgs.map {
         it.replace("\${auth_player_name}", loggedAccount.name)
             .replace("\${version_name}", versionId)
             .replace("\${game_directory}", versionDir.absolutePath)
@@ -139,11 +139,37 @@ internal fun GameService.startDesktopInDir(
     }.toMutableList()
     val (physicalWidth, physicalHeight) = resolvePhysicalScreenSize()
     gameArgs += listOf("--width", "$physicalWidth", "--height", "$physicalHeight")
-    val resolvedJvmArgs = resolveArgumentList(manifest.arguments.jvm + loaderManifest.arguments.jvm)
-    val classpath = buildClasspath(
-        baseLibraries = manifest.libraries,
-        overrideLibraries = loaderManifest.libraries
-    ).joinToString(File.pathSeparator)
+    val resolvedJvmArgs = manifest.resolveJvmArgumentList() + loaderManifest.resolveJvmArgumentList()
+    val launchClasspath = buildLaunchClasspath(
+        manifest = manifest,
+        loaderManifest = loaderManifest,
+        versionDir = versionDir,
+        versionId = versionId
+    )
+    val classpath = launchClasspath.joinToString(File.pathSeparator)
+    val legacyLaunch = resolvedJvmArgs.isEmpty() &&
+        (!manifest.minecraftArguments.isNullOrBlank() || !loaderManifest.minecraftArguments.isNullOrBlank())
+    val hasClasspathDeclaration = resolvedJvmArgs.any {
+        it == "-cp" || it == "-classpath" || it.contains("\${classpath}")
+    }
+    val processedJvmArgs = resolvedJvmArgs.map { arg ->
+        arg.replace("\${natives_directory}", nativesDir.absolutePath)
+            .replace("\${library_directory}", ClientDirs.librariesDir.absolutePath)
+            .replace("\${launcher_name}", "rdi")
+            .replace("\${launcher_version}", Const.VERSION_NUMBER)
+            .replace("\${classpath}", classpath)
+            .replace("\${classpath_separator}", File.pathSeparator)
+    }.toMutableList()
+    if (legacyLaunch) {
+        processedJvmArgs += listOf(
+            "-Djava.library.path=${nativesDir.absolutePath}",
+            "-Dminecraft.launcher.brand=rdi",
+            "-Dminecraft.launcher.version=${Const.VERSION_NUMBER}"
+        )
+    }
+    if (launchClasspath.isNotEmpty() && !hasClasspathDeclaration) {
+        processedJvmArgs += listOf("-cp", classpath)
+    }
     val useMemStr = runCatching {
         if (CONF.maxMemory > 0) {
             "-Xmx${CONF.maxMemory}M"
@@ -158,14 +184,7 @@ internal fun GameService.startDesktopInDir(
             "-Xmx${mem}M"
         }
     }.getOrDefault("-Xmx8G")
-    val processedJvmArgs = resolvedJvmArgs.map { arg ->
-        arg.replace("\${natives_directory}", nativesDir.absolutePath)
-            .replace("\${library_directory}", ClientDirs.librariesDir.absolutePath)
-            .replace("\${launcher_name}", "rdi")
-            .replace("\${launcher_version}", Const.VERSION_NUMBER)
-            .replace("\${classpath}", classpath)
-            .replace("\${classpath_separator}", File.pathSeparator)
-    }.toMutableList().apply {
+    processedJvmArgs.apply {
         this += useMemStr
         this += utf8LoggingJvmArgs
         this += jvmArgs
@@ -176,16 +195,7 @@ internal fun GameService.startDesktopInDir(
 
     lgr.info { "JVM Args: ${processedJvmArgs.joinToString(" ")}" }
     lgr.info { "Game Args: ${gameArgs.joinToString(" ")}" }
-    val jrePath = when (mcVer.jreVer) {
-
-        8 -> {
-            CONF.jre8Path ?: throw RequestError("请前往设置Java8路径")
-        }
-
-        else -> {
-            CONF.jre21Path ?: RDIClient.JRE21
-        }
-    }
+    val jrePath = resolveDesktopJavaPath(mcVer)
     val command = listOf(
         jrePath,
         *processedJvmArgs.toTypedArray(),
@@ -219,17 +229,72 @@ internal fun GameService.startDesktopInDir(
     return process
 }
 
+private fun GameService.buildLaunchClasspath(
+    manifest: MojangVersionManifest,
+    loaderManifest: MojangVersionManifest,
+    versionDir: File,
+    versionId: String
+): List<String> {
+    val entries = LinkedHashSet<String>()
+    entries += buildClasspath(
+        baseLibraries = manifest.libraries,
+        overrideLibraries = loaderManifest.libraries
+    )
+    resolveLaunchVersionJarCandidates(
+        manifest = manifest,
+        loaderManifest = loaderManifest,
+        versionDir = versionDir,
+        versionId = versionId
+    ).filter(File::exists)
+        .forEach { entries += it.absolutePath }
+    return entries.toList()
+}
+
+private fun GameService.resolveLaunchVersionJarCandidates(
+    manifest: MojangVersionManifest,
+    loaderManifest: MojangVersionManifest,
+    versionDir: File,
+    versionId: String
+): List<File> {
+    val isBootstrapModuleLaunch = loaderManifest.isBootstrapModuleLaunch()
+    val versionNames = linkedSetOf<String>()
+    versionNames += versionId
+    loaderManifest.id.takeIf(String::isNotBlank)?.let(versionNames::add)
+    loaderManifest.jar?.takeIf(String::isNotBlank)?.let(versionNames::add)
+    if (!isBootstrapModuleLaunch) {
+        loaderManifest.inheritsFrom?.takeIf(String::isNotBlank)?.let(versionNames::add)
+        manifest.jar?.takeIf(String::isNotBlank)?.let(versionNames::add)
+        manifest.id.takeIf(String::isNotBlank)?.let(versionNames::add)
+    }
+    return versionNames.flatMap { name ->
+        listOf(
+            versionDir.resolve("$name.jar"),
+            versionListDir.resolve(name).resolve("$name.jar")
+        )
+    }.distinctBy{it.absolutePath}
+}
+
+private fun MojangVersionManifest.isBootstrapModuleLaunch(): Boolean {
+    if (mainClass != "cpw.mods.bootstraplauncher.BootstrapLauncher") {
+        return false
+    }
+    val jvmArgs = resolveJvmArgumentList()
+    return "-p" in jvmArgs && "ALL-MODULE-PATH" in jvmArgs
+}
+
+private fun resolveLaunchGameArguments(
+    manifest: MojangVersionManifest,
+    loaderManifest: MojangVersionManifest
+): List<String> {
+    if (!loaderManifest.minecraftArguments.isNullOrBlank()) {
+        return loaderManifest.resolveGameArgumentList()
+    }
+    return manifest.resolveGameArgumentList() + loaderManifest.resolveGameArgumentList()
+}
+
 fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Version, workDir: File, onLine: (String) -> Unit): Process {
     val hostOs = LibraryOsArch.detectHostOs()
-    val jrePath = when (mcVer.jreVer) {
-        8 -> {
-            CONF.jre8Path ?: throw RequestError("请前往设置Java8路径")
-        }
-
-        else -> {
-            CONF.jre21Path ?: RDIClient.JRE21
-        }
-    }
+    val jrePath = resolveDesktopJavaPath(mcVer)
     val command = mutableListOf(
         jrePath,
         "-Xmx6G",
@@ -257,7 +322,26 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
                 }
             }
 
-            else -> {}
+            McVersion.V122 -> {
+                if (loaderVer.loader == ModLoader.forge || loaderVer.loader == ModLoader.cleanroom) {
+                    McVersion.V122.plusJvmArgs.forEach { this += it }
+                    val jarFileName = "cleanroom-${loaderVer.id}.jar"
+                    this += "-jar"
+                    this += jarFileName
+                    Files.createSymbolicLink(
+                        workDir.resolve(jarFileName).toPath(),
+                        ClientDirs.mcDir.resolve(jarFileName).toPath()
+                    )
+                    //mc server jar
+                    val mcServerJar = "minecraft_server.1.12.2.jar"
+                    Files.createSymbolicLink(
+                        workDir.resolve(mcServerJar).toPath(),
+                        ClientDirs.mcDir.resolve(mcServerJar).toPath()
+                    )
+                }
+            }
+            else -> { throw RequestError("不支持的MC版本启动测试服务器")
+            }
         }
         this += "--nogui"
     }
@@ -304,4 +388,21 @@ private fun resolvePhysicalScreenSize(): Pair<Int, Int> {
         val height = (logicalHeight * scaleY).toInt().coerceAtLeast(logicalHeight)
         width to height
     }.getOrDefault(logicalWidth to logicalHeight)
+}
+
+private fun resolveDesktopJavaPath(mcVersion: McVersion): String {
+    fun currentJavaIfMatches(): String? =
+        javaExePath.takeIf { mcVersion.supportsCurrentJava(Runtime.version().feature()) }
+
+    fun configuredJavaPath(major: Int): String? = when (major) {
+        8 -> CONF.jre8Path
+        21 -> CONF.jre21Path
+        25 -> CONF.jre25Path
+        else -> null
+    }?.trim()?.takeIf { it.isNotEmpty() }
+
+    return mcVersion.supportedJreVers
+        .firstNotNullOfOrNull(::configuredJavaPath)
+        ?: currentJavaIfMatches()
+        ?: throw RequestError("请前往设置${mcVersion.supportedJreVers.joinToString("或") { "Java$it" }}路径")
 }

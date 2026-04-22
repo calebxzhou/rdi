@@ -36,7 +36,7 @@ object SettingsService {
             return ValidationResult(false, "最大内存必须大于4096MB")
         }
 
-        if (totalMemoryMb > 0 && memoryValue >= totalMemoryMb) {
+        if (totalMemoryMb in 1..memoryValue) {
             return ValidationResult(false, "最大内存必须小于总内存 ${totalMemoryMb}MB")
         }
 
@@ -74,6 +74,7 @@ object SettingsService {
         preferModMirror: Boolean,
         preferMcMirror: Boolean,
         maxMemoryText: String,
+        jre25Path: String,
         jre21Path: String,
         jre8Path: String,
         proxyEnabled: Boolean,
@@ -84,6 +85,7 @@ object SettingsService {
         proxyPwd: String
     ): Result<Unit> = runCatching {
         val memoryValue = maxMemoryText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
+        val jre25 = jre25Path.trim().takeIf { it.isNotEmpty() }
         val jre21 = jre21Path.trim().takeIf { it.isNotEmpty() }
         val jre8 = jre8Path.trim().takeIf { it.isNotEmpty() }
         val proxyPort = proxyPortText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
@@ -92,6 +94,7 @@ object SettingsService {
             preferModMirror = preferModMirror,
             preferMcMirror = preferMcMirror,
             maxMemory = memoryValue ?: 0,
+            jre25Path = jre25,
             jre21Path = jre21,
             jre8Path = jre8,
             proxyConfig = ProxyConfig(

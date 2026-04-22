@@ -379,8 +379,34 @@ fun AppNavigation(
                     onOpenTaskList = { runId ->
                         navController.navigate(TaskList(runId))
                     },
-                    onCreateHost = { _, _, _, _ ->
+                    onOpenVersionEdit = { verName ->
+                        navController.navigate(
+                            ModpackVersionEdit(
+                                modpackId = route.modpackId,
+                                verName = verName,
+                                fromHostId = route.fromHostId,
+                                fromAllHosts = route.fromAllHosts
+                            )
+                        )
+                    },
+                    onCreateHost = { _, _, _, _ -> 
                         navController.navigate(HostCreate())
+                    }
+                )
+            }
+            composable<ModpackVersionEdit> {
+                val route = it.toRoute<ModpackVersionEdit>()
+                ModpackVersionEditScreen(
+                    modpackId = route.modpackId,
+                    verName = route.verName,
+                    onBack = {
+                        navController.navigateAbsolute(
+                            ModpackInfo(
+                                modpackId = route.modpackId,
+                                fromHostId = route.fromHostId,
+                                fromAllHosts = route.fromAllHosts
+                            )
+                        )
                     }
                 )
             }

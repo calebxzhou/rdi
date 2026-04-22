@@ -1,15 +1,24 @@
 import org.gradle.api.internal.artifacts.dsl.dependencies.DependenciesExtensionModule.module
 import org.gradle.jvm.tasks.Jar
+import org.gradle.jvm.toolchain.JavaLanguageVersion
+import org.gradle.jvm.toolchain.JavaToolchainService
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 val ktorVersion = "3.4.2"
 val zstdVer = "1.5.7-7"
 val desugarVersion = "2.1.5"
-val version = "5.12.5"
+val desktopJavaSdkVersion = 25
+val desktopJvmTarget = JvmTarget.JVM_21
+val version = "5.13"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
 project.version = version
+
+val javaToolchainService = project.extensions.getByType<JavaToolchainService>()
+val desktopJavaLauncher = javaToolchainService.launcherFor {
+    languageVersion.set(JavaLanguageVersion.of(desktopJavaSdkVersion))
+}
 
 val nettyVersion = "4.2.9.Final"
 val desktopNettyModules = listOf(
@@ -50,15 +59,17 @@ base {
 }
 
 kotlin {
+    jvmToolchain(desktopJavaSdkVersion)
+
     jvm("desktop") {
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_21)
+            jvmTarget.set(desktopJvmTarget)
         }
     }
 
     androidTarget {
         compilerOptions {
-            jvmTarget.set(JvmTarget.JVM_21)
+            jvmTarget.set(desktopJvmTarget)
         }
     }
 
@@ -107,7 +118,7 @@ kotlin {
                 implementation("net.java.dev.jna:jna-platform:5.18.1")
 
 
-                val lwjglVersion = "3.3.3"
+                val lwjglVersion = "3.4.1"
                 val components = listOf("", "glfw", "opengl")
                 components.forEach { component ->
                     val suffix = if (component.isNotEmpty()) "-$component" else ""
@@ -133,7 +144,7 @@ kotlin {
                 implementation("io.ktor:ktor-client-core:$ktorVersion")
                 implementation("io.ktor:ktor-client-auth:$ktorVersion")
                 implementation("io.ktor:ktor-client-encoding:$ktorVersion")
-                implementation("org.jsoup:jsoup:1.22.1")
+                implementation("org.jsoup:jsoup:1.22.2")
                 implementation("org.mongodb:bson:5.6.5")
                 implementation("org.mongodb:bson-kotlinx:5.6.5")
                 implementation("com.github.ben-manes.caffeine:caffeine:3.2.3")
@@ -284,6 +295,7 @@ configurations.configureEach {
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
+    options.release.set(21)
 }
 
 tasks.withType<Jar>().configureEach {
@@ -319,6 +331,7 @@ val hotRunBaseJvmArgs = listOf(
 )
 
 tasks.withType<JavaExec>().configureEach {
+    javaLauncher.set(desktopJavaLauncher)
     workingDir = runDir
     doFirst {
         runDir.mkdirs()
