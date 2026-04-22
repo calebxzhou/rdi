@@ -18,14 +18,25 @@ public class mProtocol {
     @Shadow
     private int field_149599_c;
 
-    @Inject(method = "<init>(ILjava/lang/String;ILnet/minecraft/network/EnumConnectionState;)V", at = @At("TAIL"))
-    private void RDI$InjectHostPort(int protocolVersion, String hostName, int port, EnumConnectionState intention, CallbackInfo ci) {
+    @Inject(
+        method = "<init>(ILjava/lang/String;ILnet/minecraft/network/EnumConnectionState;)V",
+        at = @At("TAIL"))
+    private void RDI$InjectHostPort(
+        int p_i45266_1_,
+        String p_i45266_2_,
+        int p_i45266_3_,
+        EnumConnectionState p_i45266_4_,
+        CallbackInfo ci) {
         this.field_149599_c = RDI.HOST_PORT;
     }
 
     @Redirect(
         method = "writePacketData",
-        at = @At(value = "INVOKE", target = "Lnet/minecraft/network/PacketBuffer;writeShort(I)Lio/netty/buffer/ByteBuf;"))
+        at =
+        @At(
+            value = "INVOKE",
+            target =
+                "Lnet/minecraft/network/PacketBuffer;writeShort(I)Lio/netty/buffer/ByteBuf;"))
     private ByteBuf RDI$WriteCorrectPort(PacketBuffer buffer, int value) {
         return buffer.writeShort(RDI.HOST_PORT);
     }

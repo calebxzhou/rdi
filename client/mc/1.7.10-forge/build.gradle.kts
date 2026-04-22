@@ -1,6 +1,8 @@
 import groovy.lang.Closure
 import com.gtnewhorizons.retrofuturagradle.minecraft.RunMinecraftTask
 import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.internal.classpath.Instrumented.systemProperty
+import kotlin.io.encoding.Base64
 
 plugins {
     id("com.gtnewhorizons.gtnhconvention")
@@ -22,10 +24,8 @@ sourceSets.named("main") {
 }
 
 tasks.named<RunMinecraftTask>("runClient25") {
-    systemProperty("rdi.ihq.url", "http://127.0.0.1:65231")
-    systemProperty("rdi.game.ip", "127.0.0.1:65230")
-    systemProperty("rdi.host.name", "测试测试12123主机")
-    systemProperty("rdi.host.port", "25565")
+    val playArg = Base64.encode("http://127.0.0.1:65231\n127.0.0.1:65230\n测试测试12123大世界\n25565\n68b314bb-adaf-52dd-ab96-b5ed00000000\n哇塞的哇塞的".encodeToByteArray())
+    systemProperty("rdi.play", playArg)
     systemProperty("mixin.hotSwap", "true")
 
     extraArgs.addAll(
