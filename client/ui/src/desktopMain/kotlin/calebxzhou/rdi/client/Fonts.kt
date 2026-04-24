@@ -8,11 +8,9 @@ private val fontDir = RDIClient.DIR.resolve("run").resolve("fonts").takeIf { it.
     ?: RDIClient.DIR.resolve("fonts")
 
 private val uiFont = fontDir.resolve("1oppo.ttf")
-private val artFont = fontDir.resolve("smiley-sans.otf")
 private val codeFont = fontDir.resolve("jetbrainsmono.ttf")
 private val iconFont = fontDir.resolve("symbolsnerdfont.ttf")
 
 actual val UIFontFamily: FontFamily = FontFamily(listOf(uiFont, iconFont).map { Font(it) })
-actual val ArtFontFamily: FontFamily = FontFamily(listOf(artFont, iconFont).map { Font(it) })
 actual val CodeFontFamily: FontFamily = FontFamily(listOf(codeFont, uiFont, iconFont).map { Font(it) })
 actual val IconFontFamily: FontFamily = FontFamily(listOf(iconFont).map { Font(it) })

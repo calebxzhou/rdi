@@ -325,6 +325,51 @@ object ModrinthService {
         return projects
     }
 
+    suspend fun searchProjects(
+        query: String? = null,
+        facets: List<List<String>> = emptyList(),
+        index: ModrinthSearchIndex = ModrinthSearchIndex.RELEVANCE,
+        offset: Int = 0,
+        limit: Int = 10
+    ): ModrinthSearchResponse {
+        require(offset >= 0) { "offset不能小于0" }
+        require(limit in 1..100) { "limit必须在1..100之间" }
+
+        val params = buildMap<String, Any> {
+            query?.trim()?.ifBlank { null }?.let { put("query", it) }
+            if (facets.isNotEmpty()) {
+                put("facets", Json.encodeToString(facets))
+            }
+            put("index", index.apiValue)
+            put("offset", offset)
+            put("limit", limit)
+        }
+
+        return mrreq(
+            path = "search",
+            params = params
+        ).body()
+    }
+
+    suspend fun getProjectVersions(
+        projectIdOrSlug: String,
+        gameVersions: List<String> = emptyList(),
+        loaders: List<String> = emptyList()
+    ): List<ModrinthVersionInfo> {
+        val params = buildMap<String, Any> {
+            if (gameVersions.isNotEmpty()) {
+                put("game_versions", Json.encodeToString(gameVersions))
+            }
+            if (loaders.isNotEmpty()) {
+                put("loaders", Json.encodeToString(loaders))
+            }
+        }
+        return mrreq(
+            path = "project/${projectIdOrSlug.trim()}/version",
+            params = params.ifEmpty { null }
+        ).body()
+    }
+
     suspend fun List<File>.mapModrinthVersions(): Map<String, ModrinthVersionInfo> {
         val hashes = map { it.sha1 }
         val response = mrreq(

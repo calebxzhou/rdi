@@ -445,44 +445,57 @@ object HostService {
     }
 
 
-    private val Host.containerEnv
-        get() = { mcv: McVersion, loaderVersion: ModLoader.Version ->
-            val serverArg = when (mcv) {
-                McVersion.V182,
-                McVersion.V192,
-                McVersion.V201,
-                McVersion.V211 -> {
-                    loaderVersion.serverArgsPath(true)
-                }
+    private fun Host.containerEnv(
+        mcv: McVersion,
+        loaderVersion: ModLoader.Version,
+        lwjgl3ifyRuntime: Lwjgl3ifyServerSupport.PreparedRuntime?
+    ): MutableList<String> {
+        val serverArgs = when (mcv) {
+            McVersion.V182,
+            McVersion.V192,
+            McVersion.V201,
+            McVersion.V211 -> listOf(loaderVersion.serverArgsPath(true))
 
-                McVersion.V165 -> {
-                    McVersion.V165.plusJvmArgs.joinToString(" ")+" -jar ${loaderVersion.serverJarName}"
-                }
-                McVersion.V122 -> {
-                    McVersion.V122.plusJvmArgs.joinToString(" ")+" -jar ${loaderVersion.serverJarName}"
-                }
-                McVersion.V071 -> {
-                    McVersion.V071.plusJvmArgs.joinToString(" ")+" -jar ${loaderVersion.serverJarName}"
-                }
-            }
-
-            mutableListOf(
-                "HOST_ID=${_id.str}",
-                "GAME_PORT=${port}",
-                "ALL_OP=${if (allowCheats) "true" else "false"}",
-                "START_PARAMS=-Xmx8G $serverArg --nogui"
-            ).apply {
-                gameRules.forEach { id, value ->
-                    this += "GAME_RULE_${id}=${value}"
+            McVersion.V165 -> McVersion.V165.plusJvmArgs + listOf("-jar", loaderVersion.serverJarName)
+            McVersion.V122 -> McVersion.V122.plusJvmArgs + listOf("-jar", loaderVersion.serverJarName)
+            McVersion.V071 -> buildList {
+                if (lwjgl3ifyRuntime != null) {
+                    addAll(lwjgl3ifyRuntime.launchArgs)
+                } else {
+                    addAll(McVersion.V071.plusJvmArgs)
+                    add("-jar")
+                    add(loaderVersion.legacyForgeUniversalJarName)
                 }
             }
         }
+        val noguiArg = if (mcv == McVersion.V071) "nogui" else "--nogui"
+        return mutableListOf(
+            "HOST_ID=${_id.str}",
+            "GAME_PORT=${port}",
+            "ALL_OP=${if (allowCheats) "true" else "false"}",
+            "START_PARAMS=${(listOf("-Xmx8G") + serverArgs + noguiArg).joinToString(" ")}"
+        ).apply {
+            gameRules.forEach { id, value ->
+                this += "GAME_RULE_${id}=${value}"
+            }
+        }
+    }
 
 
     private data class OverlaySources(
         val libsDir: File,
         val versionDir: File
     )
+
+    private val ModLoader.Version.legacyForgeUniversalJarName: String
+        get() {
+            val artifactVersion = dirName
+                .removePrefix("${McVersion.V071.mcVer}-Forge")
+                .takeIf { it != dirName && it.isNotBlank() }
+                ?.let { "${McVersion.V071.mcVer}-$it" }
+                ?: id
+            return "forge-$artifactVersion-universal.jar"
+        }
 
     private fun Host.writeServerProperties() {
         dir.resolve("allowed_symlinks.txt").writeText("[regex].*")
@@ -1171,7 +1184,7 @@ object HostService {
         )
     }
 
-    private fun Host.makeContainer(
+    private suspend fun Host.makeContainer(
         worldId: ObjectId?,
         modpack: Modpack,
         version: Modpack.Version
@@ -1181,7 +1194,21 @@ object HostService {
 
         val sharedLibsDir = modpack.libsDir.canonicalFile.also { it.mkdirs() }
         val loaderVer = modpack.mcVer.loaderVersions[modpack.modloader] ?: throw RequestError("找不到对应版本的运行库")
+        val lwjgl3ifyRuntime = if (Lwjgl3ifyServerSupport.shouldEnable(modpack)) {
+            Lwjgl3ifyServerSupport.prepare(modpack)
+        } else {
+            null
+        }
         val rdiCore = "rdi-5-mc-server-${modpack.mcVer.mcVer}-${modpack.modloader}.jar"
+        val sharedRdiCore = sharedLibsDir.resolve("mods").resolve(rdiCore)
+        val rdiCoreSource = sharedRdiCore.takeIf { it.exists() }
+            ?: lwjgl3ifyRuntime?.modsDir?.resolve(rdiCore)?.takeIf { it.exists() }
+            ?: if (lwjgl3ifyRuntime != null) {
+                throw RequestError("GTNH服务端运行库缺少RDI核心Mod: ${lwjgl3ifyRuntime.modsDir.resolve(rdiCore).absolutePath}")
+            } else {
+                sharedRdiCore
+            }
+        val librariesSource = lwjgl3ifyRuntime?.librariesDir ?: sharedLibsDir.resolve("libraries")
         val mounts = mutableListOf(
             Mount()
                 .withType(MountType.BIND)
@@ -1189,11 +1216,11 @@ object HostService {
                 .withTarget("/opt/server"),
             Mount()
                 .withType(MountType.BIND)
-                .withSource(sharedLibsDir.resolve("libraries").absolutePath)
+                .withSource(librariesSource.absolutePath)
                 .withTarget("/opt/server/libraries"),
             Mount()
                 .withType(MountType.BIND)
-                .withSource(sharedLibsDir.resolve("mods").resolve(rdiCore).absolutePath)
+                .withSource(rdiCoreSource.absolutePath)
                 .withTarget("/opt/server/mods/${rdiCore}"),
         ).apply {
             //装入mod
@@ -1221,16 +1248,51 @@ object HostService {
                         .withSource(source.absolutePath)
                         .withTarget("/opt/server/mods/${mod.fileName}")
                 }
+            // 注释掉GTNH缺失support mod时的自动补装逻辑，改为仅使用整合包自身与显式extra mods。
+            // val mountedSupportSlugs = mutableSetOf<String>()
+            // extractedModsDir.listFiles()
+            //     ?.asSequence()
+            //     ?.mapNotNull(Lwjgl3ifyServerSupport::supportSlug)
+            //     ?.forEach(mountedSupportSlugs::add)
+            // lwjgl3ifyRuntime?.supportMods?.forEach { supportJar ->
+            //     val supportSlug = Lwjgl3ifyServerSupport.supportSlug(supportJar) ?: supportJar.nameWithoutExtension.lowercase()
+            //     if (supportSlug !in mountedSupportSlugs) {
+            //         this += Mount()
+            //             .withType(MountType.BIND)
+            //             .withSource(supportJar.absolutePath)
+            //             .withTarget("/opt/server/mods/${supportJar.name}")
+            //     }
+            // }
             //1.16.5以下装入核心
             if (listOf(McVersion.V165,McVersion.V122 ,McVersion.V071).any{it == modpack.mcVer}) {
+                val loaderJar = lwjgl3ifyRuntime?.forgeUniversalJar
+                    ?: sharedLibsDir.resolve(
+                        if (modpack.mcVer == McVersion.V071 && modpack.modloader == ModLoader.forge) {
+                            loaderVer.legacyForgeUniversalJarName
+                        } else {
+                            loaderVer.serverJarName
+                        }
+                    )
+                val serverJar = lwjgl3ifyRuntime?.minecraftServerJar
+                    ?: sharedLibsDir.resolve(modpack.mcVer.serverJarName)
                 this += Mount()
                     .withType(MountType.BIND)
-                    .withSource(sharedLibsDir.resolve(loaderVer.serverJarName).absolutePath)
-                    .withTarget("/opt/server/${loaderVer.serverJarName}")
+                    .withSource(loaderJar.absolutePath)
+                    .withTarget("/opt/server/${loaderJar.name}")
                 this += Mount()
                     .withType(MountType.BIND)
-                    .withSource(sharedLibsDir.resolve(modpack.mcVer.serverJarName).absolutePath)
-                    .withTarget("/opt/server/${modpack.mcVer.serverJarName}")
+                    .withSource(serverJar.absolutePath)
+                    .withTarget("/opt/server/${serverJar.name}")
+            }
+            lwjgl3ifyRuntime?.let { runtime ->
+                this += Mount()
+                    .withType(MountType.BIND)
+                    .withSource(runtime.launcherJar.absolutePath)
+                    .withTarget("/opt/server/${runtime.launcherJar.name}")
+                this += Mount()
+                    .withType(MountType.BIND)
+                    .withSource(runtime.java9ArgsFile.absolutePath)
+                    .withTarget("/opt/server/${runtime.java9ArgsFile.name}")
             }
 
             if (worldId != null) {
@@ -1247,14 +1309,14 @@ object HostService {
                     .withTmpfsOptions(TmpfsOptions().withSizeBytes(512 * 1024 * 1024))
             }
         }
-        val image = "rdi:j${modpack.mcVer.jreSupport}"
+        val image = if (lwjgl3ifyRuntime != null) "rdi:j25" else "rdi:j${modpack.mcVer.jreSupport}"
         modpack.mcVer.loaderVersions[modpack.modloader]?.let { modLoaderVersion ->
             DockerService.createContainer(
                 port,
                 this._id.str,
                 mounts,
                 image,
-                containerEnv(modpack.mcVer, modLoaderVersion)
+                containerEnv(modpack.mcVer, modLoaderVersion, lwjgl3ifyRuntime)
             )
         } ?: throw RequestError("不支持的mod加载器")
     }

@@ -1,27 +1,16 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.Button
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.SnackbarDuration
-import androidx.compose.material.SnackbarHostState
-import androidx.compose.material.Tab
-import androidx.compose.material.TabRow
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.millisToHumanDateTime
@@ -29,30 +18,21 @@ import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
-import calebxzhou.rdi.client.service.ClientTaskManager
-import calebxzhou.rdi.client.service.ModpackSourceIntro
-import calebxzhou.rdi.client.service.ModpackService
+import calebxzhou.rdi.client.service.*
 import calebxzhou.rdi.client.service.ModpackService.modpackInstallTaskKey
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
-import calebxzhou.rdi.client.service.fetchModpackSourceIntro
-import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.ui.*
-import calebxzhou.rdi.client.ui.comp.HeadButton
-import calebxzhou.rdi.client.ui.comp.HttpImage
-import calebxzhou.rdi.client.ui.comp.ModGrid
-import calebxzhou.rdi.client.ui.comp.ModpackCategoryChips
-import calebxzhou.rdi.client.ui.comp.ModpackCategorySelector
-import calebxzhou.rdi.client.ui.comp.WebPagePane
+import calebxzhou.rdi.client.ui.comp.*
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.common.service.latest
 import calebxzhou.rdi.common.service.validate
-import com.mikepenz.markdown.m3.Markdown
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.text.isNotBlank
 
 /**
  * calebxzhou @ 2026-01-17 20:44
@@ -86,10 +66,6 @@ fun ModpackInfoScreen(
     var editSourceUrl by remember { mutableStateOf("") }
     var editCategories by remember { mutableStateOf<List<Modpack.Category>>(emptyList()) }
     var selectedTab by remember { mutableStateOf(0) }
-    var sourceIntro by remember { mutableStateOf<ModpackSourceIntro?>(null) }
-    var sourceIntroLoading by remember { mutableStateOf(false) }
-    var sourceIntroError by remember { mutableStateOf<String?>(null) }
-    var loadedSourceUrl by remember { mutableStateOf<String?>(null) }
 
     fun reload() {
         loading = true
@@ -138,10 +114,6 @@ fun ModpackInfoScreen(
     }
 
     LaunchedEffect(modpackId) {
-        sourceIntro = null
-        sourceIntroLoading = false
-        sourceIntroError = null
-        loadedSourceUrl = null
         reload()
     }
     LaunchedEffect(okMessage) {
@@ -152,26 +124,6 @@ fun ModpackInfoScreen(
     }
     val pack = modpack
     val isAuthor = pack?.let {  it.authorId == loggedAccount._id || loggedAccount.isDav } ?: false
-    LaunchedEffect(selectedTab, pack?.sourceUrl) {
-        if (selectedTab != 1) return@LaunchedEffect
-        val sourceUrl = pack?.sourceUrl?.trim().orEmpty()
-        if (sourceUrl.isBlank()) {
-            sourceIntro = null
-            sourceIntroLoading = false
-            sourceIntroError = null
-            loadedSourceUrl = null
-            return@LaunchedEffect
-        }
-        if (loadedSourceUrl == sourceUrl || sourceIntroLoading) return@LaunchedEffect
-        sourceIntro = null
-        sourceIntroLoading = true
-        sourceIntroError = null
-        loadedSourceUrl = sourceUrl
-        fetchModpackSourceIntro(sourceUrl)
-            .onSuccess { sourceIntro = it }
-            .onFailure { it.printStackTrace(); sourceIntroError = it.message ?: "抓取来源简介失败" }
-        sourceIntroLoading = false
-    }
     LaunchedEffect(showEditDialog, pack) {
         if (!showEditDialog) return@LaunchedEffect
         pack?.let {
@@ -271,10 +223,7 @@ fun ModpackInfoScreen(
                     }
                     1 -> {
                         ModpackIntroTabContent(
-                            pack = pack,
-                            sourceIntro = sourceIntro,
-                            sourceIntroLoading = sourceIntroLoading,
-                            sourceIntroError = sourceIntroError
+                            pack = pack
                         )
                     }
                     else -> {
@@ -546,10 +495,7 @@ fun ModpackInfoScreen(
 
 @Composable
 private fun ModpackIntroTabContent(
-    pack: Modpack.DetailVo,
-    sourceIntro: ModpackSourceIntro?,
-    sourceIntroLoading: Boolean,
-    sourceIntroError: String?
+    pack: Modpack.DetailVo
 ) {
     val sourceUrl = pack.sourceUrl?.trim()?.takeIf(String::isNotBlank)
     if (sourceUrl != null) {
@@ -562,12 +508,7 @@ private fun ModpackIntroTabContent(
     }
 
     val scrollState = rememberScrollState()
-    val displaySummary = sourceIntro?.summary?.takeIf(String::isNotBlank) ?: pack.info?.takeIf(String::isNotBlank)
-    val displayBody = sourceIntro?.bodyMarkdown
-        ?.takeIf(String::isNotBlank)
-        ?.takeUnless { it == displaySummary }
-    val galleryUrls = sourceIntro?.galleryUrls.orEmpty()
-    val hasRenderableContent = !displaySummary.isNullOrBlank() || !displayBody.isNullOrBlank() || galleryUrls.isNotEmpty()
+    val displaySummary = pack.info?.takeIf(String::isNotBlank)
 
     Column(
         modifier = Modifier
@@ -578,35 +519,10 @@ private fun ModpackIntroTabContent(
         if (pack.categories.isNotEmpty()) {
             ModpackCategoryChips(categories = pack.categories)
         }
-        if (sourceIntroLoading) {
-            Text("正在从来源站抓取简介...")
-        }
-        sourceIntro?.let {
-            Text("来源站: ${it.sourceName}", color = Color.Gray)
-        }
-        sourceIntroError?.let {
-            ErrorText("来源简介抓取失败: $it")
-        }
         displaySummary?.let {
             Text(it)
         }
-        displayBody?.let {
-            Markdown(
-                content = it,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-        galleryUrls.forEach { imageUrl ->
-            HttpImage(
-                imgUrl = imageUrl,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(220.dp),
-                contentDescription = pack.name,
-                contentScale = ContentScale.Crop
-            )
-        }
-        if (!sourceIntroLoading && !hasRenderableContent) {
+        if (displaySummary == null) {
             Text("无")
         }
     }

@@ -1,5 +1,7 @@
 package calebxzhou.rdi.common.model
 
+import calebxzhou.rdi.common.DEBUG
+
 //https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json
 enum class McVersion(
     val mcVer: String,
@@ -98,7 +100,7 @@ enum class McVersion(
     ),
     V071(
         "1.7.10",
-        "assets/icons/acacia_log.webp", 25,25,
+        "assets/icons/acacia_log.webp", 8,8,
         //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -108,7 +110,7 @@ enum class McVersion(
                 "fccafccf8ad4ce6d9f008e786b48ff53172bf9de"
             )
         )
-        ,enabled = false
+        ,enabled = true
     ),
 
 

@@ -40,6 +40,7 @@ use pwsh instead of powershell
 - no need to add spaces between chinese characters and numbers,letters. e.g. Mod数量8个 is ok, Mod 数量 8 个 is not ok
 - when using kotlin string template feature, if there's variable called abc next to chinese e.g. "测试$abc测试测试", this situation entire abc测试测试 will be parsed as a variable making compile fail, we should make abc bracketed "测试${abc}测试测试"
 - do not use file.deleteRecursively() function, use file.deleteRecursivelyNoSymlink() instead (extension from calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink), because it will delete the symlink target on windows
+- for kotlin code, if a function is possible to fail e.g. disk io/network io,use Result<> as return type,the invoker should use runCatching-getOrElse/getOrThrow, reduce use getOrNull, explictly log the exception, or throw it by situation
 ## Testing Guidelines
 - Frameworks: Kotlin test + JUnit Platform.
 - Test file naming: `*Test.kt` (examples: `HostTest.kt`, `ModpackTest.kt`).

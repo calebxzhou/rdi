@@ -8,6 +8,5 @@ import androidx.compose.ui.text.font.FontFamily
  * Android: loaded from assets/bundled fonts
  */
 expect val UIFontFamily: FontFamily
-expect val ArtFontFamily: FontFamily
 expect val CodeFontFamily: FontFamily
 expect val IconFontFamily: FontFamily

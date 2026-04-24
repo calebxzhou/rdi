@@ -121,43 +121,45 @@ class ModpackTester(
                     clientOnlyMarkedNames = autoRenamedFiles
                 )
                 testWorkDir = workDir
-                val process = GameService.startServerTestProcess(
-                    mcVer = loadedModpack.mcVersion,
-                    loaderVer = loaderVer,
-                    workDir = workDir
-                ) { line ->
-                    uiScope.launch {
-                        appendLog(line)
-                        if (line.contains("Error: could not open")) {
-                            appendLog("${loadedModpack.mcVersion.mcVer}-${loadedModpack.modloader.name}文件不完整，请前往mc资源界面重新下载")
-                        }
-                        val matched = passRegex.find(line)
-                        if (matched != null) {
-                            terminateProcessWithDelay(1000L)
-                            val latestMods = getMods()
-                            val normalizedMods = latestMods.map { mod ->
-                                if (mod.side == Mod.Side.UNKNOWN) {
-                                    mod.toUiMod().withSide(Mod.Side.BOTH).toMod()
-                                } else mod
+                val process = withContext(Dispatchers.IO) {
+                    GameService.startServerTestProcess(
+                        mcVer = loadedModpack.mcVersion,
+                        loaderVer = loaderVer,
+                        workDir = workDir
+                    ) { line ->
+                        uiScope.launch {
+                            appendLog(line)
+                            if (line.contains("Error: could not open")) {
+                                appendLog("${loadedModpack.mcVersion.mcVer}-${loadedModpack.modloader.name}文件不完整，请前往mc资源界面重新下载")
                             }
-                            val changedUnknown = latestMods.count { it.side == Mod.Side.UNKNOWN }
-                            if (changedUnknown > 0) {
-                                setMods(normalizedMods)
-                                appendLog("[RDI] 测试通过，已将 $changedUnknown 个未识别运行侧Mod标记为BOTH")
-                            }
-                            _passSeconds.value = matched.groupValues.getOrNull(1)
-                            _status.value = TestStatus.PASSED
-                            _testedModsSignature.value = currentModsSignature(
-                                if (changedUnknown > 0) normalizedMods else latestMods
-                            )
-                            stop(uiScope, markStopped = false)
-                        } else if (
-                            crashTriggerKeywords.any { keyword -> line.contains(keyword, ignoreCase = true) }
-                        ) {
-                            if (_status.value != TestStatus.PASSED) {
-                                crashTriggered = true
-                                _status.value = TestStatus.FAILED
+                            val matched = passRegex.find(line)
+                            if (matched != null) {
                                 terminateProcessWithDelay(1000L)
+                                val latestMods = getMods()
+                                val normalizedMods = latestMods.map { mod ->
+                                    if (mod.side == Mod.Side.UNKNOWN) {
+                                        mod.toUiMod().withSide(Mod.Side.BOTH).toMod()
+                                    } else mod
+                                }
+                                val changedUnknown = latestMods.count { it.side == Mod.Side.UNKNOWN }
+                                if (changedUnknown > 0) {
+                                    setMods(normalizedMods)
+                                    appendLog("[RDI] 测试通过，已将 $changedUnknown 个未识别运行侧Mod标记为BOTH")
+                                }
+                                _passSeconds.value = matched.groupValues.getOrNull(1)
+                                _status.value = TestStatus.PASSED
+                                _testedModsSignature.value = currentModsSignature(
+                                    if (changedUnknown > 0) normalizedMods else latestMods
+                                )
+                                stop(uiScope, markStopped = false)
+                            } else if (
+                                crashTriggerKeywords.any { keyword -> line.contains(keyword, ignoreCase = true) }
+                            ) {
+                                if (_status.value != TestStatus.PASSED) {
+                                    crashTriggered = true
+                                    _status.value = TestStatus.FAILED
+                                    terminateProcessWithDelay(1000L)
+                                }
                             }
                         }
                     }
@@ -302,23 +304,25 @@ class ClientModpackTester(
                     mods = getMods()
                 )
                 testVersionDir = versionDir
-                val process = GameService.startClientTestProcess(
-                    mcVer = loadedModpack.mcVersion,
-                    versionId = versionDir.name,
-                    versionDir = versionDir
-                ) { line ->
-                    uiScope.launch {
-                        appendLog(line)
-                        if (line.contains(CLIENT_TEST_SUCCESS_MARKER)) {
-                            markClientTestPassed(getMods(), appendLog)
-                            terminateProcessWithDelay(500L)
-                            return@launch
-                        }
-                        if (CLIENT_CRASH_TRIGGER_KEYWORDS.any { keyword -> line.contains(keyword, ignoreCase = true) }) {
-                            if (_status.value == TestStatus.RUNNING) {
-                                crashTriggered = true
-                                _status.value = TestStatus.FAILED
-                                terminateProcessWithDelay(1000L)
+                val process = withContext(Dispatchers.IO) {
+                    GameService.startClientTestProcess(
+                        mcVer = loadedModpack.mcVersion,
+                        versionId = versionDir.name,
+                        versionDir = versionDir
+                    ) { line ->
+                        uiScope.launch {
+                            appendLog(line)
+                            if (line.contains(CLIENT_TEST_SUCCESS_MARKER)) {
+                                markClientTestPassed(getMods(), appendLog)
+                                terminateProcessWithDelay(500L)
+                                return@launch
+                            }
+                            if (CLIENT_CRASH_TRIGGER_KEYWORDS.any { keyword -> line.contains(keyword, ignoreCase = true) }) {
+                                if (_status.value == TestStatus.RUNNING) {
+                                    crashTriggered = true
+                                    _status.value = TestStatus.FAILED
+                                    terminateProcessWithDelay(1000L)
+                                }
                             }
                         }
                     }
@@ -1132,7 +1136,7 @@ private suspend fun createClientTestVersionDir(
     copyTestPackBaseContent(sourceDir, versionDir)
     val modsDir = versionDir.resolve("mods").apply { mkdirs() }
     stageDownloadedMods(modsDir, mods) { it.side != Mod.Side.SERVER }
-    ModpackService.writeOptions(versionDir)
+    ModpackService.writeOptions(versionDir, loadedModpack.mcVersion)
     //ModpackService.installRdiCore(loadedModpack.mcVersion, loadedModpack.modloader, modsDir)
     try {
         versionDir.resolve("$versionId.json")

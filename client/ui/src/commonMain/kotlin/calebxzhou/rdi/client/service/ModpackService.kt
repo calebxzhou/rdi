@@ -382,7 +382,7 @@ object ModpackService {
         }
 
         val writeOptionsTask = Task2.Leaf("写入配置文件") { ctx ->
-            writeOptions(versionDir)
+            writeOptions(versionDir, mcVersion)
             try {
                 versionDir.resolve(versionDir.name + ".json")
                     .writeText(mcVersion.loaderManifest.copy(id = versionDir.name).json)
@@ -394,16 +394,33 @@ object ModpackService {
         return listOf(prepareVersionDirTask, extractTask, copyModsTask, writeOptionsTask)
     }
 
-    fun writeOptions(versionDir: File) {
+    fun writeOptions(versionDir: File, mcVersion: McVersion) {
         val optionsFile = versionDir.resolve("options.txt")
+        val overrides = linkedMapOf<String, String>().apply {
+            when (mcVersion) {
+                McVersion.V211,
+                McVersion.V201,
+                McVersion.V192,
+                McVersion.V182,
+                McVersion.V165 -> {
+                    put("darkMojangStudiosBackground", "true")
+                    put("lang", "zh_cn")
+                }
+
+                McVersion.V122 -> {
+                    put("lang", "zh_cn")
+                }
+
+                McVersion.V071 -> {
+                    put("lang", "zh_CN")
+                }
+            }
+            put("forceUnicodeFont", "true")
+        }
         optionsFile.writeText(
             mergeMinecraftOptions(
                 original = optionsFile.takeIf(File::exists)?.readText().orEmpty(),
-                overrides = linkedMapOf(
-                    "lang" to "zh_cn",
-                    "darkMojangStudiosBackground" to "true",
-                    "forceUnicodeFont" to "true"
-                )
+                overrides = overrides
             )
         )
     }

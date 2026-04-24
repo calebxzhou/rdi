@@ -41,6 +41,16 @@ object GameService {
     private val hostOs = detectHostOs()
     private val hostOsArchRaw = System.getProperty("os.arch")?.lowercase(Locale.ROOT) ?: ""
     private val hostOsVersionRaw = System.getProperty("os.version") ?: ""
+    private val hostNativeArch = if (
+        hostOsArchRaw.contains("64") ||
+        hostOsArchRaw.contains("amd64") ||
+        hostOsArchRaw.contains("x86_64") ||
+        hostOsArchRaw.contains("aarch64")
+    ) {
+        "64"
+    } else {
+        "32"
+    }
     private val launcherFeatures: Map<String, Boolean> = emptyMap()
     private val locale = Locale.SIMPLIFIED_CHINESE
     private val mirrors = mapOf(
@@ -137,7 +147,7 @@ object GameService {
         )
         loader?.let { tasks += downloadLoaderTask2(version, it) }
         return Task2.Sequence(
-            title = "下载 $version",
+            title = "下载 ${version.mcVer}",
             children = tasks
         )
     }
@@ -238,7 +248,7 @@ object GameService {
     }
 
     private fun MojangLibrary.nativeClassifierKey(): String? {
-        return natives?.get(hostOs.ruleOsName)
+        return natives?.get(hostOs.ruleOsName)?.replace("\${arch}", hostNativeArch)
     }
 
     private fun MojangLibrary.nativeArtifact(): MojangDownloadArtifact? {
@@ -246,7 +256,27 @@ object GameService {
         return downloads.classifiers?.get(key)
     }
 
-    private fun MojangLibrary.mainArtifact(): MojangDownloadArtifact? = downloads.artifact
+    internal fun MojangLibrary.mainArtifact(): MojangDownloadArtifact? {
+        downloads.artifact?.let { return it }
+        if (!downloads.classifiers.isNullOrEmpty() || !natives.isNullOrEmpty()) {
+            return null
+        }
+        val descriptor = name.takeIf { it.isNotBlank() } ?: return null
+        val path = descriptorToLibraryPath(descriptor)
+        val baseUrl = url?.trim().orEmpty().ifBlank {
+            when {
+                path.startsWith("net/minecraftforge/") -> "https://maven.minecraftforge.net"
+                path.startsWith("cpw/mods/") -> "https://maven.minecraftforge.net"
+                else -> "https://libraries.minecraft.net"
+            }
+        }
+        return MojangDownloadArtifact(
+            sha1 = checksums.firstOrNull().orEmpty(),
+            size = 0L,
+            url = "${baseUrl.trimEnd('/')}/${path.trimStart('/')}",
+            path = path
+        )
+    }
 
     private val List<MojangLibrary>.filterNativeOnly
         get() = this.filter { it.nativeArtifact() != null }
@@ -256,14 +286,18 @@ object GameService {
             ?: error("库${name}缺少artifact路径")
 
 
-    private suspend fun downloadLibraryArtifact(
+    internal suspend fun downloadLibraryArtifact(
         library: MojangLibrary,
         installer: File? = null,
         onProgress: (DownloadProgress) -> Unit
     ): Result<File> {
         val artifact = library.mainArtifact()
             ?: return Result.failure(IllegalStateException("运行库${library.name}缺少artifact"))
-        val relativePath = artifact.path ?: return Result.failure(IllegalStateException("缺少库路径"))
+        val relativePath = artifact.path?.takeIf { it.isNotBlank() }
+            ?: runCatching { descriptorToLibraryPath(library.name) }
+                .getOrElse {
+                    return Result.failure(IllegalStateException("运行库${library.name}缺少库路径"))
+                }
         val target = File(libsDir, relativePath)
         return downloadLibraryArtifact(artifact, target, installer, onProgress)
     }
@@ -276,7 +310,7 @@ object GameService {
     ): Result<File> {
         if (target.exists()) {
             val existingSha = runCatching { target.sha1 }.getOrNull()
-            if (existingSha != null && existingSha.equals(artifact.sha1, true)) {
+            if (artifact.sha1.isBlank() || existingSha != null && existingSha.equals(artifact.sha1, true)) {
                 return Result.success(target)
             }
         }
@@ -287,7 +321,7 @@ object GameService {
             val extracted = tryExtractLibraryFromInstaller(installer, artifact, target)
             if (extracted) {
                 val extractedSha = runCatching { target.sha1 }.getOrNull()
-                if (extractedSha != null && extractedSha.equals(artifact.sha1, true)) {
+                if (artifact.sha1.isBlank() || extractedSha != null && extractedSha.equals(artifact.sha1, true)) {
                     onProgress(DownloadProgress(target.length(), target.length(), 0.0))
                     return Result.success(target)
                 }
@@ -393,7 +427,7 @@ object GameService {
                 attempt++
                 continue
             }
-            if (downloadedSha.equals(artifact.sha1, true)) {
+            if (artifact.sha1.isBlank() || downloadedSha.equals(artifact.sha1, true)) {
                 return Result.success(target)
             }
 
@@ -608,6 +642,9 @@ object GameService {
         }
     }
 
+    private fun readInstallerEntryOrNull(installer: File, entryName: String): String? =
+        runCatching { readInstallerEntry(installer, entryName) }.getOrNull()
+
     private fun extractLibraryDescriptor(raw: String?): String? {
         raw ?: return null
         val trimmed = raw.trim()
@@ -633,7 +670,7 @@ object GameService {
     }
 
     private fun libraryKey(library: MojangLibrary): String {
-        val artifactPath = library.downloads.artifact?.path.orEmpty()
+        val artifactPath = library.mainArtifact()?.path.orEmpty()
         val classifierKey = library.downloads.classifiers?.keys?.sorted()?.joinToString(";").orEmpty()
         return "${library.name}|$artifactPath|$classifierKey"
     }
@@ -701,12 +738,27 @@ object GameService {
         val serverJarPath: String? = null,
         val libraries: List<MojangLibrary> = emptyList(),
         val data: Map<String, LoaderInstallData> = emptyMap(),
+        val versionInfo: MojangVersionManifest? = null,
+        val install: LoaderLegacyInstall? = null,
+        val json: String? = null,
     )
 
     @Serializable
     data class LoaderInstallData(
         val client: String? = null,
         val server: String? = null,
+    )
+
+    @Serializable
+    data class LoaderLegacyInstall(
+        val profileName: String? = null,
+        val target: String? = null,
+        val path: String? = null,
+        val version: String? = null,
+        val filePath: String? = null,
+        val minecraft: String? = null,
+        val mirrorList: String? = null,
+        val logo: String? = null,
     )
 
     private fun shouldDownloadAsset(path: String): Boolean {
@@ -820,7 +872,9 @@ object GameService {
         var installBooter: File? = null,
         var loaderVersionManifest: MojangVersionManifest = version.metadata,
         var installProfile: LoaderInstallProfile? = null,
-        var loaderLibraries: List<MojangLibrary> = emptyList()
+        var loaderLibraries: List<MojangLibrary> = emptyList(),
+        var clientInstallerAlreadyHandled: Boolean = false,
+        var serverInstallerAlreadyHandled: Boolean = false,
     )
 
     private suspend fun prepareInstallerTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
@@ -858,13 +912,11 @@ object GameService {
 
     private fun parseInstallerTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
         val installer = holder.installer ?: error("安装器未准备")
-        val versionJsonText = readInstallerEntry(installer, "version.json")
-        val loaderVersionManifest = serdesJson.decodeFromString<MojangVersionManifest>(versionJsonText)
-        val loaderVersionDir = versionListDir.resolve(loaderVersionManifest.id).apply { mkdirs() }
-        File(loaderVersionDir, "${loaderVersionManifest.id}.json").writeText(loaderVersionManifest.json)
-
         val installProfileText = readInstallerEntry(installer, "install_profile.json")
         val installProfile = serdesJson.decodeFromString<LoaderInstallProfile>(installProfileText)
+        val loaderVersionManifest = resolveLoaderVersionManifest(holder, installer, installProfile)
+        val loaderVersionDir = versionListDir.resolve(loaderVersionManifest.id).apply { mkdirs() }
+        File(loaderVersionDir, "${loaderVersionManifest.id}.json").writeText(loaderVersionManifest.json)
         val loaderLibraries = (installProfile.libraries + loaderVersionManifest.libraries)
             .distinctBy { libraryKey(it) }
 
@@ -873,6 +925,104 @@ object GameService {
         holder.loaderLibraries = loaderLibraries
 
         ctx.emit(Task2Progress("解析完成", 1f))
+    }
+
+    private fun resolveLoaderVersionManifest(
+        holder: LoaderInstallHolder,
+        installer: File,
+        installProfile: LoaderInstallProfile
+    ): MojangVersionManifest {
+        val modernManifest = readInstallerEntryOrNull(installer, "version.json")
+            ?.let { serdesJson.decodeFromString<MojangVersionManifest>(it) }
+        if (modernManifest != null) {
+            holder.clientInstallerAlreadyHandled = false
+            holder.serverInstallerAlreadyHandled = false
+            return modernManifest.normalizeLoaderManifest(holder, installProfile)
+        }
+
+        installProfile.versionInfo?.let { legacyManifest ->
+            extractLegacyForgeUniversalJarIfNeeded(installer, installProfile)
+            holder.clientInstallerAlreadyHandled = true
+            holder.serverInstallerAlreadyHandled = true
+            return legacyManifest.normalizeLoaderManifest(holder, installProfile)
+        }
+
+        val legacyJsonPath = installProfile.json
+            ?.trim()
+            ?.trimStart('/')
+            ?.takeIf { it.isNotEmpty() }
+        if (legacyJsonPath != null) {
+            val legacyManifest = serdesJson.decodeFromString<MojangVersionManifest>(
+                readInstallerEntry(installer, legacyJsonPath)
+            )
+            extractInstallerMavenLibraries(installer)
+            holder.clientInstallerAlreadyHandled = true
+            holder.serverInstallerAlreadyHandled = true
+            return legacyManifest.normalizeLoaderManifest(holder, installProfile)
+        }
+
+        throw IllegalStateException("安装器中既没有version.json，也没有可用的legacy versionInfo/json")
+    }
+
+    private fun MojangVersionManifest.normalizeLoaderManifest(
+        holder: LoaderInstallHolder,
+        installProfile: LoaderInstallProfile
+    ): MojangVersionManifest {
+        val expectedId = installProfile.install?.target
+            ?.takeIf { it.isNotBlank() }
+            ?: holder.version.loaderVersions[holder.loader]?.dirName
+            ?: id
+        return copy(
+            id = expectedId,
+            inheritsFrom = inheritsFrom?.takeIf { it.isNotBlank() } ?: holder.version.mcVer,
+            jar = jar?.takeIf { it.isNotBlank() } ?: holder.version.mcVer
+        )
+    }
+
+    private fun extractLegacyForgeUniversalJarIfNeeded(installer: File, installProfile: LoaderInstallProfile) {
+        val install = installProfile.install ?: return
+        val libraryDescriptor = install.path?.takeIf { it.isNotBlank() } ?: return
+        val entryName = install.filePath?.trimStart('/')?.takeIf { it.isNotBlank() } ?: return
+        val target = File(libsDir, descriptorToLibraryPath(libraryDescriptor))
+        if (target.exists() && target.length() > 0L) return
+        runCatching {
+            ZipFile(installer).use { zip ->
+                val entry = zip.getEntry(entryName)
+                    ?: throw IllegalStateException("安装器中缺少旧版Forge主Jar: $entryName")
+                target.parentFile?.mkdirs()
+                zip.getInputStream(entry).use { input ->
+                    target.outputStream().use { output ->
+                        input.copyTo(output)
+                    }
+                }
+            }
+        }.onFailure { error ->
+            lgr.warn(error) { "提取旧版Forge主Jar失败，将回退为网络下载: $entryName" }
+        }
+    }
+
+    private fun extractInstallerMavenLibraries(installer: File) {
+        runCatching {
+            ZipFile(installer).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val entry = entries.nextElement()
+                    if (entry.isDirectory || !entry.name.startsWith("maven/")) continue
+                    val relativePath = entry.name.removePrefix("maven/")
+                    if (relativePath.isBlank()) continue
+                    val target = File(libsDir, relativePath)
+                    if (target.exists() && target.length() == entry.size) continue
+                    target.parentFile?.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        target.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+                }
+            }
+        }.onFailure { error ->
+            lgr.warn(error) { "提取安装器内置maven运行库失败，将回退为网络下载" }
+        }
     }
 
     private suspend fun downloadLibrariesTask2(
@@ -967,12 +1117,20 @@ object GameService {
             ctx.emit(Task2Progress("Android跳过 (由FCL处理)", 1f))
             return
         }
+        if (holder.clientInstallerAlreadyHandled) {
+            ctx.emit(Task2Progress("旧版Forge安装已完成", 1f))
+            return
+        }
         runInstallerBootstrapperDesktop(holder, ctx.asLegacyTaskContext())
     }
 
     internal fun runServerInstallerBootstrapperTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
         if (!calebxzhou.rdi.client.ui.isDesktop) {
             ctx.emit(Task2Progress("Android跳过 (由FCL处理)", 1f))
+            return
+        }
+        if (holder.serverInstallerAlreadyHandled) {
+            ctx.emit(Task2Progress("旧版Forge服务端安装已完成", 1f))
             return
         }
         runServerInstallerBootstrapperDesktop(holder, ctx.asLegacyTaskContext())
@@ -983,11 +1141,24 @@ object GameService {
         isCancelled = isCancelled
     )
 
+    internal suspend fun downloadArtifact(
+        label: String,
+        artifact: MojangDownloadArtifact,
+        target: File,
+        onProgress: (DownloadProgress) -> Unit
+    ): Result<File> = downloadArtifact(
+        label = label,
+        artifact = artifact,
+        target = target,
+        sourcePlan = buildDownloadSourcePlan(resolveArtifactUrl(artifact)),
+        onProgress = onProgress
+    )
+
     private suspend fun downloadArtifact(
         label: String,
         artifact: MojangDownloadArtifact,
         target: File,
-        sourcePlan: DownloadSourcePlan = buildDownloadSourcePlan(resolveArtifactUrl(artifact)),
+        sourcePlan: DownloadSourcePlan,
         onProgress: (DownloadProgress) -> Unit
     ): Result<File> {
         if (target.exists()) {
@@ -1087,8 +1258,12 @@ object GameService {
         val entries = this.libraries
             .asSequence()
             .filter { lib -> lib.shouldDownloadByArch() }
-            .mapNotNull { lib -> lib.downloads.artifact?.path }
+            .mapNotNull { lib ->
+                lib.mainArtifact()?.path?.takeIf { it.isNotBlank() }
+                    ?: runCatching { descriptorToLibraryPath(lib.name) }.getOrNull()
+            }
             .map { File(libsDir, it).absolutePath }
+            .filter { File(it).exists() }
             .toMutableList()
             .distinct()
             .toList()
@@ -1099,13 +1274,15 @@ object GameService {
         baseLibraries: List<MojangLibrary>,
         overrideLibraries: List<MojangLibrary>
     ): List<String> {
-        val filteredOverrideLibraries = overrideLibraries.filter { it.shouldDownloadByArch() }
-        val overrideGroupArtifacts = filteredOverrideLibraries.mapNotNull(::libraryGroupArtifact).toSet()
+        val archMatchedOverrideLibraries = overrideLibraries.filter { it.shouldDownloadByArch() }
+        val overrideGroupArtifacts = archMatchedOverrideLibraries.mapNotNull(::libraryGroupArtifact).toSet()
         val removedBaseArtifacts = buildSet {
             if ("com.cleanroommc:lwjglxx" in overrideGroupArtifacts) {
                 addAll(cleanroomRemovedBaseArtifacts)
             }
         }
+        val filteredOverrideLibraries = archMatchedOverrideLibraries
+            .filterNot { libraryGroupArtifact(it) in removedBaseArtifacts }
         val filteredBaseLibraries = baseLibraries
             .filter { it.shouldDownloadByArch() }
             .filterNot { libraryGroupArtifact(it) in removedBaseArtifacts }
@@ -1122,8 +1299,12 @@ object GameService {
         }
         val entries = mergedLibraries
             .asSequence()
-            .mapNotNull { lib -> lib.downloads.artifact?.path }
+            .mapNotNull { lib ->
+                lib.mainArtifact()?.path?.takeIf { it.isNotBlank() }
+                    ?: runCatching { descriptorToLibraryPath(lib.name) }.getOrNull()
+            }
             .map { File(libsDir, it).absolutePath }
+            .filter { File(it).exists() }
             .distinct()
             .toList()
         return addClasspathCompatibilityLibraries(entries)

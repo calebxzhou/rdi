@@ -1,5 +1,6 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.model.ServerEntry
@@ -15,21 +16,29 @@ private val ipv4Regex =
     Regex("""^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$""")
 
 
-internal suspend fun refreshNodeSettings() {
+internal suspend fun refreshNodeSettings(usePrimaryServer: Boolean = false): Result<ServerEntry> {
     val ipv4 = runCatching { detectPublicIpv4() }.getOrElse {
         lgr.warn(it) { "无法读取ip信息" }
-        return
+        return Result.failure(it)
+    }
+    val routeLookupServer = if (usePrimaryServer) {
+        if (DEBUG) RServer.DBG else RServer.OFFICIAL_NNG
+    } else {
+        server
     }
     val entry = runCatching {
-        server.makeRequest<ServerEntry>("server-entry", params = mapOf("myIp" to ipv4)).data
+        routeLookupServer.makeRequest<ServerEntry>("server-entry", params = mapOf("myIp" to ipv4)).data
     }.getOrElse {
         lgr.warn(it) { "获取游戏节点失败，继续使用本地回退节点 " }
-        return
-    } ?: return
+        return Result.failure(it)
+    } ?: return Result.failure(IllegalStateException("服务端未返回节点信息"))
     RServer.updateServerEntry(entry)
     val routeState = RServer.routeState.value
     lgr.info { "服务端为当前IP选择节点${routeState.nodeName ?: entry.nodeName} -> ${RServer.currentGameAddr}，backup=${routeState.useBackupNode}" }
+    return Result.success(entry)
 }
+
+internal suspend fun refreshNodeSettingsFromPrimary(): Result<ServerEntry> = refreshNodeSettings(usePrimaryServer = true)
 
 private suspend fun detectPublicIpv4() = withContext(Dispatchers.IO) {
     val ipv4 = httpRequest {

@@ -31,6 +31,7 @@ import kotlin.math.roundToInt
 @Composable
 fun Modpack.BriefVo.ModpackCard(
     modifier: Modifier = Modifier,
+    miniMode: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
     val clickableModifier = if (onClick != null) {
@@ -38,6 +39,58 @@ fun Modpack.BriefVo.ModpackCard(
     } else {
         modifier
     }
+    if (miniMode) {
+        Surface(
+            modifier = clickableModifier
+                .fillMaxWidth()
+                .height(28.dp),
+            color = Color.White,
+            shape = RoundedCornerShape(999.dp),
+            elevation = 1.dp
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                val iconUrl = icon?.takeIf { it.isNotBlank() }
+                Surface(
+                    modifier = Modifier.size(20.dp),
+                    shape = RoundedCornerShape(6.dp),
+                    color = MaterialColor.GRAY_200.color
+                ) {
+                    if (iconUrl != null) {
+                        HttpImage(
+                            imgUrl = iconUrl,
+                            modifier = Modifier.fillMaxSize(),
+                            contentDescription = name,
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Image(
+                            bitmap = DEFAULT_MODPACK_ICON,
+                            contentDescription = "Modpack Icon",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    }
+                }
+                Text(
+                    text = name.ifBlank { "未命名整合包" },
+                    style = MaterialTheme.typography.body2,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialColor.GRAY_900.color,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        }
+        return
+    }
+
     val updatedTimeText = (lastUpdatedTime.takeIf { it > 0L } ?: id.timestamp.toLong() * 1000L).toFriendlyDateTime()
     val briefText = info?.trim()?.takeIf(String::isNotBlank) ?: "暂无简介"
 
@@ -66,7 +119,7 @@ fun Modpack.BriefVo.ModpackCard(
                         contentScale = ContentScale.Crop
                     )
                 } else {
-                    androidx.compose.foundation.Image(
+                    Image(
                         bitmap = DEFAULT_MODPACK_ICON,
                         contentDescription = "Modpack Icon",
                         modifier = Modifier.fillMaxSize(),

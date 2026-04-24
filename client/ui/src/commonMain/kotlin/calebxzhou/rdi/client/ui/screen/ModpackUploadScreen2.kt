@@ -81,7 +81,6 @@ fun ModpackUploadScreen2(
     var progressText by remember { mutableStateOf<String?>(null) }
     var progressFraction by remember { mutableStateOf<Float?>(null) }
     var downloadTaskRunId by remember { mutableStateOf<String?>(null) }
-    var askServerPackAfterLoad by remember { mutableStateOf(false) }
     var clientTester by remember { mutableStateOf<ClientModpackTester?>(null) }
     var serverTester by remember { mutableStateOf<ModpackTester?>(null) }
     var uploadMode by remember { mutableStateOf(UploadMode.CREATE) }
@@ -105,6 +104,11 @@ fun ModpackUploadScreen2(
             serverTester?.isRunning() == false &&
             clientTester?.isRunning() == false &&
             (uploadMode == UploadMode.CREATE || selectedUpdateTarget != null)
+    val canSelectServerPack = editMode &&
+            !loading &&
+            downloadTaskRunId == null &&
+            serverTester?.isRunning() != true &&
+            clientTester?.isRunning() != true
 
     fun resetTestState() {
         clientTestConsoleState.clear()
@@ -176,7 +180,6 @@ fun ModpackUploadScreen2(
     fun ensureUploadRuntimeReady(mcVersion: calebxzhou.rdi.common.model.McVersion): Boolean {
         val requirementMessage = uploadRuntimeRequirementMessageOrNull(mcVersion) ?: return true
         errorText = requirementMessage
-        askServerPackAfterLoad = false
         return false
     }
 
@@ -329,7 +332,6 @@ fun ModpackUploadScreen2(
 
     fun continueAfterSidesReady() {
         scope.launch {
-            askServerPackAfterLoad = false
             loading = true
             progressText = "检查缺失Mod中..."
             progressFraction = null
@@ -352,10 +354,6 @@ fun ModpackUploadScreen2(
                 enterEditMode()
             }
         }
-    }
-
-    fun continueWithoutServerPack() {
-        continueAfterSidesReady()
     }
 
     fun buildUploadPayloadOrNull(): UploadPayload? {
@@ -466,17 +464,11 @@ fun ModpackUploadScreen2(
             uploadMode = UploadMode.CREATE
             selectedUpdateTarget = null
             selectedTab = 0
-            finishLoading()
-            askServerPackAfterLoad = true
+            continueAfterSidesReady()
         }
     }
 
-    fun handleServerPromptCancel() {
-        askServerPackAfterLoad = false
-        handleBack()
-    }
-
-    fun handleServerPromptHasServer() {
+    fun selectServerPack() {
         scope.launch {
             val missingClientMods = runCatching {
                 withContext(Dispatchers.IO) { modsNeedDownload(mods) }
@@ -489,7 +481,7 @@ fun ModpackUploadScreen2(
                 downloadTaskRunId = ClientTaskManager.submit(
                     ModService.downloadModsTask2(missingClientMods)
                 )
-                errorText = "已先开始下载客户端Mod，下载完成后再点“有”选择服务端目录"
+                errorText = "已先开始下载客户端Mod，下载完成后再点标题栏的“选择服务端”"
                 return@launch
             }
             val file = pickLocalDirectory("选择服务端安装目录") ?: return@launch
@@ -582,6 +574,13 @@ fun ModpackUploadScreen2(
                 onBack = ::handleBack
             ) {
                 if (editMode) {
+                    Space8w()
+                    CircleIconButton(
+                        "\uF07C",
+                        if (serverPackName == null) "选择服务端" else "重选服务端",
+                        enabled = canSelectServerPack,
+                        onClick = ::selectServerPack
+                    )
                     serverPackName?.let {
                         Space8w()
                         Text(it)
@@ -838,40 +837,6 @@ fun ModpackUploadScreen2(
             Task2DetailDialog(
                 entry = entry,
                 onClose = {}
-            )
-        }
-
-        if (askServerPackAfterLoad) {
-            AlertDialog(
-                onDismissRequest = {},
-                title = { Text("有服务端吗？") },
-                text = { Text("选择服务端可大幅提高传包成功率") },
-                buttons = {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        TextButton(
-                            onClick = ::handleServerPromptCancel
-                        ) {
-                            Text("取消传包")
-                        }
-                        TextButton(
-                            onClick = {
-                                continueWithoutServerPack()
-                            }
-                        ) {
-                            Text("没有/我不懂")
-                        }
-                        TextButton(
-                            onClick = ::handleServerPromptHasServer
-                        ) {
-                            Text("有")
-                        }
-                    }
-                }
             )
         }
 

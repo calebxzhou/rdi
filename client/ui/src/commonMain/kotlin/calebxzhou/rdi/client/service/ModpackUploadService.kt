@@ -1225,7 +1225,11 @@ private fun resolveFfmpegExecutable(): File {
         ClientDirs.toolsDir.resolve("ffmpeg/ffmpeg.exe"),
         ClientDirs.toolsDir.resolve("ffmpeg/ffmpeg")
     ).firstOrNull { it.exists() && it.isFile }
-        ?: throw ModpackError("客户端缺少组件，请群文件下载11-12更新包，安装后再传包")
+        ?: throw ModpackError("未找到“传包工具包”，请查看群文档整合包上传章节，进行安装")
+}
+
+fun ensureUploadFfmpegReady() {
+    resolveFfmpegExecutable()
 }
 
 private fun transcodeOggWithFfmpeg(ffmpeg: File, inputFile: File, outputFile: File) {

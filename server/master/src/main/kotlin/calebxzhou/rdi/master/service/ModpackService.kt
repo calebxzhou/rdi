@@ -100,7 +100,7 @@ val Modpack.Version.clientPackFile
     get() = clientZstdPack.takeIf(File::exists) ?: clientZip
 
 const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
-val MAX_PACK_SIZE = 384 * 1024 * 1024L
+val MAX_PACK_SIZE = 512 * 1024 * 1024L
 
 private suspend inline fun <reified T> ApplicationCall.receiveUploadPayload(
     jsonFieldName: String,
@@ -1389,7 +1389,7 @@ object ModpackService {
         TarZstArchiveWriter(clientArchive).use { output ->
             val addedDirs = mutableSetOf<String>()
             forEachArchiveEntry(sourceArchive) { entry ->
-                val relative = extractOverridesRelativePath(entry.path) ?: return@forEachArchiveEntry
+                val relative = extractClientPackRelativePath(entry.path) ?: return@forEachArchiveEntry
                 val relativeLower = relative.lowercase()
                 if (disallowedClientPaths.any { relativeLower.startsWith(it) }) {
                     return@forEachArchiveEntry
@@ -1571,6 +1571,16 @@ object ModpackService {
         val relativeSegments = segments.drop(overridesIndex + 1)
         if (relativeSegments.isEmpty()) return null
         return relativeSegments.joinToString("/")
+    }
+
+    private fun extractClientPackRelativePath(entryName: String): String? {
+        extractOverridesRelativePath(entryName)?.let { return it }
+        if (entryName.isBlank()) return null
+        val normalized = entryName.replace('\\', '/').trim('/')
+        if (normalized.isEmpty()) return null
+        return normalized.takeIf {
+            it.equals("gtnh", ignoreCase = true) || it.startsWith("gtnh/", ignoreCase = true)
+        }
     }
 
     private fun isClientOnlyMarkedModPath(relativePath: String): Boolean {

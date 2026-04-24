@@ -1,6 +1,7 @@
 package calebxzhou.rdi.common.service
 
 import calebxzhou.mykotutils.log.Loggers
+import calebxzhou.mykotutils.std.humanSpeed
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.deser
@@ -431,10 +432,10 @@ object ModService {
                 val fileInfo = fileInfoMap[mod.fileId.toInt()]
                     ?: throw IllegalStateException("未找到文件信息: ${mod.slug}")
                 val result = downloadSingleCFMod(mod, fileInfo) { progress ->
-                    ctx.emit(aggregateProgress(mod, progress.fraction.coerceIn(0f, 1f)))
+                    ctx.emit(aggregateProgress(mod, progress))
                 }
                 result.getOrElse { throw it }
-                ctx.emit(aggregateProgress(mod, 1f))
+                ctx.emit(aggregateProgress(mod, DownloadProgress(1, 1, 0.0)))
             }
         }
         return Task2.Sequence(
@@ -453,28 +454,37 @@ object ModService {
         val tasks = modsWithUrls.map { mod ->
             Task2.Leaf("下载 ${mod.slug}") { ctx ->
                 val result = downloadSingleMRMod(mod) { progress ->
-                    ctx.emit(aggregateProgress(mod, progress.fraction.coerceIn(0f, 1f)))
+                    ctx.emit(aggregateProgress(mod, progress))
                 }
                 result.getOrElse { throw it }
-                ctx.emit(aggregateProgress(mod, 1f))
+                ctx.emit(aggregateProgress(mod, DownloadProgress(1, 1, 0.0)))
             }
         }
         return Task2.Group("下载Modrinth Mod", tasks)
     }
 
-    private fun createBatchProgressTracker2(mods: List<Mod>): (Mod, Float) -> Task2Progress {
+    private fun createBatchProgressTracker2(mods: List<Mod>): (Mod, DownloadProgress) -> Task2Progress {
         if (mods.isEmpty()) return { mod, _ -> Task2Progress("Mod下载中 ${mod.slug}", 1f) }
-        val total = mods.size.toFloat()
-        val progressMap = linkedMapOf<String, Float>().apply {
-            mods.forEach { put(it.batchProgressKey, 0f) }
+        val totalMods = mods.size.toDouble()
+        val progressMap = linkedMapOf<String, DownloadProgress>().apply {
+            mods.forEach { put(it.batchProgressKey, DownloadProgress(0, 0, 0.0)) }
         }
         val lock = Any()
-        return { mod, fraction ->
-            val overallFraction = synchronized(lock) {
-                progressMap[mod.batchProgressKey] = fraction.coerceIn(0f, 1f)
-                (progressMap.values.sum() / total).coerceIn(0f, 1f)
+        return { mod, progress ->
+            val snapshot = synchronized(lock) {
+                progressMap[mod.batchProgressKey] = progress
+                val overallFraction = (
+                    progressMap.values.sumOf { it.fraction.coerceIn(0f, 1f).toDouble() } / totalMods
+                ).toFloat().coerceIn(0f, 1f)
+                val totalSpeed = progressMap.values.sumOf { it.speedBytesPerSecond.coerceAtLeast(0.0) }
+                val doneCount = progressMap.values.count { it.fraction >= 1f }
+                Triple(overallFraction, totalSpeed, doneCount)
             }
-            Task2Progress("Mod下载中 ${mod.slug}", overallFraction)
+            val (overallFraction, totalSpeed, doneCount) = snapshot
+            Task2Progress(
+                "Mod下载中 ${doneCount}/${mods.size} ${mod.slug} · 总速度${totalSpeed.humanSpeed}",
+                overallFraction
+            )
         }
     }
 

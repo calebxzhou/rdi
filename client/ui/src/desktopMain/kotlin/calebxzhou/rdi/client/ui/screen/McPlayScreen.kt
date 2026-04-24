@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.GameService
+import calebxzhou.rdi.client.service.ensureGtnhRuntime
 import calebxzhou.rdi.client.service.startDesktop
 import calebxzhou.rdi.client.service.syncHostManagedBaseMods
 import calebxzhou.rdi.client.service.syncHostExtraMods
@@ -76,6 +77,15 @@ fun McPlayScreen(
                         }
                     }
                     consoleState.append("[RDI] 房间附加Mod已同步")
+                }
+                if (mcVer == McVersion.V071) {
+                    consoleState.append("[RDI] 检查GTNH运行库...")
+                    GameService.ensureGtnhRuntime(GameService.versionListDir.resolve(versionId)) { progress: String ->
+                        scope.launch {
+                            consoleState.append("[RDI] $progress")
+                        }
+                    }.getOrThrow()
+                    consoleState.append("[RDI] GTNH运行库已就绪")
                 }
                 val launchJvmArgs = buildList {
                     addAll(jvmArgs.filterNot { it.startsWith("-Drdi.play=") })

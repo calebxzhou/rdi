@@ -7,6 +7,10 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.CircularProgressIndicator
@@ -37,6 +41,8 @@ import kotlinx.serialization.Serializable
 import kotlinx.coroutines.launch
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.ensureUploadFfmpegReady
+import calebxzhou.rdi.client.ui.AlertErr
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainColumn
 import calebxzhou.rdi.client.ui.McPlayArgs
@@ -85,8 +91,11 @@ fun ResourceScreen(
     onOpenTaskList: ((String) -> Unit)? = null
 ) {
     var category by rememberSaveable(initialCategory) { mutableStateOf(initialCategory) }
+    var uploadErrorText by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
 
     MainColumn {
+        uploadErrorText?.let { AlertErr(it) { uploadErrorText = null } }
         TitleRow("资源", onBack) {
             TitleTabBar(
                 items = remember {
@@ -102,7 +111,15 @@ fun ResourceScreen(
                     tooltip = "传包",
                     bgColor = MaterialColor.DEEP_PURPLE_700.color
                 ) {
-                    onOpenUpload()
+                    scope.launch {
+                        runCatching {
+                            ensureUploadFfmpegReady()
+                        }.onSuccess {
+                            onOpenUpload()
+                        }.onFailure { error ->
+                            uploadErrorText = error.message ?: "检查传包工具失败"
+                        }
+                    }
                 }
             }
         }
@@ -157,6 +174,7 @@ private fun RemoteModpackPane(
     var requestKeyword by rememberSaveable { mutableStateOf("") }
     var requestVersion by remember { mutableStateOf(0) }
     var compactFilterPanelExpanded by rememberSaveable { mutableStateOf(false) }
+    var miniCardMode by rememberSaveable { mutableStateOf(false) }
 
     suspend fun loadModpacks(reset: Boolean) {
         val offset = if (reset) 0 else modpacks.size
@@ -314,6 +332,14 @@ private fun RemoteModpackPane(
             ) {
                 submitSearch()
             }
+            Space8w()
+            CircleIconButton(
+                icon = if (miniCardMode) "\uF03A" else "\uDB80\uDEC1",
+                tooltip = if (miniCardMode) "普通列表" else "迷你列表",
+                bgColor = if (miniCardMode) MaterialColor.GRAY_700.color else MaterialColor.BLUE_700.color
+            ) {
+                miniCardMode = !miniCardMode
+            }
         }
     }
 
@@ -360,36 +386,89 @@ private fun RemoteModpackPane(
                 Space8h()
             }
 
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(modpacks, key = { it.id.toHexString() }) { modpack ->
-                    modpack.ModpackCard(onClick = { onOpenInfo(modpack.id.toHexString()) })
-                }
-                if (!loading && modpacks.isEmpty()) {
-                    item("empty") {
-                        Text(
-                            text = if (onlyMine) "你还没有符合筛选条件的整合包" else "没有找到符合条件的整合包",
-                            color = MaterialTheme.colors.onSurface.copy(alpha = 0.65f)
+            if (miniCardMode) {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 280.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    gridItems(modpacks, key = { it.id.toHexString() }) { modpack ->
+                        modpack.ModpackCard(
+                            miniMode = true,
+                            onClick = { onOpenInfo(modpack.id.toHexString()) }
                         )
                     }
-                }
-                if (hasMore) {
-                    item("load-more") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center
+                    if (!loading && modpacks.isEmpty()) {
+                        item(
+                            key = "empty",
+                            span = { GridItemSpan(maxLineSpan) }
                         ) {
-                            if (loadingMore) {
-                                CircularProgressIndicator()
-                            } else {
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        loadModpacks(reset = false)
+                            Text(
+                                text = if (onlyMine) "你还没有符合筛选条件的整合包" else "没有找到符合条件的整合包",
+                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.65f)
+                            )
+                        }
+                    }
+                    if (hasMore) {
+                        item(
+                            key = "load-more",
+                            span = { GridItemSpan(maxLineSpan) }
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                if (loadingMore) {
+                                    CircularProgressIndicator()
+                                } else {
+                                    TextButton(onClick = {
+                                        scope.launch {
+                                            loadModpacks(reset = false)
+                                        }
+                                    }) {
+                                        Text("加载更多")
                                     }
-                                }) {
-                                    Text("加载更多")
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                LazyColumn(
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(modpacks, key = { it.id.toHexString() }) { modpack ->
+                        modpack.ModpackCard(
+                            miniMode = false,
+                            onClick = { onOpenInfo(modpack.id.toHexString()) }
+                        )
+                    }
+                    if (!loading && modpacks.isEmpty()) {
+                        item("empty") {
+                            Text(
+                                text = if (onlyMine) "你还没有符合筛选条件的整合包" else "没有找到符合条件的整合包",
+                                color = MaterialTheme.colors.onSurface.copy(alpha = 0.65f)
+                            )
+                        }
+                    }
+                    if (hasMore) {
+                        item("load-more") {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                if (loadingMore) {
+                                    CircularProgressIndicator()
+                                } else {
+                                    TextButton(onClick = {
+                                        scope.launch {
+                                            loadModpacks(reset = false)
+                                        }
+                                    }) {
+                                        Text("加载更多")
+                                    }
                                 }
                             }
                         }

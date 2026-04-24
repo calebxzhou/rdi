@@ -61,7 +61,7 @@ fun McVersionPane(
                     openUrl("https://www.123865.com/s/iWSWvd-Zrtdd")
                 }
                 Space8w()
-                CircleIconButton("\uEE38", "网盘下载完的导入") {
+                CircleIconButton("\uEE38", "导入RDI资源") {
                     val files = selectRdiPackFiles() ?: return@CircleIconButton
                     val task = if (files.size == 1) {
                         buildImportPackTask2(files.first())

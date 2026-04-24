@@ -200,7 +200,7 @@ private fun MenuAccountSummary(
             }
         }
         if(isDesktop && Runtime.version().feature()!=25){
-            Text("请在2026.5.6之前更新客户端内置java至25 否则届时无法启动 详见群文档")
+            Text("请在2026.5.6之前更新客户端启动脚本以及安装java25 否则届时无法启动 详见群文档")
         }
     }
 }

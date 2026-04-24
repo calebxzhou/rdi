@@ -45,9 +45,9 @@ data class MojangVersionDownloads(
 
 @Serializable
 data class MojangDownloadArtifact(
-	val sha1: String,
-	val size: Long,
-	val url: String,
+	val sha1: String = "",
+	val size: Long = 0,
+	val url: String = "",
     //如果是library 则path不可能为null
 	val path: String? = null,
 )
@@ -96,9 +96,11 @@ data class MojangJavaVersion(
 @Serializable
 data class MojangLibrary(
 	val name: String,
-	val downloads: MojangLibraryDownloads,
+	val downloads: MojangLibraryDownloads = MojangLibraryDownloads(),
 	val rules: List<MojangRule>? = null,
 	val natives: Map<String, String>? = null,
+	val url: String? = null,
+	val checksums: List<String> = emptyList(),
 )
 
 @Serializable

@@ -1,24 +1,24 @@
+import org.gradle.api.GradleException
 import org.gradle.api.internal.artifacts.dsl.dependencies.DependenciesExtensionModule.module
 import org.gradle.jvm.tasks.Jar
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import sun.jvmstat.monitor.MonitoredVmUtil.commandLine
+import java.io.File
 
 val ktorVersion = "3.4.2"
 val zstdVer = "1.5.7-7"
 val desugarVersion = "2.1.5"
 val desktopJavaSdkVersion = 25
 val desktopJvmTarget = JvmTarget.JVM_21
-val version = "5.13"
+val version = "5.13.2"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
 project.version = version
 
 val javaToolchainService = project.extensions.getByType<JavaToolchainService>()
-val desktopJavaLauncher = javaToolchainService.launcherFor {
-    languageVersion.set(JavaLanguageVersion.of(desktopJavaSdkVersion))
-}
 
 val nettyVersion = "4.2.9.Final"
 val desktopNettyModules = listOf(
@@ -99,7 +99,6 @@ kotlin {
                 implementation("org.jetbrains.androidx.navigation:navigation-compose:2.9.2")
                 implementation("org.jetbrains.compose.material3:material3:1.10.0-alpha05")
                 implementation("net.peanuuutz.tomlkt:tomlkt:0.5.0")
-                implementation("com.mikepenz:multiplatform-markdown-renderer-m3:0.40.2")
                 implementation("com.github.oshi:oshi-core:6.11.1") {
                     exclude(group = "net.java.dev.jna")
                 }
@@ -331,7 +330,6 @@ val hotRunBaseJvmArgs = listOf(
 )
 
 tasks.withType<JavaExec>().configureEach {
-    javaLauncher.set(desktopJavaLauncher)
     workingDir = runDir
     doFirst {
         runDir.mkdirs()
@@ -382,30 +380,49 @@ fun registerCopyTask(name: String, extraDestinations: List<String> = emptyList()
 registerCopyTask("出core2-local")
 registerCopyTask("出core2-release", listOf("\\\\rdi\\rdi55\\ihq\\client-libs\\lib"))
 
-tasks.register<Zip>("makeShipPack") {
-    notCompatibleWithConfigurationCache("uses project file operations at execution time")
+tasks.register("makeShipPack") {
+    notCompatibleWithConfigurationCache("uses project file operations and external process execution at execution time")
     val shipDir = File(System.getProperty("user.home"), "Documents/rdi5ship")
-    val filesNeed = listOf("lib", "双击启动.cmd", "fonts", "jre"/*,"mcb"*/)
-
+    val filesNeed = listOf("lib", "双击启动.ps1", "fonts")
+    val archiveFile = File(shipDir, "rdi-${version}.7z")
     group = "distribution"
-    description = "Create shipping zip in Documents/rdi5ship."
-    //dependsOn("出core2-local")
-
-    destinationDirectory.set(shipDir)
-    archiveFileName.set("rdi-${version}.zip")
-
-    from(File(shipDir, "lib")) { into("lib") }
-    from(File(shipDir, "fonts")) { into("fonts") }
-    from(File(shipDir, "jre")) { into("jre") }
-    //from(File(shipDir, "mcb")) { into("mc") }
-    from(File(shipDir, "tools")) { into("tools") }
-    from(shipDir) { include("双击启动.cmd") }
+    description = "Create shipping 7z archive in Documents/rdi5ship with LZMA2 multi-thread compression."
 
     doFirst {
         if (!shipDir.exists()) throw GradleException("未找到 ship 目录: $shipDir")
         filesNeed.forEach { name ->
             val target = File(shipDir, name)
             if (!target.exists()) throw GradleException("缺少文件或目录: $target")
+        }
+    }
+    doLast {
+        val sevenZipExecutable = sequenceOf(
+            File("C:/Program Files/7-Zip/7z.exe"),
+            File("C:/Program Files (x86)/7-Zip/7z.exe")
+        ).firstOrNull { it.exists() && it.isFile }?.absolutePath ?: "7z"
+
+        if (archiveFile.exists() && !archiveFile.delete()) {
+            throw GradleException("无法删除旧压缩包: $archiveFile")
+        }
+
+        val process = ProcessBuilder(
+            sevenZipExecutable,
+            "a",
+            "-t7z",
+            "-m0=lzma2",
+            "-mx=9",
+            "-mmt=on",
+            archiveFile.absolutePath,
+            "lib",
+            "fonts",
+            "双击启动.ps1"
+        ).directory(shipDir)
+            .inheritIO()
+            .start()
+
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            throw GradleException("7z打包失败，退出码: $exitCode")
         }
     }
 }

@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import calebxzhou.mykotutils.std.javaExePath
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
@@ -21,6 +22,7 @@ import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.playerInfoCache
+import calebxzhou.rdi.client.service.refreshNodeSettingsFromPrimary
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.PasswordField
 import calebxzhou.rdi.common.json
@@ -46,6 +48,7 @@ fun SettingScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     var showChangeProfile by remember { mutableStateOf(false) }
+    var switchingNode by remember { mutableStateOf(false) }
 
     // Desktop-only settings state
     var preferModMirror by remember { mutableStateOf(false) }
@@ -240,7 +243,23 @@ fun SettingScreen(
                                         onProxyHostChange = { proxyHost = it },
                                         onProxyPortChange = { proxyPortText = it },
                                         onProxyUsrChange = { proxyUsr = it },
-                                        onProxyPwdChange = { proxyPwd = it }
+                                        onProxyPwdChange = { proxyPwd = it },
+                                        switchingNode = switchingNode,
+                                        onAutoSwitchFastestNode = {
+                                            if (!switchingNode) {
+                                                switchingNode = true
+                                                scope.launch {
+                                                    refreshNodeSettingsFromPrimary()
+                                                        .onSuccess {
+                                                            scaffoldState.snackbarHostState.showSnackbar("已切换到${it.nodeName}")
+                                                        }
+                                                        .onFailure {
+                                                            scaffoldState.snackbarHostState.showSnackbar(it.message ?: "节点刷新失败")
+                                                        }
+                                                    switchingNode = false
+                                                }
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -505,13 +524,15 @@ private fun JavaSettings(
             // HwSpec memory display is desktop-only and handled by SettingsService
         }
         Space8h()
+        Text("当前Java：${javaExePath}")
+        Space8h()
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             OutlinedTextField(
-                label = { Text("Java25主程序路径（可选 留空自带）") },
+                label = { Text("Java25主程序路径") },
                 value = jre25Path,
                 onValueChange = onJre25Change,
                 singleLine = true,
@@ -595,6 +616,8 @@ private fun NetworkSettings(
     onProxyPortChange: (String) -> Unit,
     onProxyUsrChange: (String) -> Unit,
     onProxyPwdChange: (String) -> Unit,
+    switchingNode: Boolean,
+    onAutoSwitchFastestNode: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -606,7 +629,10 @@ private fun NetworkSettings(
             Text("优先使用国内镜像下载Mod")
         }
         Space8h()
-        AutoRouteStatus()
+        AutoRouteStatus(
+            switchingNode = switchingNode,
+            onAutoSwitchFastestNode = onAutoSwitchFastestNode
+        )
 
         // Proxy settings — desktop only
         if (isDesktop) {
@@ -680,8 +706,12 @@ private fun NetworkSettings(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AutoRouteStatus() {
+private fun AutoRouteStatus(
+    switchingNode: Boolean,
+    onAutoSwitchFastestNode: () -> Unit
+) {
     val routeState by RServer.routeState.collectAsState()
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -693,6 +723,13 @@ private fun AutoRouteStatus() {
             Text("当前节点: $it")
         }
         Text(if (routeState.useBackupNode) "当前使用加速入口" else "当前使用主入口")
+        CircleIconButton(
+            "\uDB80\uDC02",
+            if (switchingNode) "已切换节点" else "自动切换最快节点",
+            bgColor = MaterialColor.TEAL_900.color,
+            enabled = !switchingNode,
+            onClick = onAutoSwitchFastestNode
+        )
     }
 }
 

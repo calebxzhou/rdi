@@ -101,7 +101,7 @@ fun LoginScreen(
         // Desktop-only: symlink check
         if (isDesktop && !checkCanCreateSymlink()) {
             symlinkError = """RDI需要权限为Mod及资源文件创建软连接。
-请点击上方【创建桌面快捷方式】按钮，从桌面图标运行RDI。"""
+请打开系统设置启动“开发人员模式”，详见群文档。"""
         }
         if(Const.NO_UPDATE){
             updateCheckComplete=true
