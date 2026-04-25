@@ -488,33 +488,27 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         return StartPlayResult.NeedInstall(task)
     }
 
-    when (status) {
-        HostStatus.PLAYABLE, HostStatus.STARTED -> Unit
-        HostStatus.STOPPED -> {
-            val startResp = server.makeRequest<Unit>("host/${_id}/start", HttpMethod.Post)
-            if (!startResp.ok) {
-                throw RequestError("启动房间失败: ${startResp.msg}")
-            }
-        }
-        else -> throw RequestError("房间状态未知，无法游玩")
+    val startResp = server.makeRequest<Unit>("host/${_id}/start", HttpMethod.Post)
+    if (!startResp.ok) {
+        throw RequestError("启动房间失败: ${startResp.msg}")
     }
 
     if (GameService.started) {
         throw RequestError("mc运行中，如需切换要玩的房间，请先关闭mc")
     }
     var gameAddr = "127.0.0.1:55667"
-    if(!isDesktop){
-        val verDir = ModpackService.getVersionDir(version.modpackId,version.name)
-        ModpackService.installRdiCore(modpack.mcVer,modpack.modloader,verDir)
+    if (!isDesktop) {
+        val verDir = ModpackService.getVersionDir(version.modpackId, version.name)
+        ModpackService.installRdiCore(modpack.mcVer, modpack.modloader, verDir)
         //安卓端暂时不支持本地代理
         gameAddr = RServer.currentGameAddr
     }
     val versionId = "${modpack.id.str}_${version.name}"
     val playArg = "${server.hqUrl}\n" +
-            "${gameAddr}\n"+
-            "${name}\n"+
-            "$port\n"+
-            "${loggedAccount.uuid}\n"+
+            "${gameAddr}\n" +
+            "${name}\n" +
+            "$port\n" +
+            "${loggedAccount.uuid}\n" +
             loggedAccount.name
     val activeBaseMods = version.mods
         .filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }

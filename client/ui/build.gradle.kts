@@ -8,11 +8,12 @@ import sun.jvmstat.monitor.MonitoredVmUtil.commandLine
 import java.io.File
 
 val ktorVersion = "3.4.2"
+val coroutinesVersion = "1.10.2"
 val zstdVer = "1.5.7-7"
 val desugarVersion = "2.1.5"
 val desktopJavaSdkVersion = 25
 val desktopJvmTarget = JvmTarget.JVM_21
-val version = "5.13.2"
+val version = "5.13.5"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
@@ -108,6 +109,7 @@ kotlin {
         val desktopMain by getting {
             dependencies {
                 implementation(compose.desktop.currentOs)
+                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:$coroutinesVersion")
                 implementation("org.jetbrains.androidx.navigation:navigation-compose:2.9.2")
                 implementation("org.jetbrains.compose.material3:material3-desktop:1.10.0-alpha05")
                 implementation("com.github.luben:zstd-jni:$zstdVer:win_amd64")

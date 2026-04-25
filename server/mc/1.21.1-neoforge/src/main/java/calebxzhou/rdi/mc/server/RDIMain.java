@@ -2,9 +2,12 @@ package calebxzhou.rdi.mc.server;
 
 import calebxzhou.rdi.mc.common.RDI;
 import calebxzhou.rdi.mc.common.WebSocketClient;
+import calebxzhou.rdi.mc.common2.chat.ChatRange;
+import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState;
+import calebxzhou.rdi.mc.common2.tpa.TpaService;
+import net.minecraft.network.chat.Component;
 import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.GameRules;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -33,6 +36,8 @@ public class RDIMain {
     }
     @SubscribeEvent
     public static void stopped(ServerStoppedEvent e) {
+        PlayerChatRangeState.clear();
+        TpaService.clear();
         WebSocketClient.stop();
     }
 
@@ -65,6 +70,15 @@ public class RDIMain {
         if (RDI.isAllOp()) {
             player.server.getPlayerList().op(player.getGameProfile());
         }
+        ChatRange range = PlayerChatRangeState.get(player.getUUID());
+        player.sendSystemMessage(Component.literal("当前聊天范围：" + range.getDisplayName() + "，输入\\chat range host或\\chat range global切换"));
+    }
+
+    @SubscribeEvent
+    public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent e) {
+        var player = (ServerPlayer) e.getEntity();
+        PlayerChatRangeState.remove(player.getUUID());
+        TpaService.removeRelated(player.getUUID());
     }
 
 }

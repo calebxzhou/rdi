@@ -11,6 +11,7 @@
     "mProtocol",
     "mLoginStartPacket",
     "mUser",
-    "mSkinManager"
+    "mSkinManager",
+    "mMinecraft"
   ]
 }

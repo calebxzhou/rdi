@@ -81,6 +81,10 @@ fun HostInfoScreen(
     var stopConfirm by remember { mutableStateOf(false) }
     var restartConfirm by remember { mutableStateOf(false) }
     var forceStopConfirm by remember { mutableStateOf(false) }
+    var showCommandDialog by remember { mutableStateOf(false) }
+    var hostCommand by remember { mutableStateOf("") }
+    var hostCommandSending by remember { mutableStateOf(false) }
+    var hostCommandResult by remember { mutableStateOf<String?>(null) }
     var selectedTab by remember { mutableStateOf(0) }
     var consoleState by remember { mutableStateOf(ConsoleState()) }
     var logStreamSseJob by remember { mutableStateOf<Job?>(null) }
@@ -988,6 +992,17 @@ fun HostInfoScreen(
                                                 onErr = { errorMessage = it.message ?: "启动失败" }
                                             )
                                         }
+                                        if (meAdmin || meOwner) {
+                                            CircleIconButton(
+                                                icon = "\uF120",
+                                                tooltip = "发送命令",
+                                                bgColor = MaterialColor.TEAL_900.color,
+                                                showText = false
+                                            ) {
+                                                hostCommandResult = null
+                                                showCommandDialog = true
+                                            }
+                                        }
                                         CircleIconButton(
                                             icon = "\uF01E",
                                             tooltip = "重启",
@@ -1172,6 +1187,82 @@ fun HostInfoScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showInviteDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    if (showCommandDialog) {
+        val normalizedCommand = hostCommand.trim().removePrefix("/")
+        AlertDialog(
+            onDismissRequest = {
+                if (!hostCommandSending) {
+                    showCommandDialog = false
+                }
+            },
+            title = { Text("发送服务器命令") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("命令会以服务器控制台身份执行，不需要输入开头的/")
+                    OutlinedTextField(
+                        value = hostCommand,
+                        onValueChange = {
+                            hostCommand = it
+                            hostCommandResult = null
+                        },
+                        enabled = !hostCommandSending,
+                        singleLine = true,
+                        label = { Text("命令") },
+                        placeholder = { Text("say hello") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    hostCommandResult?.let { result ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("命令返回：")
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(Color(0xFF1B1D1F), RoundedCornerShape(8.dp))
+                                    .padding(12.dp)
+                            ) {
+                                Text(
+                                    text = result,
+                                    color = Color(0xFFE0E0E0),
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = normalizedCommand.isNotBlank() && !hostCommandSending,
+                    onClick = {
+                        hostCommandSending = true
+                        hostCommandResult = null
+                        scope.rdiRequest<String>(
+                            path = "host/$hostId/command",
+                            method = HttpMethod.Post,
+                            params = mapOf("command" to normalizedCommand),
+                            onOk = { response ->
+                                hostCommandResult = response.data?.ifBlank { "OK" } ?: "OK"
+                                okMessage = "命令已执行"
+                            },
+                            onErr = { errorMessage = it.message ?: "发送命令失败" },
+                            onDone = { hostCommandSending = false }
+                        )
+                    }
+                ) {
+                    Text(if (hostCommandSending) "发送中..." else "发送")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !hostCommandSending,
+                    onClick = { showCommandDialog = false }
+                ) {
                     Text("取消")
                 }
             }

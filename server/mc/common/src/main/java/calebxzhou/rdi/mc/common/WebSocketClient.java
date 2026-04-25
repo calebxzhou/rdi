@@ -2,6 +2,8 @@ package calebxzhou.rdi.mc.common;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonElement;
+import com.google.gson.reflect.TypeToken;
 import com.neovisionaries.ws.client.WebSocket;
 import com.neovisionaries.ws.client.WebSocketAdapter;
 import com.neovisionaries.ws.client.WebSocketException;
@@ -11,6 +13,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.lang.reflect.Type;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -27,6 +30,8 @@ public class WebSocketClient {
     private static int reqId = 0;
     private static final Logger lgr = LogManager.getLogger("rdi-ws-client");
     private static final Gson gson = new GsonBuilder().create();
+    private static final Type WS_MESSAGE_JSON_TYPE = new TypeToken<WsMessage<JsonElement>>() {
+    }.getType();
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "rdi-ws-reconnect");
@@ -61,16 +66,27 @@ public class WebSocketClient {
 
         reconnectExecutor.shutdownNow();
     }
-    public static void sendMessage(WsMessage.Channel channel,String data) {
+    public static <T> boolean sendMessage(WsMessage.Channel channel, T data) {
+        if (sendMessage(reqId, channel, data)) {
+            reqId++;
+            return true;
+        }
+        return false;
+    }
+    public static <T> boolean sendMessage(int id, WsMessage.Channel channel, T data) {
         WebSocket ws = currentWebSocket;
         if (ws != null && ws.isOpen()) {
-            String json = gson.toJson(new WsMessage(reqId,channel,data));
+            String json = gson.toJson(new WsMessage<T>(id, channel, data));
             lgr.info("Sending message: {}", json);
             ws.sendText(json);
-            reqId++;
+            return true;
         } else {
             lgr.warn("Cannot send message, WebSocket is not connected");
+            return false;
         }
+    }
+    public static <T> T fromJson(JsonElement json, Class<T> type) {
+        return gson.fromJson(json, type);
     }
     private WebSocketClient() {
 
@@ -136,7 +152,7 @@ public class WebSocketClient {
         @Override
         public void onTextMessage(WebSocket webSocket, String text) {
             lgr.info("Received text message: {}", text);
-            WsMessage msg = gson.fromJson(text, WsMessage.class);
+            WsMessage<JsonElement> msg = gson.fromJson(text, WS_MESSAGE_JSON_TYPE);
             handler.onMessage(msg);
         }
 

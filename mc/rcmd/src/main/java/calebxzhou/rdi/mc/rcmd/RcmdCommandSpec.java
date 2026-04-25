@@ -1,48 +1,45 @@
 package calebxzhou.rdi.mc.rcmd;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
-public final class RcmdCommandSpec {
-    private final List<String> path;
-    private final List<RcmdArgument<?>> arguments;
-    private final RcmdCommand command;
-    private final String description;
-
+public record RcmdCommandSpec(
+        List<String> path,
+        List<RcmdArgument<?>> arguments,
+        RcmdCommand command,
+        String description
+) {
     private RcmdCommandSpec(Builder builder) {
-        this.path = Collections.unmodifiableList(new ArrayList<String>(builder.path));
-        this.arguments = Collections.unmodifiableList(new ArrayList<RcmdArgument<?>>(builder.arguments));
-        this.command = builder.command;
-        this.description = builder.description;
+        this(builder.path, builder.arguments, builder.command, builder.description);
     }
 
-    public List<String> getPath() {
-        return path;
-    }
-
-    public List<RcmdArgument<?>> getArguments() {
-        return arguments;
-    }
-
-    public RcmdCommand getCommand() {
-        return command;
-    }
-
-    public String getDescription() {
-        return description;
-    }
-
-    public String getUsage() {
-        StringBuilder usage = new StringBuilder();
-        for (int i = 0; i < path.size(); i++) {
-            if (i > 0) {
-                usage.append(' ');
-            }
-            usage.append(path.get(i));
+    public RcmdCommandSpec {
+        if (path == null) {
+            throw new IllegalArgumentException("命令路径不能为空");
         }
-        for (RcmdArgument<?> argument : arguments) {
-            usage.append(" <").append(argument.getName()).append(':').append(argument.getType().getName()).append('>');
+        if (arguments == null) {
+            throw new IllegalArgumentException("命令参数列表不能为空");
+        }
+        for (var part : path) {
+            if (part == null || part.isBlank()) {
+                throw new IllegalArgumentException("命令路径不能包含空段");
+            }
+        }
+        path = List.copyOf(path);
+        arguments = List.copyOf(arguments);
+        description = description == null ? "" : description;
+        if (path.isEmpty()) {
+            throw new IllegalArgumentException("命令路径不能为空");
+        }
+        if (command == null) {
+            throw new IllegalArgumentException("命令处理器不能为空");
+        }
+    }
+
+    public String usage() {
+        var usage = new StringBuilder(String.join(" ", path));
+        for (var argument : arguments) {
+            usage.append(" <").append(argument.name()).append(':').append(argument.type().name()).append('>');
         }
         return usage.toString();
     }
@@ -52,8 +49,8 @@ public final class RcmdCommandSpec {
     }
 
     public static final class Builder {
-        private final List<String> path = new ArrayList<String>();
-        private final List<RcmdArgument<?>> arguments = new ArrayList<RcmdArgument<?>>();
+        private final List<String> path = new ArrayList<>();
+        private final List<RcmdArgument<?>> arguments = new ArrayList<>();
         private RcmdCommand command;
         private String description = "";
 
@@ -61,8 +58,8 @@ public final class RcmdCommandSpec {
             if (path == null || path.length == 0) {
                 throw new IllegalArgumentException("命令路径不能为空");
             }
-            for (String part : path) {
-                if (part == null || part.trim().isEmpty()) {
+            for (var part : path) {
+                if (part == null || part.isBlank()) {
                     throw new IllegalArgumentException("命令路径不能包含空段");
                 }
                 this.path.add(part);
@@ -70,7 +67,7 @@ public final class RcmdCommandSpec {
         }
 
         public <T> Builder argument(String name, RcmdArgumentType<T> type) {
-            arguments.add(new RcmdArgument<T>(name, type));
+            arguments.add(new RcmdArgument<>(name, type));
             return this;
         }
 

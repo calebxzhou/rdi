@@ -10,6 +10,7 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
+import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.model.ModrinthVersionInfo
 import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.service.McServerPinger
@@ -23,6 +24,7 @@ import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.master.DB
 import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.exception.ParamError
+import calebxzhou.rdi.master.model.RChatMessage
 import calebxzhou.rdi.master.model.WsMessage
 import calebxzhou.rdi.master.net.*
 import calebxzhou.rdi.master.service.HostService.addDisabledMods
@@ -85,6 +87,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonPrimitive
 import org.bson.Document
 import org.bson.conversions.Bson
 import org.bson.types.ObjectId
@@ -95,6 +101,7 @@ import java.nio.file.Files
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 
@@ -147,8 +154,7 @@ fun Route.hostRoutes() = route("/host") {
         }
         post("/command") {
             val ctx = call.hostContext().needAdmin
-            ctx.sendCommand(param("command"))
-            ok()
+            response(data = ctx.sendCommand(param("command"), waitForResponse = true))
         }
         post("/restart") {
             call.hostContext().needAdmin.restart()
@@ -300,7 +306,9 @@ fun Route.hostPlayRoutes() = route("/host") {
 
         try {
             for (frame in incoming) {
-                // 服务器端暂不处理来自 mod 的消息
+                if (frame is Frame.Text) {
+                    HostService.handlePlayableMessage(hostId, frame.readText())
+                }
             }
         } finally {
             HostService.unregisterPlayableSession(hostId, this)
@@ -314,7 +322,6 @@ data class HostContext(
     val member: Host.Member,
     val targetMemberNull: Host.Member?
 ) {
-    var reqId = 0
     val targetMember get() = targetMemberNull ?: throw ParamError("玩家${player.name}不是此房间的受邀成员")
     suspend fun getTargetPlayer() =
         PlayerService.getById(targetMember.id) ?: throw ParamError("玩家${player.name}不存在")
@@ -341,6 +348,7 @@ object HostService {
     private const val HOSTS_PER_PAGE = 100
     private const val HOST_WORKDIR_LIMIT_BYTES: Long = 1L * 1024 * 1024 * 1024
     private const val ONLINE_PLAYERS_CACHE_TTL_MS = 15_000L
+    private const val COMMAND_RESPONSE_TIMEOUT_MS = 10_000L
 
     private fun createHostTaskKey(hostId: ObjectId): String =
         "server-host-create:${hostId.toHexString()}"
@@ -359,7 +367,9 @@ object HostService {
     private data class HostState(
         var shutFlag: Int = 0,
         var session: DefaultWebSocketServerSession? = null,
-        var shutdownJob: Job? = null
+        var shutdownJob: Job? = null,
+        val nextCommandReqId: AtomicInteger = AtomicInteger(0),
+        val pendingCommands: ConcurrentHashMap<Int, CompletableDeferred<String>> = ConcurrentHashMap()
     )
 
     private data class OnlinePlayersCacheEntry(
@@ -604,6 +614,7 @@ object HostService {
         val state = hostStates.computeIfAbsent(hostId) { HostState() }
         val previous = state.session
         if (previous !== null && previous !== session) {
+            failPendingCommands(state, RequestError("房间连接已重建"))
             previous.launch {
                 runCatching { previous.close(CloseReason(CloseReason.Codes.NORMAL, "新的连接建立")) }
             }
@@ -618,6 +629,7 @@ object HostService {
         hostStates[hostId]?.let { state ->
             if (state.session === session) {
                 state.session = null
+                failPendingCommands(state, RequestError("房间连接已断开"))
                 lgr.info { "Host $hostId gameplay 通道已断开" }
 
                 // Cancel any existing shutdown job to prevent accumulation
@@ -653,6 +665,67 @@ object HostService {
                 }
             }
         }
+    }
+
+    fun handlePlayableMessage(hostId: ObjectId, text: String) {
+        val message = runCatching {
+            serdesJson.decodeFromString<WsMessage<JsonElement>>(text)
+        }.getOrElse { error ->
+            lgr.warn { "解析host $hostId gameplay消息失败: ${error.message}, raw=$text" }
+            return
+        }
+        when (message.channel) {
+            WsMessage.Channel.Response -> {
+                val output = runCatching { message.data.jsonPrimitive.content }.getOrElse { message.data.toString() }
+                val pending = hostStates[hostId]?.pendingCommands?.remove(message.id)
+                if (pending != null) {
+                    pending.complete(output.ifBlank { "OK" })
+                } else {
+                    lgr.debug { "host $hostId 返回了未知命令响应 id=${message.id}: $output" }
+                }
+            }
+
+            WsMessage.Channel.Command -> {
+                val output = runCatching { message.data.jsonPrimitive.content }.getOrElse { message.data.toString() }
+                val pending = hostStates[hostId]?.pendingCommands?.remove(message.id)
+                if (pending != null) {
+                    pending.complete(output.ifBlank { "OK" })
+                } else {
+                    lgr.debug { "忽略host $hostId 主动发来的Command消息: $text" }
+                }
+            }
+
+            WsMessage.Channel.Chat -> {
+                val chatMessage = runCatching {
+                    serdesJson.decodeFromJsonElement<RChatMessage>(message.data)
+                }.getOrElse { error ->
+                    lgr.warn { "解析host $hostId 聊天消息失败: ${error.message}, raw=$text" }
+                    return
+                }
+                broadcastChatMessage(message.id, chatMessage.copy(sourceHostId = hostId.toHexString()))
+            }
+        }
+    }
+
+    private fun broadcastChatMessage(id: Int, chatMessage: RChatMessage) {
+        val message = WsMessage(
+            id = id,
+            channel = WsMessage.Channel.Chat,
+            data = chatMessage
+        )
+        hostStates.forEach { (hostId, state) ->
+            if (hostId.toHexString() == chatMessage.sourceHostId) return@forEach
+            val session = state.session ?: return@forEach
+            session.launch {
+                runCatching { session.send(Frame.Text(message.json)) }
+                    .onFailure { error -> lgr.warn { "广播全局聊天到host失败: ${error.message}" } }
+            }
+        }
+    }
+
+    private fun failPendingCommands(state: HostState, cause: Throwable) {
+        state.pendingCommands.values.forEach { it.completeExceptionally(cause) }
+        state.pendingCommands.clear()
     }
 
     suspend fun Host.analyzeCrashReport(): Boolean {
@@ -1433,7 +1506,8 @@ object HostService {
             throw RequestError("私有房间仅成员可启动")
         }
         if (DockerService.isStarted(current._id.str)) {
-            throw RequestError("已经启动过了")
+            clearShutFlag(current._id)
+            return
         }
         val modpack = ModpackService.getById(current.modpackId) ?: throw RequestError("无此整合包")
         val version = modpack.getVersion(current.packVer) ?: throw RequestError("无此版本")
@@ -1464,36 +1538,49 @@ object HostService {
         DockerService.restart(host._id.str)
     }
 
-    suspend fun HostContext.sendCommand(command: String) {
+    suspend fun HostContext.sendCommand(command: String, waitForResponse: Boolean = false): String {
         val hostId = host._id
         val normalized = command.trimEnd()
         if (normalized.isBlank()) throw RequestError("命令不能为空")
 
-        val session = hostStates[hostId]?.session ?: throw RequestError("房间未处于游玩状态")
+        val state = hostStates[hostId] ?: throw RequestError("房间未处于游玩状态")
+        val session = state.session ?: throw RequestError("房间未处于游玩状态")
+        val requestId = state.nextCommandReqId.getAndIncrement()
+        val pendingResponse = if (waitForResponse) CompletableDeferred<String>() else null
+        pendingResponse?.let { state.pendingCommands[requestId] = it }
 
         val message = WsMessage(
-            reqId,
+            requestId,
             channel = WsMessage.Channel.Command,
             data = normalized
         )
 
         try {
             session.send(Frame.Text(message.json))
-            reqId++
+            if (!waitForResponse) return "OK"
+            return withTimeout(COMMAND_RESPONSE_TIMEOUT_MS) {
+                pendingResponse!!.await()
+            }
+        } catch (timeout: TimeoutCancellationException) {
+            throw RequestError("命令已发送，但${COMMAND_RESPONSE_TIMEOUT_MS / 1000}秒内未收到返回")
         } catch (cancel: CancellationException) {
             hostStates[hostId]?.let { state ->
                 if (state.session === session) {
                     state.session = null
+                    failPendingCommands(state, RequestError("房间连接已断开"))
                     if (state.shutFlag <= 0) {
                         hostStates.remove(hostId, state)
                     }
                 }
             }
             throw cancel
+        } catch (requestError: RequestError) {
+            throw requestError
         } catch (t: Throwable) {
             hostStates[hostId]?.let { state ->
                 if (state.session === session) {
                     state.session = null
+                    failPendingCommands(state, RequestError("房间连接已断开"))
                     if (state.shutFlag <= 0) {
                         hostStates.remove(hostId, state)
                     }
@@ -1501,6 +1588,8 @@ object HostService {
             }
             lgr.warn { "发送命令到 $hostId 失败: ${t.message + "\n" + t}" }
             throw RequestError("发送命令失败: ${t.message ?: "未知错误"}")
+        } finally {
+            state.pendingCommands.remove(requestId)
         }
     }
 

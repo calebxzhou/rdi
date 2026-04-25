@@ -14,3 +14,5 @@ rootProject.name = "s-mc211n"
 
 include(":s-mc-common")
 project(":s-mc-common").projectDir = file("../common")
+include(":s-mc-common2")
+project(":s-mc-common2").projectDir = file("../common2")

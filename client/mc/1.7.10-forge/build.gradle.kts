@@ -1,7 +1,6 @@
 import groovy.lang.Closure
 import com.gtnewhorizons.retrofuturagradle.minecraft.RunMinecraftTask
 import org.gradle.api.tasks.SourceSetContainer
-import org.gradle.internal.classpath.Instrumented.systemProperty
 import kotlin.io.encoding.Base64
 
 plugins {
@@ -23,9 +22,34 @@ sourceSets.named("main") {
     resources.srcDir(commonProject.file("src/main/resources"))
 }
 
+val defaultPlayArgRaw = """
+http://127.0.0.1:65231
+127.0.0.1:65230
+测试测试12123大世界
+25565
+68b314bb-adaf-52dd-ab96-b5ed00000000
+dev1
+""".trimIndent()
+
+val anotherPlayArgRaw = """
+http://127.0.0.1:65231
+127.0.0.1:65230
+另一个测试世界
+25565
+68b314bb-adaf-52dd-ab96-b5ee00000000
+dev2
+""".trimIndent()
+
+fun encodePlayArg(raw: String) = Base64.encode(raw.encodeToByteArray())
+
+val requestedTasks = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }.toSet()
+val selectedPlayArg = when {
+    "runClient25Another" in requestedTasks -> anotherPlayArgRaw
+    else -> defaultPlayArgRaw
+}
+
 tasks.named<RunMinecraftTask>("runClient25") {
-    val playArg = Base64.encode("http://127.0.0.1:65231\n127.0.0.1:65230\n测试测试12123大世界\n25565\n68b314bb-adaf-52dd-ab96-b5ed00000000\n哇塞的哇塞的".encodeToByteArray())
-    systemProperty("rdi.play", playArg)
+    systemProperty("rdi.play", encodePlayArg(selectedPlayArg))
     systemProperty("mixin.hotSwap", "true")
 
     extraArgs.addAll(
@@ -36,6 +60,12 @@ tasks.named<RunMinecraftTask>("runClient25") {
         "--height",
         "1440",
     )
+}
+
+tasks.register("runClient25Another") {
+    group = "minecraft"
+    description = "Run Minecraft client with another RDI play arg"
+    dependsOn("runClient25")
 }
 
 @Suppress("UNCHECKED_CAST")

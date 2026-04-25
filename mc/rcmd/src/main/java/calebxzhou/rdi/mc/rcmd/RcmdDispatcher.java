@@ -7,7 +7,7 @@ import java.util.Locale;
 import java.util.Map;
 
 public final class RcmdDispatcher {
-    private final List<RcmdCommandSpec> commands = new ArrayList<RcmdCommandSpec>();
+    private final List<RcmdCommandSpec> commands = new ArrayList<>();
 
     public void register(RcmdCommandSpec spec) {
         if (spec == null) {
@@ -17,7 +17,7 @@ public final class RcmdDispatcher {
     }
 
     public List<RcmdCommandSpec> getCommands() {
-        return new ArrayList<RcmdCommandSpec>(commands);
+        return List.copyOf(commands);
     }
 
     public RcmdResult execute(RcmdSource source, String rawInput) {
@@ -33,8 +33,8 @@ public final class RcmdDispatcher {
             if (match == null) {
                 return RcmdResult.error("未知rcmd命令：" + tokens.get(0));
             }
-            RcmdContext context = new RcmdContext(source, rawInput, match.spec, tokens, match.arguments);
-            RcmdResult result = match.spec.getCommand().execute(context);
+            var context = new RcmdContext(source, rawInput, match.spec(), tokens, match.arguments());
+            var result = match.spec().command().execute(context);
             return result == null ? RcmdResult.ok() : result;
         } catch (RcmdParseException e) {
             return RcmdResult.error(e.getMessage());
@@ -42,17 +42,17 @@ public final class RcmdDispatcher {
     }
 
     private MatchResult findMatch(List<String> tokens) throws RcmdParseException {
+        List<RcmdCommandSpec> candidates = resolveCandidates(tokens);
+        if (candidates.isEmpty()) {
+            return null;
+        }
         RcmdParseException bestParseException = null;
-        for (RcmdCommandSpec spec : commands) {
-            List<String> path = spec.getPath();
-            if (!matchesPath(tokens, path)) {
-                continue;
-            }
+        for (var spec : candidates) {
             try {
-                Map<String, Object> arguments = parseArguments(spec, tokens, path.size());
+                Map<String, Object> arguments = parseArguments(spec, tokens, spec.path().size());
                 return new MatchResult(spec, arguments);
             } catch (RcmdParseException e) {
-                bestParseException = new RcmdParseException(e.getMessage() + "。用法：" + spec.getUsage());
+                bestParseException = new RcmdParseException(e.getMessage() + "。用法：" + spec.usage());
             }
         }
         if (bestParseException != null) {
@@ -61,25 +61,84 @@ public final class RcmdDispatcher {
         return null;
     }
 
-    private boolean matchesPath(List<String> tokens, List<String> path) {
-        if (tokens.size() < path.size()) {
-            return false;
-        }
-        for (int i = 0; i < path.size(); i++) {
-            if (!path.get(i).toLowerCase(Locale.ROOT).equals(tokens.get(i).toLowerCase(Locale.ROOT))) {
-                return false;
+    private List<RcmdCommandSpec> resolveCandidates(List<String> tokens) throws RcmdParseException {
+        var exactCandidates = new ArrayList<RcmdCommandSpec>();
+        var prefixCandidates = new ArrayList<RcmdCommandSpec>();
+        var incompleteCandidates = new ArrayList<RcmdCommandSpec>();
+        for (var spec : commands) {
+            var path = spec.path();
+            var status = matchPath(tokens, path);
+            switch (status) {
+                case EXACT -> exactCandidates.add(spec);
+                case PREFIX -> prefixCandidates.add(spec);
+                case INCOMPLETE -> incompleteCandidates.add(spec);
+                case NONE -> {
+                }
             }
         }
-        return true;
+        if (!exactCandidates.isEmpty()) {
+            return exactCandidates;
+        }
+        if (prefixCandidates.size() == 1) {
+            return prefixCandidates;
+        }
+        if (prefixCandidates.size() > 1) {
+            throw new RcmdParseException("rcmd命令前缀不明确：" + commandPrefix(tokens, prefixCandidates) + "，可匹配：" + usages(prefixCandidates));
+        }
+        if (incompleteCandidates.size() == 1) {
+            throw new RcmdParseException("rcmd命令不完整：" + commandPrefix(tokens, incompleteCandidates) + "。用法：" + incompleteCandidates.getFirst().usage());
+        }
+        if (incompleteCandidates.size() > 1) {
+            throw new RcmdParseException("rcmd命令前缀不明确：" + commandPrefix(tokens, incompleteCandidates) + "，可匹配：" + usages(incompleteCandidates));
+        }
+        return List.of();
+    }
+
+    private PathMatchStatus matchPath(List<String> tokens, List<String> path) {
+        int checkedParts = Math.min(tokens.size(), path.size());
+        boolean exact = tokens.size() >= path.size();
+        for (int i = 0; i < checkedParts; i++) {
+            String token = tokens.get(i).toLowerCase(Locale.ROOT);
+            String pathPart = path.get(i).toLowerCase(Locale.ROOT);
+            if (!pathPart.startsWith(token)) {
+                return PathMatchStatus.NONE;
+            }
+            if (!pathPart.equals(token)) {
+                exact = false;
+            }
+        }
+        if (tokens.size() < path.size()) {
+            return PathMatchStatus.INCOMPLETE;
+        }
+        return exact ? PathMatchStatus.EXACT : PathMatchStatus.PREFIX;
+    }
+
+    private String commandPrefix(List<String> tokens, List<RcmdCommandSpec> candidates) {
+        int commandPartCount = candidates.stream()
+                .mapToInt(spec -> spec.path().size())
+                .min()
+                .orElse(tokens.size());
+        return String.join(" ", tokens.subList(0, Math.min(tokens.size(), commandPartCount)));
+    }
+
+    private String usages(List<RcmdCommandSpec> specs) {
+        var builder = new StringBuilder();
+        for (int i = 0; i < specs.size(); i++) {
+            if (i > 0) {
+                builder.append('、');
+            }
+            builder.append(specs.get(i).usage());
+        }
+        return builder.toString();
     }
 
     private Map<String, Object> parseArguments(RcmdCommandSpec spec, List<String> tokens, int tokenIndex) throws RcmdParseException {
-        Map<String, Object> values = new LinkedHashMap<String, Object>();
+        var values = new LinkedHashMap<String, Object>();
         int currentIndex = tokenIndex;
-        for (RcmdArgument<?> argument : spec.getArguments()) {
-            RcmdArgumentParseResult<?> result = argument.getType().parse(tokens, currentIndex);
-            values.put(argument.getName(), result.getValue());
-            currentIndex = result.getNextTokenIndex();
+        for (var argument : spec.arguments()) {
+            var result = argument.type().parse(tokens, currentIndex);
+            values.put(argument.name(), result.value());
+            currentIndex = result.nextTokenIndex();
         }
         if (currentIndex != tokens.size()) {
             throw new RcmdParseException("参数过多，无法识别：" + tokens.get(currentIndex));
@@ -87,13 +146,13 @@ public final class RcmdDispatcher {
         return values;
     }
 
-    private static final class MatchResult {
-        private final RcmdCommandSpec spec;
-        private final Map<String, Object> arguments;
+    private record MatchResult(RcmdCommandSpec spec, Map<String, Object> arguments) {
+    }
 
-        private MatchResult(RcmdCommandSpec spec, Map<String, Object> arguments) {
-            this.spec = spec;
-            this.arguments = arguments;
-        }
+    private enum PathMatchStatus {
+        NONE,
+        INCOMPLETE,
+        PREFIX,
+        EXACT
     }
 }

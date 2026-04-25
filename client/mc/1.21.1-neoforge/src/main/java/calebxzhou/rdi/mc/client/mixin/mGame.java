@@ -4,19 +4,44 @@ import calebxzhou.rdi.mc.client.RMcSessionService;
 import com.mojang.authlib.minecraft.MinecraftSessionService;
 import com.mojang.authlib.minecraft.UserApiService;
 import com.mojang.authlib.yggdrasil.YggdrasilAuthenticationService;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.SharedConstants;
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.User;
+import net.minecraft.client.gui.screens.Overlay;
+import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.main.GameConfig;
+import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.Shadow;
+import org.spongepowered.asm.mixin.Unique;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.Redirect;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
  * calebxzhou @ 2026-01-01 13:13
  */
 @Mixin(Minecraft.class)
 public class mGame {
+    @Unique
+    private static final KeyMapping RDI$RCMD_KEY = new KeyMapping("key.rdi.rcmd", InputConstants.KEY_BACKSLASH, "key.categories.multiplayer");
+
+    @Shadow
+    @Nullable
+    public Screen screen;
+
+    @Shadow
+    @Nullable
+    private Overlay overlay;
+
+    @Shadow
+    private void openChatScreen(String defaultText) {
+    }
+
     @Overwrite
     public boolean allowsTelemetry() {
         return false;
@@ -35,5 +60,14 @@ public class mGame {
     @Overwrite
     private UserApiService createUserApiService(YggdrasilAuthenticationService authenticationService, GameConfig gameConfig) {
         return UserApiService.OFFLINE;
+    }
+
+    @Inject(method = "handleKeybinds", at = @At("HEAD"))
+    private void RDI$openRcmdChat(CallbackInfo ci) {
+        while (RDI$RCMD_KEY.consumeClick()) {
+            if (this.screen == null && this.overlay == null) {
+                this.openChatScreen("\\");
+            }
+        }
     }
 }

@@ -33,8 +33,11 @@ fun Route.chatRoutes() = route("/chat") {
 
 object ChatService {
     private const val HISTORY_LIMIT = 50
+    private const val SEND_LIMIT_PER_MINUTE = 15
+    private const val SEND_LIMIT_WINDOW_MS = 60_000L
     private val dbcl = DB.getCollection<ChatMsg>("chat_msg")
     private val lgr by Loggers
+    private val sendTimestampsByPlayer = mutableMapOf<ObjectId, ArrayDeque<Long>>()
     private val broadcaster = MutableSharedFlow<OutgoingMessage>(
         extraBufferCapacity = 128,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
@@ -58,10 +61,16 @@ object ChatService {
             .limit(HISTORY_LIMIT)
             .toList()
             .asReversed()
+        val senderNames = with(PlayerService) {
+            history.map { it.senderId }.getPlayerNames()
+        }
 
         for (msg in history) {
-            val sender = PlayerService.getById(msg.senderId) ?: continue
-            val dto = msg.toDto(sender)
+            val dto = ChatMsg.Dto(
+                senderId = msg.senderId,
+                senderName = senderNames[msg.senderId] ?: "未知",
+                content = msg.content
+            )
             session.send(
                 ServerSentEvent(
                     id = msg.id.toHexString(),
@@ -98,11 +107,27 @@ object ChatService {
         val normalized = content.trim()
         if (normalized.isEmpty()) throw ParamError("消息不能为空")
         if (normalized.length > 500) throw ParamError("消息过长")
+        checkSendRateLimit(senderId)
         lgr.info { "${sender.name}:${content}" }
         val message = ChatMsg(sender, normalized)
         dbcl.insertOne(message)
         val dto = message.toDto(sender)
         broadcaster.emit(OutgoingMessage(message.id, dto))
         return dto
+    }
+
+    private fun checkSendRateLimit(senderId: ObjectId) {
+        val now = System.currentTimeMillis()
+        val cutoff = now - SEND_LIMIT_WINDOW_MS
+        synchronized(sendTimestampsByPlayer) {
+            val timestamps = sendTimestampsByPlayer.getOrPut(senderId) { ArrayDeque() }
+            while (timestamps.firstOrNull()?.let { it <= cutoff } == true) {
+                timestamps.removeFirst()
+            }
+            if (timestamps.size >= SEND_LIMIT_PER_MINUTE) {
+                throw ParamError("发言过快，每分钟最多发送${SEND_LIMIT_PER_MINUTE}条消息")
+            }
+            timestamps.addLast(now)
+        }
     }
 }

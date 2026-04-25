@@ -175,7 +175,7 @@ class TarZstArchiveWriter(target: File) : Closeable {
                 StandardOpenOption.CREATE,
                 StandardOpenOption.TRUNCATE_EXISTING,
                 StandardOpenOption.WRITE
-            )
+            ),9
         )
     ).apply {
         setLongFileMode(TarArchiveOutputStream.LONGFILE_POSIX)

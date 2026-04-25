@@ -18,6 +18,7 @@
     "mGuardServerLevelTick",
     "mLimitExecutor",
     "mPackListener",
+    "mRcmdCommandInput",
     "mSaveBandwidth",
     "mServerLoginPacketListener",
     "mServerPlayer",

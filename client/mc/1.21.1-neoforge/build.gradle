@@ -1,3 +1,5 @@
+import java.nio.charset.Charset
+
 plugins {
     id 'java-library'
     id 'maven-publish'
@@ -56,7 +58,8 @@ neoForge {
     }
 
     validateAccessTransformers = true
-
+    def playArg = "http://127.0.0.1:65231\n127.0.0.1:65230\n测试测试12123大世界\n25565\n68b314bb-adaf-52dd-ab96-b5ed00000000\ndev1"
+    def playArg2 = "http://127.0.0.1:65231\n127.0.0.1:65230\n测试测试12123大世界\n25565\n68b314bb-adaf-52dd-ab96-e5ed00000000\ndev2"
     runs {
         client {
             client()
@@ -66,12 +69,19 @@ neoForge {
             programArgument '1440'
             systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
             systemProperty 'mixin.hotSwap', 'true'
-            systemProperty 'rdi.ihq.url', 'http://127.0.0.1:65231'
-            systemProperty 'rdi.game.ip', '127.0.0.1:65230'
-            systemProperty 'rdi.host.name', '测试测试12123主机'
-            systemProperty 'rdi.host.port', '25565'
-        }
+            systemProperty 'rdi.play', Base64.encoder.encodeToString(playArg.getBytes(Charset.forName("UTF-8")))
 
+        }
+        client2{
+            client()
+            programArgument '--width'
+            programArgument '2560'
+            programArgument '--height'
+            programArgument '1440'
+            systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+            systemProperty 'mixin.hotSwap', 'true'
+            systemProperty 'rdi.play', Base64.encoder.encodeToString(playArg2.getBytes(Charset.forName("UTF-8")))
+        }
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
             logLevel = org.slf4j.event.Level.DEBUG

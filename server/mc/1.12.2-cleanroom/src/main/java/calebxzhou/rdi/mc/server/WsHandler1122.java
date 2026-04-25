@@ -3,6 +3,7 @@ package calebxzhou.rdi.mc.server;
 import calebxzhou.rdi.mc.common.WebSocketClient;
 import calebxzhou.rdi.mc.common.WsMessage;
 import calebxzhou.rdi.mc.common.WsMessageHandler;
+import com.google.gson.JsonElement;
 import net.minecraft.network.rcon.RConConsoleSource;
 import net.minecraft.server.dedicated.DedicatedServer;
 
@@ -19,11 +20,11 @@ public class WsHandler1122 implements WsMessageHandler {
     }
 
     @Override
-    public void onMessage(WsMessage msg) {
+    public void onMessage(WsMessage<JsonElement> msg) {
         switch (msg.getChannel()) {
             case Command:
-                String resp = runCommand(msg.getData());
-                WebSocketClient.sendMessage(msg.getChannel(), resp);
+                String resp = runCommand(msg.getData().getAsString());
+                WebSocketClient.sendMessage(msg.getId(), WsMessage.Channel.Response, resp);
                 break;
             default:
         }

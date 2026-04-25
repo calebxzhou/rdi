@@ -14,5 +14,6 @@ data class WsMessage<T>(
     enum class Channel {
         Command,
         Response,
+        Chat,
     }
 }

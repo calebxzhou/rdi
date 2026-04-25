@@ -1,47 +1,42 @@
 package calebxzhou.rdi.mc.rcmd;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-public final class RcmdContext {
-    private final RcmdSource source;
-    private final String rawInput;
-    private final RcmdCommandSpec spec;
-    private final List<String> tokens;
-    private final Map<String, Object> arguments;
-
-    RcmdContext(RcmdSource source, String rawInput, RcmdCommandSpec spec, List<String> tokens, Map<String, Object> arguments) {
-        this.source = source;
-        this.rawInput = rawInput;
-        this.spec = spec;
-        this.tokens = tokens;
-        this.arguments = Collections.unmodifiableMap(new LinkedHashMap<String, Object>(arguments));
-    }
-
-    public RcmdSource getSource() {
-        return source;
-    }
-
-    public String getRawInput() {
-        return rawInput;
-    }
-
-    public RcmdCommandSpec getSpec() {
-        return spec;
-    }
-
-    public List<String> getTokens() {
-        return tokens;
-    }
-
-    public Map<String, Object> getArguments() {
-        return arguments;
+public record RcmdContext(
+        RcmdSource source,
+        String rawInput,
+        RcmdCommandSpec spec,
+        List<String> tokens,
+        Map<String, Object> arguments
+) {
+    public RcmdContext {
+        tokens = List.copyOf(tokens);
+        arguments = Map.copyOf(arguments);
     }
 
     @SuppressWarnings("unchecked")
     public <T> T get(String name) {
         return (T) arguments.get(name);
+    }
+
+    public String getString(String name) {
+        return get(name);
+    }
+
+    public boolean getBool(String name) {
+        return get(name);
+    }
+
+    public int getInt(String name) {
+        return get(name);
+    }
+
+    public long getLong(String name) {
+        return get(name);
+    }
+
+    public double getDouble(String name) {
+        return get(name);
     }
 }
