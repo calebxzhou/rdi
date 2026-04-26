@@ -20,9 +20,9 @@ import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.playerInfoCache
-import calebxzhou.rdi.client.service.refreshNodeSettingsFromPrimary
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.PasswordField
 import calebxzhou.rdi.common.json
@@ -249,7 +249,7 @@ fun SettingScreen(
                                             if (!switchingNode) {
                                                 switchingNode = true
                                                 scope.launch {
-                                                    refreshNodeSettingsFromPrimary()
+                                                    NodeRefreshCoordinator.refreshFromPrimary("manual-setting")
                                                         .onSuccess {
                                                             scaffoldState.snackbarHostState.showSnackbar("已切换到${it.nodeName}")
                                                         }

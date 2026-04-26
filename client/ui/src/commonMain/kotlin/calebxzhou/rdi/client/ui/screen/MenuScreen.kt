@@ -30,6 +30,7 @@ fun MenuScreen(
     onOpenResources: () -> Unit,
     onOpenSponsor: () -> Unit,
     onOpenTaskList: () -> Unit,
+    onOpenMcConsole: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMail: () -> Unit,
     onOpenHostLobby: () -> Unit,
@@ -87,6 +88,7 @@ fun MenuScreen(
                         onOpenResources = onOpenResources,
                         onOpenSponsor = onOpenSponsor,
                         onOpenTaskList = onOpenTaskList,
+                        onOpenMcConsole = onOpenMcConsole,
                         onOpenSettings = onOpenSettings,
                         onOpenMail = onOpenMail,
                         onOpenHostLobby = onOpenHostLobby,
@@ -119,6 +121,7 @@ fun MenuScreen(
                         onOpenResources = onOpenResources,
                         onOpenSponsor = onOpenSponsor,
                         onOpenTaskList = onOpenTaskList,
+                        onOpenMcConsole = onOpenMcConsole,
                         onOpenSettings = onOpenSettings,
                         onOpenMail = onOpenMail,
                         onOpenHostLobby = onOpenHostLobby,
@@ -150,17 +153,28 @@ fun MenuScreen(
                 ) {
                     CircleIconButton(
                         icon = "\uF004",
-                        tooltip = "支持RDI",
+                        tooltip = "支持·许愿池",
                         bgColor = MaterialColor.PINK_700.color
                     ) {
                         onOpenSponsor()
                     }
                 }
-                Box(
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomStart)
-                        .padding(end = 24.dp, bottom = 24.dp)
+                        .padding(start = 24.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.Start
                 ) {
+                    if (isDesktop && McPlayStore.current != null) {
+                        CircleIconButton(
+                            icon = "\uE8AE",
+                            tooltip = "MC控制台",
+                            bgColor = MaterialColor.GRAY_900.color
+                        ) {
+                            onOpenMcConsole()
+                        }
+                    }
                     CircleIconButton(
                         icon = "\uDB80\uDDDA",
                         tooltip = "任务列表",
@@ -199,7 +213,7 @@ private fun MenuAccountSummary(
                 HeadButton(it, showName = false, avatarSize = 12.dp)
             }
         }
-        if(isDesktop && Runtime.version().feature()!=25){
+        if(isDesktop && currentPlatformJavaMajor()!=25){
             Text("请在2026.5.6之前更新客户端启动脚本以及安装java25 否则届时无法启动 详见群文档")
         }
     }
@@ -214,6 +228,7 @@ private fun MenuActionButtons(
     onOpenResources: () -> Unit,
     onOpenSponsor: () -> Unit,
     onOpenTaskList: () -> Unit,
+    onOpenMcConsole: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenMail: () -> Unit,
     onOpenHostLobby: () -> Unit,
@@ -252,6 +267,15 @@ private fun MenuActionButtons(
             onOpenHostLobby()
         }
         if (showBottomActionsInline) {
+            if (isDesktop && McPlayStore.current != null) {
+                CircleIconButton(
+                    "\uE8AE",
+                    "MC控制台",
+                    bgColor = MaterialColor.GRAY_900.color
+                ) {
+                    onOpenMcConsole()
+                }
+            }
             CircleIconButton(
                 "\uDB80\uDDDA",
                 "任务",

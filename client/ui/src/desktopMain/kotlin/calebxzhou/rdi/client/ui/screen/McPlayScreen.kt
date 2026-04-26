@@ -43,6 +43,7 @@ fun McPlayScreen(
     manageHostBaseMods: Boolean = false,
     extraMods: List<Mod> = emptyList(),
     manageHostExtraMods: Boolean = false,
+    autoStart: Boolean = true,
     vararg jvmArgs: String,
     onBack: ()-> Unit )
 {
@@ -112,8 +113,8 @@ fun McPlayScreen(
             }
         }
     }
-    LaunchedEffect(versionId, playArg, jvmArgs) {
-        if (process?.isAlive != true && !preparing) {
+    LaunchedEffect(versionId, playArg, autoStart, jvmArgs) {
+        if (autoStart && process?.isAlive != true && !preparing) {
             startProcess()
         }
     }

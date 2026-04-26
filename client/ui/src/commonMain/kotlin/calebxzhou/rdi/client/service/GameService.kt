@@ -152,6 +152,13 @@ object GameService {
         )
     }
 
+    fun downloadAssetsOnlyTask2(version: McVersion): Task2 {
+        return Task2.Sequence(
+            title = "下载 ${version.mcVer} assets",
+            children = listOf(downloadAssetsTask2(version.metadata))
+        )
+    }
+
     private fun extractNatives(manifest: MojangVersionManifest, onProgress: (String) -> Unit) {
         val nativesDir = versionListDir.resolve(manifest.id).resolve("natives").apply { mkdirs() }
         manifest.libraries.filterNativeOnly.forEach { library ->
@@ -825,13 +832,7 @@ object GameService {
         val toFile = toDir.resolve(toHash)
         if (fromFile.exists() || !toFile.exists()) return
         fromDir.mkdirs()
-        runCatching {
-            Files.createSymbolicLink(fromFile.toPath(), toFile.toPath())
-        }.onFailure {
-            runCatching {
-                Files.copy(toFile.toPath(), fromFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            }
-        }
+        Files.copy(toFile.toPath(), fromFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
 
     fun downloadLoaderTask2(version: McVersion, loader: ModLoader): Task2 {

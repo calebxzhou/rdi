@@ -1,21 +1,29 @@
 package calebxzhou.rdi.client.ui.screen
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import calebxzhou.rdi.client.model.firstLoader
+import calebxzhou.rdi.client.model.firstLoaderVersion
 import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.McVersionCard
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.Task2
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -53,6 +61,7 @@ fun McVersionPane(
 ) {
     var fclDialogText by remember { mutableStateOf<String?>(null) }
     var fclDialogDirName by remember { mutableStateOf<String?>(null) }
+    var selectedMcVer by rememberSaveable(requiredMcVer) { mutableStateOf(requiredMcVer) }
 
     val titleActions: ResourceScreenTitleActions? = remember(isDesktop, onOpenTaskList) {
         if (isDesktop) {
@@ -78,6 +87,26 @@ fun McVersionPane(
         } else {
             null
         }
+    }
+
+    fun submitTask(task: Task2) {
+        val runId = ClientTaskManager.submit(task)
+        onOpenTaskList?.invoke(runId)
+    }
+
+    fun openFclGuide(mcver: McVersion) {
+        val guideText = buildString {
+            appendLine("1.打开FCL启动器")
+            appendLine("2.点击左侧的\uDB80\uDD62按钮")
+            appendLine("3.在上方选择“游戏”")
+            appendLine("4.选择${mcver.mcVer}")
+            appendLine("5.点击${mcver.firstLoader.name}")
+            appendLine("6.点击版本${mcver.firstLoaderVersion.ver}")
+            appendLine("7.填入名称${mcver.firstLoaderVersion.dirName}，必须一模一样，填错会导致无法启动！填错会导致无法启动！填错会导致无法启动！")
+            append("8.点击名称栏右侧的\uDB80\uDDDA等待安装完成")
+        }
+        fclDialogText = guideText
+        fclDialogDirName = mcver.firstLoaderVersion.dirName
     }
 
     if (!showPaneActions) {
@@ -115,28 +144,43 @@ fun McVersionPane(
             Spacer(modifier = Modifier.height(6.dp))
         }
         Space8h()
+        McVersionActionRow(
+            selectedMcVer = selectedMcVer,
+            onDownloadAll = { mcver ->
+                submitTask(GameService.downloadVersionTask2(mcver, mcver.firstLoader))
+            },
+            onDownloadAssets = { mcver ->
+                val runId = ClientTaskManager.submit(
+                    task = GameService.downloadAssetsOnlyTask2(mcver),
+                    dedupeKey = "mc-assets:${mcver.mcVer}"
+                )
+                onOpenTaskList?.invoke(runId)
+            },
+            onInstallLoader = { mcver, loader ->
+                submitTask(GameService.downloadLoaderTask2(mcver, loader))
+            },
+            onOpenFclGuide = ::openFclGuide
+        )
+        Space8h()
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .weight(1f, fill = false),
+                .weight(1f),
             contentAlignment = Alignment.TopCenter
         ) {
-            Column(
+            LazyVerticalGrid(
+                columns = GridCells.Fixed(3),
                 modifier = Modifier
-                    .width(540.dp)
-                    .verticalScroll(rememberScrollState()),
-                horizontalAlignment = Alignment.CenterHorizontally,
+                    .fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                McVersion.entries.forEach { mcver ->
+                items(McVersion.entries, key = { it.mcVer }) { mcver ->
                     McVersionCard(
                         mcver = mcver,
-                        highlight = requiredMcVer == mcver,
-                        onOpenFclDialog = { text, dirName ->
-                            fclDialogText = text
-                            fclDialogDirName = dirName
-                        },
-                        onOpenTaskList = onOpenTaskList
+                        highlight = selectedMcVer == mcver,
+                        onClick = { selectedMcVer = mcver }
                     )
                 }
             }
@@ -173,5 +217,77 @@ fun McVersionPane(
                 }
             }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun McVersionActionRow(
+    selectedMcVer: McVersion?,
+    onDownloadAll: (McVersion) -> Unit,
+    onDownloadAssets: (McVersion) -> Unit,
+    onInstallLoader: (McVersion, ModLoader) -> Unit,
+    onOpenFclGuide: (McVersion) -> Unit
+) {
+    val selected = selectedMcVer
+    val enabled = selected?.enabled == true
+    FlowRowV(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        Text(
+            text = selected?.let { "已选择MC ${it.mcVer}" } ?: "请选择MC版本",
+            color = if (selected == null) MaterialColor.GRAY_700.color else MaterialColor.GRAY_900.color,
+            style = MaterialTheme.typography.subtitle1
+        )
+        RowV(
+            modifier = Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            if (isDesktop) {
+                CircleIconButton(
+                    icon = "\uF019",
+                    tooltip = "下载全部",
+                    enabled = enabled
+                ) {
+                    selected?.let(onDownloadAll)
+                }
+                CircleIconButton(
+                    icon = "\uDB80\uDF73",
+                    tooltip = "下载音频",
+                    bgColor = MaterialColor.BLUE_700.color,
+                    enabled = enabled
+                ) {
+                    selected?.let(onDownloadAssets)
+                }
+                if (selected == null) {
+                    CircleIconButton(
+                        icon = "\uEEFF",
+                        tooltip = "安装最新loader",
+                        bgColor = MaterialColor.TEAL_900.color,
+                        enabled = false
+                    ) {}
+                } else {
+                    selected.loaderVersions.forEach { (loader, _) ->
+                        CircleIconButton(
+                            icon = "\uEEFF",
+                            tooltip = "安装最新${loader.name.lowercase()}",
+                            bgColor = MaterialColor.TEAL_900.color,
+                            enabled = enabled
+                        ) {
+                            onInstallLoader(selected, loader)
+                        }
+                    }
+                }
+            } else {
+                CircleIconButton(
+                    icon = "\uF019",
+                    tooltip = "使用FCL下载",
+                    enabled = selected != null
+                ) {
+                    selected?.let(onOpenFclGuide)
+                }
+            }
+        }
     }
 }

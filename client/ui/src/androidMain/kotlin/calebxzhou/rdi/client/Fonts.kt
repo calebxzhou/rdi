@@ -8,6 +8,5 @@ private val codeFont = Font(R.font.jetbrainsmono)
 private val iconFont = Font(R.font.symbolsnerdfont)
 
 actual val UIFontFamily: FontFamily = FontFamily(oppoFont, iconFont)
-actual val ArtFontFamily: FontFamily = FontFamily(oppoFont, iconFont)
 actual val CodeFontFamily: FontFamily = FontFamily(codeFont, oppoFont, iconFont)
 actual val IconFontFamily: FontFamily = FontFamily(iconFont)

@@ -20,5 +20,6 @@ object McPlayStore {
     var current: McPlayArgs? = null
     var onBack: (() -> Unit)? = null
     var process: Process? = null
+    var openConsoleOnly: Boolean = false
     val consoleState: ConsoleState = ConsoleState()
 }

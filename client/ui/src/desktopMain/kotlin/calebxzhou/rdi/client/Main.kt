@@ -21,21 +21,19 @@ import androidx.compose.ui.window.rememberWindowState
 import calebxzhou.mykotutils.std.decodeBase64
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.jarResource
-import calebxzhou.rdi.CONF
-import calebxzhou.rdi.client.net.lgr
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.proxy.LocalMcProxy
+import calebxzhou.rdi.client.service.AutoNodeRefreshService
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.PlayerService
-import calebxzhou.rdi.client.service.refreshNodeSettings
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.AppTypography
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.DEBUG
-import calebxzhou.rdi.common.model.GeoLocation
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.model.Task2Entry
 import calebxzhou.rdi.common.serdesJson
@@ -48,20 +46,21 @@ import java.awt.Toolkit
 val VERTICAL_MODE= System.getProperty("rdi.ui.vertical").toBoolean()
 lateinit var ScreenSize: Pair<Dp, Dp>
 fun main() {
+    if (DEBUG) {
+        System.setProperty("javax.net.ssl.trustStoreType", "Windows-ROOT")
+    }
     clearIncompleteModDownloadsOnStartup()
     clearPackProcDirOnStartup()
     GlobalScope.launch(Dispatchers.IO) {
         warmUpHwSpecCache()
     }
     GlobalScope.launch(Dispatchers.IO) {
-        refreshNodeSettings()
+        NodeRefreshCoordinator.refreshCurrent("startup")
     }
+    AutoNodeRefreshService.start(GlobalScope)
     initializeLoggedAccountOnStartup()
     LocalMcProxy.start(::println)
     application {
-        if(DEBUG){
-            System.setProperty("javax.net.ssl.trustStoreType", "Windows-ROOT")
-        }
         val windowIcon = remember {
             jarResource("icon.png").use { stream ->
                 BitmapPainter(stream.readAllBytes().decodeToImageBitmap())

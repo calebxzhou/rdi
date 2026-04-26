@@ -162,6 +162,10 @@ fun AppNavigation(
                     onOpenResources = { navController.navigate(ResourceRoute(ResourceTab.All.name)) },
                     onOpenSponsor = { navController.navigate(Sponsor) },
                     onOpenTaskList = { navController.navigate(TaskList()) },
+                    onOpenMcConsole = {
+                        McPlayStore.openConsoleOnly = true
+                        navController.navigate(McPlayView)
+                    },
                     onOpenSettings = { navController.navigate(Setting) },
                     onOpenMail = { navController.navigate(HostRoute(HostTab.Mail.name)) },
                     onOpenHostLobby = { navController.navigate(HostRoute(HostTab.MyHosts.name)) },

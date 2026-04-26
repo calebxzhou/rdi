@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.Serializable
 import kotlinx.coroutines.launch
+import calebxzhou.rdi.client.model.ModrinthProjectCardVo
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ensureUploadFfmpegReady
@@ -70,7 +71,9 @@ enum class ResourceTab(
 ) {
     All("\uDB86\uDDD5", "全部整合包"),
     Installed("\uDB86\uDDD7", "已安装整合包"),
-    McResources("\uDB80\uDF73", "MC资源");
+    McResources("\uDB80\uDF73", "MC资源"),
+    ResourcePacks("\uDB80\uDEA2", "资源包"),
+    Shaders("\uDB83\uDC4A", "光影包");
 
     companion object {
         fun fromRouteValue(value: String?): ResourceTab {
@@ -92,63 +95,101 @@ fun ResourceScreen(
 ) {
     var category by rememberSaveable(initialCategory) { mutableStateOf(initialCategory) }
     var uploadErrorText by remember { mutableStateOf<String?>(null) }
+    var selectedShader by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
+    var selectedResourcepack by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
     val scope = rememberCoroutineScope()
 
-    MainColumn {
-        uploadErrorText?.let { AlertErr(it) { uploadErrorText = null } }
-        TitleRow("资源", onBack) {
-            TitleTabBar(
-                items = remember {
-                    ResourceTab.entries.map { TitleTabItem(it, it.icon, it.label) }
-                },
-                selected = category,
-                onSelect = { category = it }
-            )
-            Space8w()
-            if (loggedAccount.hasMsid) {
-                CircleIconButton(
-                    icon = "\uDB80\uDFD5",
-                    tooltip = "传包",
-                    bgColor = MaterialColor.DEEP_PURPLE_700.color
-                ) {
-                    scope.launch {
-                        runCatching {
-                            ensureUploadFfmpegReady()
-                        }.onSuccess {
-                            onOpenUpload()
-                        }.onFailure { error ->
-                            uploadErrorText = error.message ?: "检查传包工具失败"
+    val currentShader = selectedShader
+    val currentResourcepack = selectedResourcepack
+    if (currentShader != null) {
+        ShaderInfoScreen(
+            projectId = currentShader.projectId,
+            initialTitle = currentShader.title,
+            initialDownloadsText = currentShader.downloadsText,
+            initialFollowsText = currentShader.followsText,
+            onBack = { selectedShader = null }
+        )
+    } else if (currentResourcepack != null) {
+        ResourcepackInfoScreen(
+            projectId = currentResourcepack.projectId,
+            initialTitle = currentResourcepack.title,
+            initialDownloadsText = currentResourcepack.downloadsText,
+            initialFollowsText = currentResourcepack.followsText,
+            onBack = { selectedResourcepack = null }
+        )
+    } else {
+        MainColumn {
+            uploadErrorText?.let { AlertErr(it) { uploadErrorText = null } }
+            TitleRow("资源", onBack) {
+                TitleTabBar(
+                    items = remember {
+                        ResourceTab.entries.map { TitleTabItem(it, it.icon, it.label) }
+                    },
+                    selected = category,
+                    onSelect = { category = it }
+                )
+                Space8w()
+                if (loggedAccount.hasMsid) {
+                    CircleIconButton(
+                        icon = "\uDB80\uDFD5",
+                        tooltip = "传包",
+                        bgColor = MaterialColor.DEEP_PURPLE_700.color
+                    ) {
+                        scope.launch {
+                            runCatching {
+                                ensureUploadFfmpegReady()
+                            }.onSuccess {
+                                onOpenUpload()
+                            }.onFailure { error ->
+                                uploadErrorText = error.message ?: "检查传包工具失败"
+                            }
                         }
                     }
                 }
             }
-        }
-        Space8h()
-        Box(modifier = Modifier.fillMaxSize()) {
-            when (category) {
-                ResourceTab.All -> {
-                    RemoteModpackPane(
-                        onOpenInfo = onOpenInfo
-                    )
-                }
+            Space8h()
+            Box(modifier = Modifier.fillMaxSize()) {
+                when (category) {
+                    ResourceTab.All -> {
+                        RemoteModpackPane(
+                            onOpenInfo = onOpenInfo
+                        )
+                    }
 
-                ResourceTab.Installed -> {
-                    InstalledResourcePane(
-                        onOpenPlay = onOpenPlay,
-                        onOpenTaskList = onOpenTaskList,
-                        showMcVersionShortcut = false,
-                        showPaneActions = true,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                    ResourceTab.Installed -> {
+                        InstalledResourcePane(
+                            onOpenPlay = onOpenPlay,
+                            onOpenTaskList = onOpenTaskList,
+                            showMcVersionShortcut = false,
+                            showPaneActions = true,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
 
-                ResourceTab.McResources -> {
-                    McVersionPane(
-                        requiredMcVer = requiredMcVer,
-                        onOpenTaskList = onOpenTaskList,
-                        showPaneActions = true,
-                        modifier = Modifier.fillMaxSize()
-                    )
+                    ResourceTab.McResources -> {
+                        McVersionPane(
+                            requiredMcVer = requiredMcVer,
+                            onOpenTaskList = onOpenTaskList,
+                            showPaneActions = true,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    ResourceTab.ResourcePacks -> {
+                        ResourcepackListScreen(
+                            requiredMcVer = requiredMcVer,
+                            modifier = Modifier.fillMaxSize(),
+                            onOpenResourcepack = { selectedResourcepack = it }
+                        )
+                    }
+
+                    ResourceTab.Shaders -> {
+                        ShaderListScreen(
+                            requiredMcVer = requiredMcVer,
+                            modifier = Modifier.fillMaxSize(),
+                            onOpenShader = { selectedShader = it }
+                        )
+                    }
                 }
             }
         }

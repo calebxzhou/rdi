@@ -4,9 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
@@ -35,6 +32,7 @@ import calebxzhou.rdi.client.service.codeeditor.validateCodeContent
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.CodeEditor
+import calebxzhou.rdi.client.ui.comp.LoadingFlowGrid
 import calebxzhou.rdi.client.ui.comp.ModpackManageCard
 import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.model.Host
@@ -322,36 +320,26 @@ fun InstalledResourcePane(
         modifier: Modifier = Modifier,
         portrait: Boolean
     ) {
-        if (loading) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Center
-            ) {
-                CircularProgressIndicator()
-            }
-        }
-        if (!loading && localDirs.isEmpty()) {
-            Text("尚未安装整合包。".asIconText, color = Color.Black)
-        }
-        LazyVerticalGrid(
-            columns = if (portrait) GridCells.Fixed(1) else GridCells.Adaptive(320.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        LoadingFlowGrid(
+            loading = loading,
+            items = localDirs,
+            emptyText = "尚未安装整合包。",
             modifier = modifier
-        ) {
-            items(localDirs, key = { "${it.vo.id}_${it.verName}" }) { packdir ->
-                val versionId = "${packdir.vo.id}_${packdir.verName}"
-                val runningArgs = McPlayStore.current
-                val isRunning = runningArgs?.versionId == versionId && McPlayStore.process?.isAlive == true
-                ModpackManageCard(
-                    packdir = packdir,
-                    isRunning = isRunning,
-                    selected = selectedPack?.versionId == packdir.versionId,
-                    onClick = { selectedPack = packdir }
-                )
-            }
+        ) { packdir ->
+            val versionId = "${packdir.vo.id}_${packdir.verName}"
+            val runningArgs = McPlayStore.current
+            val isRunning = runningArgs?.versionId == versionId && McPlayStore.process?.isAlive == true
+            ModpackManageCard(
+                modifier = Modifier.widthIn(max = 350.dp),
+                packdir = packdir,
+                isRunning = isRunning,
+                selected = selectedPack?.versionId == packdir.versionId,
+                miniMode = true,
+                onClick = { selectedPack = packdir }
+            )
         }
     }
+
 
     fun importRdiModpack() {
         scope.launch {
@@ -374,30 +362,31 @@ fun InstalledResourcePane(
         }
     }
 
-    val titleActions: ResourceScreenTitleActions = remember(showMcVersionShortcut, onOpenMcVersionManage, onOpenTaskList) {
-        {
-            CircleIconButton(
-                "\uDB82\uDD5D",
-                "导入RDI整合包",
-                bgColor = MaterialColor.GREEN_800.color,
-            ) {
-                importRdiModpack()
-            }
-            if (showMcVersionShortcut) {
+    val titleActions: ResourceScreenTitleActions =
+        remember(showMcVersionShortcut, onOpenMcVersionManage, onOpenTaskList) {
+            {
+                CircleIconButton(
+                    "\uDB82\uDD5D",
+                    "导入RDI整合包",
+                    bgColor = MaterialColor.GREEN_800.color,
+                ) {
+                    importRdiModpack()
+                }
+                if (showMcVersionShortcut) {
+                    Space8w()
+                    ImageIconButton("grass_block", "MC资源", bgColor = MaterialColor.GREEN_200.color) {
+                        onOpenMcVersionManage?.invoke()
+                    }
+                }
                 Space8w()
-                ImageIconButton("grass_block", "MC资源", bgColor = MaterialColor.GREEN_200.color) {
-                    onOpenMcVersionManage?.invoke()
+                CircleIconButton(
+                    "\uDB86\uDDD8",
+                    "网盘备用下包"
+                ) {
+                    openUrl("https://www.123684.com/s/iWSWvd-Gjtdd")
                 }
             }
-            Space8w()
-            CircleIconButton(
-                "\uDB86\uDDD8",
-                "网盘备用下包"
-            ) {
-                openUrl("https://www.123684.com/s/iWSWvd-Gjtdd")
-            }
         }
-    }
 
     if (!showPaneActions) {
         SideEffect {
@@ -522,11 +511,11 @@ fun InstalledResourcePane(
                         mcVer = packdir.vo.mcVer,
                         versionId = packdir.versionId,
                         "${server.hqUrl}\n" +
-                            "127.0.0.1:55667\n" +
-                            "test\n" +
-                            "55555\n" +
-                            "${loggedAccount.uuid}\n" +
-                            loggedAccount.name
+                                "127.0.0.1:55667\n" +
+                                "test\n" +
+                                "55555\n" +
+                                "${loggedAccount.uuid}\n" +
+                                loggedAccount.name
                     )
                     onOpenPlay?.invoke(playArgs)
                 }
@@ -735,7 +724,7 @@ fun InstalledResourcePane(
                                 icon = "\uF0C7",
                                 tooltip = "保存",
                                 enabled = selectedLocalConfigPath != null && localConfigDirty && !localConfigContentLoading &&
-                                    !localConfigSaving && localConfigSyntaxErrorMessage == null,
+                                        !localConfigSaving && localConfigSyntaxErrorMessage == null,
                                 showText = false,
                                 bgColor = MaterialColor.GREEN_900.color
                             ) {
@@ -796,7 +785,8 @@ fun InstalledResourcePane(
                                                 )?.takeIf { validation -> !validation.isValid }?.message
                                             },
                                             onValidationChange = { validation: CodeEditorValidation? ->
-                                                localConfigSyntaxErrorMessage = validation?.takeIf { !it.isValid }?.message
+                                                localConfigSyntaxErrorMessage =
+                                                    validation?.takeIf { !it.isValid }?.message
                                             }
                                         )
                                     }
@@ -817,7 +807,7 @@ fun InstalledResourcePane(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
                         "确认删除整合包${packdir.vo.name} ${packdir.verName}吗\n" +
-                            "截图、单机存档等数据将消失，重要数据请备份"
+                                "截图、单机存档等数据将消失，重要数据请备份"
                     )
                     Row(
                         modifier = Modifier
@@ -863,7 +853,7 @@ fun InstalledResourcePane(
             text = {
                 Text(
                     "将重装${packdir.vo.name} ${packdir.verName}。\n" +
-                        "重装会清空该整合包的 所有个人数据\n--包括: 单机存档 小地图路径点 资源/光影包 日志等\n确定继续吗？"
+                            "重装会清空该整合包的 所有个人数据\n--包括: 单机存档 小地图路径点 资源/光影包 日志等\n确定继续吗？"
                 )
             },
             dismissButton = {
@@ -922,13 +912,16 @@ fun InstalledResourcePane(
                             val checked = entry.key in copyDataSelectedKeys
                             Surface(
                                 modifier = Modifier.clickable {
-                                    copyDataSelectedKeys = if (checked) copyDataSelectedKeys - entry.key else copyDataSelectedKeys + entry.key
+                                    copyDataSelectedKeys =
+                                        if (checked) copyDataSelectedKeys - entry.key else copyDataSelectedKeys + entry.key
                                 },
                                 shape = MaterialTheme.shapes.medium,
                                 color = if (checked) MaterialTheme.colors.primary.copy(alpha = 0.08f) else MaterialTheme.colors.surface,
                                 border = BorderStroke(
                                     width = if (checked) 2.dp else 1.dp,
-                                    color = if (checked) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(alpha = 0.18f)
+                                    color = if (checked) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(
+                                        alpha = 0.18f
+                                    )
                                 ),
                                 elevation = 0.dp
                             ) {
@@ -939,7 +932,8 @@ fun InstalledResourcePane(
                                     Checkbox(
                                         checked = checked,
                                         onCheckedChange = { isChecked ->
-                                            copyDataSelectedKeys = if (isChecked) copyDataSelectedKeys + entry.key else copyDataSelectedKeys - entry.key
+                                            copyDataSelectedKeys =
+                                                if (isChecked) copyDataSelectedKeys + entry.key else copyDataSelectedKeys - entry.key
                                         }
                                     )
                                     Spacer(modifier = Modifier.width(4.dp))
@@ -972,15 +966,20 @@ fun InstalledResourcePane(
                                         color = if (isSelected) MaterialTheme.colors.primary.copy(alpha = 0.08f) else MaterialTheme.colors.surface,
                                         border = BorderStroke(
                                             width = if (isSelected) 2.dp else 1.dp,
-                                            color = if (isSelected) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(alpha = 0.18f)
+                                            color = if (isSelected) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(
+                                                alpha = 0.18f
+                                            )
                                         ),
                                         elevation = 0.dp
                                     ) {
                                         Row(
-                                            modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                                .padding(horizontal = 10.dp, vertical = 8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            RadioButton(selected = isSelected, onClick = { copyDataTargetVersionId = target.versionId })
+                                            RadioButton(
+                                                selected = isSelected,
+                                                onClick = { copyDataTargetVersionId = target.versionId })
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
@@ -1022,7 +1021,8 @@ fun InstalledResourcePane(
                                         packActionMessage = null
                                     } else {
                                         errorMessage = null
-                                        packActionMessage = "已复制个人数据到${targetPack.vo.name} ${targetPack.verName}"
+                                        packActionMessage =
+                                            "已复制个人数据到${targetPack.vo.name} ${targetPack.verName}"
                                     }
                                 }
                             }
@@ -1065,7 +1065,7 @@ private fun resolveLocalConfigFile(packDir: File, relativePath: String): File {
     val canonicalBasePath = canonicalBase.path
     val resolvedPath = resolved.path
     val withinBase = resolvedPath == canonicalBasePath ||
-        resolvedPath.startsWith(canonicalBasePath + File.separator)
+            resolvedPath.startsWith(canonicalBasePath + File.separator)
     if (!withinBase) {
         throw IllegalArgumentException("非法配置文件路径: $relativePath")
     }

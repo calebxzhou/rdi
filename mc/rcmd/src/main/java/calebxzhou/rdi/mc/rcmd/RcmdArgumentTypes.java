@@ -151,10 +151,19 @@ public final class RcmdArgumentTypes {
         public RcmdArgumentParseResult<String> parse(List<String> tokens, int tokenIndex) throws RcmdParseException {
             String token = requireToken(tokens, tokenIndex, "enum");
             String normalized = token.toLowerCase(Locale.ROOT);
-            if (!values.contains(normalized)) {
-                throw new RcmdParseException("需要以下选项之一：" + values + "，收到：" + token);
+            if (values.contains(normalized)) {
+                return new RcmdArgumentParseResult<>(normalized, tokenIndex + 1);
             }
-            return new RcmdArgumentParseResult<>(normalized, tokenIndex + 1);
+            var matches = values.stream()
+                    .filter(value -> value.startsWith(normalized))
+                    .toList();
+            if (matches.size() == 1) {
+                return new RcmdArgumentParseResult<>(matches.getFirst(), tokenIndex + 1);
+            }
+            if (matches.isEmpty()) {
+                throw new RcmdParseException("未知enum选项：" + token + "，可用：" + String.join("、", values));
+            }
+            throw new RcmdParseException("enum选项前缀不明确：" + token + "，可匹配：" + String.join("、", matches));
         }
     }
 }

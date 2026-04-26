@@ -13,7 +13,7 @@ val zstdVer = "1.5.7-7"
 val desugarVersion = "2.1.5"
 val desktopJavaSdkVersion = 25
 val desktopJvmTarget = JvmTarget.JVM_21
-val version = "5.13.5"
+val version = "5.13.7"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
@@ -296,7 +296,9 @@ configurations.configureEach {
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
-    options.release.set(21)
+    if (!name.endsWith("JavaWithJavac")) {
+        options.release.set(21)
+    }
 }
 
 tasks.withType<Jar>().configureEach {

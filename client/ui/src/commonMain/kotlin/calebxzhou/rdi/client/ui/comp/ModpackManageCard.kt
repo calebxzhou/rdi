@@ -28,11 +28,47 @@ import calebxzhou.rdi.client.ui.MaterialColor
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModpackManageCard(
+    modifier: Modifier = Modifier.fillMaxWidth(),
     packdir: ModpackLocalDir,
     isRunning: Boolean = false,
     selected: Boolean = false,
+    miniMode: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
+    val clickModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    if (miniMode) {
+        Surface(
+            modifier = modifier.then(clickModifier),
+            color = if (selected) MaterialColor.PURPLE_50.color else Color.White,
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            border = when {
+                selected -> BorderStroke(2.dp, MaterialColor.PURPLE_500.color)
+                isRunning -> BorderStroke(2.dp, MaterialColor.ORANGE_900.color)
+                else -> null
+            },
+            elevation = 0.dp
+        ) {
+            Row(
+                modifier = Modifier.widthIn(max = 350.dp).padding(horizontal = 5.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    ModpackManageIcon(packdir, 28)
+                    Text(
+                        text = "${packdir.vo.name.ifBlank { "未知整合包" }} ${packdir.verName}",
+                        color = Color.Black,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+        return
+    }
 
     val cardShape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
     val glowModifier = if (isRunning) {
@@ -43,20 +79,12 @@ fun ModpackManageCard(
         Modifier
     }
     Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(glowModifier)
+        modifier = modifier.then(glowModifier)
     ) {
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
-                .let { base ->
-                    if (onClick != null) {
-                        base.clickable(onClick = onClick)
-                    } else {
-                        base
-                    }
-                },
+                .then(clickModifier),
             color = Color(0xFFF9F9FB),
             shape = cardShape,
             border = if (selected) BorderStroke(2.dp, MaterialColor.PURPLE_500.color) else null,
@@ -73,21 +101,7 @@ fun ModpackManageCard(
                         .padding(4.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    val iconUrl = packdir.vo.icon?.takeIf { it.isNotBlank() }
-                    if (iconUrl != null) {
-                        HttpImage(
-                            imgUrl = iconUrl,
-                            modifier = Modifier.fillMaxSize(),
-                            contentDescription = "Modpack Icon"
-                        )
-                    } else {
-                        androidx.compose.foundation.Image(
-                            bitmap = DEFAULT_MODPACK_ICON,
-                            contentDescription = "Modpack Icon",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
+                    ModpackManageIcon(packdir, 64)
                 }
                 Spacer(modifier = Modifier.width(12.dp))
                 Column(
@@ -121,5 +135,28 @@ fun ModpackManageCard(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ModpackManageIcon(
+    packdir: ModpackLocalDir,
+    size: Int
+) {
+    val iconUrl = packdir.vo.icon?.takeIf { it.isNotBlank() }
+    if (iconUrl != null) {
+        HttpImage(
+            imgUrl = iconUrl,
+            modifier = Modifier.size(size.dp),
+            contentDescription = "Modpack Icon",
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        androidx.compose.foundation.Image(
+            bitmap = DEFAULT_MODPACK_ICON,
+            contentDescription = "Modpack Icon",
+            modifier = Modifier.size(size.dp),
+            contentScale = ContentScale.Crop
+        )
     }
 }

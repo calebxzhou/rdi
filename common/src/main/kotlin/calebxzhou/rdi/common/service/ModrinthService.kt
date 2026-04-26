@@ -24,6 +24,7 @@ import java.util.jar.JarFile
 object ModrinthService {
     private val lgr by Loggers
     const val OFFICIAL_URL = "https://api.modrinth.com/v2"
+    const val V3_OFFICIAL_URL = "https://api.modrinth.com/v3"
     val slugBriefInfo: Map<String, ModBriefInfo> by lazy { ModService.buildSlugMap(briefInfo) { it.modrinthSlugs } }
 
     //mr - cf slug, 没查到就返回自身
@@ -299,6 +300,55 @@ object ModrinthService {
         val officialResponse = doRequest(OFFICIAL_URL)
         return officialResponse
     }
+
+    suspend fun mrreqV3(
+        path: String,
+        method: HttpMethod = HttpMethod.Get,
+        params: Map<String, Any>? = null,
+        body: Any? = null
+    ): HttpResponse {
+        suspend fun doRequest(base: String) = ktorClient.request {
+            url("${base}/${path}")
+            json()
+            body?.let { setBody(it) }
+            params?.forEach { parameter(it.key, it.value) }
+            this.method = method
+        }
+
+        if (!ModService.preferMirror) {
+            return doRequest(V3_OFFICIAL_URL)
+        }
+
+        val mirrorResult = runCatching<HttpResponse> { doRequest(V3_OFFICIAL_URL.ofMirrorUrl) }
+        val mirrorResponse = mirrorResult.getOrNull()
+        if (mirrorResponse != null && mirrorResponse.status.isSuccess()) {
+            return mirrorResponse
+        } else {
+            val bodyAsText = mirrorResponse?.bodyAsText()
+            lgr.warn { "Modrinth v3 mirror fail，${mirrorResponse?.status},$bodyAsText" }
+        }
+
+        mirrorResult.exceptionOrNull()?.let {
+            lgr.warn { "Modrinth v3 mirror request failed, falling back to official API: ${it.message}" }
+        }
+        return doRequest(V3_OFFICIAL_URL)
+    }
+
+    suspend fun getProjectDetailV3(projectIdOrSlug: String): ModrinthV3Project {
+        val normalizedId = projectIdOrSlug.trim()
+        require(normalizedId.isNotBlank()) { "projectId不能为空" }
+        return mrreqV3("project/$normalizedId").body()
+    }
+
+    suspend fun getVersionsV3(ids: List<String>): List<ModrinthV3Version> {
+        val normalizedIds = ids.map { it.trim() }.filter(String::isNotBlank).distinct()
+        if (normalizedIds.isEmpty()) return emptyList()
+        return mrreqV3(
+            path = "versions",
+            params = mapOf("ids" to Json.encodeToString(normalizedIds))
+        ).body()
+    }
+
     suspend fun getMultipleProjects(idSlugs: List<String>): List<ModrinthProject> {
         val normalizedIds = idSlugs.asSequence()
             .distinct()

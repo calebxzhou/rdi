@@ -366,6 +366,9 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
     composable<McPlayView> {
         val args = McPlayStore.current
         if (args != null) {
+            val consoleOnly = androidx.compose.runtime.remember {
+                McPlayStore.openConsoleOnly.also { McPlayStore.openConsoleOnly = false }
+            }
             calebxzhou.rdi.client.ui.screen.McPlayScreen(
                 title = args.title,
                 mcVer = args.mcVer,
@@ -376,6 +379,7 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
                 manageHostBaseMods = args.manageHostBaseMods,
                 extraMods = args.extraMods,
                 manageHostExtraMods = args.manageHostExtraMods,
+                autoStart = !consoleOnly,
                 onBack = {
                     val callback = McPlayStore.onBack
                     McPlayStore.onBack = null
