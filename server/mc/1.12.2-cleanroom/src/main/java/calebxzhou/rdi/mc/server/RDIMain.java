@@ -2,6 +2,8 @@ package calebxzhou.rdi.mc.server;
 
 import calebxzhou.rdi.mc.common.RDI;
 import calebxzhou.rdi.mc.common.WebSocketClient;
+import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState;
+import calebxzhou.rdi.mc.common2.tpa.TpaService;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.world.WorldServer;
@@ -42,6 +44,8 @@ public class RDIMain {
     @Mod.EventHandler
     public void stopped(FMLServerStoppedEvent e) {
         WebSocketClient.stop();
+        PlayerChatRangeState.clear();
+        TpaService.clear();
         server = null;
     }
 
@@ -51,6 +55,12 @@ public class RDIMain {
         if ("davickk".equals(player.getDisplayNameString()) || RDI.isAllOp()) {
             player.server.getPlayerList().addOp(player.getGameProfile());
         }
+    }
+
+    @SubscribeEvent
+    public void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent e) {
+        PlayerChatRangeState.remove(e.player.getUniqueID());
+        TpaService.removeRelated(e.player.getUniqueID());
     }
 
     private static void applyGameRules() {

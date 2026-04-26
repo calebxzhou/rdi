@@ -30,6 +30,7 @@ base {
     archivesName.set('rdi')
 }
 evaluationDependsOn(":s-mc-common")
+evaluationDependsOn(":s-mc-common2")
 
 java {
     toolchain {
@@ -124,6 +125,7 @@ dependencies {
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
     implementation(project(":s-mc-common"))
+    implementation(project(":s-mc-common2"))
     // Use contain so Cleanroom bundles the non-mod library into the built jar.
     contain 'com.neovisionaries:nv-websocket-client:2.14'
 }
@@ -166,6 +168,8 @@ sourceSets {
     main {
         java {
             srcDir project(":s-mc-common").sourceSets.main.java.srcDirs
+            srcDir project(":s-mc-common2").sourceSets.main.java.srcDirs
+            srcDir '../../../mc/rcmd/src/main/java'
         }
         resources {
             srcDir project(":s-mc-common").sourceSets.main.resources.srcDirs

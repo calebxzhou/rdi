@@ -24,7 +24,15 @@ assertSubProperties 'use_asset_mover', 'asset_mover_version'
 setDefaultProperty 'generate_sources_jar', true, false
 setDefaultProperty 'generate_javadocs_jar', true, false
 setDefaultProperty 'minecraft_username', true, 'Developer'
+setDefaultProperty 'minecraft_uuid', true, '68b314bb-adaf-52dd-ab96-b5ed00000000'
+setDefaultProperty 'minecraft_username_another', true, 'AnotherDeveloper'
+setDefaultProperty 'minecraft_uuid_another', true, '68b314bb-adaf-52dd-ab96-b5ed00000001'
 setDefaultProperty 'extra_jvm_args', false, ''
+
+def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last() } as Set
+def useAnotherPlayer = requestedTasks.contains('runClientAnother')
+def selectedPlayerName = propertyString(useAnotherPlayer ? 'minecraft_username_another' : 'minecraft_username')
+def selectedPlayerUuid = propertyString(useAnotherPlayer ? 'minecraft_uuid_another' : 'minecraft_uuid')
 
 version = "5-mc-client-${mcVersion}-cleanroom"
 group = 'rdi'
@@ -68,8 +76,15 @@ unimined.minecraft {
             accessTransformer "${rootProject.projectDir}/src/main/resources/${propertyString('access_transformer_locations')}"
         }
         loader "0.3.31-alpha"
-        runs.auth.username = minecraft_username
-        def playArg = "http://127.0.0.1:65231\n127.0.0.1:65230\n测试测试12123大世界\n25565\n68b314bb-adaf-52dd-ab96-b5ed00000000\n哇塞的哇塞的"
+        runs.auth.username = selectedPlayerName
+        def playArg = [
+                "http://127.0.0.1:65231",
+                "127.0.0.1:65230",
+                "测试测试12123大世界",
+                "25565",
+                selectedPlayerUuid,
+                selectedPlayerName
+        ].join("\n")
         runs.all {
             jvmArgs(
                     "-Drdi.play=${Base64.encoder.encodeToString(playArg.getBytes(Charset.forName("UTF-8")))}",
@@ -86,10 +101,14 @@ unimined.minecraft {
             if (propertyBool('is_coremod')) {
                 systemProperty("fml.coreMods.load", propertyString('coremod_plugin_class_name'))
             }
-            args("--width", "2560", "--height", "1440", "--username", "哇塞的哇塞的"
-                    , "--uuid"
-                    , "68b314bbadaf52ddab96b5ed00000000")
+            args("--width", "2560", "--height", "1440", "--username", selectedPlayerName,
+                    "--uuid", selectedPlayerUuid.replace("-", ""))
             return
+        }
+        runs.config("client") {
+            if (useAnotherPlayer) {
+                workingDir = project.file("run/client-another")
+            }
         }
     }
 
@@ -241,6 +260,12 @@ remapJar {
 
 tasks.named('preRunClient') {
     notCompatibleWithConfigurationCache("Unimined preRunClient task is not compatible with configuration cache")
+}
+
+tasks.register("runClientAnother") {
+    group = "minecraft"
+    description = "Run Minecraft client with another player name and RDI play arg"
+    dependsOn("runClient")
 }
 
 compileTestJava {

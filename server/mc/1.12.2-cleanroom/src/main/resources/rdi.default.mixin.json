@@ -5,6 +5,8 @@
   "target": "@env(DEFAULT)",
   "mixins": [
     "mAllowChineseNameLogin",
+    "mChatMsg",
+    "mRcmdCommandInput",
     "mServerLoginPacketListener"
   ],
   "client": [],
