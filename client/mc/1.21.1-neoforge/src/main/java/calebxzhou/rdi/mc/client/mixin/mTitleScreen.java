@@ -22,6 +22,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import static calebxzhou.rdi.mc.client.RDIMain.JOIN_BUTTON;
+import static calebxzhou.rdi.mc.client.RDIMain.layoutJoinButton;
 import static calebxzhou.rdi.mc.common.RDI.GAME_IP;
 
 /**
@@ -40,6 +41,7 @@ public class mTitleScreen extends Screen {
     }
     @Inject(method = "createNormalMenuOptions", at = @At("HEAD"))
     private void RDI$AddMultiplayerButton(int y, int rowHeight, CallbackInfo ci) {
+        layoutJoinButton(this.width);
         addRenderableWidget(JOIN_BUTTON);
     }
 }

@@ -19,6 +19,7 @@
     "mLimitExecutor",
     "mPackListener",
     "mPlusTimeout",
+    "mRcmdCommandInput",
     "mSaveBandwidth",
     "mServerLoginPacketListener",
     "mServerPlayer",

@@ -1,5 +1,5 @@
 plugins {
-    id 'net.neoforged.moddev.legacyforge' version '2.0.124'
+    id 'net.neoforged.moddev.legacyforge' version '2.0.141'
 }
 
 base {
@@ -10,10 +10,16 @@ version = "5-mc-server-1.20.1-forge"
 group = "calebxzhou.rdi"
 
 java {
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_17
+    toolchain {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    }
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_21
 }
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
+}
+sourceSets.named('main') {
+    java.srcDir '../../../mc/rcmd/src/main/java'
 }
 mixin {
     add sourceSets.main, 'rdi.mixins.refmap.json'
@@ -36,7 +42,7 @@ legacyForge {
         server {
             server()
             systemProperty("rdi.ihq.url", "127.0.0.1:65231")
-            systemProperty("rdi.host.id", "696312b0e61232912c744968")
+            systemProperty("rdi.host.id", "695f9e5ad05510e77c09ea1a")
             systemProperty("mixin.hotSwap", "true")
             programArguments = [
                 "--nogui",
@@ -66,11 +72,14 @@ dependencies {
     implementation(jarJar("io.github.llamalad7:mixinextras-forge:0.5.3"))
     implementation project(':s-mc-common')
     additionalRuntimeClasspath project(':s-mc-common')
+    implementation project(':s-mc-common2')
+    additionalRuntimeClasspath project(':s-mc-common2')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
 }
 
 // Ensure the common project is evaluated before we look up its tasks/outputs
 evaluationDependsOn(':s-mc-common')
+evaluationDependsOn(':s-mc-common2')
 
 processResources {
     var properties = [
@@ -91,7 +100,10 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
-    options.release.set(17)
+    javaCompiler.set(javaToolchains.compilerFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    })
+    options.release.set(21)
 
     options.compilerArgs << "-Xlint:-deprecation"
     options.compilerArgs << "-Xlint:-removal"
@@ -102,9 +114,11 @@ java {
 }
 
 jar {
-    // Bundle compiled outputs from :c-mc-common into this jar
+    // Bundle compiled outputs from shared server modules into this jar
     dependsOn project(":s-mc-common").tasks.named("classes")
+    dependsOn project(":s-mc-common2").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
+    from(project(":s-mc-common2").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {
@@ -139,5 +153,4 @@ tasks.withType(ScalaCompile) {
 tasks.withType(Javadoc) {
     options.encoding = 'UTF-8'
 }
-evaluationDependsOn(':s-mc-common')
 project(':s-mc-common').ext.registerServerCopyTask(project)

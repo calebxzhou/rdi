@@ -15,5 +15,6 @@ data class WsMessage<T>(
         Command,
         Response,
         Chat,
+        PlayerList,
     }
 }

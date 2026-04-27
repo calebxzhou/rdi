@@ -4,6 +4,7 @@ import calebxzhou.rdi.mc.common.RDI;
 import calebxzhou.rdi.mc.common.WebSocketClient;
 import calebxzhou.rdi.mc.common2.chat.ChatRange;
 import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState;
+import calebxzhou.rdi.mc.server.network.RServerNetwork;
 import calebxzhou.rdi.mc.common2.tpa.TpaService;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.dedicated.DedicatedServer;
@@ -72,6 +73,7 @@ public class RDIMain {
         }
         ChatRange range = PlayerChatRangeState.get(player.getUUID());
         player.sendSystemMessage(Component.literal("当前聊天范围：" + range.getDisplayName() + "，输入\\chat range host或\\chat range global切换"));
+        RServerNetwork.sendLastTo(player);
     }
 
     @SubscribeEvent

@@ -1,0 +1,21 @@
+plugins {
+    id 'java-library'
+}
+
+group = "calebxzhou.rdi.mc.common2"
+version = "0.1"
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

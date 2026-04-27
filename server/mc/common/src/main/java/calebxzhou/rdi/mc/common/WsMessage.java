@@ -30,6 +30,7 @@ public final class WsMessage<T> {
     public enum Channel {
         Command,
         Response,
-        Chat
+        Chat,
+        PlayerList
     }
 }

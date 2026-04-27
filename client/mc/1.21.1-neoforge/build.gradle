@@ -30,10 +30,13 @@ jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     evaluationDependsOn(':c-mc-common')
+    evaluationDependsOn(':c-mc-common2')
     // Bundle compiled classes from :c-mc-common into this jar.
     // Common resources are already added via sourceSets.main.resources above.
     dependsOn project(":c-mc-common").tasks.named("classes")
+    dependsOn project(":c-mc-common2").tasks.named("classes")
     from(project(":c-mc-common").sourceSets.main.output.classesDirs)
+    from(project(":c-mc-common2").sourceSets.main.output.classesDirs)
 
     manifest {
         attributes([
@@ -142,6 +145,8 @@ neoForge.ideSyncTask(tasks.named('generateModMetadata'))
 dependencies {
     implementation project(':c-mc-common')
     additionalRuntimeClasspath project(':c-mc-common')
+    implementation project(':c-mc-common2')
+    additionalRuntimeClasspath project(':c-mc-common2')
 }
 
 publishing {
@@ -167,4 +172,5 @@ idea {
     }
 }
 evaluationDependsOn(':c-mc-common')
+evaluationDependsOn(':c-mc-common2')
 project(':c-mc-common').ext.registerClientCopyTask(project)

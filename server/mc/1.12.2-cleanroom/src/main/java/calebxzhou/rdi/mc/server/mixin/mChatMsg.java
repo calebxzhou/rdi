@@ -80,7 +80,7 @@ public abstract class mChatMsg {
         );
         if (WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage)) {
             player.server.getPlayerList().sendMessage(
-                    new TextComponentString("[全局] " + player.getGameProfile().getName() + ": " + message),
+                    new TextComponentString("[公共] " + player.getGameProfile().getName() + ": " + message),
                     false
             );
         } else {

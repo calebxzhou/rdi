@@ -1,3 +1,6 @@
+import java.nio.charset.StandardCharsets
+import java.util.Base64
+
 plugins {
     id 'net.neoforged.moddev.legacyforge' version '2.0.124'
     id "org.jetbrains.kotlin.jvm" version "2.2.21"
@@ -5,6 +8,7 @@ plugins {
 
 // Ensure the common project is configured before we read its outputs
 evaluationDependsOn(":c-mc-common")
+evaluationDependsOn(":c-mc-common2")
 
 base {
     archivesName = "rdi"
@@ -13,8 +17,27 @@ base {
 version = "5-mc-client-1.20.1-forge"
 group = "calebxzhou.rdi"
 
+def requestedTasks = gradle.startParameter.taskNames.collect { it.tokenize(':').last() } as Set
+def useAnotherPlayer = requestedTasks.contains('runClientAnother')
+def selectedPlayerName = findProperty(useAnotherPlayer ? 'minecraft_username_another' : 'minecraft_username') ?: 'Developer'
+def selectedPlayerUuid = findProperty(useAnotherPlayer ? 'minecraft_uuid_another' : 'minecraft_uuid') ?: '68b314bb-adaf-52dd-ab96-b5ed00000000'
+def playArg = [
+        "http://127.0.0.1:65231",
+        "127.0.0.1:65230",
+        "测试测试12123主机",
+        "25565",
+        selectedPlayerUuid,
+        selectedPlayerName
+].join("\n")
+
 java {
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_17
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_21
+}
+kotlin {
+    jvmToolchain(21)
 }
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
@@ -43,17 +66,18 @@ legacyForge {
     runs {
         client {
             client()
-            systemProperty("rdi.ihq.url", "http://127.0.0.1:65231")
-            systemProperty("rdi.game.ip", "127.0.0.1:65230")
-            systemProperty("rdi.host.name", "测试测试12123主机")
-            systemProperty("rdi.host.port", "25565")
+            systemProperty("rdi.play", Base64.encoder.encodeToString(playArg.getBytes(StandardCharsets.UTF_8)))
             systemProperty("mixin.hotSwap", "true")
             programArguments = [
                     "-mixin.config=rdi.mixins.json",
                     "--width",
                     "2560",
                     "--height",
-                    "1440"
+                    "1440",
+                    "--username",
+                    selectedPlayerName,
+                    "--uuid",
+                    selectedPlayerUuid.replace("-", "")
             ]
             gameDirectory = project.file('run')
         }
@@ -79,6 +103,8 @@ dependencies {
     additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.2.21")
     implementation(project(":c-mc-common"))
     additionalRuntimeClasspath(project(":c-mc-common"))
+    implementation(project(":c-mc-common2"))
+    additionalRuntimeClasspath(project(":c-mc-common2"))
     //jarjar(project(":c-mc-common"))
 }
 
@@ -101,7 +127,10 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
-    options.release.set(17)
+    javaCompiler.set(javaToolchains.compilerFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
+    })
+    options.release.set(21)
 
     options.compilerArgs << "-Xlint:-deprecation"
     options.compilerArgs << "-Xlint:-removal"
@@ -117,7 +146,9 @@ jar {
     // Bundle compiled classes from :c-mc-common into this jar.
     // Common resources are already added via sourceSets.main.resources above.
     dependsOn project(":c-mc-common").tasks.named("classes")
+    dependsOn project(":c-mc-common2").tasks.named("classes")
     from(project(":c-mc-common").sourceSets.main.output.classesDirs)
+    from(project(":c-mc-common2").sourceSets.main.output.classesDirs)
 
     manifest {
         attributes([
@@ -147,6 +178,12 @@ tasks.withType(ScalaCompile) {
 
 tasks.withType(Javadoc) {
     options.encoding = 'UTF-8'
+}
+
+tasks.register("runClientAnother") {
+    group = "minecraft"
+    description = "Run Minecraft client with another player name and RDI play arg"
+    dependsOn("runClient")
 }
 
 project(':c-mc-common').ext.registerClientCopyTask(project)

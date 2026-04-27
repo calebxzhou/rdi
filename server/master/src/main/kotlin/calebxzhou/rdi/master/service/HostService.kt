@@ -5,6 +5,7 @@ import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.mykotutils.std.readAllString
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.isExcludedConfigPath
@@ -25,6 +26,7 @@ import calebxzhou.rdi.master.DB
 import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.model.RChatMessage
+import calebxzhou.rdi.master.model.RGlobalPlayerList
 import calebxzhou.rdi.master.model.WsMessage
 import calebxzhou.rdi.master.net.*
 import calebxzhou.rdi.master.service.HostService.addDisabledMods
@@ -341,6 +343,11 @@ object HostService {
     private val onlinePlayersRefreshJobs = ConcurrentHashMap<ObjectId, Job>()
     private val memberMutationLocks = ConcurrentHashMap<String, Mutex>()
     private val staleCleanupJob: Job
+    private val globalPlayerListPollJob: Job
+    @Volatile
+    private var lastGlobalPlayerListFingerprint: String = ""
+    @Volatile
+    private var lastGlobalPlayerList: RGlobalPlayerList? = null
 
     private const val PORT_START = 50000
     private const val PORT_END_EXCLUSIVE = 60000
@@ -407,12 +414,23 @@ object HostService {
                 cleanupStaleEntries()
             }
         }
+        globalPlayerListPollJob = idleMonitorScope.launch {
+            while (isActive) {
+                runCatching { pollAndBroadcastGlobalPlayerListIfChanged() }
+                    .onFailure { error ->
+                        if (error is CancellationException) throw error
+                        lgr.warn { "轮询全局玩家列表失败: ${error.message}" }
+                    }
+                delay(1.minutes)
+            }
+        }
     }
 
     fun shutdown() {
         lgr.info { "Shutting down HostService..." }
         stopIdleMonitor()
         staleCleanupJob.cancel()
+        globalPlayerListPollJob.cancel()
         idleMonitorScope.cancel()
         // Force close all sessions
         hostStates.values.forEach { state ->
@@ -622,6 +640,7 @@ object HostService {
         state.session = session
         //DockerService.limitCpuCores(hostId.str,4.0)
         lgr.info { "host $hostId gameplay 通道已连接" }
+        lastGlobalPlayerList?.let { sendGlobalPlayerListToSession(session, it) }
         return true
     }
 
@@ -704,6 +723,10 @@ object HostService {
                 }
                 broadcastChatMessage(message.id, chatMessage.copy(sourceHostId = hostId.toHexString()))
             }
+
+            WsMessage.Channel.PlayerList -> {
+                lgr.debug { "忽略host $hostId 主动发来的玩家列表消息" }
+            }
         }
     }
 
@@ -721,6 +744,82 @@ object HostService {
                     .onFailure { error -> lgr.warn { "广播全局聊天到host失败: ${error.message}" } }
             }
         }
+    }
+
+    private fun sendGlobalPlayerListToSession(session: DefaultWebSocketServerSession, playerList: RGlobalPlayerList) {
+        val message = WsMessage(
+            id = 0,
+            channel = WsMessage.Channel.PlayerList,
+            data = playerList
+        )
+        session.launch {
+            runCatching { session.send(Frame.Text(message.json)) }
+                .onFailure { error -> lgr.warn { "发送全局玩家列表到host失败: ${error.message}" } }
+        }
+    }
+
+    private fun broadcastGlobalPlayerList(playerList: RGlobalPlayerList) {
+        hostStates.values.forEach { state ->
+            val session = state.session ?: return@forEach
+            sendGlobalPlayerListToSession(session, playerList)
+        }
+    }
+
+    private suspend fun pollAndBroadcastGlobalPlayerListIfChanged() {
+        val hosts = collectGlobalPlayerListHosts()
+        val fingerprint = hosts.json
+       // if (fingerprint == lastGlobalPlayerListFingerprint) return
+
+        lastGlobalPlayerListFingerprint = fingerprint
+        val playerList = RGlobalPlayerList(
+            generatedAt = System.currentTimeMillis(),
+            hosts = hosts
+        )
+        lastGlobalPlayerList = playerList
+        broadcastGlobalPlayerList(playerList)
+        lgr.info { "全局玩家列表已变化，广播${hosts.sumOf { it.players.size }}个玩家/${hosts.size}个房间" }
+    }
+
+    private suspend fun collectGlobalPlayerListHosts(): List<RGlobalPlayerList.HostEntry> = coroutineScope {
+        getPlayables()
+            .map { host -> async { host.fetchGlobalPlayerListHostEntry() } }
+            .awaitAll()
+            .filterNotNull()
+            .sortedWith(compareBy<RGlobalPlayerList.HostEntry> { it.hostName }.thenBy { it.hostId })
+    }
+
+    private suspend fun Host.fetchGlobalPlayerListHostEntry(): RGlobalPlayerList.HostEntry? {
+        if (status != HostStatus.PLAYABLE) return null
+        val players = runCatching {
+            McServerPinger.ping(port, timeoutMillis = 1_000).players?.sample.orEmpty()
+        }.getOrElse { error ->
+            if (error is CancellationException) throw error
+            lgr.warn { "轮询host ${_id} 玩家列表失败: ${error.message}" }
+            return null
+        }
+            .mapNotNull { sample ->
+                val playerId = sample.id?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                RGlobalPlayerList.PlayerEntry(
+                    playerId = playerId,
+                    playerName = sample.name?.takeIf { it.isNotBlank() } ?: playerId
+                )
+            }
+            .distinctBy { it.playerId }
+            .sortedWith(compareBy<RGlobalPlayerList.PlayerEntry> { it.playerName }.thenBy { it.playerId })
+        if (players.isEmpty()) return null
+        val modpackName = runCatching { ModpackService.getById(modpackId)?.name }
+            .getOrElse { error ->
+                if (error is CancellationException) throw error
+                lgr.warn { "读取host ${_id} 整合包名称失败: ${error.message}" }
+                null
+            } ?: "未知整合包"
+        return RGlobalPlayerList.HostEntry(
+            hostId = _id.toHexString(),
+            hostName = name,
+            modpackName = modpackName,
+            packVer = packVer,
+            players = players
+        )
     }
 
     private fun failPendingCommands(state: HostState, cause: Throwable) {
@@ -963,6 +1062,9 @@ object HostService {
     }
 
     suspend fun getPlayables(): List<Host> = withContext(Dispatchers.IO) {
+        if(DEBUG){
+            return@withContext dbcl.find(`in`("_id", hostStates.keys().toList())).toList()
+        }
         val runningIds = DockerService.listContainers(includeStopped = false)
             .mapNotNull { container ->
                 val containerName = container.names?.firstOrNull()?.removePrefix("/") ?: return@mapNotNull null
@@ -1595,6 +1697,7 @@ object HostService {
 
     val Host.status: HostStatus
         get() {
+            if(DEBUG && hostStates[_id]?.session != null) return HostStatus.PLAYABLE
             val status = DockerService.getContainerStatus(_id.str)
             if (status == HostStatus.STARTED && hostStates[_id]?.session != null) {
                 return HostStatus.PLAYABLE

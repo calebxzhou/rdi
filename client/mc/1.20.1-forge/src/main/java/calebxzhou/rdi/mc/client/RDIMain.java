@@ -1,5 +1,6 @@
 package calebxzhou.rdi.mc.client;
 
+import calebxzhou.rdi.mc.client.network.RdiClientNetwork;
 import com.google.common.net.HostAndPort;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.components.Button;
@@ -30,7 +31,16 @@ public class RDIMain {
                 false
         );
     }).bounds(100,0,200,50).build();
+
+    public static void layoutJoinButton(int screenWidth) {
+        JOIN_BUTTON.setX(screenWidth / 2 - 100);
+        JOIN_BUTTON.setY(0);
+        JOIN_BUTTON.setWidth(200);
+        JOIN_BUTTON.setHeight(20);
+    }
+
     public RDIMain() {
+        RdiClientNetwork.register();
         LogManager.getLogger("rdi").info("❄❄❄❄❄❄❄❄RDI客户端核心模块已加载❄❄❄❄❄❄❄❄");
     }
 }

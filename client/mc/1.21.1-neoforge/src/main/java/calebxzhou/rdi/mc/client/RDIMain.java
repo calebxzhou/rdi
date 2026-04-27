@@ -44,6 +44,13 @@ public class RDIMain {
         );
     }).bounds(100,0,200,50).build();
 
+    public static void layoutJoinButton(int screenWidth) {
+        JOIN_BUTTON.setX(screenWidth / 2 - 100);
+        JOIN_BUTTON.setY(0);
+        JOIN_BUTTON.setWidth(200);
+        JOIN_BUTTON.setHeight(20);
+    }
+
     @SubscribeEvent
     public static void onRegisterClientCommands(RegisterClientCommandsEvent event) {
         event.getDispatcher().register(

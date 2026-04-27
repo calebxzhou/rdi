@@ -51,7 +51,7 @@ public abstract class mChatMsg {
                     System.currentTimeMillis()
             );
             if (WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage)) {
-                player.server.getPlayerList().broadcastSystemMessage(Component.literal("[全局] " + player.getGameProfile().getName() + ": " + message), false);
+                player.server.getPlayerList().broadcastSystemMessage(Component.literal("[公共] " + player.getGameProfile().getName() + ": " + message), false);
             } else {
                 player.sendSystemMessage(Component.literal("全局聊天发送失败：房间未连接到RDI主服务器"));
             }

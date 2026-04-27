@@ -44,7 +44,7 @@ neoForge {
             server()
             //要兼顾ws和http 所以这里没有开头的ws
             systemProperty("rdi.ihq.url", "127.0.0.1:65231")
-            systemProperty("rdi.host.id", "69e7998a0d899147d9884d8f")
+            systemProperty("rdi.host.id", "6970b4b685846053425d0529")
             jvmArgument '-Xmx4G'
             programArgument '--nogui'
             systemProperty 'rdi.debug', 'true'
