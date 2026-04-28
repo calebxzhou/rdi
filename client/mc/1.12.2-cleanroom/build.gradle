@@ -40,6 +40,7 @@ base {
     archivesName.set('rdi')
 }
 evaluationDependsOn(":c-mc-common")
+evaluationDependsOn(":c-mc-common2")
 
 java {
     toolchain {
@@ -147,12 +148,14 @@ dependencies {
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
     implementation(project(":c-mc-common"))
+    implementation(project(":c-mc-common2"))
 }
 
 apply from: 'gradle/scripts/dependencies.gradle'
 
 processResources {
     dependsOn project(":c-mc-common").tasks.processResources
+    dependsOn project(":c-mc-common2").tasks.processResources
 
     inputs.property 'mod_id', propertyString('mod_id')
     inputs.property 'mod_name', propertyString('mod_name')
@@ -187,9 +190,11 @@ sourceSets {
     main {
         java {
             srcDir project(":c-mc-common").sourceSets.main.java.srcDirs
+            srcDir project(":c-mc-common2").sourceSets.main.java.srcDirs
         }
         resources {
             srcDir project(":c-mc-common").sourceSets.main.resources.srcDirs
+            srcDir project(":c-mc-common2").sourceSets.main.resources.srcDirs
         }
         blossom {
             javaSources {

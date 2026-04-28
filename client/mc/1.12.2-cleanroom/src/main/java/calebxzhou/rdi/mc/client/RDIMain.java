@@ -1,5 +1,6 @@
 package calebxzhou.rdi.mc.client;
 
+import calebxzhou.rdi.mc.client.network.RdiClientNetwork;
 import calebxzhou.rdi.mc.common.RDI;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiButton;
@@ -30,6 +31,7 @@ public class RDIMain {
     public static net.minecraft.util.ResourceLocation BG_RES = new ResourceLocation("rdi", "textures/bg/1.jpg");
 
     public RDIMain() {
+        RdiClientNetwork.register();
         LogManager.getLogger("rdi").info("❄❄❄❄❄❄❄❄RDI客户端核心模块已加载❄❄❄❄❄❄❄❄");
     }
 }

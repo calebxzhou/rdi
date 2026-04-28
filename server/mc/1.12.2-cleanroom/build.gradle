@@ -71,7 +71,7 @@ unimined.minecraft {
         runs.all {
             jvmArgs(
                 "-Drdi.ihq.url=127.0.0.1:65231",
-                "-Drdi.host.id=695f9e5ad05510e77c09ea1a",
+                "-Drdi.host.id=697b7a8cb7f12c8ac09c65ae",
                     "-Dcrl.dev.mixin=${mod_id}.default.mixin.json,${mod_id}.mod.mixin.json"
             )
             def extraArgs = propertyString('extra_jvm_args')

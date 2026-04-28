@@ -19,6 +19,7 @@ group = "calebxzhou.rdi"
 
 sourceSets.named("main") {
     java.srcDir(commonProject.file("src/main/java"))
+    java.srcDir(file("../common2/src/main/java"))
     resources.srcDir(commonProject.file("src/main/resources"))
 }
 

@@ -4,6 +4,7 @@ import calebxzhou.rdi.mc.common.RDI;
 import calebxzhou.rdi.mc.common.WebSocketClient;
 import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState;
 import calebxzhou.rdi.mc.common2.tpa.TpaService;
+import calebxzhou.rdi.mc.server.network.RdiServerNetwork;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.dedicated.DedicatedServer;
 import net.minecraft.world.WorldServer;
@@ -27,6 +28,7 @@ public class RDIMain {
     private static DedicatedServer server;
 
     public RDIMain() {
+        RdiServerNetwork.register();
         MinecraftForge.EVENT_BUS.register(this);
     }
 
@@ -55,6 +57,7 @@ public class RDIMain {
         if ("davickk".equals(player.getDisplayNameString()) || RDI.isAllOp()) {
             player.server.getPlayerList().addOp(player.getGameProfile());
         }
+        RdiServerNetwork.sendLastTo(player);
     }
 
     @SubscribeEvent

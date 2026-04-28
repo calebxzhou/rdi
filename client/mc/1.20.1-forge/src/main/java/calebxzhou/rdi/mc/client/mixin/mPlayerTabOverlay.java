@@ -1,12 +1,13 @@
 package calebxzhou.rdi.mc.client.mixin;
 
+import calebxzhou.rdi.mc.client.gui.RdiTabRow;
 import calebxzhou.rdi.mc.client.network.GlobalPlayerListState;
+import calebxzhou.rdi.mc.client.skin.GlobalPlayerSkinCache;
 import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.PlayerFaceRenderer;
 import net.minecraft.client.gui.components.PlayerTabOverlay;
-import net.minecraft.client.resources.DefaultPlayerSkin;
 import net.minecraft.network.Connection;
 import net.minecraft.world.scores.Objective;
 import net.minecraft.world.scores.Scoreboard;
@@ -25,12 +26,6 @@ import java.util.UUID;
 
 @Mixin(PlayerTabOverlay.class)
 public class mPlayerTabOverlay {
-    private record RdiTabRow(String text, UUID playerId, int color) {
-        boolean isPlayer() {
-            return playerId != null;
-        }
-    }
-
     //永远显示头像
     @Redirect(method = "render",
             at = @At(value = "INVOKE",target = "Lnet/minecraft/network/Connection;isEncrypted()Z"))
@@ -75,7 +70,7 @@ public class mPlayerTabOverlay {
             int rowY = y + i * lineHeight;
             int textX = x;
             if (row.isPlayer()) {
-                PlayerFaceRenderer.draw(guiGraphics, DefaultPlayerSkin.getDefaultSkin(row.playerId()), x, rowY, 8);
+                PlayerFaceRenderer.draw(guiGraphics, GlobalPlayerSkinCache.skin(row.playerId(), row.text()), x, rowY, 8);
                 textX += 11;
             }
             guiGraphics.drawString(font, row.text(), textX, rowY, row.color(), false);

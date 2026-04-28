@@ -111,7 +111,7 @@ public class WebSocketClient {
         }
 
         isConnecting = true;
-        lgr.info("Attempting WebSocket connection to {}", wsUrl);
+        lgr.info("ws try conn");
         try {
             WebSocket newWs = new WebSocketFactory()
                     .setConnectionTimeout(CONNECT_TIMEOUT_MS)
@@ -121,7 +121,7 @@ public class WebSocketClient {
             newWs.connectAsynchronously();
         } catch (IOException ex) {
             isConnecting = false;
-            lgr.error("Failed to connect WebSocket to {}", wsUrl, ex);
+            lgr.error("Failed to connect WebSocket ", ex);
             scheduleReconnect();
         }
     }
@@ -139,26 +139,27 @@ public class WebSocketClient {
         }
 
         reconnectExecutor.schedule(WebSocketClient::attemptConnect, 5, TimeUnit.SECONDS);
-        lgr.info("Scheduled WebSocket reconnect in 5s");
+        lgr.info("ws reconn 5s");
     }
 
     private static class Listener extends WebSocketAdapter {
         @Override
         public void onConnected(WebSocket webSocket, Map<String, List<String>> headers) {
             isConnecting = false;
-            lgr.info("WebSocket connection opened: {}", wsUrl);
+            lgr.info("ws-conn");
+            lgr.debug("WebSocket connection opened: {}", wsUrl);
         }
 
         @Override
         public void onTextMessage(WebSocket webSocket, String text) {
-            lgr.info("Received text message: {}", text);
+            lgr.debug("Received text message: {}", text);
             WsMessage<JsonElement> msg = gson.fromJson(text, WS_MESSAGE_JSON_TYPE);
             handler.onMessage(msg);
         }
 
         @Override
         public void onBinaryMessage(WebSocket webSocket, byte[] binary) {
-            lgr.info("Received binary message (length={})", binary.length);
+            lgr.debug("Received binary message (length={})", binary.length);
         }
 
         @Override
@@ -176,7 +177,7 @@ public class WebSocketClient {
             isConnecting = false;
             String reason = serverCloseFrame != null ? serverCloseFrame.getCloseReason() : "unknown";
             int code = serverCloseFrame != null ? serverCloseFrame.getCloseCode() : -1;
-            lgr.info("WebSocket closed: {} - {}", code, reason);
+            lgr.info("ws closed: {} - {}", code, reason);
             currentWebSocket = null;
             scheduleReconnect();
         }
@@ -184,7 +185,7 @@ public class WebSocketClient {
         @Override
         public void onConnectError(WebSocket webSocket, WebSocketException exception) {
             isConnecting = false;
-            lgr.error("WebSocket connect error", exception);
+            lgr.error("ws conn error", exception);
             currentWebSocket = null;
             scheduleReconnect();
         }
@@ -192,7 +193,7 @@ public class WebSocketClient {
         @Override
         public void onError(WebSocket webSocket, WebSocketException cause) {
             isConnecting = false;
-            lgr.error("WebSocket error", cause);
+            lgr.error("ws error", cause);
             currentWebSocket = null;
             scheduleReconnect();
         }

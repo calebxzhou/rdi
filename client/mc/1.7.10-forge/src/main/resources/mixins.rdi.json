@@ -12,6 +12,7 @@
     "mLoginStartPacket",
     "mUser",
     "mSkinManager",
-    "mMinecraft"
+    "mMinecraft",
+    "mGlobalPlayerListOverlay"
   ]
 }
