@@ -9,6 +9,7 @@ object ModrinthProjectSearchService {
         projectType: String,
         query: String? = null,
         mcVersion: String? = null,
+        loader: String? = null,
         index: ModrinthSearchIndex = ModrinthSearchIndex.DOWNLOADS,
         offset: Int = 0,
         limit: Int = 20
@@ -16,6 +17,7 @@ object ModrinthProjectSearchService {
         val facets = buildList {
             add(listOf("project_type:$projectType"))
             mcVersion?.trim()?.takeIf(String::isNotBlank)?.let { add(listOf("versions:$it")) }
+            loader?.trim()?.takeIf(String::isNotBlank)?.let { add(listOf("categories:$it")) }
         }
         val response = ModrinthService.searchProjects(
             query = query,

@@ -10,6 +10,7 @@ import kotlin.time.ExperimentalTime
 
 fun ModrinthSearchHit.toModrinthProjectCardVo(): ModrinthProjectCardVo {
     val selectedCategories = displayCategories.ifEmpty { categories }.take(4)
+    val loaderIds = categories.filter { it.lowercase() in modrinthLoaderCategoryIds }
     return ModrinthProjectCardVo(
         projectId = projectId,
         projectType = projectType,
@@ -24,9 +25,22 @@ fun ModrinthSearchHit.toModrinthProjectCardVo(): ModrinthProjectCardVo {
         followsText = follows.toSeparatedCountText(),
         modifiedText = dateModified.toRelativeTimeText(),
         latestVersionId = latestVersion,
-        gameVersions = versions
+        gameVersions = versions,
+        loaders = loaderIds,
+        clientSide = clientSide,
+        serverSide = serverSide
     )
 }
+
+private val modrinthLoaderCategoryIds = setOf(
+    "babric",
+    "fabric",
+    "forge",
+    "liteloader",
+    "neoforge",
+    "quilt",
+    "rift"
+)
 
 internal fun Long.toCompactCountText(): String = when {
     abs(this) >= 1_000_000_000 -> "${formatCompact(this / 1_000_000_000.0)}B"

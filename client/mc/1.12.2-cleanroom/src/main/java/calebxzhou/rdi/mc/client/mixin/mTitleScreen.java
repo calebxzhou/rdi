@@ -24,7 +24,7 @@ public class mTitleScreen extends GuiScreen {
 
     @Inject(method = "initGui",at= @At(value = "INVOKE", target = "Ljava/util/List;add(Ljava/lang/Object;)Z", ordinal = 0))
     public void RDI$AddButton(CallbackInfo ci){
-        buttonList.add(RDIMain.JOIN_BUTTON);
+        buttonList.add(RDIMain.createJoinButton(this.width / 2 - 150, 8, 300));
     }
     @Inject(method = "actionPerformed",at=@At("TAIL"))
     public void RDI$OnClickButton(GuiButton button, CallbackInfo ci){

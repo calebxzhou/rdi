@@ -27,7 +27,8 @@ data class ModrinthV3Project(
     val gallery: List<ModrinthV3GalleryItem> = emptyList(),
     val color: Int? = null,
     @SerialName("thread_id") val threadId: String? = null,
-    @SerialName("game_versions") val gameVersions: List<String> = emptyList()
+    @SerialName("game_versions") val gameVersions: List<String> = emptyList(),
+    val environment: List<String> = emptyList()
 )
 
 @Serializable
@@ -68,7 +69,9 @@ data class ModrinthV3Version(
     val dependencies: List<ModrinthDependency> = emptyList(),
     val loaders: List<String> = emptyList(),
     val ordering: Int? = null,
-    @SerialName("game_versions") val gameVersions: List<String> = emptyList()
+    @SerialName("game_versions") val gameVersions: List<String> = emptyList(),
+    val environment: String? = null,
+    @SerialName("minecraft_java_server") val minecraftJavaServer: String? = null
 )
 
 @Serializable

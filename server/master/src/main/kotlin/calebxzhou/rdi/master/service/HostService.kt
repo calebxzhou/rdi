@@ -721,6 +721,7 @@ object HostService {
                     lgr.warn { "解析host $hostId 聊天消息失败: ${error.message}, raw=$text" }
                     return
                 }
+                lgr.info { chatMessage.playerName+": "+chatMessage.content }
                 broadcastChatMessage(message.id, chatMessage.copy(sourceHostId = hostId.toHexString()))
             }
 
@@ -2243,6 +2244,9 @@ object HostService {
                 runCatching {
                     MailService.changeMail(mailId, newContent = "开始校验Mod信息")
                     ctx.emit(LoadProgress.Phase("开始校验Mod信息"))
+                    val currentHost = getById(hostId) ?: throw RequestError("无此房间")
+                    val modpack = ModpackService.getById(modpackId) ?: throw RequestError("无此整合包")
+                    val baseVersion = modpack.getVersion(packVer) ?: throw RequestError("无此整合包版本: $packVer")
                     mods.forEachIndexed { index, mod ->
                         validateExtraMod(mod)
                         val message = "已校验 ${index + 1}/${mods.size}: ${mod.slug}"
@@ -2255,9 +2259,6 @@ object HostService {
                         )
                     }
 
-                    val currentHost = getById(hostId) ?: throw RequestError("无此房间")
-                    val modpack = ModpackService.getById(modpackId) ?: throw RequestError("无此整合包")
-                    val baseVersion = modpack.getVersion(packVer) ?: throw RequestError("无此整合包版本: $packVer")
                     val activeBaseMods = currentHost.effectiveBaseMods(baseVersion)
                     val existingProjectIds = (currentHost.extraMods + activeBaseMods).map(::projectIdentity).toSet()
                     val duplicateExistingMods = mods.filter { projectIdentity(it) in existingProjectIds }

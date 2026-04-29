@@ -48,4 +48,9 @@ class mServerLoginPacketListener {
         }
         return new GameProfile($packet.profileId().get(),$packet.name());
     }
+
+    @Redirect(method = "handleCustomQueryPacket",at= @At(value = "INVOKE", target = "Lnet/minecraft/server/network/ServerLoginPacketListenerImpl;disconnect(Lnet/minecraft/network/chat/Component;)V"))
+    private void RDI$IgnoreUnexpCusQuery(ServerLoginPacketListenerImpl disconnect, Component reason) {
+
+    }
 }

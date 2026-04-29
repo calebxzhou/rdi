@@ -349,6 +349,31 @@ object ModrinthService {
         ).body()
     }
 
+    suspend fun getProjectVersionsV3(
+        projectIdOrSlug: String,
+        gameVersions: List<String> = emptyList(),
+        loaders: List<String> = emptyList(),
+        includeChangelog: Boolean = true
+    ): List<ModrinthV3Version> {
+        val normalizedId = projectIdOrSlug.trim()
+        require(normalizedId.isNotBlank()) { "projectId不能为空" }
+        val params = buildMap<String, Any> {
+            val normalizedGameVersions = gameVersions.map { it.trim() }.filter(String::isNotBlank).distinct()
+            val normalizedLoaders = loaders.map { it.trim() }.filter(String::isNotBlank).distinct()
+            if (normalizedGameVersions.isNotEmpty()) {
+                put("game_versions", Json.encodeToString(normalizedGameVersions))
+            }
+            if (normalizedLoaders.isNotEmpty()) {
+                put("loaders", Json.encodeToString(normalizedLoaders))
+            }
+            put("include_changelog", includeChangelog)
+        }
+        return mrreqV3(
+            path = "project/$normalizedId/version",
+            params = params
+        ).body()
+    }
+
     suspend fun getMultipleProjects(idSlugs: List<String>): List<ModrinthProject> {
         val normalizedIds = idSlugs.asSequence()
             .distinct()

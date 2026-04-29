@@ -35,15 +35,27 @@ data class ModrinthProjectVersionVo(
     val versionType: String?,
     val loaders: List<String>,
     val gameVersions: List<String>,
+    val environment: String?,
+    val minecraftJavaServer: String?,
+    val dependencies: List<ModrinthProjectVersionDependencyVo>,
     val primaryFile: ModrinthProjectVersionFileVo?,
     val files: List<ModrinthProjectVersionFileVo>
 )
 
+data class ModrinthProjectVersionDependencyVo(
+    val versionId: String?,
+    val projectId: String?,
+    val dependencyType: String?
+)
+
 data class ModrinthProjectVersionFileVo(
+    val fileId: String?,
     val filename: String,
     val url: String,
     val size: Long?,
     val sizeText: String,
     val sha1: String?,
+    val sha512: String?,
+    val fileType: String?,
     val primary: Boolean
 )

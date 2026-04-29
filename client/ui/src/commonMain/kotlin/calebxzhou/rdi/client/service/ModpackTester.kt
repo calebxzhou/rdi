@@ -74,6 +74,7 @@ class ModpackTester(
 
     fun dispose(uiScope: CoroutineScope) {
         stop(uiScope, markStopped = false)
+        cleanupTestDir()
     }
 
     fun stop(
@@ -118,7 +119,8 @@ class ModpackTester(
                 val workDir = createServerTestWorkDir(
                     loadedModpack = loadedModpack,
                     mods = getMods(),
-                    clientOnlyMarkedNames = autoRenamedFiles
+                    clientOnlyMarkedNames = autoRenamedFiles,
+                    existingDir = testWorkDir
                 )
                 testWorkDir = workDir
                 val process = withContext(Dispatchers.IO) {
@@ -221,6 +223,12 @@ class ModpackTester(
         if (delayMillis > 0L) delay(delayMillis)
         terminateProcessOnly()
     }
+
+    private fun cleanupTestDir() {
+        val dir = testWorkDir ?: return
+        testWorkDir = null
+        runCatching { dir.deleteRecursivelyNoSymlink() }
+    }
 }
 
 class ClientModpackTester(
@@ -286,7 +294,6 @@ class ClientModpackTester(
             return
         }
         stop(uiScope, markStopped = false)
-        cleanupTestDir()
         crashTriggered = false
         _status.value = TestStatus.RUNNING
         _passSeconds.value = null
@@ -301,7 +308,8 @@ class ClientModpackTester(
             runCatching {
                 val versionDir = createClientTestVersionDir(
                     loadedModpack = loadedModpack,
-                    mods = getMods()
+                    mods = getMods(),
+                    existingDir = testVersionDir
                 )
                 testVersionDir = versionDir
                 val process = withContext(Dispatchers.IO) {
@@ -435,15 +443,23 @@ private fun updateModSideByKey(
 private suspend fun createServerTestWorkDir(
     loadedModpack: LoadedLocalModpack,
     mods: List<Mod>,
-    clientOnlyMarkedNames: Set<String> = emptySet()
+    clientOnlyMarkedNames: Set<String> = emptySet(),
+    existingDir: File? = null
 ) = withContext(Dispatchers.IO) {
-    val testDir = Files.createTempDirectory(ClientDirs.packProcDir.toPath(), "servertest-").toFile()
-    val excludedOriginalNames = clientOnlyMarkedNames
-        .mapNotNull { marked ->
-            if (isClientOnlyMarkedModName(marked)) marked.removePrefix(CLIENT_ONLY_MARK_PREFIX) else null
-        }
-        .toSet()
+    val testDir = existingDir
+        ?.takeIf { it.exists() && it.isDirectory }
+        ?: createServerTestBaseDir(loadedModpack)
+    prepareServerTestRunContent(
+        testDir = testDir,
+        sourceDir = loadedModpack.sourceDir,
+        mods = mods,
+        clientOnlyMarkedNames = clientOnlyMarkedNames
+    )
+    testDir
+}
 
+private fun createServerTestBaseDir(loadedModpack: LoadedLocalModpack): File {
+    val testDir = Files.createTempDirectory(ClientDirs.packProcDir.toPath(), "servertest-").toFile()
     val libsSource = ClientDirs.librariesDir
     if (libsSource.exists()) {
         val libsTarget = testDir.resolve("libraries")
@@ -454,13 +470,34 @@ private suspend fun createServerTestWorkDir(
             throw IllegalStateException("创建测试目录libraries软链接失败: ${it.message}")
         }
     }
-    val sourceDir = loadedModpack.sourceDir
     copyTestPackBaseContent(
-        sourceDir = sourceDir,
+        sourceDir = loadedModpack.sourceDir,
         targetDir = testDir,
-        skipRootChild = ::isClientOnlyMarkedModFile
+        skipRootChild = ::isClientOnlyMarkedModFile,
+        skipModsDirectories = true
     )
-    val modsDir = testDir.resolve("mods").apply { mkdirs() }
+    return testDir
+}
+
+private fun prepareServerTestRunContent(
+    testDir: File,
+    sourceDir: File,
+    mods: List<Mod>,
+    clientOnlyMarkedNames: Set<String>
+) {
+    val excludedOriginalNames = clientOnlyMarkedNames
+        .mapNotNull { marked ->
+            if (isClientOnlyMarkedModName(marked)) marked.removePrefix(CLIENT_ONLY_MARK_PREFIX) else null
+        }
+        .toSet()
+
+    cleanServerTestRuntimeOutput(testDir)
+    val modsDir = testDir.resolve("mods")
+    if (modsDir.exists()) {
+        modsDir.deleteRecursivelyNoSymlink()
+    }
+    modsDir.mkdirs()
+    stageSourceModFiles(modsDir, sourceDir, excludedOriginalNames)
     stageDownloadedMods(modsDir, mods) { mod ->
         mod.side != Mod.Side.CLIENT &&
             !isClientOnlyMarkedModName(mod.fileName) &&
@@ -472,14 +509,25 @@ private suspend fun createServerTestWorkDir(
             runCatching { Files.deleteIfExists(file.toPath()) }
         }
     }
-    testDir
 }
 
-private fun copyDirectoryContent(source: File, target: File) {
+private fun cleanServerTestRuntimeOutput(testDir: File) {
+    listOf("logs", "crash-reports", "world").forEach { name ->
+        val file = testDir.resolve(name)
+        if (file.exists()) file.deleteRecursivelyNoSymlink()
+    }
+}
+
+private fun copyDirectoryContent(
+    source: File,
+    target: File,
+    skipModsDirectories: Boolean = false
+) {
     source.listFiles()?.forEach { child ->
+        if (skipModsDirectories && child.isDirectory && child.name.equals("mods", ignoreCase = true)) return@forEach
         if (isClientOnlyMarkedModFile(child)) return@forEach
         val dest = target.resolve(child.name)
-        copyFileOrDirectory(child, dest)
+        copyFileOrDirectory(child, dest, skipModsDirectories)
     }
 }
 
@@ -1116,7 +1164,6 @@ private fun isClientOnlyMarkedModFile(file: File): Boolean {
 private val CLIENT_CRASH_TRIGGER_KEYWORDS = listOf(
     "Preparing crash report",
     "MixinTransformerError",
-    "Failed to create mod instance",
     "Mod Loading has failed",
     "Missing mandatory dependencies"
 )
@@ -1125,26 +1172,64 @@ const val CLIENT_TEST_SUCCESS_MARKER = "开始运行客户端测试"
 
 private suspend fun createClientTestVersionDir(
     loadedModpack: LoadedLocalModpack,
-    mods: List<Mod>
+    mods: List<Mod>,
+    existingDir: File? = null
 ) = withContext(Dispatchers.IO) {
+    val versionDir = existingDir
+        ?.takeIf { it.exists() && it.isDirectory }
+        ?: createClientTestBaseDir(loadedModpack)
+    prepareClientTestRunContent(
+        versionDir = versionDir,
+        sourceDir = loadedModpack.sourceDir,
+        mods = mods,
+        mcVersion = loadedModpack.mcVersion
+    )
+    versionDir
+}
+
+private fun createClientTestBaseDir(loadedModpack: LoadedLocalModpack): File {
     val versionId = CLIENT_TEST_VERSION_PREFIX + System.currentTimeMillis() + "_" + Random.nextInt(1000, 9999)
     val versionDir = ClientDirs.packProcDir.resolve(versionId).apply {
         if (exists()) deleteRecursivelyNoSymlink()
         mkdirs()
     }
-    val sourceDir = loadedModpack.sourceDir
-    copyTestPackBaseContent(sourceDir, versionDir)
-    val modsDir = versionDir.resolve("mods").apply { mkdirs() }
-    stageDownloadedMods(modsDir, mods) { it.side != Mod.Side.SERVER }
+    copyTestPackBaseContent(
+        sourceDir = loadedModpack.sourceDir,
+        targetDir = versionDir,
+        skipModsDirectories = true
+    )
     ModpackService.writeOptions(versionDir, loadedModpack.mcVersion)
-    //ModpackService.installRdiCore(loadedModpack.mcVersion, loadedModpack.modloader, modsDir)
     try {
         versionDir.resolve("$versionId.json")
             .writeText(loadedModpack.mcVersion.loaderManifest.copy(id = versionId).json)
     } catch (e: FileNotFoundException) {
         throw IllegalStateException("没有找到${loadedModpack.mcVersion.mcVer}版本的${loadedModpack.modloader.name}，请先安装")
     }
-    versionDir
+    return versionDir
+}
+
+private fun prepareClientTestRunContent(
+    versionDir: File,
+    sourceDir: File,
+    mods: List<Mod>,
+    mcVersion: McVersion
+) {
+    cleanClientTestRuntimeOutput(versionDir)
+    ModpackService.writeOptions(versionDir, mcVersion)
+    val modsDir = versionDir.resolve("mods")
+    if (modsDir.exists()) {
+        modsDir.deleteRecursivelyNoSymlink()
+    }
+    modsDir.mkdirs()
+    stageSourceModFiles(modsDir, sourceDir, emptySet())
+    stageDownloadedMods(modsDir, mods) { it.side != Mod.Side.SERVER }
+}
+
+private fun cleanClientTestRuntimeOutput(versionDir: File) {
+    listOf("logs", "crash-reports", "saves").forEach { name ->
+        val file = versionDir.resolve(name)
+        if (file.exists()) file.deleteRecursivelyNoSymlink()
+    }
 }
 
 private fun isClientOnlyMarkedModName(fileName: String): Boolean =
@@ -1153,11 +1238,12 @@ private fun isClientOnlyMarkedModName(fileName: String): Boolean =
 private fun copyTestPackBaseContent(
     sourceDir: File,
     targetDir: File,
-    skipRootChild: (File) -> Boolean = { false }
+    skipRootChild: (File) -> Boolean = { false },
+    skipModsDirectories: Boolean = false
 ) {
     val overridesDir = sourceDir.resolve("overrides")
     if (overridesDir.exists() && overridesDir.isDirectory) {
-        copyDirectoryContent(overridesDir, targetDir)
+        copyDirectoryContent(overridesDir, targetDir, skipModsDirectories)
         return
     }
     sourceDir.listFiles()?.forEach { child ->
@@ -1165,18 +1251,42 @@ private fun copyTestPackBaseContent(
         if (child.name.equals("mods", ignoreCase = true)) return@forEach
         if (child.name.equals("manifest.json", ignoreCase = true)) return@forEach
         if (child.name.equals("modrinth.index.json", ignoreCase = true)) return@forEach
-        copyFileOrDirectory(child, targetDir.resolve(child.name))
+        copyFileOrDirectory(child, targetDir.resolve(child.name), skipModsDirectories)
     }
 }
 
-private fun copyFileOrDirectory(source: File, target: File) {
+private fun copyFileOrDirectory(
+    source: File,
+    target: File,
+    skipModsDirectories: Boolean = false
+) {
     if (source.isDirectory) {
         if (!target.exists()) target.mkdirs()
-        copyDirectoryContent(source, target)
+        copyDirectoryContent(source, target, skipModsDirectories)
         return
     }
     target.parentFile?.mkdirs()
     Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+}
+
+private fun stageSourceModFiles(
+    modsDir: File,
+    sourceDir: File,
+    excludedFileNames: Set<String>
+) {
+    listOf(
+        sourceDir.resolve("mods"),
+        sourceDir.resolve("overrides").resolve("mods")
+    ).forEach { sourceModsDir ->
+        if (!sourceModsDir.exists() || !sourceModsDir.isDirectory) return@forEach
+        sourceModsDir.listFiles()
+            ?.asSequence()
+            ?.filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
+            ?.filterNot { isClientOnlyMarkedModName(it.name) || it.name in excludedFileNames }
+            ?.forEach { source ->
+                linkOrCopyFile(source, modsDir.resolve(source.name))
+            }
+    }
 }
 
 private fun stageDownloadedMods(

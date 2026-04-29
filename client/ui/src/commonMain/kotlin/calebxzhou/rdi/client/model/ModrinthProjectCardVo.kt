@@ -14,7 +14,10 @@ data class ModrinthProjectCardVo(
     val followsText: String,
     val modifiedText: String,
     val latestVersionId: String?,
-    val gameVersions: List<String>
+    val gameVersions: List<String>,
+    val loaders: List<String> = emptyList(),
+    val clientSide: String? = null,
+    val serverSide: String? = null
 )
 
 data class ModrinthProjectCategoryVo(

@@ -19,7 +19,10 @@ import static calebxzhou.rdi.mc.common.RDI.GAME_IP;
 @Mod(modid = "rdi", name = "rdi", version = "1")
 public class RDIMain {
     public static int JOIN_BUTTON_ID = 666;
-    public static GuiButton JOIN_BUTTON = new GuiButton(JOIN_BUTTON_ID,100, 0, 200, 20, "进入地图：" + RDI.HOST_NAME);
+    public static GuiButton createJoinButton(int x, int y, int width) {
+        return new GuiButton(JOIN_BUTTON_ID, x, y, width, 20, "进入地图：" + RDI.HOST_NAME);
+    }
+
     public static void onJoinRDI(){
         Minecraft.getMinecraft().displayGuiScreen(
                 new GuiConnecting(

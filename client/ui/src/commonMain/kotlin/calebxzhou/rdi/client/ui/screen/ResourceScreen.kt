@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.serialization.Serializable
 import kotlinx.coroutines.launch
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
+import calebxzhou.rdi.client.model.RemoteModCardVo
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ensureUploadFfmpegReady
@@ -72,6 +73,7 @@ enum class ResourceTab(
     All("\uDB86\uDDD5", "全部整合包"),
     Installed("\uDB86\uDDD7", "已安装整合包"),
     McResources("\uDB80\uDF73", "MC资源"),
+    Mods("\uF12E", "模组"),
     ResourcePacks("\uDB80\uDEA2", "资源包"),
     Shaders("\uDB83\uDC4A", "光影包");
 
@@ -97,10 +99,12 @@ fun ResourceScreen(
     var uploadErrorText by remember { mutableStateOf<String?>(null) }
     var selectedShader by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
     var selectedResourcepack by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
+    var selectedRemoteMod by remember { mutableStateOf<RemoteModCardVo?>(null) }
     val scope = rememberCoroutineScope()
 
     val currentShader = selectedShader
     val currentResourcepack = selectedResourcepack
+    val currentRemoteMod = selectedRemoteMod
     if (currentShader != null) {
         ShaderInfoScreen(
             projectId = currentShader.projectId,
@@ -116,6 +120,11 @@ fun ResourceScreen(
             initialDownloadsText = currentResourcepack.downloadsText,
             initialFollowsText = currentResourcepack.followsText,
             onBack = { selectedResourcepack = null }
+        )
+    } else if (currentRemoteMod != null) {
+        RemoteModInfoScreen(
+            mod = currentRemoteMod,
+            onBack = { selectedRemoteMod = null }
         )
     } else {
         MainColumn {
@@ -172,6 +181,14 @@ fun ResourceScreen(
                             onOpenTaskList = onOpenTaskList,
                             showPaneActions = true,
                             modifier = Modifier.fillMaxSize()
+                        )
+                    }
+
+                    ResourceTab.Mods -> {
+                        RemoteModScreen(
+                            requiredMcVer = requiredMcVer,
+                            modifier = Modifier.fillMaxSize(),
+                            onOpenMod = { selectedRemoteMod = it }
                         )
                     }
 

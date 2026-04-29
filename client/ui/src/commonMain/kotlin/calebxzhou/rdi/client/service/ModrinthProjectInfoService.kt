@@ -3,8 +3,10 @@ package calebxzhou.rdi.client.service
 import calebxzhou.rdi.client.model.ModrinthProjectCategoryVo
 import calebxzhou.rdi.client.model.ModrinthProjectGalleryVo
 import calebxzhou.rdi.client.model.ModrinthProjectInfoVo
+import calebxzhou.rdi.client.model.ModrinthProjectVersionDependencyVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionFileVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
+import calebxzhou.rdi.common.model.ModrinthDependency
 import calebxzhou.rdi.common.model.ModrinthV3GalleryItem
 import calebxzhou.rdi.common.model.ModrinthV3Project
 import calebxzhou.rdi.common.model.ModrinthV3Version
@@ -13,11 +15,33 @@ import calebxzhou.rdi.common.service.ModrinthService
 import kotlin.math.abs
 
 object ModrinthProjectInfoService {
-    suspend fun loadProjectInfo(projectId: String): ModrinthProjectInfoVo {
+    suspend fun loadProjectInfo(
+        projectId: String,
+        mcVersion: String? = null,
+        loader: String? = null
+    ): ModrinthProjectInfoVo {
         val project = ModrinthService.getProjectDetailV3(projectId)
-        val versions = ModrinthService.getVersionsV3(project.versions)
+        val versions = ModrinthService.getProjectVersionsV3(
+            projectIdOrSlug = project.id,
+            gameVersions = mcVersion?.trim()?.takeIf(String::isNotBlank)?.let { listOf(it) } ?: emptyList(),
+            loaders = loader?.trim()?.takeIf(String::isNotBlank)?.let { listOf(it) } ?: emptyList(),
+            includeChangelog = true
+        )
         return project.toModrinthProjectInfoVo(versions)
     }
+
+    suspend fun loadProjectVersions(
+        projectId: String,
+        mcVersion: String? = null,
+        loader: String? = null,
+        includeChangelog: Boolean = true
+    ): List<ModrinthProjectVersionVo> =
+        ModrinthService.getProjectVersionsV3(
+            projectIdOrSlug = projectId,
+            gameVersions = mcVersion?.trim()?.takeIf(String::isNotBlank)?.let { listOf(it) } ?: emptyList(),
+            loaders = loader?.trim()?.takeIf(String::isNotBlank)?.let { listOf(it) } ?: emptyList(),
+            includeChangelog = includeChangelog
+        ).map(ModrinthV3Version::toModrinthProjectVersionVo)
 }
 
 private fun ModrinthV3Project.toModrinthProjectInfoVo(versions: List<ModrinthV3Version>): ModrinthProjectInfoVo {
@@ -26,9 +50,9 @@ private fun ModrinthV3Project.toModrinthProjectInfoVo(versions: List<ModrinthV3V
     return ModrinthProjectInfoVo(
         projectId = id,
         slug = slug,
-        title = name,
-        summary = summary?.takeIf(String::isNotBlank) ?: "暂无简介",
-        description = description?.takeIf(String::isNotBlank) ?: "暂无描述",
+        title = RemoteModLocalization.titleByModrinthSlug(slug, name),
+        summary = RemoteModLocalization.introByModrinthSlug(slug, summary?.takeIf(String::isNotBlank) ?: "暂无简介"),
+        description = RemoteModLocalization.introByModrinthSlug(slug, description?.takeIf(String::isNotBlank) ?: "暂无描述"),
         downloadsText = downloads.toCompactCountText(),
         followsText = followers.toSeparatedCountText(),
         iconUrl = iconUrl,
@@ -58,18 +82,31 @@ private fun ModrinthV3Version.toModrinthProjectVersionVo(): ModrinthProjectVersi
         versionType = versionType,
         loaders = loaders,
         gameVersions = gameVersions,
+        environment = environment,
+        minecraftJavaServer = minecraftJavaServer,
+        dependencies = dependencies.map(ModrinthDependency::toModrinthProjectVersionDependencyVo),
         primaryFile = primaryFile,
         files = mappedFiles
     )
 }
 
+private fun ModrinthDependency.toModrinthProjectVersionDependencyVo(): ModrinthProjectVersionDependencyVo =
+    ModrinthProjectVersionDependencyVo(
+        versionId = versionId,
+        projectId = projectId,
+        dependencyType = dependencyType
+    )
+
 private fun ModrinthV3VersionFile.toModrinthProjectVersionFileVo(): ModrinthProjectVersionFileVo =
     ModrinthProjectVersionFileVo(
+        fileId = id,
         filename = filename,
         url = url,
         size = size,
         sizeText = size?.toFileSizeText() ?: "未知大小",
         sha1 = hashes.sha1,
+        sha512 = hashes.sha512,
+        fileType = fileType,
         primary = primary
 )
 
