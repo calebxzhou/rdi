@@ -3,6 +3,7 @@ import java.nio.file.StandardCopyOption
 import org.gradle.api.tasks.testing.Test
 
 val ktorVersion = "3.4.2"
+val nettyTcNativeVersion = "2.0.76.Final"
 
 plugins {
     application
@@ -36,6 +37,7 @@ dependencies {
     implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
     implementation("io.ktor:ktor-server-sse:$ktorVersion")
     implementation("io.ktor:ktor-server-websockets:$ktorVersion")
+    implementation("io.netty:netty-tcnative-boringssl-static:$nettyTcNativeVersion:linux-x86_64")
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
     implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")

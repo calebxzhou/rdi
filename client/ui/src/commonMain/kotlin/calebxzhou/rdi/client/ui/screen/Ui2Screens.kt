@@ -35,6 +35,7 @@ object Wardrobe
 @Serializable object ModpackUpload
 @Serializable object Login
 @Serializable object Menu
+@Serializable object Mcmod
 @Serializable object Sponsor
 @Serializable data class Register(val msa: Boolean)
 @Serializable object Setting

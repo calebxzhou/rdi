@@ -2161,6 +2161,15 @@ object HostService {
                 }
             }
 
+            "github" -> {
+                if (mod.hash.isBlank()) {
+                    throw RequestError("GitHub Mod ${mod.slug} SHA1不能为空")
+                }
+                if (mod.downloadUrls.none { it.isValidDownloadUrl() }) {
+                    throw RequestError("GitHub Mod ${mod.slug} 缺少有效下载链接")
+                }
+            }
+
             else -> throw RequestError("不支持的Mod平台: ${mod.platform}")
         }
     }

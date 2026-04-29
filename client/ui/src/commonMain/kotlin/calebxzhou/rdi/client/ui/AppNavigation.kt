@@ -160,6 +160,7 @@ fun AppNavigation(
             composable<Menu> {
                 MenuScreen(
                     onOpenResources = { navController.navigate(ResourceRoute(ResourceTab.All.name)) },
+                    onOpenMcmod = { navController.navigate(Mcmod) },
                     onOpenSponsor = { navController.navigate(Sponsor) },
                     onOpenTaskList = { navController.navigate(TaskList()) },
                     onOpenMcConsole = {
@@ -177,6 +178,11 @@ fun AppNavigation(
                             popUpTo(Menu) { inclusive = true }
                         }
                     }
+                )
+            }
+            composable<Mcmod> {
+                McmodScreen(
+                    onBack = { navController.navigateAbsolute(Menu) }
                 )
             }
             composable<Sponsor> {

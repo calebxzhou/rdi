@@ -7,7 +7,7 @@ import java.io.File
 
 @Serializable
 data class Mod(
-    val platform: String,//cf / mr
+    val platform: String,//cf / mr / github
     val projectId: String,
     val slug: String,
     val fileId: String,

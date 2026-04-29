@@ -389,11 +389,13 @@ object ModService {
         if (mods.isEmpty()) return Task2.Group("下载Mod", emptyList())
         val cfMods = mods.filter { it.platform == "cf" }
         val mrMods = mods.filter { it.platform == "mr" }
+        val githubMods = mods.filter { it.platform == "github" }
         return Task2.Sequence(
             title = "下载${mods.size}个Mod",
             children = buildList {
                 add(downloadCFModsTask2(cfMods))
                 add(downloadMRModsTask2(mrMods))
+                add(downloadGithubModsTask2(githubMods))
             }
         )
     }
@@ -410,7 +412,7 @@ object ModService {
                     expectedFingerprint != null && targetPath.murmur2 == expectedFingerprint
                 }
 
-                "mr" -> targetPath.sha1 == expectedHash
+                "mr", "github" -> targetPath.sha1 == expectedHash
                 else -> true
             }
         }.getOrDefault(false)
@@ -461,6 +463,22 @@ object ModService {
             }
         }
         return Task2.Group("下载Modrinth Mod", tasks)
+    }
+
+    fun downloadGithubModsTask2(mods: List<Mod>): Task2 {
+        if (mods.isEmpty()) return Task2.Group("下载GitHub Mod", emptyList())
+        val modsWithUrls = mods.filter { it.downloadUrls.isNotEmpty() }
+        val aggregateProgress = createBatchProgressTracker2(modsWithUrls)
+        val tasks = modsWithUrls.map { mod ->
+            Task2.Leaf("下载 ${mod.slug}") { ctx ->
+                val result = downloadSingleMRMod(mod) { progress ->
+                    ctx.emit(aggregateProgress(mod, progress))
+                }
+                result.getOrElse { throw it }
+                ctx.emit(aggregateProgress(mod, DownloadProgress(1, 1, 0.0)))
+            }
+        }
+        return Task2.Group("下载GitHub Mod", tasks)
     }
 
     private fun createBatchProgressTracker2(mods: List<Mod>): (Mod, DownloadProgress) -> Task2Progress {

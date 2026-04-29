@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -20,6 +22,8 @@ import calebxzhou.rdi.client.ui.comp.PlayerModel
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.util.periodOfDay
 import org.bson.types.ObjectId
+import java.time.LocalDate
+import java.time.temporal.ChronoUnit
 
 /**
  * calebxzhou @ 2026-02-25 17:51
@@ -28,6 +32,7 @@ import org.bson.types.ObjectId
 @Composable
 fun MenuScreen(
     onOpenResources: () -> Unit,
+    onOpenMcmod: () -> Unit,
     onOpenSponsor: () -> Unit,
     onOpenTaskList: () -> Unit,
     onOpenMcConsole: () -> Unit,
@@ -86,6 +91,7 @@ fun MenuScreen(
                         compact = true,
                         showBottomActionsInline = true,
                         onOpenResources = onOpenResources,
+                        onOpenMcmod = onOpenMcmod,
                         onOpenSponsor = onOpenSponsor,
                         onOpenTaskList = onOpenTaskList,
                         onOpenMcConsole = onOpenMcConsole,
@@ -119,6 +125,7 @@ fun MenuScreen(
                         compact = compact,
                         showBottomActionsInline = false,
                         onOpenResources = onOpenResources,
+                        onOpenMcmod = onOpenMcmod,
                         onOpenSponsor = onOpenSponsor,
                         onOpenTaskList = onOpenTaskList,
                         onOpenMcConsole = onOpenMcConsole,
@@ -146,11 +153,21 @@ fun MenuScreen(
                         }
                     }
                 }
-                Box(
+                Column(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
-                        .padding(end = 24.dp, bottom = 24.dp)
+                        .padding(end = 24.dp, bottom = 24.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.End
                 ) {
+                    ImageIconButton(
+                        icon = "mcmod",
+                        tooltip = "MC百科",
+                        bgColor = MaterialColor.TEAL_100.color,
+
+                    ) {
+                        onOpenMcmod()
+                    }
                     CircleIconButton(
                         icon = "\uF004",
                         tooltip = "支持·许愿池",
@@ -193,6 +210,20 @@ private fun MenuAccountSummary(
     onlinePlayerIds: List<ObjectId>,
     modifier: Modifier = Modifier
 ) {
+    val javaMajor = remember { currentPlatformJavaMajor() }
+    val needJava25Warn = isDesktop && javaMajor != 25
+    var showJava25WarnDialog by remember { mutableStateOf(false) }
+    val java25Deadline = remember { LocalDate.of(2026, 5, 10) }
+    val remainingDays = remember {
+        ChronoUnit.DAYS.between(LocalDate.now(), java25Deadline).coerceAtLeast(0)
+    }
+
+    LaunchedEffect(needJava25Warn) {
+        if (needJava25Warn) {
+            showJava25WarnDialog = true
+        }
+    }
+
     Column(
         modifier = modifier,
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -213,9 +244,26 @@ private fun MenuAccountSummary(
                 HeadButton(it, showName = false, avatarSize = 12.dp)
             }
         }
-        if(isDesktop && currentPlatformJavaMajor()!=25){
-            Text("请在2026.5.6之前更新客户端启动脚本以及安装java25 否则届时无法启动 详见群文档")
-        }
+    }
+
+    if (showJava25WarnDialog) {
+        AlertDialog(
+            onDismissRequest = { showJava25WarnDialog = false },
+            title = { Text("需要更新Java和启动脚本") },
+            text = {
+                Text(
+                    "请在${remainingDays}天内进行以下操作：\n" +
+                        "1.安装Java25\n" +
+                        "2.更换新的启动脚本\n\n" +
+                        "超过时限后客户端将永远无法启动，详见群文档。"
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showJava25WarnDialog = false }) {
+                    Text("我知道了")
+                }
+            }
+        )
     }
 }
 
@@ -226,6 +274,7 @@ private fun MenuActionButtons(
     compact: Boolean,
     showBottomActionsInline: Boolean,
     onOpenResources: () -> Unit,
+    onOpenMcmod: () -> Unit,
     onOpenSponsor: () -> Unit,
     onOpenTaskList: () -> Unit,
     onOpenMcConsole: () -> Unit,
@@ -282,6 +331,13 @@ private fun MenuActionButtons(
                 bgColor = MaterialColor.BLUE_800.color
             ) {
                 onOpenTaskList()
+            }
+            ImageIconButton(
+                "mcmod",
+                "MC百科",
+                bgColor = MaterialColor.TEAL_500.color
+            ) {
+                onOpenMcmod()
             }
             CircleIconButton(
                 "\uF004",

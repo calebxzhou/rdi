@@ -156,6 +156,7 @@ fun startServer() {
 
     // Start server with conditional SSL
     embeddedServer(Netty, configure = {
+        enableHttp2 = true
         // HTTP connector
         connector {
             host = "::"
@@ -178,7 +179,7 @@ fun startServer() {
     }.start(wait = true)
 
     if (keyStore != null) {
-        lgr.info { "Server started with HTTP on port ${CONF.server.port} and HTTPS on port ${CONF.server.httpsPort}" }
+        lgr.info { "Server started with HTTP on port ${CONF.server.port} and HTTPS/HTTP2 on port ${CONF.server.httpsPort}" }
     } else {
         lgr.info { "Server started with HTTP only on port ${CONF.server.port}" }
     }
