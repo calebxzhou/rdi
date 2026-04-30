@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
+import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -91,7 +92,7 @@ fun ResourceScreen(
     requiredMcVer: McVersion? = null,
     onBack: (() -> Unit) = {},
     onOpenUpload: (() -> Unit) = {},
-    onOpenInfo: ((String) -> Unit) = {},
+    onOpenModpackVersionEdit: ((String, String) -> Unit)? = null,
     onOpenPlay: ((McPlayArgs) -> Unit)? = null,
     onOpenTaskList: ((String) -> Unit)? = null
 ) {
@@ -100,33 +101,14 @@ fun ResourceScreen(
     var selectedShader by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
     var selectedResourcepack by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
     var selectedRemoteMod by remember { mutableStateOf<RemoteModCardVo?>(null) }
+    var selectedModpackId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     val currentShader = selectedShader
     val currentResourcepack = selectedResourcepack
     val currentRemoteMod = selectedRemoteMod
-    if (currentShader != null) {
-        ShaderInfoScreen(
-            projectId = currentShader.projectId,
-            initialTitle = currentShader.title,
-            initialDownloadsText = currentShader.downloadsText,
-            initialFollowsText = currentShader.followsText,
-            onBack = { selectedShader = null }
-        )
-    } else if (currentResourcepack != null) {
-        ResourcepackInfoScreen(
-            projectId = currentResourcepack.projectId,
-            initialTitle = currentResourcepack.title,
-            initialDownloadsText = currentResourcepack.downloadsText,
-            initialFollowsText = currentResourcepack.followsText,
-            onBack = { selectedResourcepack = null }
-        )
-    } else if (currentRemoteMod != null) {
-        RemoteModInfoScreen(
-            mod = currentRemoteMod,
-            onBack = { selectedRemoteMod = null }
-        )
-    } else {
+    val currentModpackId = selectedModpackId
+    Box(modifier = Modifier.fillMaxSize()) {
         MainColumn {
             uploadErrorText?.let { AlertErr(it) { uploadErrorText = null } }
             TitleRow("资源", onBack) {
@@ -161,7 +143,7 @@ fun ResourceScreen(
                 when (category) {
                     ResourceTab.All -> {
                         RemoteModpackPane(
-                            onOpenInfo = onOpenInfo
+                            onOpenInfo = { selectedModpackId = it }
                         )
                     }
 
@@ -207,6 +189,53 @@ fun ResourceScreen(
                             onOpenShader = { selectedShader = it }
                         )
                     }
+                }
+            }
+        }
+        when {
+            currentShader != null -> {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
+                    ShaderInfoScreen(
+                        projectId = currentShader.projectId,
+                        initialTitle = currentShader.title,
+                        initialDownloadsText = currentShader.downloadsText,
+                        initialFollowsText = currentShader.followsText,
+                        onBack = { selectedShader = null }
+                    )
+                }
+            }
+
+            currentResourcepack != null -> {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
+                    ResourcepackInfoScreen(
+                        projectId = currentResourcepack.projectId,
+                        initialTitle = currentResourcepack.title,
+                        initialDownloadsText = currentResourcepack.downloadsText,
+                        initialFollowsText = currentResourcepack.followsText,
+                        onBack = { selectedResourcepack = null }
+                    )
+                }
+            }
+
+            currentRemoteMod != null -> {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
+                    RemoteModInfoScreen(
+                        mod = currentRemoteMod,
+                        onBack = { selectedRemoteMod = null }
+                    )
+                }
+            }
+
+            currentModpackId != null -> {
+                Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
+                    ModpackInfoScreen(
+                        modpackId = currentModpackId,
+                        onBack = { selectedModpackId = null },
+                        onOpenTaskList = onOpenTaskList,
+                        onOpenVersionEdit = onOpenModpackVersionEdit?.let { openVersionEdit ->
+                            { verName -> openVersionEdit(currentModpackId, verName) }
+                        }
+                    )
                 }
             }
         }

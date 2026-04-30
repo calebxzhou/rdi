@@ -75,6 +75,12 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
             this.host = host
             installHostListeners(host)
             requestedUrl?.let(::ensureWebView)
+            SwingUtilities.invokeLater {
+                if (this.host === host) {
+                    syncControllerPlacement()
+                    requestedUrl?.let(::ensureWebView)
+                }
+            }
         }
     }
 
@@ -198,14 +204,20 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
         if (targetUrl == pendingNavigatedUrl) {
             lastNavigatedUrl = targetUrl
             pendingNavigatedUrl = null
+            syncControllerPlacement()
             currentHost.clearStatus()
             return
         }
-        if (targetUrl == lastNavigatedUrl) return
+        if (targetUrl == lastNavigatedUrl) {
+            syncControllerPlacement()
+            currentHost.clearStatus()
+            return
+        }
         val hr = WinNT.HRESULT(bridge.rdi_webview2_navigate(handle, WString(targetUrl)))
         if (COMUtils.SUCCEEDED(hr)) {
             lastNavigatedUrl = targetUrl
             pendingNavigatedUrl = null
+            syncControllerPlacement()
             currentHost.clearStatus()
         } else {
             currentHost.showStatus(
@@ -249,6 +261,12 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
         bridge.rdi_webview2_set_visible(handle, if (visible) 1 else 0)
     }
 
+    private fun syncControllerPlacement() {
+        val nativeHost = host?.nativeHost() ?: return
+        updateControllerBounds()
+        setVisible(nativeHost.isShowing)
+    }
+
     private fun installHostListeners(host: DesktopWebViewHostPanel) {
         val nativeHost = host.nativeHost()
         hostComponentListener = object : ComponentAdapter() {
@@ -261,6 +279,7 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
             }
 
             override fun componentShown(e: ComponentEvent?) {
+                updateControllerBounds()
                 setVisible(true)
                 requestedUrl?.let(::ensureWebView)
             }
@@ -304,6 +323,7 @@ internal class DesktopJnaWebView2Backend : DesktopEmbeddedWebViewBackend {
                 }
 
                 WebView2BridgeState.READY.value -> {
+                    syncControllerPlacement()
                     currentHost.clearStatus()
                     requestedUrl?.let(::navigateIfNeeded)
                     stopPollingState()

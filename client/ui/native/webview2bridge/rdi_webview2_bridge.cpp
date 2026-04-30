@@ -57,6 +57,18 @@ static const IID IID_ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler 
 static const IID IID_ICoreWebView2CreateCoreWebView2ControllerCompletedHandler =
     {0x6c4819f3, 0xc9b7, 0x4260, {0x81, 0x27, 0xc9, 0xf5, 0xbd, 0xe7, 0xf6, 0x8c}};
 
+// {9E8F0CF8-E670-4B5E-B2BC-73E061E3184C}
+static const IID IID_ICoreWebView2_2 =
+    {0x9e8f0cf8, 0xe670, 0x4b5e, {0xb2, 0xbc, 0x73, 0xe0, 0x61, 0xe3, 0x18, 0x4c}};
+
+// {D33A35BF-1C49-4F98-93AB-006E0533FE1C}
+static const IID IID_ICoreWebView2NavigationCompletedEventHandler =
+    {0xd33a35bf, 0x1c49, 0x4f98, {0x93, 0xab, 0x00, 0x6e, 0x05, 0x33, 0xfe, 0x1c}};
+
+// {5A4F5069-5C15-47C3-8646-F4DE1C116670}
+static const IID IID_ICoreWebView2GetCookiesCompletedHandler =
+    {0x5a4f5069, 0x5c15, 0x47c3, {0x86, 0x46, 0xf4, 0xde, 0x1c, 0x11, 0x66, 0x70}};
+
 enum RdiWebView2State : int {
     RDI_WEBVIEW2_STATE_IDLE = 0,
     RDI_WEBVIEW2_STATE_CREATING_ENVIRONMENT = 1,
@@ -109,11 +121,17 @@ struct EventRegistrationToken {
 };
 
 struct ICoreWebView2;
+struct ICoreWebView2_2;
 struct ICoreWebView2Controller;
 struct ICoreWebView2Environment;
+struct ICoreWebView2Cookie;
+struct ICoreWebView2CookieList;
+struct ICoreWebView2CookieManager;
 
 struct ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler;
 struct ICoreWebView2CreateCoreWebView2ControllerCompletedHandler;
+struct ICoreWebView2NavigationCompletedEventHandler;
+struct ICoreWebView2GetCookiesCompletedHandler;
 
 struct ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandlerVtbl {
     HRESULT(STDMETHODCALLTYPE* QueryInterface)(
@@ -159,6 +177,52 @@ struct ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl {
 
 struct ICoreWebView2CreateCoreWebView2ControllerCompletedHandler {
     const ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl* lpVtbl;
+};
+
+struct ICoreWebView2NavigationCompletedEventHandlerVtbl {
+    HRESULT(STDMETHODCALLTYPE* QueryInterface)(
+        ICoreWebView2NavigationCompletedEventHandler* self,
+        REFIID riid,
+        void** object
+    );
+    ULONG(STDMETHODCALLTYPE* AddRef)(
+        ICoreWebView2NavigationCompletedEventHandler* self
+    );
+    ULONG(STDMETHODCALLTYPE* Release)(
+        ICoreWebView2NavigationCompletedEventHandler* self
+    );
+    HRESULT(STDMETHODCALLTYPE* Invoke)(
+        ICoreWebView2NavigationCompletedEventHandler* self,
+        ICoreWebView2* sender,
+        IUnknown* args
+    );
+};
+
+struct ICoreWebView2NavigationCompletedEventHandler {
+    const ICoreWebView2NavigationCompletedEventHandlerVtbl* lpVtbl;
+};
+
+struct ICoreWebView2GetCookiesCompletedHandlerVtbl {
+    HRESULT(STDMETHODCALLTYPE* QueryInterface)(
+        ICoreWebView2GetCookiesCompletedHandler* self,
+        REFIID riid,
+        void** object
+    );
+    ULONG(STDMETHODCALLTYPE* AddRef)(
+        ICoreWebView2GetCookiesCompletedHandler* self
+    );
+    ULONG(STDMETHODCALLTYPE* Release)(
+        ICoreWebView2GetCookiesCompletedHandler* self
+    );
+    HRESULT(STDMETHODCALLTYPE* Invoke)(
+        ICoreWebView2GetCookiesCompletedHandler* self,
+        HRESULT errorCode,
+        ICoreWebView2CookieList* cookieList
+    );
+};
+
+struct ICoreWebView2GetCookiesCompletedHandler {
+    const ICoreWebView2GetCookiesCompletedHandlerVtbl* lpVtbl;
 };
 
 struct ICoreWebView2EnvironmentVtbl {
@@ -277,6 +341,85 @@ struct ICoreWebView2 {
     const ICoreWebView2Vtbl* lpVtbl;
 };
 
+struct ICoreWebView2_2Vtbl {
+    ICoreWebView2Vtbl base;
+    void* add_WebResourceResponseReceived;
+    void* remove_WebResourceResponseReceived;
+    HRESULT(STDMETHODCALLTYPE* NavigateWithWebResourceRequest)(ICoreWebView2_2* self, IUnknown* request);
+    HRESULT(STDMETHODCALLTYPE* add_DOMContentLoaded)(ICoreWebView2_2* self, IUnknown* eventHandler, EventRegistrationToken* token);
+    HRESULT(STDMETHODCALLTYPE* remove_DOMContentLoaded)(ICoreWebView2_2* self, EventRegistrationToken token);
+    HRESULT(STDMETHODCALLTYPE* get_CookieManager)(ICoreWebView2_2* self, ICoreWebView2CookieManager** cookieManager);
+};
+
+struct ICoreWebView2_2 {
+    const ICoreWebView2_2Vtbl* lpVtbl;
+};
+
+struct ICoreWebView2CookieVtbl {
+    HRESULT(STDMETHODCALLTYPE* QueryInterface)(ICoreWebView2Cookie* self, REFIID riid, void** object);
+    ULONG(STDMETHODCALLTYPE* AddRef)(ICoreWebView2Cookie* self);
+    ULONG(STDMETHODCALLTYPE* Release)(ICoreWebView2Cookie* self);
+    HRESULT(STDMETHODCALLTYPE* get_Name)(ICoreWebView2Cookie* self, LPWSTR* name);
+    HRESULT(STDMETHODCALLTYPE* get_Value)(ICoreWebView2Cookie* self, LPWSTR* value);
+    HRESULT(STDMETHODCALLTYPE* put_Value)(ICoreWebView2Cookie* self, LPCWSTR value);
+    HRESULT(STDMETHODCALLTYPE* get_Domain)(ICoreWebView2Cookie* self, LPWSTR* domain);
+    HRESULT(STDMETHODCALLTYPE* get_Path)(ICoreWebView2Cookie* self, LPWSTR* path);
+    HRESULT(STDMETHODCALLTYPE* get_Expires)(ICoreWebView2Cookie* self, double* expires);
+    HRESULT(STDMETHODCALLTYPE* put_Expires)(ICoreWebView2Cookie* self, double expires);
+    HRESULT(STDMETHODCALLTYPE* get_IsHttpOnly)(ICoreWebView2Cookie* self, BOOL* isHttpOnly);
+    HRESULT(STDMETHODCALLTYPE* put_IsHttpOnly)(ICoreWebView2Cookie* self, BOOL isHttpOnly);
+    HRESULT(STDMETHODCALLTYPE* get_SameSite)(ICoreWebView2Cookie* self, INT32* sameSite);
+    HRESULT(STDMETHODCALLTYPE* put_SameSite)(ICoreWebView2Cookie* self, INT32 sameSite);
+    HRESULT(STDMETHODCALLTYPE* get_IsSecure)(ICoreWebView2Cookie* self, BOOL* isSecure);
+    HRESULT(STDMETHODCALLTYPE* put_IsSecure)(ICoreWebView2Cookie* self, BOOL isSecure);
+    HRESULT(STDMETHODCALLTYPE* get_IsSession)(ICoreWebView2Cookie* self, BOOL* isSession);
+};
+
+struct ICoreWebView2Cookie {
+    const ICoreWebView2CookieVtbl* lpVtbl;
+};
+
+struct ICoreWebView2CookieListVtbl {
+    HRESULT(STDMETHODCALLTYPE* QueryInterface)(ICoreWebView2CookieList* self, REFIID riid, void** object);
+    ULONG(STDMETHODCALLTYPE* AddRef)(ICoreWebView2CookieList* self);
+    ULONG(STDMETHODCALLTYPE* Release)(ICoreWebView2CookieList* self);
+    HRESULT(STDMETHODCALLTYPE* get_Count)(ICoreWebView2CookieList* self, UINT* count);
+    HRESULT(STDMETHODCALLTYPE* GetValueAtIndex)(ICoreWebView2CookieList* self, UINT index, ICoreWebView2Cookie** cookie);
+};
+
+struct ICoreWebView2CookieList {
+    const ICoreWebView2CookieListVtbl* lpVtbl;
+};
+
+struct ICoreWebView2CookieManagerVtbl {
+    HRESULT(STDMETHODCALLTYPE* QueryInterface)(ICoreWebView2CookieManager* self, REFIID riid, void** object);
+    ULONG(STDMETHODCALLTYPE* AddRef)(ICoreWebView2CookieManager* self);
+    ULONG(STDMETHODCALLTYPE* Release)(ICoreWebView2CookieManager* self);
+    HRESULT(STDMETHODCALLTYPE* CreateCookie)(ICoreWebView2CookieManager* self, LPCWSTR name, LPCWSTR value, LPCWSTR domain, LPCWSTR path, ICoreWebView2Cookie** cookie);
+    HRESULT(STDMETHODCALLTYPE* CopyCookie)(ICoreWebView2CookieManager* self, ICoreWebView2Cookie* cookieParam, ICoreWebView2Cookie** cookie);
+    HRESULT(STDMETHODCALLTYPE* GetCookies)(ICoreWebView2CookieManager* self, LPCWSTR uri, ICoreWebView2GetCookiesCompletedHandler* handler);
+    HRESULT(STDMETHODCALLTYPE* AddOrUpdateCookie)(ICoreWebView2CookieManager* self, ICoreWebView2Cookie* cookie);
+    HRESULT(STDMETHODCALLTYPE* DeleteCookie)(ICoreWebView2CookieManager* self, ICoreWebView2Cookie* cookie);
+    HRESULT(STDMETHODCALLTYPE* DeleteCookies)(ICoreWebView2CookieManager* self, LPCWSTR name, LPCWSTR uri);
+    HRESULT(STDMETHODCALLTYPE* DeleteCookiesWithDomainAndPath)(ICoreWebView2CookieManager* self, LPCWSTR name, LPCWSTR domain, LPCWSTR path);
+    HRESULT(STDMETHODCALLTYPE* DeleteAllCookies)(ICoreWebView2CookieManager* self);
+};
+
+struct ICoreWebView2CookieManager {
+    const ICoreWebView2CookieManagerVtbl* lpVtbl;
+};
+
+using AddNavigationCompletedFn = HRESULT(STDMETHODCALLTYPE*)(
+    ICoreWebView2* self,
+    ICoreWebView2NavigationCompletedEventHandler* eventHandler,
+    EventRegistrationToken* token
+);
+using RemoveNavigationCompletedFn = HRESULT(STDMETHODCALLTYPE*)(
+    ICoreWebView2* self,
+    EventRegistrationToken token
+);
+using ReloadFn = HRESULT(STDMETHODCALLTYPE*)(ICoreWebView2* self);
+
 using CreateEnvironmentWithOptionsFn = HRESULT(STDAPICALLTYPE*)(
     PCWSTR browserExecutableFolder,
     PCWSTR userDataFolder,
@@ -314,6 +457,30 @@ std::wstring format_hresult(HRESULT hr) {
         return hex;
     }
     return message + L" (" + hex + L")";
+}
+
+bool should_bridge_mcmod_cookie(const std::wstring& name) {
+    return
+        name == L"MCMOD_SEED" ||
+        name == L"yxd_token" ||
+        name == L"method" ||
+        name == L"redirect" ||
+        name == L"ray" ||
+        name == L"Example_auth" ||
+        name == L"_uuid";
+}
+
+bool is_mcmod_url(const std::wstring& url) {
+    return url.find(L"mcmod.cn") != std::wstring::npos;
+}
+
+std::wstring take_com_string(LPWSTR value) {
+    if (value == nullptr) {
+        return {};
+    }
+    std::wstring result(value);
+    CoTaskMemFree(value);
+    return result;
 }
 
 struct RdiWebView2Instance;
@@ -361,6 +528,51 @@ static const ICoreWebView2CreateCoreWebView2ControllerCompletedHandlerVtbl s_CCt
     CCtrlHandler_Invoke
 };
 
+// =====================================================
+// C-style COM handler for NavigationCompleted callback
+// =====================================================
+struct CNavigationCompletedHandler {
+    const ICoreWebView2NavigationCompletedEventHandlerVtbl* lpVtbl;
+    LONG refCount;
+    RdiWebView2Instance* owner;
+};
+
+static HRESULT STDMETHODCALLTYPE CNavigationCompletedHandler_QueryInterface(ICoreWebView2NavigationCompletedEventHandler* self, REFIID riid, void** ppv);
+static ULONG STDMETHODCALLTYPE CNavigationCompletedHandler_AddRef(ICoreWebView2NavigationCompletedEventHandler* self);
+static ULONG STDMETHODCALLTYPE CNavigationCompletedHandler_Release(ICoreWebView2NavigationCompletedEventHandler* self);
+static HRESULT STDMETHODCALLTYPE CNavigationCompletedHandler_Invoke(ICoreWebView2NavigationCompletedEventHandler* self, ICoreWebView2* sender, IUnknown* args);
+
+static const ICoreWebView2NavigationCompletedEventHandlerVtbl s_CNavigationCompletedHandler_Vtbl = {
+    CNavigationCompletedHandler_QueryInterface,
+    CNavigationCompletedHandler_AddRef,
+    CNavigationCompletedHandler_Release,
+    CNavigationCompletedHandler_Invoke
+};
+
+// =====================================================
+// C-style COM handler for GetCookies callback
+// =====================================================
+struct CGetCookiesHandler {
+    const ICoreWebView2GetCookiesCompletedHandlerVtbl* lpVtbl;
+    LONG refCount;
+    RdiWebView2Instance* owner;
+    ICoreWebView2CookieManager* cookieManager;
+    ICoreWebView2* webView;
+    BOOL mayReload;
+};
+
+static HRESULT STDMETHODCALLTYPE CGetCookiesHandler_QueryInterface(ICoreWebView2GetCookiesCompletedHandler* self, REFIID riid, void** ppv);
+static ULONG STDMETHODCALLTYPE CGetCookiesHandler_AddRef(ICoreWebView2GetCookiesCompletedHandler* self);
+static ULONG STDMETHODCALLTYPE CGetCookiesHandler_Release(ICoreWebView2GetCookiesCompletedHandler* self);
+static HRESULT STDMETHODCALLTYPE CGetCookiesHandler_Invoke(ICoreWebView2GetCookiesCompletedHandler* self, HRESULT errorCode, ICoreWebView2CookieList* cookieList);
+
+static const ICoreWebView2GetCookiesCompletedHandlerVtbl s_CGetCookiesHandler_Vtbl = {
+    CGetCookiesHandler_QueryInterface,
+    CGetCookiesHandler_AddRef,
+    CGetCookiesHandler_Release,
+    CGetCookiesHandler_Invoke
+};
+
 struct RdiWebView2Instance {
     std::atomic<ULONG> refCount{1};
     std::mutex mutex;
@@ -381,6 +593,11 @@ struct RdiWebView2Instance {
     ICoreWebView2* webView = nullptr;
     CEnvHandler* pendingEnvironmentHandler = nullptr;
     CCtrlHandler* pendingControllerHandler = nullptr;
+    CNavigationCompletedHandler* navigationCompletedHandler = nullptr;
+    EventRegistrationToken navigationCompletedToken{0};
+    bool navigationCompletedRegistered = false;
+    bool mcmodCookieBridgeReloaded = false;
+    bool mcmodCookieBridgeInProgress = false;
     HANDLE uiThreadHandle = nullptr;
     HANDLE uiThreadReadyEvent = nullptr;
     DWORD uiThreadId = 0;
@@ -836,6 +1053,132 @@ struct RdiWebView2Instance {
         return hr;
     }
 
+    HRESULT install_mcmod_cookie_bridge(ICoreWebView2* webViewRef) {
+        if (webViewRef == nullptr || navigationCompletedRegistered) {
+            return S_OK;
+        }
+        auto addNavigationCompleted = reinterpret_cast<AddNavigationCompletedFn>(
+            webViewRef->lpVtbl->add_NavigationCompleted
+        );
+        if (addNavigationCompleted == nullptr) {
+            return E_NOTIMPL;
+        }
+        auto* handler = new CNavigationCompletedHandler();
+        handler->lpVtbl = &s_CNavigationCompletedHandler_Vtbl;
+        handler->refCount = 1;
+        handler->owner = this;
+        AddRef();
+        EventRegistrationToken token{0};
+        const HRESULT hr = addNavigationCompleted(
+            webViewRef,
+            reinterpret_cast<ICoreWebView2NavigationCompletedEventHandler*>(handler),
+            &token
+        );
+        dbg("install_mcmod_cookie_bridge: add_NavigationCompleted hr=0x%08X", static_cast<unsigned>(hr));
+        if (FAILED(hr)) {
+            CNavigationCompletedHandler_Release(reinterpret_cast<ICoreWebView2NavigationCompletedEventHandler*>(handler));
+            return hr;
+        }
+        navigationCompletedHandler = handler;
+        navigationCompletedToken = token;
+        navigationCompletedRegistered = true;
+        return S_OK;
+    }
+
+    void on_navigation_completed(ICoreWebView2* sender) {
+        if (sender == nullptr) {
+            return;
+        }
+        LPWSTR sourceRaw = nullptr;
+        std::wstring source;
+        if (SUCCEEDED(sender->lpVtbl->get_Source(sender, &sourceRaw))) {
+            source = take_com_string(sourceRaw);
+        }
+        if (!is_mcmod_url(source)) {
+            return;
+        }
+        sync_mcmod_cookies(sender);
+    }
+
+    void sync_mcmod_cookies(ICoreWebView2* sender) {
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            if (closed || mcmodCookieBridgeInProgress) {
+                return;
+            }
+            mcmodCookieBridgeInProgress = true;
+        }
+
+        ICoreWebView2_2* webView2 = nullptr;
+        const HRESULT qHr = sender->lpVtbl->QueryInterface(
+            sender,
+            IID_ICoreWebView2_2,
+            reinterpret_cast<void**>(&webView2)
+        );
+        if (FAILED(qHr) || webView2 == nullptr) {
+            dbg("sync_mcmod_cookies: QI ICoreWebView2_2 failed 0x%08X", static_cast<unsigned>(qHr));
+            std::lock_guard<std::mutex> lock(mutex);
+            mcmodCookieBridgeInProgress = false;
+            return;
+        }
+
+        ICoreWebView2CookieManager* cookieManager = nullptr;
+        const HRESULT managerHr = webView2->lpVtbl->get_CookieManager(webView2, &cookieManager);
+        webView2->lpVtbl->base.Release(reinterpret_cast<ICoreWebView2*>(webView2));
+        if (FAILED(managerHr) || cookieManager == nullptr) {
+            dbg("sync_mcmod_cookies: get_CookieManager failed 0x%08X", static_cast<unsigned>(managerHr));
+            std::lock_guard<std::mutex> lock(mutex);
+            mcmodCookieBridgeInProgress = false;
+            return;
+        }
+
+        auto* handler = new CGetCookiesHandler();
+        handler->lpVtbl = &s_CGetCookiesHandler_Vtbl;
+        handler->refCount = 1;
+        handler->owner = this;
+        handler->cookieManager = cookieManager;
+        handler->webView = sender;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            handler->mayReload = !mcmodCookieBridgeReloaded ? TRUE : FALSE;
+        }
+        AddRef();
+        cookieManager->lpVtbl->AddRef(cookieManager);
+        sender->lpVtbl->AddRef(sender);
+
+        const HRESULT cookiesHr = cookieManager->lpVtbl->GetCookies(
+            cookieManager,
+            L"https://play.mcmod.cn/",
+            reinterpret_cast<ICoreWebView2GetCookiesCompletedHandler*>(handler)
+        );
+        dbg("sync_mcmod_cookies: GetCookies hr=0x%08X", static_cast<unsigned>(cookiesHr));
+        cookieManager->lpVtbl->Release(cookieManager);
+        if (FAILED(cookiesHr)) {
+            CGetCookiesHandler_Release(reinterpret_cast<ICoreWebView2GetCookiesCompletedHandler*>(handler));
+            std::lock_guard<std::mutex> lock(mutex);
+            mcmodCookieBridgeInProgress = false;
+        }
+    }
+
+    void on_mcmod_cookies_synced(bool copiedAny, bool mayReload, ICoreWebView2* targetWebView) {
+        bool shouldReload = false;
+        {
+            std::lock_guard<std::mutex> lock(mutex);
+            mcmodCookieBridgeInProgress = false;
+            if (copiedAny && mayReload && !mcmodCookieBridgeReloaded) {
+                mcmodCookieBridgeReloaded = true;
+                shouldReload = true;
+            }
+        }
+        if (shouldReload && targetWebView != nullptr) {
+            auto reload = reinterpret_cast<ReloadFn>(targetWebView->lpVtbl->Reload);
+            if (reload != nullptr) {
+                const HRESULT reloadHr = reload(targetWebView);
+                dbg("on_mcmod_cookies_synced: Reload hr=0x%08X", static_cast<unsigned>(reloadHr));
+            }
+        }
+    }
+
     HRESULT notify_parent_window_position_changed() {
         RdiWebView2Task task;
         task.type = RdiWebView2TaskType::NotifyParentWindowPositionChanged;
@@ -1077,6 +1420,7 @@ struct RdiWebView2Instance {
             set_error_locked(L"初始化WebView2控制器失败", FAILED(boundsHr) ? boundsHr : visibleHr, nullptr);
             return;
         }
+        install_mcmod_cookie_bridge(createdWebView);
         if (!pendingUrlCopy.empty()) {
             const HRESULT navigateHr = createdWebView->lpVtbl->Navigate(createdWebView, pendingUrlCopy.c_str());
             dbg(
@@ -1188,6 +1532,22 @@ private:
     }
 
     void cleanup_locked() {
+        if (webView != nullptr && navigationCompletedRegistered) {
+            auto removeNavigationCompleted = reinterpret_cast<RemoveNavigationCompletedFn>(
+                webView->lpVtbl->remove_NavigationCompleted
+            );
+            if (removeNavigationCompleted != nullptr) {
+                removeNavigationCompleted(webView, navigationCompletedToken);
+            }
+            navigationCompletedRegistered = false;
+            navigationCompletedToken = EventRegistrationToken{0};
+        }
+        if (navigationCompletedHandler != nullptr) {
+            CNavigationCompletedHandler_Release(reinterpret_cast<ICoreWebView2NavigationCompletedEventHandler*>(navigationCompletedHandler));
+            navigationCompletedHandler = nullptr;
+        }
+        mcmodCookieBridgeInProgress = false;
+        mcmodCookieBridgeReloaded = false;
         if (webView != nullptr) {
             webView->lpVtbl->Release(webView);
             webView = nullptr;
@@ -1346,6 +1706,143 @@ static HRESULT STDMETHODCALLTYPE CCtrlHandler_Invoke(ICoreWebView2CreateCoreWebV
         handler->owner->on_controller_created(errorCode, ctrl);
     }
     CCtrlHandler_Release(self);
+    return S_OK;
+}
+
+// =====================================================
+// CNavigationCompletedHandler COM method implementations
+// =====================================================
+static HRESULT STDMETHODCALLTYPE CNavigationCompletedHandler_QueryInterface(ICoreWebView2NavigationCompletedEventHandler* self, REFIID riid, void** ppv) {
+    if (ppv == nullptr) return E_POINTER;
+    if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ICoreWebView2NavigationCompletedEventHandler)) {
+        *ppv = self;
+        CNavigationCompletedHandler_AddRef(self);
+        return S_OK;
+    }
+    *ppv = nullptr;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE CNavigationCompletedHandler_AddRef(ICoreWebView2NavigationCompletedEventHandler* self) {
+    auto* handler = reinterpret_cast<CNavigationCompletedHandler*>(self);
+    return static_cast<ULONG>(InterlockedIncrement(reinterpret_cast<volatile LONG*>(&handler->refCount)));
+}
+
+static ULONG STDMETHODCALLTYPE CNavigationCompletedHandler_Release(ICoreWebView2NavigationCompletedEventHandler* self) {
+    auto* handler = reinterpret_cast<CNavigationCompletedHandler*>(self);
+    const LONG remaining = InterlockedDecrement(reinterpret_cast<volatile LONG*>(&handler->refCount));
+    if (remaining == 0) {
+        if (handler->owner) {
+            handler->owner->Release();
+        }
+        delete handler;
+    }
+    return remaining;
+}
+
+static HRESULT STDMETHODCALLTYPE CNavigationCompletedHandler_Invoke(ICoreWebView2NavigationCompletedEventHandler* self, ICoreWebView2* sender, IUnknown* args) {
+    auto* handler = reinterpret_cast<CNavigationCompletedHandler*>(self);
+    if (handler->owner) {
+        handler->owner->on_navigation_completed(sender);
+    }
+    return S_OK;
+}
+
+// =====================================================
+// CGetCookiesHandler COM method implementations
+// =====================================================
+static HRESULT STDMETHODCALLTYPE CGetCookiesHandler_QueryInterface(ICoreWebView2GetCookiesCompletedHandler* self, REFIID riid, void** ppv) {
+    if (ppv == nullptr) return E_POINTER;
+    if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ICoreWebView2GetCookiesCompletedHandler)) {
+        *ppv = self;
+        CGetCookiesHandler_AddRef(self);
+        return S_OK;
+    }
+    *ppv = nullptr;
+    return E_NOINTERFACE;
+}
+
+static ULONG STDMETHODCALLTYPE CGetCookiesHandler_AddRef(ICoreWebView2GetCookiesCompletedHandler* self) {
+    auto* handler = reinterpret_cast<CGetCookiesHandler*>(self);
+    return static_cast<ULONG>(InterlockedIncrement(reinterpret_cast<volatile LONG*>(&handler->refCount)));
+}
+
+static ULONG STDMETHODCALLTYPE CGetCookiesHandler_Release(ICoreWebView2GetCookiesCompletedHandler* self) {
+    auto* handler = reinterpret_cast<CGetCookiesHandler*>(self);
+    const LONG remaining = InterlockedDecrement(reinterpret_cast<volatile LONG*>(&handler->refCount));
+    if (remaining == 0) {
+        if (handler->cookieManager) {
+            handler->cookieManager->lpVtbl->Release(handler->cookieManager);
+        }
+        if (handler->webView) {
+            handler->webView->lpVtbl->Release(handler->webView);
+        }
+        if (handler->owner) {
+            handler->owner->Release();
+        }
+        delete handler;
+    }
+    return remaining;
+}
+
+static HRESULT STDMETHODCALLTYPE CGetCookiesHandler_Invoke(ICoreWebView2GetCookiesCompletedHandler* self, HRESULT errorCode, ICoreWebView2CookieList* cookieList) {
+    auto* handler = reinterpret_cast<CGetCookiesHandler*>(self);
+    bool copiedAny = false;
+    if (SUCCEEDED(errorCode) && cookieList != nullptr && handler->cookieManager != nullptr) {
+        UINT count = 0;
+        if (SUCCEEDED(cookieList->lpVtbl->get_Count(cookieList, &count))) {
+            for (UINT i = 0; i < count; ++i) {
+                ICoreWebView2Cookie* sourceCookie = nullptr;
+                if (FAILED(cookieList->lpVtbl->GetValueAtIndex(cookieList, i, &sourceCookie)) || sourceCookie == nullptr) {
+                    continue;
+                }
+                LPWSTR nameRaw = nullptr;
+                LPWSTR valueRaw = nullptr;
+                const HRESULT nameHr = sourceCookie->lpVtbl->get_Name(sourceCookie, &nameRaw);
+                const HRESULT valueHr = sourceCookie->lpVtbl->get_Value(sourceCookie, &valueRaw);
+                std::wstring name = SUCCEEDED(nameHr) ? take_com_string(nameRaw) : std::wstring();
+                std::wstring value = SUCCEEDED(valueHr) ? take_com_string(valueRaw) : std::wstring();
+                if (should_bridge_mcmod_cookie(name) && !value.empty()) {
+                    ICoreWebView2Cookie* bridgedCookie = nullptr;
+                    const HRESULT createHr = handler->cookieManager->lpVtbl->CreateCookie(
+                        handler->cookieManager,
+                        name.c_str(),
+                        value.c_str(),
+                        L".mcmod.cn",
+                        L"/",
+                        &bridgedCookie
+                    );
+                    if (SUCCEEDED(createHr) && bridgedCookie != nullptr) {
+                        BOOL isHttpOnly = FALSE;
+                        if (SUCCEEDED(sourceCookie->lpVtbl->get_IsHttpOnly(sourceCookie, &isHttpOnly))) {
+                            bridgedCookie->lpVtbl->put_IsHttpOnly(bridgedCookie, isHttpOnly);
+                        }
+                        bridgedCookie->lpVtbl->put_IsSecure(bridgedCookie, TRUE);
+                        const HRESULT addHr = handler->cookieManager->lpVtbl->AddOrUpdateCookie(
+                            handler->cookieManager,
+                            bridgedCookie
+                        );
+                        dbg(
+                            "CGetCookiesHandler_Invoke: bridge cookie %ls hr=0x%08X",
+                            name.c_str(),
+                            static_cast<unsigned>(addHr)
+                        );
+                        if (SUCCEEDED(addHr)) {
+                            copiedAny = true;
+                        }
+                        bridgedCookie->lpVtbl->Release(bridgedCookie);
+                    }
+                }
+                sourceCookie->lpVtbl->Release(sourceCookie);
+            }
+        }
+    } else {
+        dbg("CGetCookiesHandler_Invoke: GetCookies failed 0x%08X", static_cast<unsigned>(errorCode));
+    }
+    if (handler->owner) {
+        handler->owner->on_mcmod_cookies_synced(copiedAny, handler->mayReload == TRUE, handler->webView);
+    }
+    CGetCookiesHandler_Release(self);
     return S_OK;
 }
 

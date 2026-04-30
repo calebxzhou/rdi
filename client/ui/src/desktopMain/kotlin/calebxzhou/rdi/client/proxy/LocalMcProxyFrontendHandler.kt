@@ -11,8 +11,10 @@ import io.netty.channel.EventLoopGroup
 import io.netty.channel.socket.nio.NioSocketChannel
 import io.netty.util.ReferenceCountUtil
 
-class LocalMcProxyFrontendHandler(
-    private val backendGroup: EventLoopGroup
+internal class LocalMcProxyFrontendHandler(
+    private val backendGroup: EventLoopGroup,
+    private val resolveEndpoint: () -> ProxyEndpoint,
+    private val reportLog: (String) -> Unit
 ) : ChannelInboundHandlerAdapter() {
     private var backendChannel: Channel? = null
     private val pendingBuffer = mutableListOf<Any>()
@@ -21,11 +23,11 @@ class LocalMcProxyFrontendHandler(
     override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
         if (!firstMinecraftFrameHandled) {
             firstMinecraftFrameHandled = true
-            val endpoint = LocalMcProxy.currentEndpointFromCarrier()
+            val endpoint = resolveEndpoint()
             connectToBackend(ctx, endpoint)
             forwardToBackend(ctx, msg)
             ctx.pipeline().remove(MinecraftFrameDecoder::class.java)
-            LocalMcProxy.reportLog(
+            reportLog(
                 "bridge ${ctx.channel().remoteAddress()} -> ${endpoint.host}:${endpoint.port}"
             )
             return
@@ -41,7 +43,7 @@ class LocalMcProxyFrontendHandler(
     }
 
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
-        LocalMcProxy.reportLog("frontend exception: ${cause.message ?: cause.javaClass.simpleName}")
+        reportLog("frontend exception: ${cause.message ?: cause.javaClass.simpleName}")
         closeOnFlush(ctx.channel())
     }
 
@@ -60,7 +62,7 @@ class LocalMcProxyFrontendHandler(
             .option(ChannelOption.AUTO_READ, true)
             .option(ChannelOption.TCP_NODELAY, true)
             .option(ChannelOption.SO_KEEPALIVE, true)
-            .handler(LocalMcProxyBackendHandler(frontendChannel))
+            .handler(LocalMcProxyBackendHandler(frontendChannel, reportLog))
 
         val future = bootstrap.connect(endpoint.host, endpoint.port)
         backendChannel = future.channel()
@@ -77,7 +79,7 @@ class LocalMcProxyFrontendHandler(
             if (connectFuture.isSuccess) {
                 flushPendingBuffer(ctx)
             } else {
-                LocalMcProxy.reportLog(
+                reportLog(
                     "backend connect failed ${endpoint.host}:${endpoint.port}: ${connectFuture.cause()?.message ?: "unknown"}"
                 )
                 releasePendingBuffer()
@@ -96,7 +98,7 @@ class LocalMcProxyFrontendHandler(
         if (backendChannel?.isActive == true) {
             backendChannel?.writeAndFlush(msg)?.addListener { future ->
                 if (!future.isSuccess) {
-                    LocalMcProxy.reportLog(
+                    reportLog(
                         "backend write failed: ${future.cause()?.message ?: "unknown"}"
                     )
                     frontendChannel.close()
@@ -123,7 +125,7 @@ class LocalMcProxyFrontendHandler(
         if (compositeBuf.isReadable) {
             backendChannel?.writeAndFlush(compositeBuf)?.addListener { future ->
                 if (!future.isSuccess) {
-                    LocalMcProxy.reportLog(
+                    reportLog(
                         "backend write failed: ${future.cause()?.message ?: "unknown"}"
                     )
                     ctx.channel().close()

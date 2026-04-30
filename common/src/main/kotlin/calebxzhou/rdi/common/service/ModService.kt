@@ -23,6 +23,12 @@ import kotlin.io.path.exists
 object ModService {
     var preferMirror = true
     val briefInfo: List<ModBriefInfo> by lazy { loadBriefInfo() }
+    private val nameSearchIgnoredChars = setOf(
+        ' ', '\t', '\r', '\n',
+        '[', ']', '【', '】', '(', ')', '（', '）',
+        '{', '}', '<', '>', '《', '》', '「', '」', '『', '』',
+        ':', '：', '-', '_'
+    )
     const val NEOFORGE_CONFIG_PATH = "META-INF/neoforge.mods.toml"
     const val FABRIC_CONFIG_PATH = "fabric.mod.json"
     const val FORGE_CONFIG_PATH = "META-INF/mods.toml"
@@ -33,6 +39,94 @@ object ModService {
 
     val downloadedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
     var installedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
+
+    fun resolveModrinthSlugsByChineseName(query: String, maxResults: Int = 5): List<String> {
+        val normalizedQuery = query.normalizeModSearchName()
+        if (normalizedQuery.isBlank() || query.none { it.isCjkChar() }) return emptyList()
+
+        return briefInfo.asSequence()
+            .mapIndexedNotNull { index, info ->
+                val slugs = info.modrinthSlugs
+                    .asSequence()
+                    .map(String::trim)
+                    .filter(String::isNotBlank)
+                    .distinct()
+                    .toList()
+                if (slugs.isEmpty()) return@mapIndexedNotNull null
+
+                val nameCnCandidates = info.nameCn
+                    ?.let { listOf(it, it.withoutLeadingModNameTags()) }
+                    .orEmpty()
+                    .map { it.normalizeModSearchName() }
+                    .filter(String::isNotBlank)
+                    .distinct()
+                val nameCandidates = listOf(info.name, info.name.withoutLeadingModNameTags())
+                    .map { it.normalizeModSearchName() }
+                    .filter(String::isNotBlank)
+                    .distinct()
+                val match = bestModrinthSlugNameMatch(normalizedQuery, nameCnCandidates, nameCandidates)
+                    ?: return@mapIndexedNotNull null
+                ModrinthSlugNameMatch(slugs, match.score, match.nameLength, index)
+            }
+            .sortedWith(
+                compareBy<ModrinthSlugNameMatch> { it.score }
+                    .thenBy { it.nameLength }
+                    .thenBy { it.index }
+            )
+            .flatMap { it.slugs }
+            .distinct()
+            .take(maxResults)
+            .toList()
+    }
+
+    private data class ModrinthSlugNameMatch(
+        val slugs: List<String>,
+        val score: Int,
+        val nameLength: Int,
+        val index: Int
+    )
+
+    private data class NameMatchScore(
+        val score: Int,
+        val nameLength: Int
+    )
+
+    private fun bestModrinthSlugNameMatch(
+        query: String,
+        nameCnCandidates: List<String>,
+        nameCandidates: List<String>
+    ): NameMatchScore? =
+        (nameCnCandidates.mapNotNull { name ->
+            when {
+                name == query -> NameMatchScore(0, name.length)
+                name.startsWith(query) -> NameMatchScore(1, name.length)
+                name.contains(query) -> NameMatchScore(2, name.length)
+                else -> null
+            }
+        } + nameCandidates.mapNotNull { name ->
+            if (name.contains(query)) NameMatchScore(3, name.length) else null
+        }).minWithOrNull(compareBy<NameMatchScore> { it.score }.thenBy { it.nameLength })
+
+    private fun String.normalizeModSearchName(): String =
+        buildString(length) {
+            this@normalizeModSearchName.lowercase().forEach { char ->
+                if (char !in nameSearchIgnoredChars) append(char)
+            }
+        }
+
+    private fun String.withoutLeadingModNameTags(): String {
+        var value = trim()
+        listOf('[' to ']', '【' to '】', '(' to ')', '（' to '）').forEach { (open, close) ->
+            if (value.startsWith(open)) {
+                val closeIndex = value.indexOf(close)
+                if (closeIndex in 1..16) value = value.substring(closeIndex + 1).trim()
+            }
+        }
+        return value
+    }
+
+    private fun Char.isCjkChar(): Boolean = this in '\u4e00'..'\u9fff'
+
     fun JarFile.readNeoForgeConfig(): ModsTomlConfig? {
         return supportedModsTomlPaths.firstNotNullOfOrNull(::getJarEntry)?.let { modsTomlEntry ->
             getInputStream(modsTomlEntry).bufferedReader().use { reader ->

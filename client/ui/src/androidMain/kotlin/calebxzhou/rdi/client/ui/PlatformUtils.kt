@@ -90,6 +90,7 @@ actual fun openMsaVerificationUrl(url: String) {
 @Composable
 actual fun PlatformWebView(
     url: String,
+    title: String?,
     modifier: Modifier
 ) {
     val normalizedUrl = remember(url) {

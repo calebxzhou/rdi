@@ -52,6 +52,7 @@ expect fun openMsaVerificationUrl(url: String)
 @Composable
 expect fun PlatformWebView(
     url: String,
+    title: String? = null,
     modifier: Modifier = Modifier
 )
 

@@ -12,4 +12,5 @@
 .gradle-home
 .gradle-home-client
 .gradle-home-server
-.sisyphus
+.sisyphus/
+$$DEL/

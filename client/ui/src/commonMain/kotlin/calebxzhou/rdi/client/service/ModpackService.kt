@@ -493,9 +493,6 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         throw RequestError("启动房间失败: ${startResp.msg}")
     }
 
-    if (GameService.started) {
-        throw RequestError("mc运行中，如需切换要玩的房间，请先关闭mc")
-    }
     var gameAddr = "127.0.0.1:55667"
     if (!isDesktop) {
         val verDir = ModpackService.getVersionDir(version.modpackId, version.name)

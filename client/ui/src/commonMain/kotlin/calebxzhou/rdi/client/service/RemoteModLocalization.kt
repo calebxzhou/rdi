@@ -13,6 +13,9 @@ object RemoteModLocalization {
     fun introByModrinthSlug(slug: String?, fallback: String): String =
         slug.modrinthBriefInfo()?.intro?.takeIf(String::isNotBlank) ?: fallback
 
+    fun mcmodIdByModrinthSlug(slug: String?): Int? =
+        slug.modrinthBriefInfo()?.mcmodId
+
     private fun String?.modrinthBriefInfo() =
         this?.trim()?.lowercase()?.takeIf(String::isNotBlank)?.let(ModrinthService.slugBriefInfo::get)
 }

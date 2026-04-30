@@ -183,7 +183,7 @@ fun MenuScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalAlignment = Alignment.Start
                 ) {
-                    if (isDesktop && McPlayStore.current != null) {
+                    if (isDesktop && McPlayStore.hasAliveSessions()) {
                         CircleIconButton(
                             icon = "\uE8AE",
                             tooltip = "MC控制台",
@@ -316,7 +316,7 @@ private fun MenuActionButtons(
             onOpenHostLobby()
         }
         if (showBottomActionsInline) {
-            if (isDesktop && McPlayStore.current != null) {
+            if (isDesktop && McPlayStore.hasAliveSessions()) {
                 CircleIconButton(
                     "\uE8AE",
                     "MC控制台",

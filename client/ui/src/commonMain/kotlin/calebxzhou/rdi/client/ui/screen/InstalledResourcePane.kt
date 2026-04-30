@@ -327,8 +327,7 @@ fun InstalledResourcePane(
             modifier = modifier
         ) { packdir ->
             val versionId = "${packdir.vo.id}_${packdir.verName}"
-            val runningArgs = McPlayStore.current
-            val isRunning = runningArgs?.versionId == versionId && McPlayStore.process?.isAlive == true
+            val isRunning = McPlayStore.aliveCount(versionId) > 0
             ModpackManageCard(
                 modifier = Modifier.widthIn(max = 350.dp),
                 packdir = packdir,

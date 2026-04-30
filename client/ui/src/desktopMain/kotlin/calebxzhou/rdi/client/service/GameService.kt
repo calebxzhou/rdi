@@ -265,24 +265,19 @@ internal fun GameService.startDesktopInDir(
         .directory(versionDir)
         .redirectErrorStream(true)
         .start()
-    started = true
     thread(name = "mc-log-reader", isDaemon = true) {
-        try {
-            process.inputStream.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
-                lines.forEach { line ->
-                    if (line.isNotBlank()) {
-                        onLine(line)
-                    }
+        process.inputStream.bufferedReader(StandardCharsets.UTF_8).useLines { lines ->
+            lines.forEach { line ->
+                if (line.isNotBlank()) {
+                    onLine(line)
                 }
             }
-            val exitCode = process.waitFor()
-            if (exitCode != 0) {
-                onLine("MC已结束，退出代码: $exitCode")
-            } else {
-                onLine("已退出")
-            }
-        } finally {
-            started = false
+        }
+        val exitCode = process.waitFor()
+        if (exitCode != 0) {
+            onLine("MC已结束，退出代码: $exitCode")
+        } else {
+            onLine("已退出")
         }
     }
     return process

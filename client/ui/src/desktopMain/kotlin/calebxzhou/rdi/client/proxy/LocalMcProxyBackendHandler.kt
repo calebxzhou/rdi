@@ -7,12 +7,13 @@ import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInboundHandlerAdapter
 
 class LocalMcProxyBackendHandler(
-    private val frontendChannel: Channel
+    private val frontendChannel: Channel,
+    private val reportLog: (String) -> Unit
 ) : ChannelInboundHandlerAdapter() {
     override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
         frontendChannel.writeAndFlush(msg).addListener { future ->
             if (!future.isSuccess) {
-                LocalMcProxy.reportLog(
+                reportLog(
                     "frontend write failed: ${future.cause()?.message ?: "unknown"}"
                 )
                 ctx.channel().close()
@@ -25,7 +26,7 @@ class LocalMcProxyBackendHandler(
     }
 
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
-        LocalMcProxy.reportLog("backend exception: ${cause.message ?: cause.javaClass.simpleName}")
+        reportLog("backend exception: ${cause.message ?: cause.javaClass.simpleName}")
         closeOnFlush(ctx.channel())
     }
 

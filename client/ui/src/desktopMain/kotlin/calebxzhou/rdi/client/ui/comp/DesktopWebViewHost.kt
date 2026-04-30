@@ -50,23 +50,30 @@ internal class DesktopPlaceholderWebViewBackend(
 internal class DesktopWebViewHostPanel : JPanel(BorderLayout()) {
     private val statusBody = JTextArea().apply {
         isEditable = false
-        lineWrap = true
-        wrapStyleWord = true
+        lineWrap = false
+        wrapStyleWord = false
         border = null
         background = Color(0xF7, 0xFA, 0xFC)
     }
     private val statusPane = JScrollPane(statusBody).apply {
         border = BorderFactory.createCompoundBorder(
             BorderFactory.createMatteBorder(1, 0, 0, 0, Color(0xD7, 0xDC, 0xE3)),
-            BorderFactory.createEmptyBorder(10, 12, 10, 12)
+            BorderFactory.createEmptyBorder(4, 10, 4, 10)
         )
-        isVisible = false
+        preferredSize = Dimension(1, 30)
+        horizontalScrollBarPolicy = JScrollPane.HORIZONTAL_SCROLLBAR_NEVER
+        verticalScrollBarPolicy = JScrollPane.VERTICAL_SCROLLBAR_NEVER
+        isVisible = true
         background = Color(0xF7, 0xFA, 0xFC)
+        viewport.background = Color(0xF7, 0xFA, 0xFC)
     }
     private val nativeHost = Canvas().apply {
         background = Color.WHITE
         minimumSize = Dimension(1, 1)
     }
+    private var pageTitle: String? = null
+    private var pageUrl: String = ""
+    private var explicitStatus: String = ""
 
     init {
         background = Color.WHITE
@@ -80,9 +87,22 @@ internal class DesktopWebViewHostPanel : JPanel(BorderLayout()) {
 
     fun nativeHost() = nativeHost
 
+    fun setPageInfo(title: String?, url: String) {
+        pageTitle = title?.takeIf { it.isNotBlank() }
+        pageUrl = url
+        refreshStatus()
+    }
+
     fun showStatus(message: String) {
-        statusBody.text = message
-        statusPane.isVisible = message.isNotBlank()
+        explicitStatus = message.trim()
+        refreshStatus()
+    }
+
+    private fun refreshStatus() {
+        val fallback = listOfNotNull(pageTitle, pageUrl.takeIf { it.isNotBlank() }).joinToString("  ")
+        val text = explicitStatus.takeIf { it.isNotBlank() } ?: fallback
+        statusBody.text = text
+        statusPane.isVisible = text.isNotBlank()
         revalidate()
         repaint()
     }
@@ -99,6 +119,7 @@ private fun createDesktopEmbeddedWebViewBackend(): DesktopEmbeddedWebViewBackend
 @Composable
 fun DesktopWebViewHost(
     url: String,
+    title: String? = null,
     modifier: Modifier = Modifier
 ) {
     val normalizedUrl = remember(url) {
@@ -118,11 +139,13 @@ fun DesktopWebViewHost(
         factory = {
             DesktopWebViewHostPanel().also {
                 backend.attach(it)
+                it.setPageInfo(title, normalizedUrl)
                 backend.loadUrl(normalizedUrl)
             }
         },
         update = { panel ->
             backend.attach(panel)
+            panel.setPageInfo(title, normalizedUrl)
             backend.loadUrl(normalizedUrl)
         }
     )

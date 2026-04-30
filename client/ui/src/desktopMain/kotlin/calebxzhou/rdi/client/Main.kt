@@ -22,7 +22,6 @@ import calebxzhou.mykotutils.std.decodeBase64
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.rdi.client.net.loggedAccount
-import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.AutoNodeRefreshService
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ClientTaskManager
@@ -59,7 +58,6 @@ fun main() {
     }
     AutoNodeRefreshService.start(GlobalScope)
     initializeLoggedAccountOnStartup()
-    LocalMcProxy.start(::println)
     application {
         val windowIcon = remember {
             jarResource("icon.png").use { stream ->
@@ -89,7 +87,6 @@ fun main() {
                     ClientTaskManager.cancel(entry.runId, "应用关闭，任务已终止")
                 }
             }
-            LocalMcProxy.stop()
             exitApplication()
         }
         Window(

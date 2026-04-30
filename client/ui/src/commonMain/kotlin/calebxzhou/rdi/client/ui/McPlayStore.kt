@@ -1,8 +1,19 @@
 package calebxzhou.rdi.client.ui
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import java.util.UUID
+
+private val mcPlaySessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
 data class McPlayArgs(
     val title: String,
@@ -16,10 +27,88 @@ data class McPlayArgs(
     val manageHostExtraMods: Boolean = false,
 )
 
+class McGameSession(
+    val id: String = UUID.randomUUID().toString(),
+    val args: McPlayArgs,
+    val consoleState: ConsoleState = ConsoleState(),
+    val startedAt: Long = System.currentTimeMillis(),
+    private val cleanup: () -> Unit = {}
+) {
+    var process: Process? by mutableStateOf(null)
+    var preparing: Boolean by mutableStateOf(true)
+    var exitMessage: String? by mutableStateOf(null)
+    var stopRequested: Boolean by mutableStateOf(false)
+    private var cleanedUp = false
+
+    val title: String get() = args.title
+    val versionId: String get() = args.versionId
+
+    fun isAlive(): Boolean = process?.isAlive == true
+
+    fun appendLog(line: String) {
+        mcPlaySessionScope.launch {
+            consoleState.append(line)
+        }
+    }
+
+    fun markExited(message: String? = null) {
+        preparing = false
+        process = null
+        exitMessage = message
+        if (!cleanedUp) {
+            cleanedUp = true
+            cleanup()
+        }
+    }
+
+    fun requestStop(force: Boolean = false) {
+        stopRequested = true
+        val currentProcess = process
+        when {
+            force -> currentProcess?.destroyForcibly()
+            else -> currentProcess?.destroy()
+        }
+        markExited(if (force) "已强制结束" else "已停止")
+    }
+}
+
 object McPlayStore {
-    var current: McPlayArgs? = null
+    var pendingLaunch: McPlayArgs? = null
     var onBack: (() -> Unit)? = null
-    var process: Process? = null
     var openConsoleOnly: Boolean = false
-    val consoleState: ConsoleState = ConsoleState()
+    var selectedSessionId: String? by mutableStateOf(null)
+    val sessions = mutableStateListOf<McGameSession>()
+
+    fun launchSessionTask(block: suspend () -> Unit) {
+        mcPlaySessionScope.launch { block() }
+    }
+
+    fun appendProxyLog(line: String) {
+        launchSessionTask {
+            sessions
+                .filter { it.isAlive() || it.preparing }
+                .forEach { session -> session.consoleState.append(line) }
+        }
+    }
+
+    fun createSession(args: McPlayArgs, cleanup: () -> Unit = {}): McGameSession {
+        val session = McGameSession(args = args, cleanup = cleanup)
+        sessions += session
+        selectedSessionId = session.id
+        return session
+    }
+
+    fun selectedSession(): McGameSession? {
+        val selected = selectedSessionId?.let { id -> sessions.firstOrNull { it.id == id } }
+        return selected ?: sessions.lastOrNull()?.also { selectedSessionId = it.id }
+    }
+
+    fun hasAliveSessions(): Boolean = sessions.any { it.isAlive() || it.preparing }
+
+    fun aliveCount(versionId: String): Int =
+        sessions.count { it.versionId == versionId && it.isAlive() }
+
+    fun markExited(sessionId: String, message: String? = null) {
+        sessions.firstOrNull { it.id == sessionId }?.markExited(message)
+    }
 }

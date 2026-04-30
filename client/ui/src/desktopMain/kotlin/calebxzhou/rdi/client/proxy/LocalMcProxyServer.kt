@@ -13,7 +13,8 @@ import java.net.InetSocketAddress
 internal class LocalMcProxyServer(
     private val resolveEndpoint: () -> ProxyEndpoint = LocalMcProxy::currentEndpointFromCarrier,
     private val reportLog: (String) -> Unit = LocalMcProxy::reportLog,
-    private val onListenPortChanged: (Int?) -> Unit = {}
+    private val onListenPortChanged: (Int?) -> Unit = {},
+    private val preferredBindPort: Int = LocalMcProxy.preferredBindPort
 ) {
     private val lock = Any()
 
@@ -45,12 +46,18 @@ internal class LocalMcProxyServer(
                     .group(nextBossGroup, nextWorkerGroup)
                     .channel(NioServerSocketChannel::class.java)
                     .option(ChannelOption.SO_BACKLOG, 100)
-                    .childHandler(LocalMcProxyServerInitializer(nextBackendGroup))
+                    .childHandler(
+                        LocalMcProxyServerInitializer(
+                            backendGroup = nextBackendGroup,
+                            resolveEndpoint = resolveEndpoint,
+                            reportLog = reportLog
+                        )
+                    )
 
                 val channel = try {
                     bootstrap.bind(
                         LocalMcProxy.localBindHost,
-                        LocalMcProxy.preferredBindPort
+                        preferredBindPort
                     ).sync().channel()
                 } catch (t: Throwable) {
                     if (!t.isBindException()) {
@@ -59,7 +66,7 @@ internal class LocalMcProxyServer(
                     bootstrap.bind(LocalMcProxy.localBindHost, 0).sync().channel().also {
                         val port = (it.localAddress() as InetSocketAddress).port
                         reportLog(
-                            "preferred port ${LocalMcProxy.preferredBindPort} is occupied, fallback to $port"
+                            "preferred port $preferredBindPort is occupied, fallback to $port"
                         )
                     }
                 }

@@ -92,7 +92,7 @@ fun AppNavigation(
         val fclLaunchArgs = remember { mutableStateOf<McPlayArgs?>(null) }
         val openMcPlay: (McPlayArgs, (() -> Unit)?) -> Unit = { args, onBack ->
             if (isDesktop) {
-                McPlayStore.current = args
+                McPlayStore.pendingLaunch = args
                 McPlayStore.onBack = onBack
                 navController.navigate(McPlayView)
             } else {
@@ -364,8 +364,13 @@ fun AppNavigation(
                     requiredMcVer = route.requiredMcVer?.let(McVersion::from),
                     onBack = { navController.navigateAbsolute(Menu) },
                     onOpenUpload = { navController.navigate(ModpackUpload) },
-                    onOpenInfo = { modpackId ->
-                        navController.navigate(ModpackInfo(modpackId))
+                    onOpenModpackVersionEdit = { modpackId, verName ->
+                        navController.navigate(
+                            ModpackVersionEdit(
+                                modpackId = modpackId,
+                                verName = verName
+                            )
+                        )
                     },
                     onOpenPlay = { args ->
                         openMcPlay(args) { navController.navigateAbsolute(route) }

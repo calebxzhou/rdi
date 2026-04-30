@@ -1462,7 +1462,7 @@ fun HostInfoScreen(
                         } else {
                             item {
                                 Row(){
-                                    Text("本界面仅供备用，正常请使用“资源-模组”界面添加附加mod。详情阅读群文档...")
+                                    Text("【开发用界面】请使用“资源-模组”界面添加附加mod。")
                                 }
                                 FlowRow(
                                     modifier = Modifier.fillMaxWidth(),
@@ -1472,7 +1472,7 @@ fun HostInfoScreen(
                                     ManualExtraModTextField(
                                         state = extraModProjectIdState,
                                         enabled = !addExtraModLoading,
-                                        label = "projectID",
+                                        label = "pj",
                                         modifier = Modifier.weight(1f).height(48.dp)
                                     )
                                     ManualExtraModTextField(
@@ -1484,7 +1484,7 @@ fun HostInfoScreen(
                                     ManualExtraModTextField(
                                         state = extraModFileIdState,
                                         enabled = !addExtraModLoading,
-                                        label = "fileID",
+                                        label = "file",
                                         modifier = Modifier.weight(1f).height(48.dp)
                                     )
                                 }
@@ -1495,14 +1495,14 @@ fun HostInfoScreen(
                                 ManualExtraModTextField(
                                     state = extraModHashState,
                                     enabled = !addExtraModLoading,
-                                    label = "SHA1 hash"
+                                    label = "hash"
                                 )
                             }
                             item {
                                 ManualExtraModTextField(
                                     state = extraModDownloadUrlsState,
                                     enabled = !addExtraModLoading,
-                                    label = "download URL",
+                                    label = "dl url",
                                     lineLimits = TextFieldLineLimits.MultiLine(minHeightInLines = 2, maxHeightInLines = 4),
                                     modifier = Modifier.fillMaxWidth().height(104.dp)
                                 )

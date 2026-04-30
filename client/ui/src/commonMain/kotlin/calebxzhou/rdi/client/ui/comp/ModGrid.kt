@@ -2,32 +2,19 @@ package calebxzhou.rdi.client.ui.comp
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.IconButton
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Text
+import androidx.compose.material.*
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.isSecondaryPressed
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.UiMod
@@ -53,6 +40,7 @@ fun ModGrid(
 ) {
     var modSearch by remember { mutableStateOf("") }
     var showSearchBox by remember { mutableStateOf(false) }
+    val clipboardManager = LocalClipboardManager.current
     val sortedMods = remember(mods) {
         mods.sortedWith(
             compareBy(
@@ -95,10 +83,21 @@ fun ModGrid(
             items(filteredMods, key = { it.key }) { mod ->
                 val card = mod.card
                 val selected = mod.key in selectedKeys
+                var showContextMenu by remember(mod.key) { mutableStateOf(false) }
                 val clickableModifier = if (onModClick != null) {
                     Modifier.clickable { onModClick(mod) }
                 } else {
                     Modifier
+                }
+                val contextMenuModifier = Modifier.pointerInput(mod.key) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            if (event.buttons.isSecondaryPressed) {
+                                showContextMenu = true
+                            }
+                        }
+                    }
                 }
                 if (card != null) {
                     Box(
@@ -110,6 +109,7 @@ fun ModGrid(
                             )
                             .padding(2.dp)
                             .then(clickableModifier)
+                            .then(contextMenuModifier)
                     ) {
                         card.ModCard(
                             modifier = Modifier.fillMaxWidth(),
@@ -118,33 +118,53 @@ fun ModGrid(
                                 { nextSide -> callback(mod, nextSide) }
                             }
                         )
+                        ModGridContextMenu(
+                            expanded = showContextMenu,
+                            onDismissRequest = { showContextMenu = false },
+                            onCopyFileName = {
+                                clipboardManager.setText(AnnotatedString(mod.mod.fileName))
+                                showContextMenu = false
+                            }
+                        )
                     }
                 } else {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
                                 if (selected) selectedBackground else unselectedFallbackBackground,
                                 RoundedCornerShape(16.dp)
                             )
-                            .padding(12.dp)
-                            .then(clickableModifier),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .then(clickableModifier)
+                            .then(contextMenuModifier)
                     ) {
-                        Text(
-                            text = mod.displayName,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialColor.GRAY_900.color
-                        )
-                        if (!mod.slug.equals(mod.displayName, ignoreCase = true)) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
                             Text(
-                                text = mod.slug,
+                                text = mod.displayName,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = MaterialColor.BLUE_600.color
+                                color = MaterialColor.GRAY_900.color
                             )
+                            if (!mod.slug.equals(mod.displayName, ignoreCase = true)) {
+                                Text(
+                                    text = mod.slug,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialColor.BLUE_600.color
+                                )
+                            }
                         }
+                        ModGridContextMenu(
+                            expanded = showContextMenu,
+                            onDismissRequest = { showContextMenu = false },
+                            onCopyFileName = {
+                                clipboardManager.setText(AnnotatedString(mod.mod.fileName))
+                                showContextMenu = false
+                            }
+                        )
                     }
                 }
             }
@@ -203,6 +223,22 @@ fun ModGrid(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ModGridContextMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    onCopyFileName: () -> Unit
+) {
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest
+    ) {
+        DropdownMenuItem(onClick = onCopyFileName) {
+            Text("复制Mod文件名")
         }
     }
 }

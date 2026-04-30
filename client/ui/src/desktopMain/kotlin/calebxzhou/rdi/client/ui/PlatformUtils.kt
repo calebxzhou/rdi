@@ -60,9 +60,10 @@ actual fun openMsaVerificationUrl(url: String) {
 @Composable
 actual fun PlatformWebView(
     url: String,
+    title: String?,
     modifier: Modifier
 ) {
-    DesktopWebViewHost(url = url, modifier = modifier)
+    DesktopWebViewHost(url = url, title = title, modifier = modifier)
 }
 
 actual suspend fun pickSaveFile(suggestedName: String, extension: String): File? =
@@ -364,35 +365,27 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
     navController: androidx.navigation.NavHostController
 ) {
     composable<McPlayView> {
-        val args = McPlayStore.current
-        if (args != null) {
-            val consoleOnly = androidx.compose.runtime.remember {
-                McPlayStore.openConsoleOnly.also { McPlayStore.openConsoleOnly = false }
+        val launchArgs = androidx.compose.runtime.remember {
+            if (McPlayStore.openConsoleOnly) {
+                McPlayStore.openConsoleOnly = false
+                null
+            } else {
+                McPlayStore.pendingLaunch.also { McPlayStore.pendingLaunch = null }
             }
-            calebxzhou.rdi.client.ui.screen.McPlayScreen(
-                title = args.title,
-                mcVer = args.mcVer,
-                versionId = args.versionId,
-                playArg = args.playArg,
-                activeBaseMods = args.activeBaseMods,
-                disabledBaseMods = args.disabledBaseMods,
-                manageHostBaseMods = args.manageHostBaseMods,
-                extraMods = args.extraMods,
-                manageHostExtraMods = args.manageHostExtraMods,
-                autoStart = !consoleOnly,
-                onBack = {
-                    val callback = McPlayStore.onBack
-                    McPlayStore.onBack = null
-                    if (callback != null) {
-                        callback()
-                    } else {
-                        navController.navigate(HostRoute(HostTab.MyHosts.name))
-                    }
-                }
-            )
-        } else {
-            androidx.compose.material.Text("没有可显示的游戏")
         }
+        calebxzhou.rdi.client.ui.screen.McPlayScreen(
+            launchArgs = launchArgs,
+            autoStart = launchArgs != null,
+            onBack = {
+                val callback = McPlayStore.onBack
+                McPlayStore.onBack = null
+                if (callback != null) {
+                    callback()
+                } else {
+                    navController.navigate(HostRoute(HostTab.MyHosts.name))
+                }
+            }
+        )
     }
     composable<ModpackUpload> {
         calebxzhou.rdi.client.ui.screen.ModpackUploadScreen2(

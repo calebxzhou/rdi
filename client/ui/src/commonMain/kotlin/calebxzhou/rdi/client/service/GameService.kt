@@ -29,7 +29,6 @@ import java.util.zip.ZipFile
 
 object GameService {
     private val lgr by Loggers
-    var started = false
     var serverStarted = false
 
     private val libsDir get() = ClientDirs.librariesDir

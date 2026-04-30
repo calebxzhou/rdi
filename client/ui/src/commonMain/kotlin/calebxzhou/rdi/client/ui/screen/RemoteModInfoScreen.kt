@@ -54,6 +54,7 @@ import calebxzhou.rdi.client.service.ModrinthProjectInfoService
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.RemoteModDownloadService
+import calebxzhou.rdi.client.service.RemoteModLocalization
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.BottomSnakebar
 import calebxzhou.rdi.client.ui.CircleIconButton
@@ -121,7 +122,31 @@ fun RemoteModInfoScreen(
     val title = project?.title ?: mod.title
     val downloadsText = project?.downloadsText ?: mod.downloadsText
     val followsText = project?.followsText ?: mod.followsText
-    val tabTitles = listOf("下载", "描述", "版本")
+    val sourceSlug = project?.slug ?: mod.slug
+    val mcmodId = if (mod.source == RemoteModSource.MODRINTH) {
+        RemoteModLocalization.mcmodIdByModrinthSlug(sourceSlug)
+    } else {
+        null
+    }
+    val mcmodUrl = mcmodId?.let { "https://www.mcmod.cn/class/$it.html" }
+    val tabs = remember(mcmodUrl) {
+        buildList {
+            add(RemoteModInfoTab.Download)
+            add(RemoteModInfoTab.Description)
+            if (mcmodUrl != null) {
+                add(RemoteModInfoTab.Mcmod)
+            }
+            add(RemoteModInfoTab.Versions)
+        }
+    }
+
+    LaunchedEffect(tabs.size) {
+        if (selectedTab !in tabs.indices) {
+            selectedTab = 0
+        }
+    }
+    val activeTabIndex = selectedTab.takeIf { it in tabs.indices } ?: 0
+    val activeTab = tabs[activeTabIndex]
 
     Box(modifier = Modifier.fillMaxSize()) {
         MainColumn {
@@ -143,12 +168,12 @@ fun RemoteModInfoScreen(
                 }
             }
             Space8h()
-            TabRow(selectedTabIndex = selectedTab, backgroundColor = Color.White) {
-                tabTitles.forEachIndexed { index, tabTitle ->
+            TabRow(selectedTabIndex = activeTabIndex, backgroundColor = Color.White) {
+                tabs.forEachIndexed { index, tab ->
                     Tab(
-                        selected = selectedTab == index,
+                        selected = activeTabIndex == index,
                         onClick = { selectedTab = index },
-                        text = { Text(tabTitle) }
+                        text = { Text(tab.label) }
                     )
                 }
             }
@@ -163,8 +188,9 @@ fun RemoteModInfoScreen(
 
                 errorMessage != null -> Text(errorMessage!!, color = MaterialTheme.colors.error)
 
-                selectedTab == 0 -> RemoteModDownloadTab(project) { downloadVersion = it }
-                selectedTab == 1 -> RemoteModDescriptionTab(project, mod)
+                activeTab == RemoteModInfoTab.Download -> RemoteModDownloadTab(project) { downloadVersion = it }
+                activeTab == RemoteModInfoTab.Description || activeTab == RemoteModInfoTab.Mcmod ->
+                    RemoteModWebInfoTab(activeTab, project, mod, mcmodUrl)
                 else -> RemoteModVersionsTab(project)
             }
         }
@@ -182,21 +208,39 @@ fun RemoteModInfoScreen(
     }
 }
 
+private enum class RemoteModInfoTab(val label: String) {
+    Download("下载"),
+    Description("描述"),
+    Mcmod("百科"),
+    Versions("版本")
+}
+
 @Composable
-private fun RemoteModDescriptionTab(
+private fun RemoteModWebInfoTab(
+    tab: RemoteModInfoTab,
     project: ModrinthProjectInfoVo?,
-    mod: RemoteModCardVo
+    mod: RemoteModCardVo,
+    mcmodUrl: String?
 ) {
     val slug = project?.slug ?: mod.slug
-    if (mod.source == RemoteModSource.MODRINTH && !slug.isNullOrBlank()) {
+    val page = when {
+        tab == RemoteModInfoTab.Description && mod.source == RemoteModSource.MODRINTH && !slug.isNullOrBlank() ->
+            RemoteModWebPage(url = "https://modrinth.com/mod/$slug")
+        tab == RemoteModInfoTab.Mcmod && mcmodUrl != null -> RemoteModWebPage(url = mcmodUrl, title = "MC百科")
+        else -> null
+    }
+    if (page == null) {
+        Text("暂无来源网页", color = MaterialColor.GRAY_700.color)
+    } else {
         WebPagePane(
-            url = "https://modrinth.com/mod/$slug",
+            url = page.url,
+            title = page.title,
             modifier = Modifier.fillMaxSize()
         )
-    } else {
-        Text("暂无来源网页", color = MaterialColor.GRAY_700.color)
     }
 }
+
+private data class RemoteModWebPage(val url: String, val title: String? = null)
 
 @Composable
 private fun RemoteModVersionsTab(project: ModrinthProjectInfoVo?) {
