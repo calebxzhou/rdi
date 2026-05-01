@@ -100,13 +100,13 @@ fun ResourceScreen(
     var uploadErrorText by remember { mutableStateOf<String?>(null) }
     var selectedShader by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
     var selectedResourcepack by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
-    var selectedRemoteMod by remember { mutableStateOf<RemoteModCardVo?>(null) }
+    var selectedRemoteModStack by remember { mutableStateOf<List<RemoteModCardVo>>(emptyList()) }
     var selectedModpackId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
     val currentShader = selectedShader
     val currentResourcepack = selectedResourcepack
-    val currentRemoteMod = selectedRemoteMod
+    val currentRemoteMod = selectedRemoteModStack.lastOrNull()
     val currentModpackId = selectedModpackId
     Box(modifier = Modifier.fillMaxSize()) {
         MainColumn {
@@ -170,7 +170,7 @@ fun ResourceScreen(
                         RemoteModScreen(
                             requiredMcVer = requiredMcVer,
                             modifier = Modifier.fillMaxSize(),
-                            onOpenMod = { selectedRemoteMod = it }
+                            onOpenMod = { selectedRemoteModStack = listOf(it) }
                         )
                     }
 
@@ -221,7 +221,12 @@ fun ResourceScreen(
                 Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colors.background) {
                     RemoteModInfoScreen(
                         mod = currentRemoteMod,
-                        onBack = { selectedRemoteMod = null }
+                        onBack = {
+                            selectedRemoteModStack = selectedRemoteModStack.dropLast(1)
+                        },
+                        onOpenDependencyMod = {
+                            selectedRemoteModStack = selectedRemoteModStack + it
+                        }
                     )
                 }
             }

@@ -339,7 +339,8 @@ object CurseForgeService {
         path: String,
         method: HttpMethod = HttpMethod.Get,
         body: Any? = null,
-        ignoreMirror: Boolean = false
+        ignoreMirror: Boolean = false,
+        params: Map<String, Any> = emptyMap()
     ): HttpResponse {
         suspend fun doRequest(base: String) = ktorClient.request {
             url("${base}/${path}")
@@ -352,6 +353,7 @@ object CurseForgeService {
                     97, 48, 57, 122, 79
                 ).let { String(it) })
             body?.let { setBody(it) }
+            params.forEach { parameter(it.key, it.value) }
             this.method = method
         }
         if (ignoreMirror || !ModService.preferMirror) {
@@ -395,6 +397,78 @@ object CurseForgeService {
 
         return data
     }
+
+    suspend fun searchMods(
+        query: String? = null,
+        mcVersion: String? = null,
+        loader: String? = null,
+        sortField: Int? = null,
+        sortOrder: String = "desc",
+        offset: Int = 0,
+        limit: Int = 20
+    ): CurseForgeModSearchResponse {
+        require(offset >= 0) { "offset不能小于0" }
+        require(limit in 1..50) { "limit必须在1..50之间" }
+
+        val params = buildMap<String, Any> {
+            put("gameId", 432)
+            put("classId", 6)
+            query?.trim()?.takeIf(String::isNotBlank)?.let { put("searchFilter", it) }
+            mcVersion?.trim()?.takeIf(String::isNotBlank)?.let { version ->
+                put("gameVersion", version)
+                loader?.trim()?.takeIf(String::isNotBlank)?.toCurseForgeModLoaderType()?.let {
+                    put("modLoaderType", it)
+                }
+            }
+            sortField?.let { put("sortField", it) }
+            put("sortOrder", sortOrder)
+            put("index", offset)
+            put("pageSize", limit)
+        }
+
+        return makeRequest("mods/search", params = params).body()
+    }
+
+    suspend fun getModFiles(
+        modId: Int,
+        mcVersion: String? = null,
+        loader: String? = null,
+        offset: Int = 0,
+        limit: Int = 50
+    ): CurseForgeFileListResponse {
+        require(offset >= 0) { "offset不能小于0" }
+        require(limit in 1..50) { "limit必须在1..50之间" }
+        val params = buildMap<String, Any> {
+            mcVersion?.trim()?.takeIf(String::isNotBlank)?.let { version ->
+                put("gameVersion", version)
+                loader?.trim()?.takeIf(String::isNotBlank)?.toCurseForgeModLoaderType()?.let {
+                    put("modLoaderType", it)
+                }
+            }
+            put("index", offset)
+            put("pageSize", limit)
+        }
+        return makeRequest("mods/${modId}/files", params = params).body()
+    }
+
+    suspend fun getModDescription(modId: Int): String =
+        makeRequest(
+            path = "mods/${modId}/description",
+            params = mapOf("stripped" to true)
+        ).body<CurseForgeStringResponse>().data.orEmpty()
+
+    suspend fun getModFileChangelog(modId: Int, fileId: Int): String =
+        makeRequest(
+            path = "mods/${modId}/files/${fileId}/changelog",
+            params = mapOf("stripped" to true)
+        ).body<CurseForgeStringResponse>().data.orEmpty()
+
+    suspend fun getModFileDownloadUrl(modId: Int, fileId: Int): String? =
+        makeRequest("mods/${modId}/files/${fileId}/download-url")
+            .body<CurseForgeStringResponse>()
+            .data
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
 
     private suspend fun requestModFiles(fileIds: List<Int>, official: Boolean = false): List<CurseForgeFile> {
         @Serializable
@@ -470,6 +544,15 @@ object CurseForgeService {
         }
     }
 }
+
+private fun String.toCurseForgeModLoaderType(): Int? =
+    when (lowercase()) {
+        "forge", "cleanroom" -> 1
+        "fabric" -> 4
+        "quilt" -> 5
+        "neoforge" -> 6
+        else -> null
+    }
 
 
 

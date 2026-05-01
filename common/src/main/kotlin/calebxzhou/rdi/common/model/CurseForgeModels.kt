@@ -144,7 +144,27 @@ data class CurseForgeFileResponse(
 )
 @Serializable
 data class CurseForgeFileListResponse(
-    val data: List<CurseForgeFile> = emptyList()
+    val data: List<CurseForgeFile> = emptyList(),
+    val pagination: CurseForgePagination? = null
+)
+
+@Serializable
+data class CurseForgeModSearchResponse(
+    val data: List<CurseForgeModInfo> = emptyList(),
+    val pagination: CurseForgePagination? = null
+)
+
+@Serializable
+data class CurseForgePagination(
+    val index: Int = 0,
+    val pageSize: Int = 0,
+    val resultCount: Int = 0,
+    val totalCount: Int = 0
+)
+
+@Serializable
+data class CurseForgeStringResponse(
+    val data: String? = null
 )
 
 

@@ -18,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.isShiftPressed
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
@@ -71,6 +73,7 @@ fun HostInfoScreen(
     onOpenModpackInfo: (String) -> Unit,
     onOpenMcPlay: (McPlayArgs) -> Unit,
     onOpenMcVersions: (McVersion?) -> Unit,
+    onOpenResourceMods: (McVersion?) -> Unit,
     onOpenHostEdit: (Host.DetailVo) -> Unit,
     onOpenTaskList: (String) -> Unit
 ) {
@@ -102,7 +105,7 @@ fun HostInfoScreen(
     var showInviteDialog by remember { mutableStateOf(false) }
     var inviteQq by remember { mutableStateOf("") }
     var installConfirmTask by remember { mutableStateOf<Task2?>(null) }
-    var showAddExtraModDialog by remember { mutableStateOf(false) }
+    var showAddExtraModAdvancedDialog by remember { mutableStateOf(false) }
     var addExtraModLoading by remember { mutableStateOf(false) }
     var selectAllExtraMods by remember { mutableStateOf(false) }
     var addExtraModLoadingText by remember { mutableStateOf("") }
@@ -144,7 +147,7 @@ fun HostInfoScreen(
     val consoleTabIndex = 2
     val configTabIndex = 3
 
-    fun resetAddExtraModDialog() {
+    fun resetAddExtraModAdvancedDialog() {
         addExtraModLoading = false
         addExtraModLoadingText = ""
         addExtraModDialogError = null
@@ -419,8 +422,8 @@ fun HostInfoScreen(
             body = serdesJson.encodeToString(listOf(acceptedMod)),
             onOk = {
                 okMessage = "已提交附加Mod添加任务，请在邮件中查看进度"
-                showAddExtraModDialog = false
-                resetAddExtraModDialog()
+                showAddExtraModAdvancedDialog = false
+                resetAddExtraModAdvancedDialog()
             },
             onErr = {
                 addExtraModDialogError = it.message ?: "添加附加Mod失败"
@@ -947,9 +950,12 @@ fun HostInfoScreen(
                                             onRemoveSelected = {
                                                 removeExtraModConfirm = selectedExtraMods.firstOrNull()
                                             },
-                                            onAddExtraMod = {
-                                                resetAddExtraModDialog()
-                                                showAddExtraModDialog = true
+                                            onOpenResourceMods = {
+                                                onOpenResourceMods(host.modpack.mcVer)
+                                            },
+                                            onAddExtraModAdvanced = {
+                                                resetAddExtraModAdvancedDialog()
+                                                showAddExtraModAdvancedDialog = true
                                             }
                                         )
 
@@ -1330,12 +1336,12 @@ fun HostInfoScreen(
         )
     }
 
-    if (showAddExtraModDialog) {
+    if (showAddExtraModAdvancedDialog) {
         Dialog(
             onDismissRequest = {
                 if (!addExtraModLoading) {
-                    resetAddExtraModDialog()
-                    showAddExtraModDialog = false
+                    resetAddExtraModAdvancedDialog()
+                    showAddExtraModAdvancedDialog = false
                 }
             },
             properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -1353,8 +1359,8 @@ fun HostInfoScreen(
                         .padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("添加附加Mod", style = MaterialTheme.typography.h6)
-                    Text("请填写远程Mod文件信息。添加后会作为房间附加Mod下载并同步给玩家。")
+                    Text("添加附加Mod（高级模式）", style = MaterialTheme.typography.h6)
+                    Text("仅供高级玩家使用。通常情况不建议使用此功能")
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1555,8 +1561,8 @@ fun HostInfoScreen(
                         TextButton(
                             enabled = !addExtraModLoading,
                             onClick = {
-                                resetAddExtraModDialog()
-                                showAddExtraModDialog = false
+                                resetAddExtraModAdvancedDialog()
+                                showAddExtraModAdvancedDialog = false
                             }
                         ) {
                             Text("取消")
@@ -1835,11 +1841,13 @@ private fun HostExtraModsPane(
     onToggleSelected: (Mod, Boolean) -> Unit,
     onDownloadSelected: () -> Unit,
     onRemoveSelected: () -> Unit,
-    onAddExtraMod: () -> Unit
+    onOpenResourceMods: () -> Unit,
+    onAddExtraModAdvanced: () -> Unit
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val compactToolbar = maxWidth < 560.dp
         val actionRow: @Composable () -> Unit = {
+            var addExtraModShiftPressed by remember { mutableStateOf(false) }
             FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = "已选择${selectedExtraMods.size}个",
@@ -1864,17 +1872,31 @@ private fun HostExtraModsPane(
                     ) {
                         onRemoveSelected()
                     }
-                    CircleIconButton(
-                        icon = "\uF067",
-                        tooltip = if (addExtraModLoading) {
-                            addExtraModLoadingText.ifBlank { "匹配中..." }
-                        } else {
-                            "附加Mod"
-                        },
-                        enabled = !addExtraModLoading,
-                        bgColor = MaterialColor.PURPLE_700.color,
+                    Box(
+                        modifier = Modifier.pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    addExtraModShiftPressed = awaitPointerEvent().keyboardModifiers.isShiftPressed
+                                }
+                            }
+                        }
                     ) {
-                        onAddExtraMod()
+                        CircleIconButton(
+                            icon = "\uF067",
+                            tooltip = if (addExtraModLoading) {
+                                addExtraModLoadingText.ifBlank { "匹配中..." }
+                            } else {
+                                "附加Mod"
+                            },
+                            enabled = !addExtraModLoading,
+                            bgColor = MaterialColor.PURPLE_700.color,
+                        ) {
+                            if (addExtraModShiftPressed) {
+                                onAddExtraModAdvanced()
+                            } else {
+                                onOpenResourceMods()
+                            }
+                        }
                     }
                 }
             }

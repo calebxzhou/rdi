@@ -5,6 +5,12 @@ enum class RemoteModSource {
     CURSEFORGE
 }
 
+enum class RemoteModSourceFilter {
+    ALL,
+    MODRINTH,
+    CURSEFORGE
+}
+
 data class RemoteModCardVo(
     val source: RemoteModSource,
     val projectId: String,
@@ -27,5 +33,8 @@ data class RemoteModSearchResult(
     val mods: List<RemoteModCardVo>,
     val offset: Int,
     val limit: Int,
-    val totalHits: Int
+    val totalHits: Int,
+    val nextModrinthOffset: Int = offset + limit,
+    val nextCurseForgeOffset: Int = offset + limit,
+    val hasMore: Boolean = offset + limit < totalHits
 )

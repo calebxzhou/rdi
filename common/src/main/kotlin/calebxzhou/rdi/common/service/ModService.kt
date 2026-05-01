@@ -40,13 +40,23 @@ object ModService {
     val downloadedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
     var installedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
 
-    fun resolveModrinthSlugsByChineseName(query: String, maxResults: Int = 5): List<String> {
+    fun resolveModrinthSlugsByChineseName(query: String, maxResults: Int = 5): List<String> =
+        resolveRemoteSlugsByChineseName(query, maxResults) { it.modrinthSlugs }
+
+    fun resolveCurseForgeSlugsByChineseName(query: String, maxResults: Int = 5): List<String> =
+        resolveRemoteSlugsByChineseName(query, maxResults) { it.curseforgeSlugs }
+
+    private fun resolveRemoteSlugsByChineseName(
+        query: String,
+        maxResults: Int,
+        slugSelector: (ModBriefInfo) -> List<String>
+    ): List<String> {
         val normalizedQuery = query.normalizeModSearchName()
         if (normalizedQuery.isBlank() || query.none { it.isCjkChar() }) return emptyList()
 
         return briefInfo.asSequence()
             .mapIndexedNotNull { index, info ->
-                val slugs = info.modrinthSlugs
+                val slugs = slugSelector(info)
                     .asSequence()
                     .map(String::trim)
                     .filter(String::isNotBlank)
@@ -64,12 +74,12 @@ object ModService {
                     .map { it.normalizeModSearchName() }
                     .filter(String::isNotBlank)
                     .distinct()
-                val match = bestModrinthSlugNameMatch(normalizedQuery, nameCnCandidates, nameCandidates)
+                val match = bestRemoteSlugNameMatch(normalizedQuery, nameCnCandidates, nameCandidates)
                     ?: return@mapIndexedNotNull null
-                ModrinthSlugNameMatch(slugs, match.score, match.nameLength, index)
+                RemoteSlugNameMatch(slugs, match.score, match.nameLength, index)
             }
             .sortedWith(
-                compareBy<ModrinthSlugNameMatch> { it.score }
+                compareBy<RemoteSlugNameMatch> { it.score }
                     .thenBy { it.nameLength }
                     .thenBy { it.index }
             )
@@ -79,7 +89,7 @@ object ModService {
             .toList()
     }
 
-    private data class ModrinthSlugNameMatch(
+    private data class RemoteSlugNameMatch(
         val slugs: List<String>,
         val score: Int,
         val nameLength: Int,
@@ -91,7 +101,7 @@ object ModService {
         val nameLength: Int
     )
 
-    private fun bestModrinthSlugNameMatch(
+    private fun bestRemoteSlugNameMatch(
         query: String,
         nameCnCandidates: List<String>,
         nameCandidates: List<String>
@@ -619,12 +629,11 @@ object ModService {
             }
         }
 
-        val officialUrl = fileInfo.realDownloadUrl
-        val officialUrls = listOf(officialUrl)
+        val officialUrls = (mod.downloadUrls + fileInfo.realDownloadUrl)
             .map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
-        val mirrorUrls = listOf(officialUrl.ofMirrorUrl)
+        val mirrorUrls = officialUrls.map { it.ofMirrorUrl }
             .map(String::trim)
             .filter(String::isNotBlank)
             .filterNot { it in officialUrls }

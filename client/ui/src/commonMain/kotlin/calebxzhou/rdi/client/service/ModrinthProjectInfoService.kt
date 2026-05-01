@@ -41,12 +41,13 @@ object ModrinthProjectInfoService {
             gameVersions = mcVersion?.trim()?.takeIf(String::isNotBlank)?.let { listOf(it) } ?: emptyList(),
             loaders = loader?.trim()?.takeIf(String::isNotBlank)?.let { listOf(it) } ?: emptyList(),
             includeChangelog = includeChangelog
-        ).map(ModrinthV3Version::toModrinthProjectVersionVo)
+        )
+            .newestFirst()
+            .map(ModrinthV3Version::toModrinthProjectVersionVo)
 }
 
 private fun ModrinthV3Project.toModrinthProjectInfoVo(versions: List<ModrinthV3Version>): ModrinthProjectInfoVo {
     val selectedCategories = (categories + loaders).distinct().take(6)
-    val versionOrder = this.versions.withIndex().associate { it.value to it.index }
     return ModrinthProjectInfoVo(
         projectId = id,
         slug = slug,
@@ -63,10 +64,14 @@ private fun ModrinthV3Project.toModrinthProjectInfoVo(versions: List<ModrinthV3V
         loaders = loaders,
         versionIds = this.versions,
         versions = versions
-            .sortedWith(compareBy<ModrinthV3Version> { versionOrder[it.id] ?: Int.MAX_VALUE }.thenByDescending { it.datePublished })
-            .map(ModrinthV3Version::toModrinthProjectVersionVo)
+            .newestFirst()
+            .map(ModrinthV3Version::toModrinthProjectVersionVo),
+        sourceUrl = "https://modrinth.com/mod/$slug"
     )
 }
+
+private fun List<ModrinthV3Version>.newestFirst(): List<ModrinthV3Version> =
+    sortedByDescending(ModrinthV3Version::datePublished)
 
 private fun ModrinthV3Version.toModrinthProjectVersionVo(): ModrinthProjectVersionVo {
     val mappedFiles = files.map(ModrinthV3VersionFile::toModrinthProjectVersionFileVo)
@@ -94,7 +99,9 @@ private fun ModrinthDependency.toModrinthProjectVersionDependencyVo(): ModrinthP
     ModrinthProjectVersionDependencyVo(
         versionId = versionId,
         projectId = projectId,
-        dependencyType = dependencyType
+        dependencyType = dependencyType,
+        relationLabel = dependencyType ?: "dependency",
+        required = dependencyType.equals("required", ignoreCase = true)
     )
 
 private fun ModrinthV3VersionFile.toModrinthProjectVersionFileVo(): ModrinthProjectVersionFileVo =

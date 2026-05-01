@@ -48,8 +48,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.RemoteModCardVo
+import calebxzhou.rdi.client.model.RemoteModSourceFilter
 import calebxzhou.rdi.client.service.ModSearchService
-import calebxzhou.rdi.client.service.toRemoteModSearchResult
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.RowV
@@ -75,6 +75,8 @@ fun RemoteModScreen(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var hasMore by remember { mutableStateOf(false) }
     var totalHits by remember { mutableStateOf(0) }
+    var nextModrinthOffset by remember { mutableStateOf(0) }
+    var nextCurseForgeOffset by remember { mutableStateOf(0) }
     val searchState = rememberTextFieldState()
     var requestKeyword by rememberSaveable { mutableStateOf("") }
     var requestVersion by rememberSaveable { mutableStateOf(0) }
@@ -84,12 +86,15 @@ fun RemoteModScreen(
         mutableStateOf(defaultMcVer.defaultRemoteModLoader())
     }
     var selectedSort by rememberSaveable { mutableStateOf(ModrinthSearchIndex.RELEVANCE) }
+    var selectedSourceFilter by rememberSaveable { mutableStateOf(RemoteModSourceFilter.ALL) }
     var compactFilterPanelExpanded by rememberSaveable { mutableStateOf(false) }
 
     val loaderOptions = remember(selectedMcVer) { selectedMcVer.supportedRemoteModLoaders() }
 
     suspend fun loadMods(reset: Boolean) {
         val offset = if (reset) 0 else mods.size
+        val modrinthOffset = if (reset) 0 else nextModrinthOffset
+        val curseForgeOffset = if (reset) 0 else nextCurseForgeOffset
         if (reset) {
             loading = true
         } else {
@@ -102,17 +107,24 @@ fun RemoteModScreen(
                 mcVersion = selectedMcVer.mcVer,
                 loader = selectedLoader.toModrinthSearchLoader(),
                 index = selectedSort,
+                sourceFilter = selectedSourceFilter,
                 offset = offset,
+                modrinthOffset = modrinthOffset,
+                curseForgeOffset = curseForgeOffset,
                 limit = 20
-            ).toRemoteModSearchResult()
+            )
         }.onSuccess { result ->
             mods = if (reset) result.mods else mods + result.mods
             totalHits = result.totalHits
-            hasMore = result.offset + result.limit < result.totalHits
+            nextModrinthOffset = result.nextModrinthOffset
+            nextCurseForgeOffset = result.nextCurseForgeOffset
+            hasMore = result.hasMore
         }.onFailure { error ->
             if (reset) {
                 mods = emptyList()
                 totalHits = 0
+                nextModrinthOffset = 0
+                nextCurseForgeOffset = 0
                 hasMore = false
             }
             errorMessage = "加载模组失败: ${error.message ?: error}"
@@ -191,6 +203,22 @@ fun RemoteModScreen(
                             selectedSort = ModrinthSearchIndex.UPDATED
                         }
                     )
+                )
+            }
+            RemoteModFilterSection("来源") {
+                RemoteModFilterGrid(
+                    items = listOf(
+                        RemoteModFilterChipItem("全部", selectedSourceFilter == RemoteModSourceFilter.ALL) {
+                            selectedSourceFilter = RemoteModSourceFilter.ALL
+                        },
+                        RemoteModFilterChipItem("Modrinth", selectedSourceFilter == RemoteModSourceFilter.MODRINTH) {
+                            selectedSourceFilter = RemoteModSourceFilter.MODRINTH
+                        },
+                        RemoteModFilterChipItem("CurseForge", selectedSourceFilter == RemoteModSourceFilter.CURSEFORGE) {
+                            selectedSourceFilter = RemoteModSourceFilter.CURSEFORGE
+                        }
+                    ),
+                    columns = 1
                 )
             }
             RemoteModFilterSection("MC版本") {
@@ -313,7 +341,7 @@ fun RemoteModScreen(
         }
     }
 
-    LaunchedEffect(requestKeyword, requestVersion, selectedMcVer, selectedLoader, selectedSort) {
+    LaunchedEffect(requestKeyword, requestVersion, selectedMcVer, selectedLoader, selectedSort, selectedSourceFilter) {
         loadMods(reset = true)
     }
 

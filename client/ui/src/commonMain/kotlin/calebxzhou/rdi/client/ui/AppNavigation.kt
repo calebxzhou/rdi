@@ -302,6 +302,16 @@ fun AppNavigation(
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(ResourceRoute(ResourceTab.McResources.name, mcVer?.mcVer))
                     },
+                    onOpenResourceMods = { mcVer ->
+                        navController.navigate(
+                            ResourceRoute(
+                                tab = ResourceTab.Mods.name,
+                                requiredMcVer = mcVer?.mcVer,
+                                fromHostId = route.hostId,
+                                fromAllHosts = route.fromAllHosts
+                            )
+                        )
+                    },
                     onOpenHostEdit = { host ->
                         navController.navigate(
                             HostCreate(
@@ -362,7 +372,14 @@ fun AppNavigation(
                 ResourceScreen(
                     initialCategory = ResourceTab.fromRouteValue(route.tab),
                     requiredMcVer = route.requiredMcVer?.let(McVersion::from),
-                    onBack = { navController.navigateAbsolute(Menu) },
+                    onBack = {
+                        val fromHostId = route.fromHostId
+                        if (fromHostId != null) {
+                            navController.navigateAbsolute(HostInfo(fromHostId, route.fromAllHosts))
+                        } else {
+                            navController.navigateAbsolute(Menu)
+                        }
+                    },
                     onOpenUpload = { navController.navigate(ModpackUpload) },
                     onOpenModpackVersionEdit = { modpackId, verName ->
                         navController.navigate(

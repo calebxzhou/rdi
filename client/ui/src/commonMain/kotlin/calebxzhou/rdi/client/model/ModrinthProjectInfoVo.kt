@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.model
 
 data class ModrinthProjectInfoVo(
+    val source: RemoteModSource = RemoteModSource.MODRINTH,
     val projectId: String,
     val slug: String,
     val title: String,
@@ -14,7 +15,8 @@ data class ModrinthProjectInfoVo(
     val gameVersions: List<String>,
     val loaders: List<String>,
     val versionIds: List<String>,
-    val versions: List<ModrinthProjectVersionVo>
+    val versions: List<ModrinthProjectVersionVo>,
+    val sourceUrl: String? = null
 )
 
 data class ModrinthProjectGalleryVo(
@@ -45,7 +47,10 @@ data class ModrinthProjectVersionVo(
 data class ModrinthProjectVersionDependencyVo(
     val versionId: String?,
     val projectId: String?,
-    val dependencyType: String?
+    val dependencyType: String?,
+    val source: RemoteModSource = RemoteModSource.MODRINTH,
+    val relationLabel: String = dependencyType ?: "dependency",
+    val required: Boolean = dependencyType == "required"
 )
 
 data class ModrinthProjectVersionFileVo(
@@ -56,6 +61,7 @@ data class ModrinthProjectVersionFileVo(
     val sizeText: String,
     val sha1: String?,
     val sha512: String?,
+    val murmur2: String? = null,
     val fileType: String?,
     val primary: Boolean
 )

@@ -19,7 +19,9 @@ object Wardrobe
 )
 @Serializable data class ResourceRoute(
     val tab: String = ResourceTab.All.name,
-    val requiredMcVer: String? = null
+    val requiredMcVer: String? = null,
+    val fromHostId: String? = null,
+    val fromAllHosts: Boolean = false
 )
 @Serializable data class ModpackInfo(
     val modpackId: String,
