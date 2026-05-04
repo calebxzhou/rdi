@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.service
 
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
+import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.client.model.firstLoaderDir
 import calebxzhou.rdi.client.model.loaderManifest
 import calebxzhou.rdi.client.model.toUiMod
@@ -138,21 +139,9 @@ class ModpackTester(
                             if (matched != null) {
                                 terminateProcessWithDelay(1000L)
                                 val latestMods = getMods()
-                                val normalizedMods = latestMods.map { mod ->
-                                    if (mod.side == Mod.Side.UNKNOWN) {
-                                        mod.toUiMod().withSide(Mod.Side.BOTH).toMod()
-                                    } else mod
-                                }
-                                val changedUnknown = latestMods.count { it.side == Mod.Side.UNKNOWN }
-                                if (changedUnknown > 0) {
-                                    setMods(normalizedMods)
-                                    appendLog("[RDI] 测试通过，已将 $changedUnknown 个未识别运行侧Mod标记为BOTH")
-                                }
                                 _passSeconds.value = matched.groupValues.getOrNull(1)
                                 _status.value = TestStatus.PASSED
-                                _testedModsSignature.value = currentModsSignature(
-                                    if (changedUnknown > 0) normalizedMods else latestMods
-                                )
+                                _testedModsSignature.value = currentModsSignature(latestMods)
                                 stop(uiScope, markStopped = false)
                             } else if (
                                 crashTriggerKeywords.any { keyword -> line.contains(keyword, ignoreCase = true) }
@@ -497,9 +486,12 @@ private fun prepareServerTestRunContent(
         modsDir.deleteRecursivelyNoSymlink()
     }
     modsDir.mkdirs()
-    stageSourceModFiles(modsDir, sourceDir, excludedOriginalNames)
+    stageSourceModFiles(modsDir, sourceDir, mods, excludedOriginalNames) { mod ->
+        mod.side != Mod.Side.CLIENT && mod.side != Mod.Side.UNKNOWN
+    }
     stageDownloadedMods(modsDir, mods) { mod ->
         mod.side != Mod.Side.CLIENT &&
+            mod.side != Mod.Side.UNKNOWN &&
             !isClientOnlyMarkedModName(mod.fileName) &&
             mod.fileName !in excludedOriginalNames
     }
@@ -580,7 +572,7 @@ private fun autoFixClientSideFromCrashReport(
         }
     }
     val candidate = mods.firstOrNull { mod ->
-        if (mod.side == Mod.Side.CLIENT) return@firstOrNull false
+        if (mod.side == Mod.Side.CLIENT || mod.side == Mod.Side.UNKNOWN) return@firstOrNull false
         val key = modStableKey(mod)
         if (key in alreadyFixed) return@firstOrNull false
         val byFile = modFiles.any {
@@ -651,7 +643,7 @@ private fun findMatchedCrashMod(
     val normalizedFileName = rawFileName?.let(::normalizeCrashModToken)
 
     return mods.firstOrNull { mod ->
-        if (mod.side == Mod.Side.CLIENT) return@firstOrNull false
+        if (mod.side == Mod.Side.CLIENT || mod.side == Mod.Side.UNKNOWN) return@firstOrNull false
         val key = modStableKey(mod)
         if (key in alreadyFixed) return@firstOrNull false
 
@@ -1221,8 +1213,10 @@ private fun prepareClientTestRunContent(
         modsDir.deleteRecursivelyNoSymlink()
     }
     modsDir.mkdirs()
-    stageSourceModFiles(modsDir, sourceDir, emptySet())
-    stageDownloadedMods(modsDir, mods) { it.side != Mod.Side.SERVER }
+    stageSourceModFiles(modsDir, sourceDir, mods, emptySet()) {
+        it.side != Mod.Side.SERVER && it.side != Mod.Side.UNKNOWN
+    }
+    stageDownloadedMods(modsDir, mods) { it.side != Mod.Side.SERVER && it.side != Mod.Side.UNKNOWN }
 }
 
 private fun cleanClientTestRuntimeOutput(versionDir: File) {
@@ -1272,7 +1266,9 @@ private fun copyFileOrDirectory(
 private fun stageSourceModFiles(
     modsDir: File,
     sourceDir: File,
-    excludedFileNames: Set<String>
+    mods: List<Mod>,
+    excludedFileNames: Set<String>,
+    includeMod: (Mod) -> Boolean
 ) {
     listOf(
         sourceDir.resolve("mods"),
@@ -1283,9 +1279,26 @@ private fun stageSourceModFiles(
             ?.asSequence()
             ?.filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
             ?.filterNot { isClientOnlyMarkedModName(it.name) || it.name in excludedFileNames }
+            ?.filter { source ->
+                val matchedMod = findMatchedSourceMod(source, mods)
+                matchedMod == null || includeMod(matchedMod)
+            }
             ?.forEach { source ->
                 linkOrCopyFile(source, modsDir.resolve(source.name))
             }
+    }
+}
+
+private fun findMatchedSourceMod(source: File, mods: List<Mod>): Mod? {
+    mods.firstOrNull { it.fileName.equals(source.name, ignoreCase = true) }?.let { return it }
+    val sourceHash = runCatching { source.sha1 }.getOrNull()
+    if (!sourceHash.isNullOrBlank()) {
+        mods.firstOrNull { it.hash.equals(sourceHash, ignoreCase = true) }?.let { return it }
+    }
+    val sourceName = source.name.lowercase()
+    return mods.firstOrNull { mod ->
+        mod.hash.isNotBlank() && sourceName.contains(mod.hash.lowercase()) ||
+            mod.slug.isNotBlank() && sourceName.contains(mod.slug.lowercase())
     }
 }
 

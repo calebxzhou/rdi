@@ -21,23 +21,38 @@ public final class RcmdDispatcher {
     }
 
     public RcmdResult execute(RcmdSource source, String rawInput) {
+        RcmdDispatchResult dispatchResult = dispatch(source, rawInput);
+        if (dispatchResult.found()) {
+            return dispatchResult.result();
+        }
+        try {
+            List<String> tokens = RcmdParser.tokenize(Rcmd.stripPrefix(rawInput));
+            return tokens.isEmpty()
+                    ? RcmdResult.error("rcmd命令为空")
+                    : RcmdResult.error("未知rcmd命令：" + tokens.getFirst());
+        } catch (RcmdParseException e) {
+            return RcmdResult.error(e.getMessage());
+        }
+    }
+
+    public RcmdDispatchResult dispatch(RcmdSource source, String rawInput) {
         if (source == null) {
             throw new IllegalArgumentException("命令来源不能为空");
         }
         try {
             List<String> tokens = RcmdParser.tokenize(Rcmd.stripPrefix(rawInput));
             if (tokens.isEmpty()) {
-                return RcmdResult.error("rcmd命令为空");
+                return RcmdDispatchResult.found(RcmdResult.error("rcmd命令为空"));
             }
             MatchResult match = findMatch(tokens);
             if (match == null) {
-                return RcmdResult.error("未知rcmd命令：" + tokens.get(0));
+                return RcmdDispatchResult.notFound();
             }
             var context = new RcmdContext(source, rawInput, match.spec(), tokens, match.arguments());
             var result = match.spec().command().execute(context);
-            return result == null ? RcmdResult.ok() : result;
+            return RcmdDispatchResult.found(result);
         } catch (RcmdParseException e) {
-            return RcmdResult.error(e.getMessage());
+            return RcmdDispatchResult.found(RcmdResult.error(e.getMessage()));
         }
     }
 

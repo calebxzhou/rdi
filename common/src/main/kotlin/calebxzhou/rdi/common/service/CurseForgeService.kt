@@ -8,10 +8,10 @@ import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.net.ktorClient
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.ModService.briefInfo
+import calebxzhou.rdi.common.service.ModService.buildIconUrls
 import calebxzhou.rdi.common.service.ModService.modLogo
 import calebxzhou.rdi.common.service.ModService.ofMirrorUrl
 import calebxzhou.rdi.common.service.ModService.readModMeta
-import calebxzhou.rdi.common.service.ModService.toVo
 import calebxzhou.rdi.common.service.ModrinthService.getMultipleProjects
 import calebxzhou.rdi.common.service.ModrinthService.getVersionsFromHashes
 import io.ktor.client.call.*
@@ -47,12 +47,8 @@ object CurseForgeService {
     //从完整的cf mod信息取得card vo
     private fun CurseForgeModInfo.toCardVo(modFile: File? = null): Mod.CardVo {
         val briefInfo = slugBriefInfo[slug]
-        val icons = buildList {
-            briefInfo?.logoUrl?.let { add(it) }
-            logo?.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { add(it) }
-            logo?.url?.takeIf { it.isNotBlank() }?.let { add(it) }
-        }
-        val resolvedName = (name ?: slug).ifBlank { slug }
+        val icons = buildIconUrls(logo?.thumbnailUrl, logo?.url, briefInfo?.logoUrl)
+        val resolvedName = briefInfo?.name ?: (name ?: slug).ifBlank { slug }
         val localMeta = modFile?.readLocalModCardMeta()
         val introText = summary?.takeIf { it.isNotBlank() }?.trim()
             ?: localMeta?.description
@@ -152,8 +148,7 @@ object CurseForgeService {
                     hash = record.fingerprint,
                     ).apply {
                     file = record.file
-                    vo = (slugBriefInfo[meta.normalizedSlug]?.toVo(record.file)
-                        ?: meta.mod.toCardVo(record.file)).copy(side = side)
+                    vo = meta.mod.toCardVo(record.file).copy(side = side)
                 }
             }
         }

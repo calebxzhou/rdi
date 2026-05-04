@@ -48,7 +48,8 @@ public abstract class mChatMsg {
                     player.getUUID().toString(),
                     player.getGameProfile().getName(),
                     message,
-                    System.currentTimeMillis()
+                    System.currentTimeMillis(),
+                    true
             );
             if (WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage)) {
                 player.server.getPlayerList().broadcastSystemMessage(Component.literal("[公共] " + player.getGameProfile().getName() + ": " + message), false);
@@ -58,6 +59,15 @@ public abstract class mChatMsg {
             ci.cancel();
             return;
         }
+        WebSocketClient.sendMessage(WsMessage.Channel.Chat, new RChatMessage(
+                UUID.randomUUID().toString(),
+                HOST_ID,
+                player.getUUID().toString(),
+                player.getGameProfile().getName(),
+                message,
+                System.currentTimeMillis(),
+                false
+        ));
         player.server.getPlayerList().broadcastSystemMessage(Component.literal(player.getDisplayName().getString()+": "+message),false);
         ci.cancel();
     }

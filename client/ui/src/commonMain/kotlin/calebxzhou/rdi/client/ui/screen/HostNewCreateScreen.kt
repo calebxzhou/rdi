@@ -77,12 +77,12 @@ fun HostNewCreateScreen(
     var editPreferNoSave by remember { mutableStateOf(false) }
 
     var selectedWorldId by remember { mutableStateOf<ObjectId?>(null) }
-    var difficulty by remember { mutableStateOf(2) }
+    var difficulty by remember { mutableStateOf(3) }
     var gameMode by remember { mutableStateOf(0) }
     var currentMcVersion by remember { mutableStateOf<McVersion?>(null) }
     var levelType by remember { mutableStateOf("minecraft:normal") }
     var levelChoice by remember { mutableStateOf(0) }
-    var whitelist by remember { mutableStateOf(false) }
+    var whitelist by remember { mutableStateOf(true) }
     var allowCheats by remember { mutableStateOf(false) }
 
     fun isEditMode() = editHostId != null
@@ -427,7 +427,7 @@ fun HostNewCreateScreen(
 
                                             Checkbox(whitelist, { whitelist = it })
                                             SimpleTooltip("仅限受邀玩家游玩") {
-                                                Text("白名单")
+                                                Text("不允许陌生人游玩此房间")
                                             }
                                         }
                                         RowV {

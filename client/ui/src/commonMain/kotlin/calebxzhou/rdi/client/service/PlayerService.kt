@@ -7,11 +7,15 @@ import calebxzhou.rdi.client.model.LoginInfo
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.json
+import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.model.Response
+import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.util.ok
 import io.ktor.client.call.*
+import io.ktor.client.request.*
 import io.ktor.http.*
 import net.raphimc.minecraftauth.MinecraftAuth
 import net.raphimc.minecraftauth.java.JavaAuthManager
@@ -67,6 +71,17 @@ object PlayerService {
             HttpMethod.Post,
             params = mapOf("usr" to usr, "pwd" to pwd)
         ).data!!
+    }
+
+    suspend fun resetPasswordByMsa(msa: MsaAccountInfo, newPwd: String): Result<Unit> = runCatching {
+        val resp = server.makeRequest<Unit>(
+            "player/reset-pwd/msa",
+            HttpMethod.Post
+        ) {
+            json()
+            setBody(RAccount.ResetPasswordByMsaDto(msa, newPwd).json)
+        }
+        if (!resp.ok) throw RequestError(resp.msg)
     }
 
     suspend fun getPlayerInfo(uid: ObjectId): RAccount.Dto {

@@ -49,7 +49,8 @@ data class ModsTomlDependency(
 data class JarModMeta(
     val modIds: List<String> = emptyList(),
     val version: String? = null,
-    val description: String? = null
+    val description: String? = null,
+    val logoFile: String? = null
 ) {
     val primaryModId: String?
         get() = modIds.firstOrNull()
@@ -60,7 +61,8 @@ data class LegacyMcmodInfoEntry(
     @SerialName("modid")
     val modId: String = "",
     val version: String? = null,
-    val description: String? = null
+    val description: String? = null,
+    val logoFile: String? = null
 )
 
 @Serializable

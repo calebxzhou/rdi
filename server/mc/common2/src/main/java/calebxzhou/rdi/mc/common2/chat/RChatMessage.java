@@ -6,6 +6,7 @@ public record RChatMessage(
         String playerId,
         String playerName,
         String content,
-        long timestamp
+        long timestamp,
+        boolean global
 ) {
 }

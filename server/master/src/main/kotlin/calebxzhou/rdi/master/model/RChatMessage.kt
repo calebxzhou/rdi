@@ -10,4 +10,5 @@ data class RChatMessage(
     val playerName: String,
     val content: String,
     val timestamp: Long,
+    val global: Boolean = true,
 )

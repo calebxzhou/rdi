@@ -92,6 +92,7 @@ data class GameNodeRuleConfig(
     val carriers: List<String> = emptyList(),
     val matchOutsideChina: Boolean = false,
     val peekHourOnly: Boolean = false,
+    val gameBackup: Boolean = false,
 )
 
 @Serializable

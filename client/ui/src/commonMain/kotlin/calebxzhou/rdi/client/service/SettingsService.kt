@@ -1,8 +1,11 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.AiConfig
+import calebxzhou.rdi.client.AiProvider
 import calebxzhou.rdi.client.AppConfig
 import calebxzhou.rdi.client.ui.getPlatformTotalPhysicalMemoryMb
 import calebxzhou.rdi.client.ui.validatePlatformJavaPath
+import calebxzhou.rdi.CONF
 import calebxzhou.rdi.common.ProxyConfig
 
 object SettingsService {
@@ -67,6 +70,17 @@ object SettingsService {
     fun validateJavaPath(rawPath: String, expectedMajor: Int): Result<Unit> =
         validatePlatformJavaPath(rawPath, expectedMajor)
 
+    fun validateAiSettings(provider: AiProvider, baseUrl: String, model: String): ValidationResult {
+        val normalizedBaseUrl = normalizeAiBaseUrl(provider, baseUrl)
+        if (!normalizedBaseUrl.startsWith("http://") && !normalizedBaseUrl.startsWith("https://")) {
+            return ValidationResult(false, "AI接口地址必须以http://或https://开头")
+        }
+        if (model.isBlank()) {
+            return ValidationResult(false, "AI模型不能为空")
+        }
+        return ValidationResult(true)
+    }
+
     /**
      * Save settings configuration
      */
@@ -82,13 +96,21 @@ object SettingsService {
         proxyHost: String,
         proxyPortText: String,
         proxyUsr: String,
-        proxyPwd: String
+        proxyPwd: String,
+        aiProvider: AiProvider,
+        aiBaseUrl: String,
+        aiApiKey: String,
+        aiModel: String
     ): Result<Unit> = runCatching {
         val memoryValue = maxMemoryText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
         val jre25 = jre25Path.trim().takeIf { it.isNotEmpty() }
         val jre21 = jre21Path.trim().takeIf { it.isNotEmpty() }
         val jre8 = jre8Path.trim().takeIf { it.isNotEmpty() }
         val proxyPort = proxyPortText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
+        val normalizedAiBaseUrl = normalizeAiBaseUrl(aiProvider, aiBaseUrl)
+        val normalizedAiModel = aiModel.trim().ifBlank { aiProvider.defaultModel }
+        val aiValidation = validateAiSettings(aiProvider, normalizedAiBaseUrl, normalizedAiModel)
+        require(aiValidation.success) { aiValidation.errorMessage ?: "AI设置无效" }
 
         val config = AppConfig(
             preferModMirror = preferModMirror,
@@ -104,10 +126,24 @@ object SettingsService {
                 port = proxyPort ?: 10808,
                 usr = proxyUsr.takeIf { it.isNotBlank() },
                 pwd = proxyPwd.takeIf { it.isNotBlank() }
-            )
+            ),
+            aiConfig = AiConfig(
+                provider = aiProvider,
+                baseUrl = normalizedAiBaseUrl,
+                apiKey = aiApiKey.trim(),
+                model = normalizedAiModel
+            ),
+            pinyinName = CONF.pinyinName
         )
         AppConfig.save(config)
     }
+
+    fun normalizeAiBaseUrl(provider: AiProvider, baseUrl: String): String =
+        if (provider == AiProvider.DEEPSEEK) {
+            AiProvider.DEEPSEEK.defaultBaseUrl
+        } else {
+            baseUrl.trim().ifBlank { provider.defaultBaseUrl }
+        }
 
     /**
      * Validate profile change

@@ -35,6 +35,16 @@ data class RAccount(
         val pwd: String,
         val msa: MsaAccountInfo?,
     )
+    @Serializable
+    data class ResetPasswordByMsaDto(
+        val msa: MsaAccountInfo,
+        val newPwd: String
+    )
+    @Serializable
+    data class ResetPasswordByQqMailDto(
+        val qq: String,
+        val newPwd: String
+    )
 
     @Serializable
     data class Cloth(

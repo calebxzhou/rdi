@@ -10,6 +10,7 @@ import calebxzhou.rdi.common.net.ktorClient
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.CurseForgeService.fillCurseForgeVo
 import calebxzhou.rdi.common.service.ModService.briefInfo
+import calebxzhou.rdi.common.service.ModService.buildIconUrls
 import calebxzhou.rdi.common.service.ModService.modLogo
 import calebxzhou.rdi.common.service.ModService.ofMirrorUrl
 import calebxzhou.rdi.common.service.ModService.readModMeta
@@ -215,11 +216,8 @@ object ModrinthService {
 
     fun ModrinthProject.toCardVo(modFile: File? = null): Mod.CardVo {
         val briefInfo = slugBriefInfo[slug.trim().lowercase()]
-        val icons = buildList {
-            briefInfo?.logoUrl?.takeIf { it.isNotBlank() }?.let { add(it) }
-            iconUrl?.takeIf { it.isNotBlank() }?.let { add(it) }
-        }
-        val resolvedName = (title ?: slug).ifBlank { slug }
+        val icons = buildIconUrls(iconUrl, briefInfo?.logoUrl)
+        val resolvedName = briefInfo?.name ?: (title ?: slug).ifBlank { slug }
         val localMeta = modFile?.readLocalModCardMeta()
         val introText = description?.takeIf { it.isNotBlank() }?.trim()
             ?: localMeta?.description

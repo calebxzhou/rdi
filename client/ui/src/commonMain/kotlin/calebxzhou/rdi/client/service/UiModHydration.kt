@@ -4,6 +4,7 @@ import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModrinthProject
+import calebxzhou.rdi.common.service.ModService.buildIconUrls
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -21,10 +22,9 @@ suspend fun List<Mod>.hydrateToUiMods(
     val hydratedMods = map(Mod::copyForUiHydration)
     val resolveContext = ModCardResolveContext(modrinthProjects = modrinthProjects)
     val localCardMap = LocalModCardResolver.resolve(hydratedMods)
-    val unresolvedMods = hydratedMods.filter { it.projectKey() !in localCardMap }
     val remoteCardMap = uiModResolvers
         .map { resolver ->
-            async { resolver.resolve(unresolvedMods, resolveContext) }
+            async { resolver.resolve(hydratedMods, resolveContext) }
         }
         .awaitAll()
         .fold(mutableMapOf<String, Mod.CardVo>()) { acc, resolved ->
@@ -32,7 +32,9 @@ suspend fun List<Mod>.hydrateToUiMods(
         }
     val cardMap = LinkedHashMap<String, Mod.CardVo>().apply {
         putAll(localCardMap)
-        putAll(remoteCardMap)
+        remoteCardMap.forEach { (key, remoteCard) ->
+            this[key] = localCardMap[key]?.mergeWithRemote(remoteCard) ?: remoteCard
+        }
     }
 
     return@coroutineScope hydratedMods.map { mod ->
@@ -56,3 +58,9 @@ private fun Mod.copyForUiHydration(): Mod = copy(
     copied.vo = vo?.copy(side = side)
     copied.file = file
 }
+
+private fun Mod.CardVo.mergeWithRemote(remote: Mod.CardVo): Mod.CardVo = remote.copy(
+    iconData = iconData ?: remote.iconData,
+    iconUrls = buildIconUrls(remote.iconUrls + iconUrls),
+    side = side
+)

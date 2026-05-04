@@ -40,6 +40,7 @@ object Wardrobe
 @Serializable object Mcmod
 @Serializable object Sponsor
 @Serializable data class Register(val msa: Boolean)
+@Serializable object ResetPassword
 @Serializable object Setting
 @Serializable data class HostRoute(val tab: String = HostTab.MyHosts.name)
 @Serializable data class HostInfo(val hostId: String, val fromAllHosts: Boolean = false)

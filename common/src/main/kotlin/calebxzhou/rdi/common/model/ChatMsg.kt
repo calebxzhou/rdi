@@ -1,18 +1,19 @@
 package calebxzhou.rdi.common.model
 
+import calebxzhou.rdi.common.UNKNOWN_PLAYER_ID
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
-import org.bson.codecs.pojo.annotations.BsonId
 import org.bson.types.ObjectId
 
 @Serializable
 data class ChatMsg(
-    @Contextual @BsonId val id: ObjectId = ObjectId(),
+    @Contextual val _id: ObjectId = ObjectId(),
     @Contextual
-    val senderId: ObjectId,
+    val uid: ObjectId = UNKNOWN_PLAYER_ID,
     val content: String,
+    val global: Boolean = true,
 ){
-    constructor(sender: RAccount, content: String,): this(ObjectId(),sender._id,content)
+    constructor(sender: RAccount, content: String, global: Boolean = true): this(ObjectId(), sender._id, content, global)
     fun toDto(sender: RAccount) = Dto(sender._id,sender.name,content)
     @Serializable
     data class Dto(

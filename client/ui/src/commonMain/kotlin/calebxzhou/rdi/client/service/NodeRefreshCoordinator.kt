@@ -21,4 +21,11 @@ object NodeRefreshCoordinator {
             .onSuccess { lgr.info { "节点刷新成功[$reason]: ${it.nodeName}" } }
             .onFailure { lgr.warn(it) { "节点刷新失败[$reason]" } }
     }
+
+    suspend fun refreshGameBackup(reason: String): Result<ServerEntry> = refreshMutex.withLock {
+        lgr.info { "临时刷新到备用游戏节点: $reason" }
+        refreshNodeSettingsFromPrimary(gameBackup = true)
+            .onSuccess { lgr.info { "备用游戏节点刷新成功[$reason]: ${it.nodeName}" } }
+            .onFailure { lgr.warn(it) { "备用游戏节点刷新失败[$reason]" } }
+    }
 }

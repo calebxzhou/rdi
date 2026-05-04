@@ -57,6 +57,8 @@ public abstract class mChatMsg {
         if (PlayerChatRangeState.isGlobal(player.getUniqueID())) {
             ci.cancel();
             sendGlobalChat(message);
+        } else {
+            sendHostChat(message);
         }
     }
 
@@ -76,7 +78,8 @@ public abstract class mChatMsg {
                 player.getUniqueID().toString(),
                 player.getGameProfile().getName(),
                 message,
-                System.currentTimeMillis()
+                System.currentTimeMillis(),
+                true
         );
         if (WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage)) {
             player.server.getPlayerList().sendMessage(
@@ -86,5 +89,18 @@ public abstract class mChatMsg {
         } else {
             player.sendMessage(new TextComponentString("全局聊天发送失败：房间未连接到RDI主服务器"));
         }
+    }
+
+    private void sendHostChat(String message) {
+        RChatMessage chatMessage = new RChatMessage(
+                UUID.randomUUID().toString(),
+                HOST_ID,
+                player.getUniqueID().toString(),
+                player.getGameProfile().getName(),
+                message,
+                System.currentTimeMillis(),
+                false
+        );
+        WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage);
     }
 }

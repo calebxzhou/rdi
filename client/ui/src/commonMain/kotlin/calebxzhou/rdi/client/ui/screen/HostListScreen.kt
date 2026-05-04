@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.auth.updateLastPlayHost
+import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
@@ -41,6 +42,7 @@ import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.common.model.Task2
 import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
@@ -228,8 +230,11 @@ internal fun HostBrowserPane(
                 )
             }
         } else {
-            val playableHosts = remember(hosts) { hosts.filter { it.playable } }
-            val nonPlayableHosts = remember(hosts) { hosts.filter { !it.playable } }
+            val shownHosts = remember(hosts, loggedAccount._id) {
+                if (loggedAccount.isDav) hosts.map { it.copy(playable = true) } else hosts
+            }
+            val playableHosts = remember(shownHosts) { shownHosts.filter { it.playable } }
+            val nonPlayableHosts = remember(shownHosts) { shownHosts.filter { !it.playable } }
 
             @Composable
             fun renderHostCard(host: Host.BriefVo) {

@@ -100,7 +100,7 @@ val Modpack.Version.clientPackFile
     get() = clientZstdPack.takeIf(File::exists) ?: clientZip
 
 const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
-val MAX_PACK_SIZE = 512 * 1024 * 1024L
+val MAX_PACK_SIZE = 1024 * 1024 * 1024L
 
 private suspend inline fun <reified T> ApplicationCall.receiveUploadPayload(
     jsonFieldName: String,
@@ -367,11 +367,9 @@ object ModpackService {
     private fun versionBuildTaskKey(modpackId: ObjectId, versionName: String): String =
         "server-modpack-build:${modpackId.toHexString()}:$versionName"
 
-    val ModpackContext.isAuthor: Boolean
-        get() = modpack.authorId == player._id
 
     fun ModpackContext.requireAuthor(): ModpackContext {
-        if (!isAuthor) throw RequestError("不是你的整合包")
+        if (modpack.authorId != player._id && !player.isDav) throw RequestError("不是你的整合包")
         return this
     }
 
@@ -1056,7 +1054,9 @@ object ModpackService {
             )
 
             val serverMods = version.mods.filter {
-                it.side != Mod.Side.CLIENT && !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
+                it.side != Mod.Side.CLIENT &&
+                    it.side != Mod.Side.UNKNOWN &&
+                    !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
             }
 
             add(
@@ -1248,7 +1248,11 @@ object ModpackService {
     private fun cleanupDisabledInstalledMods(host: Host, version: Modpack.Version, modsDir: File) {
         if (!modsDir.exists() || !modsDir.isDirectory || host.disabledMods.isEmpty()) return
         val disabledBaseMods = version.mods
-            .filter { it.side != Mod.Side.CLIENT && !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX) }
+            .filter {
+                it.side != Mod.Side.CLIENT &&
+                    it.side != Mod.Side.UNKNOWN &&
+                    !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
+            }
             .filter { versionMod -> host.disabledMods.any { sameMod(it, versionMod) } }
         if (disabledBaseMods.isEmpty()) return
 
@@ -1299,6 +1303,7 @@ object ModpackService {
         mods.removeIf { it.slug.contains("backup") }
         //移除powerful-dummy 不兼容
         mods.removeIf { it.slug == "powerful-dummy" }
+        mods.removeIf { it.slug==("spark") }
         //国内用不了
         mods.removeIf { it.slug == "essential-mod" }
         //重度机械症c6c compatibility
@@ -1344,7 +1349,9 @@ object ModpackService {
             onProgress("解压整合包文件..")
             unzipOverrides(version.fullPackFile, buildDir, includeClientOnlyMarkedMods = false)
             val serverMods = version.mods.filter {
-                it.side != Mod.Side.CLIENT && !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
+                it.side != Mod.Side.CLIENT &&
+                    it.side != Mod.Side.UNKNOWN &&
+                    !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
             }
             ModService.downloadModsTask2(serverMods).runInline(
                 Task2Context{ progress ->

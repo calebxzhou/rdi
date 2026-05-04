@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -199,7 +200,8 @@ fun RemoteModInfoScreen(
                     selectedGameVersion?.let { gameVersion ->
                         Space8w()
                         RemoteModTitleFilterChip(
-                            text = "MC $gameVersion",
+                            label = "MC",
+                            text = gameVersion,
                             options = supportedGameVersions.map { it.mcVer },
                             onSelect = { selectedGameVersion = it }
                         )
@@ -207,6 +209,7 @@ fun RemoteModInfoScreen(
                     selectedLoader?.let { loader ->
                         Space8w()
                         RemoteModTitleFilterChip(
+                            label = "加载器",
                             text = loader.displayName,
                             options = availableLoaders.map { it.displayName },
                             onSelect = { label ->
@@ -282,6 +285,7 @@ private enum class RemoteModInfoTab(val label: String) {
 
 @Composable
 private fun RemoteModTitleFilterChip(
+    label: String,
     text: String,
     options: List<String>,
     onSelect: (String) -> Unit
@@ -289,17 +293,40 @@ private fun RemoteModTitleFilterChip(
     var expanded by remember { mutableStateOf(false) }
     Box {
         Surface(
-            modifier = Modifier.clickable { expanded = true },
+            modifier = Modifier
+                .width(100.dp)
+                .clickable { expanded = true },
             shape = RoundedCornerShape(8.dp),
-            color = MaterialColor.BLUE_700.color
+            color = Color.White,
+            border = BorderStroke(1.dp, MaterialColor.BLUE_700.color),
+            elevation = 1.dp
         ) {
-            Text(
-                text = text,
-                color = Color.White,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            Row(
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = label,
+                        color = MaterialColor.GRAY_700.color,
+                        style = MaterialTheme.typography.caption,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = text,
+                        color = MaterialColor.BLUE_700.color,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Text(
+                    text = "\uEB6E".asIconText,
+                    color = MaterialColor.BLUE_700.color,
+                    maxLines = 1
+                )
+            }
         }
         DropdownMenu(
             expanded = expanded,

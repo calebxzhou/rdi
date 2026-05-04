@@ -159,7 +159,8 @@ object ModService {
                 return JarModMeta(
                     modIds = modIds,
                     version = primary?.version?.trim()?.ifBlank { null },
-                    description = primary?.description?.trim()?.ifBlank { null }
+                    description = primary?.description?.trim()?.ifBlank { null },
+                    logoFile = primary?.logoFile?.toJarIconPath()
                 )
             }
         }
@@ -171,10 +172,38 @@ object ModService {
     val ModsTomlConfig.modDescription
         get() = mods.firstOrNull()?.description.orEmpty()
     val JarFile.modLogo
-        get() =
-            getJarEntry("logo.png")?.let { logoEntry ->
-                getInputStream(logoEntry).readBytes()
+        get(): ByteArray? {
+            val meta = readModMeta()
+            val candidates = buildList {
+                meta?.logoFile?.let { add(it) }
+                meta?.primaryModId?.let { modId ->
+                    add("assets/$modId/icon.png")
+                    add("assets/$modId/logo.png")
+                }
+                add("logo.png")
+                add("icon.png")
             }
+            return candidates.distinct().firstNotNullOfOrNull { path ->
+                getJarEntry(path)?.takeIf { !it.isDirectory }?.let { logoEntry ->
+                    getInputStream(logoEntry).use { it.readBytes() }
+                }
+            }
+        }
+
+    fun buildIconUrls(vararg urls: String?): List<String> = buildIconUrls(urls.asIterable())
+
+    fun buildIconUrls(urls: Iterable<String?>): List<String> =
+        urls
+            .asSequence()
+            .mapNotNull { it?.trim()?.takeIf(String::isNotBlank) }
+            .distinct()
+            .toList()
+
+    private fun String.toJarIconPath(): String? =
+        trim()
+            .replace('\\', '/')
+            .trimStart('/')
+            .ifBlank { null }
 
     private val builtinDependencyIds = setOf("minecraft", "forge", "neoforge", "fabricloader")
 
@@ -187,9 +216,7 @@ object ModService {
             nameCn = nameCn,
             intro = intro,
             iconData = iconBytes,
-            iconUrls = buildList {
-                if (logoUrl.isNotBlank()) add(logoUrl)
-            },
+            iconUrls = buildIconUrls(logoUrl),
             side = Mod.Side.BOTH
         )
     }
@@ -361,7 +388,8 @@ object ModService {
         return JarModMeta(
             modIds = modIds,
             version = primary?.version?.trim()?.ifBlank { null },
-            description = primary?.description?.trim()?.ifBlank { null }
+            description = primary?.description?.trim()?.ifBlank { null },
+            logoFile = primary?.logoFile?.toJarIconPath()
         )
     }
 

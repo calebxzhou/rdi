@@ -5,6 +5,7 @@ import calebxzhou.rdi.master.CONF
 import calebxzhou.rdi.master.GameNodeRuleConfig
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.param
+import calebxzhou.rdi.master.net.paramNull
 import calebxzhou.rdi.master.net.response
 import io.ktor.server.routing.*
 import java.time.LocalTime
@@ -15,15 +16,20 @@ private val ipv4Regex =
 
 fun Route.gameNodeRoutes() {
     get("/server-entry") {
-        response(data = GameNodeService.resolveServerEntry(call.param("myIp")))
+        response(
+            data = GameNodeService.resolveServerEntry(
+                ipv4 = call.param("myIp"),
+                gameBackup = call.paramNull("gameBackup") == "true"
+            )
+        )
     }
 }
 
 object GameNodeService {
-    fun resolveServerEntry(ipv4: String): ServerEntry {
+    fun resolveServerEntry(ipv4: String, gameBackup: Boolean = false): ServerEntry {
         requireIpv4(ipv4)
         val region = CarrierDetectService.detectResult(ipv4)
-        val node = selectNode(region)
+        val node = selectNode(region, gameBackup)
         val backupApi = CONF.server.bgpUrl.trim()
         val useBackupNode = backupApi.isNotBlank() && !region.isCT && isPeekHour()
         return ServerEntry(
@@ -45,8 +51,11 @@ object GameNodeService {
         }
     }
 
-    private fun selectNode(region: Ip2RegionResult): GameNodeRuleConfig {
+    private fun selectNode(region: Ip2RegionResult, gameBackup: Boolean): GameNodeRuleConfig {
         val nodes = CONF.gameNode.nodes
+        if (gameBackup) {
+            nodes.firstOrNull { it.gameBackup }?.let { return it }
+        }
         return nodes.firstOrNull { it.matches(region) }
             // `id=0`是显式声明的国内兜底节点，不再依赖配置顺序里的“第一个节点”。
             ?: nodes.firstOrNull { it.id == FALLBACK_GAME_NODE_ID }

@@ -46,6 +46,7 @@ import calebxzhou.rdi.common.model.LoadProgress
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Task2Status
+import calebxzhou.rdi.common.model.isPlatformCf
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.lgr
 import kotlinx.coroutines.Dispatchers
@@ -291,10 +292,12 @@ fun ModpackUploadScreen2(
         serverTester?.onModsChangedAfterManualEdit()
     }
 
-    fun normalizeUnknownSidedMods(source: List<Mod>): List<Mod> {
-        if (source.none { it.side == Mod.Side.UNKNOWN }) return source
+    fun defaultCurseForgeUnknownMods(source: List<Mod>): List<Mod> {
+        if (source.none { it.isPlatformCf && it.side == Mod.Side.UNKNOWN }) return source
         return source.map { mod ->
-            if (mod.side == Mod.Side.UNKNOWN) mod.toUiMod().withSide(Mod.Side.BOTH).toMod() else mod
+            if (mod.isPlatformCf && mod.side == Mod.Side.UNKNOWN) {
+                mod.toUiMod().withSide(Mod.Side.BOTH).toMod()
+            } else mod
         }
     }
 
@@ -371,7 +374,6 @@ fun ModpackUploadScreen2(
             errorText = "版本号不能为空"
             return null
         }
-        val normalizedMods = if (DEBUG || IGNORE_MODPACK_TEST) normalizeUnknownSidedMods(mods) else mods
         val currentClientTester = clientTester
         val currentServerTester = serverTester
         if (!allowUploadWithoutTests && isDesktop &&
@@ -395,7 +397,7 @@ fun ModpackUploadScreen2(
         return current.copy(
             packName = if (uploadMode == UploadMode.UPDATE) selectedUpdateTarget?.name ?: name else name,
             packVersion = version,
-            mods = normalizedMods
+            mods = mods
         ).toUploadPayload()
     }
 
@@ -450,7 +452,8 @@ fun ModpackUploadScreen2(
                 return@launch
             }
 
-            loadedModpack = loadResult
+            val defaultedMods = defaultCurseForgeUnknownMods(loadResult.mods)
+            loadedModpack = loadResult.copy(mods = defaultedMods)
             modpackName = loadResult.packName
             versionName = normalizeVersionNameInput(loadResult.packVersion)
             iconUrl = ""
@@ -459,7 +462,7 @@ fun ModpackUploadScreen2(
             selectedCategories = emptyList()
             mcVersionText = loadResult.mcVersion.mcVer
             modloaderText = loadResult.modloader.name
-            mods = loadResult.mods
+            mods = defaultedMods
             serverPackName = null
             uploadMode = UploadMode.CREATE
             selectedUpdateTarget = null

@@ -76,6 +76,10 @@ fun Route.playerRoutes() {
             PlayerService.registerMsa(call.receive())
             ok()
         }
+        post("/reset-pwd/msa") {
+            PlayerService.resetPasswordByMsa(call.receive())
+            ok()
+        }
         post("/jwt") {
             PlayerService.validate(
                 param("usr"),
@@ -203,9 +207,7 @@ object PlayerService {
         if (qq.length !in 5..10 || !qq.all { it.isDigit() }) {
             throw RequestError("QQ号格式不正确")
         }
-        if (pwd.length !in 6..16) {
-            throw RequestError("密码长度须在6~16个字符")
-        }
+        validatePassword(pwd)
         return ok()
     }
 
@@ -213,6 +215,10 @@ object PlayerService {
         if (getByMsid(uuid) != null) {
             throw RequestError("此微软账号已被使用")
         }
+        return verifyMsaProfile()
+    }
+
+    suspend fun MsaAccountInfo.verifyMsaProfile(): Result<MojangPlayerProfile> {
         val msprof = MojangApi.getProfileByToken(token).getOrElse {
             it.printStackTrace()
             throw RequestError("无效的MC会话，请重新登录")
@@ -222,6 +228,12 @@ object PlayerService {
             }
         }
         return ok(msprof)
+    }
+
+    private fun validatePassword(pwd: String) {
+        if (pwd.length !in 6..16) {
+            throw RequestError("密码长度须在6~16个字符")
+        }
     }
 
     suspend fun registerMsa(dto: RAccount.RegisterDto) {
@@ -240,6 +252,7 @@ object PlayerService {
             name = dto.name,
             pwd = dto.pwd,
             qq = dto.qq,
+            msid = dto.msa?.uuid,
             cloth = cloth
         )
         accountCol.insertOne(account)
@@ -276,6 +289,28 @@ object PlayerService {
         )
     }
 
+    suspend fun resetPasswordByMsa(dto: RAccount.ResetPasswordByMsaDto) {
+        validatePassword(dto.newPwd)
+        dto.msa.verifyMsaProfile().getOrElse {
+            throw RequestError("微软账号认证错误：${it.message}")
+        }
+        val account = getByMsid(dto.msa.uuid)
+            ?: throw RequestError("未找到绑定此微软账号的账号")
+        accountCol.updateOne(account.uidFilter, Updates.set(RAccount::pwd.name, dto.newPwd))
+    }
+
+    suspend fun resetPasswordByQqMail(dto: RAccount.ResetPasswordByQqMailDto, senderQq: String) {
+        validatePassword(dto.newPwd)
+        if (dto.qq.length !in 5..10 || !dto.qq.all { it.isDigit() }) {
+            throw RequestError("QQ号格式不正确")
+        }
+        if (senderQq != dto.qq) {
+            throw RequestError("resetPwd邮件发件人QQ与目标QQ不一致")
+        }
+        val account = getByQQ(dto.qq) ?: throw RequestError("无此账号")
+        accountCol.updateOne(account.uidFilter, Updates.set(RAccount::pwd.name, dto.newPwd))
+    }
+
     suspend fun login(usr: String, pwd: String, specJson: String?, clientIp: String): RAccount {
         val account = validate(usr, pwd) ?: run {
             lgr.info { "${usr}登录失败" }
@@ -310,7 +345,10 @@ object PlayerService {
             if (getByName(it) != null) throw RequestError("名字用过了")
             updates += Updates.set("name", it)
         }
-        newPwd?.let { updates += Updates.set("pwd", it) }
+        newPwd?.let {
+            validatePassword(it)
+            updates += Updates.set("pwd", it)
+        }
         if (updates.isNotEmpty()) {
             accountCol.updateOne(uidFilter, combine(updates))
         }

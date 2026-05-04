@@ -43,7 +43,8 @@ import kotlinx.coroutines.withContext
 @Composable
 fun LoginScreen(
     onLoginSuccess: (() -> Unit)? = null,
-    onOpenRegister: ((Boolean) -> Unit)? = null
+    onOpenRegister: ((Boolean) -> Unit)? = null,
+    onOpenResetPassword: (() -> Unit)? = null
 ) {
     val routeState by RServer.routeState.collectAsState()
     var showPassword by remember { mutableStateOf(false) }
@@ -289,6 +290,15 @@ fun LoginScreen(
                                 Space8w()
                                 CircleIconButton("\uEBCD","注册", bgColor = MaterialColor.PINK_200.color, iconColor = Color.Black){
                                     showMsAccountDialog = true
+                                }
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                CircleIconButton("\uF084", "忘记密码", bgColor = MaterialColor.GREEN_200.color, iconColor = Color.Black) {
+                                    onOpenResetPassword?.invoke()
                                 }
                             }
                             if (isDesktop) {

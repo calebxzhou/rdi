@@ -5,6 +5,7 @@ import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModBriefInfo
 import calebxzhou.rdi.common.model.ModrinthProject
 import calebxzhou.rdi.common.service.CurseForgeService
+import calebxzhou.rdi.common.service.ModService.buildIconUrls
 import calebxzhou.rdi.common.service.ModService.modLogo
 import calebxzhou.rdi.common.service.ModService.readModMeta
 import calebxzhou.rdi.common.service.ModrinthService
@@ -37,11 +38,7 @@ internal fun Mod.toLocalCardVo(): Mod.CardVo? {
 
 internal fun CurseForgeModInfo.toUiCardVo(modFile: File? = null): Mod.CardVo {
     val briefInfo = CurseForgeService.slugBriefInfo[slug.trim().lowercase()]
-    val icons = buildList {
-        briefInfo?.logoUrl?.takeIf { it.isNotBlank() }?.let { add(it) }
-        logo?.thumbnailUrl?.takeIf { it.isNotBlank() }?.let { add(it) }
-        logo?.url?.takeIf { it.isNotBlank() }?.let { add(it) }
-    }
+    val icons = buildIconUrls(logo?.thumbnailUrl, logo?.url, briefInfo?.logoUrl)
     val resolvedName = name.ifBlank { slug }
     val localMeta = modFile?.let {
         runCatching { it.readLocalModCardMeta() }.getOrNull()
@@ -52,7 +49,8 @@ internal fun CurseForgeModInfo.toUiCardVo(modFile: File? = null): Mod.CardVo {
         ?: "暂无介绍"
 
     return briefInfo?.toUiCardVo(localMeta)?.copy(
-        intro = briefInfo.intro.ifBlank { introText }
+        intro = briefInfo.intro.ifBlank { introText },
+        iconUrls = icons
     ) ?: Mod.CardVo(
         name = resolvedName,
         nameCn = null,
@@ -65,10 +63,7 @@ internal fun CurseForgeModInfo.toUiCardVo(modFile: File? = null): Mod.CardVo {
 
 internal fun ModrinthProject.toUiCardVo(modFile: File? = null): Mod.CardVo {
     val briefInfo = ModrinthService.slugBriefInfo[slug.trim().lowercase()]
-    val icons = buildList {
-        briefInfo?.logoUrl?.takeIf { it.isNotBlank() }?.let { add(it) }
-        iconUrl?.takeIf { it.isNotBlank() }?.let { add(it) }
-    }
+    val icons = buildIconUrls(iconUrl, briefInfo?.logoUrl)
     val resolvedName = title.ifBlank { slug }
     val localMeta = modFile?.let {
         runCatching { it.readLocalModCardMeta() }.getOrNull()
@@ -79,7 +74,8 @@ internal fun ModrinthProject.toUiCardVo(modFile: File? = null): Mod.CardVo {
         ?: "暂无介绍"
 
     return briefInfo?.toUiCardVo(localMeta)?.copy(
-        intro = briefInfo.intro.ifBlank { introText }
+        intro = briefInfo.intro.ifBlank { introText },
+        iconUrls = icons
     ) ?: Mod.CardVo(
         name = resolvedName,
         nameCn = null,
@@ -110,8 +106,6 @@ private fun ModBriefInfo.toUiCardVo(
     nameCn = nameCn,
     intro = intro,
     iconData = localMeta?.iconBytes,
-    iconUrls = buildList {
-        if (logoUrl.isNotBlank()) add(logoUrl)
-    },
+    iconUrls = buildIconUrls(logoUrl),
     side = side
 )

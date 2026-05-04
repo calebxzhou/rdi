@@ -16,6 +16,16 @@ java {
     }
 }
 
+sourceSets.named('main') {
+    java.srcDir '../../../mc/rcmd/src/main/java'
+}
+
+dependencies {
+    api 'io.fusionauth:java-http:1.4.0'
+    compileOnly 'com.google.code.gson:gson:2.11.0'
+    compileOnly 'dev.toonformat:jtoon:1.0.9'
+}
+
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }

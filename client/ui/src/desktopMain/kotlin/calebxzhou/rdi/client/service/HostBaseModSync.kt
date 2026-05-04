@@ -18,9 +18,10 @@ suspend fun syncHostManagedBaseMods(
     require(versionDir.exists()) { "未找到整合包目录: ${versionDir.absolutePath}" }
     val modsDir = versionDir.resolve("mods").apply { mkdirs() }
     val serverOnlyBaseMods = activeBaseMods.filter { it.side == Mod.Side.SERVER }
-    val distinctDisabledMods = (disabledBaseMods + serverOnlyBaseMods).distinctBy { it.fileName }
+    val unknownSideBaseMods = activeBaseMods.filter { it.side == Mod.Side.UNKNOWN }
+    val distinctDisabledMods = (disabledBaseMods + serverOnlyBaseMods + unknownSideBaseMods).distinctBy { it.fileName }
     val distinctActiveMods = activeBaseMods
-        .filter { it.side != Mod.Side.SERVER }
+        .filter { it.side != Mod.Side.SERVER && it.side != Mod.Side.UNKNOWN }
         .distinctBy { it.fileName }
 
     distinctDisabledMods

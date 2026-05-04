@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.javaExePath
+import calebxzhou.rdi.client.AiProvider
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
@@ -22,6 +23,7 @@ import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.PlayerService
+import calebxzhou.rdi.client.service.SettingsService
 import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.PasswordField
@@ -64,6 +66,11 @@ fun SettingScreen(
     var proxyUsr by remember { mutableStateOf("") }
     var proxyPwd by remember { mutableStateOf("") }
     var totalMemoryMb by remember { mutableStateOf(0) }
+    var aiProvider by remember { mutableStateOf(AiProvider.OPENAI) }
+    var aiBaseUrl by remember { mutableStateOf(AiProvider.OPENAI.defaultBaseUrl) }
+    var aiApiKey by remember { mutableStateOf("") }
+    var aiModel by remember { mutableStateOf(AiProvider.OPENAI.defaultModel) }
+    var showAiApiKey by remember { mutableStateOf(false) }
     // Load config on all platforms
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
@@ -81,6 +88,10 @@ fun SettingScreen(
                 proxyPortText = (config.proxyConfig?.port ?: 10808).toString()
                 proxyUsr = config.proxyConfig?.usr.orEmpty()
                 proxyPwd = config.proxyConfig?.pwd.orEmpty()
+                aiProvider = config.aiConfig.provider
+                aiBaseUrl = SettingsService.normalizeAiBaseUrl(config.aiConfig.provider, config.aiConfig.baseUrl)
+                aiApiKey = config.aiConfig.apiKey
+                aiModel = config.aiConfig.model.ifBlank { config.aiConfig.provider.defaultModel }
                 if (isDesktop) {
                     totalMemoryMb = calebxzhou.rdi.client.service.SettingsService.getTotalPhysicalMemoryMb()
                 }
@@ -149,6 +160,16 @@ fun SettingScreen(
                         }
 
                         // Save settings
+                        val aiValidation = svc.validateAiSettings(
+                            aiProvider,
+                            aiBaseUrl,
+                            aiModel.ifBlank { aiProvider.defaultModel }
+                        )
+                        if (!aiValidation.success) {
+                            errorMessage = aiValidation.errorMessage
+                            saving = false
+                            return@launch
+                        }
                         svc.saveSettings(
                             preferModMirror = preferModMirror,
                             preferMcMirror = preferMcMirror,
@@ -161,7 +182,11 @@ fun SettingScreen(
                             proxyHost = proxyHost,
                             proxyPortText = proxyPortText,
                             proxyUsr = proxyUsr,
-                            proxyPwd = proxyPwd
+                            proxyPwd = proxyPwd,
+                            aiProvider = aiProvider,
+                            aiBaseUrl = aiBaseUrl,
+                            aiApiKey = aiApiKey,
+                            aiModel = aiModel
                         ).onSuccess {
                             errorMessage = null
                             scaffoldState.snackbarHostState.showSnackbar("设置已保存")
@@ -259,7 +284,51 @@ fun SettingScreen(
                                                     switchingNode = false
                                                 }
                                             }
+                                        },
+                                        onUseGameBackupNode = {
+                                            if (!switchingNode) {
+                                                switchingNode = true
+                                                scope.launch {
+                                                    NodeRefreshCoordinator.refreshGameBackup("manual-setting")
+                                                        .onSuccess {
+                                                            scaffoldState.snackbarHostState.showSnackbar("已临时切换到${it.nodeName}")
+                                                        }
+                                                        .onFailure {
+                                                            scaffoldState.snackbarHostState.showSnackbar(it.message ?: "备用节点刷新失败")
+                                                        }
+                                                    switchingNode = false
+                                                }
+                                            }
                                         }
+                                    )
+                                }
+
+                                SettingCategory.AI -> {
+                                    AiSettings(
+                                        provider = aiProvider,
+                                        baseUrl = aiBaseUrl,
+                                        apiKey = aiApiKey,
+                                        model = aiModel,
+                                        showApiKey = showAiApiKey,
+                                        onProviderChange = { provider ->
+                                            val keepCustomModel = aiModel.isNotBlank() &&
+                                                    aiModel !in aiProvider.modelCandidates
+                                            val keepCustomBaseUrl = aiBaseUrl.isNotBlank() &&
+                                                    aiBaseUrl != aiProvider.defaultBaseUrl
+                                            aiProvider = provider
+                                            aiBaseUrl = when {
+                                                provider == AiProvider.DEEPSEEK -> provider.defaultBaseUrl
+                                                keepCustomBaseUrl -> aiBaseUrl
+                                                else -> provider.defaultBaseUrl
+                                            }
+                                            if (!keepCustomModel) {
+                                                aiModel = provider.defaultModel
+                                            }
+                                        },
+                                        onBaseUrlChange = { aiBaseUrl = it },
+                                        onApiKeyChange = { aiApiKey = it },
+                                        onModelChange = { aiModel = it },
+                                        onToggleApiKey = { showAiApiKey = !showAiApiKey }
                                     )
                                 }
                             }
@@ -295,7 +364,8 @@ fun SettingScreen(
 private enum class SettingCategory(val icon: String, val label: String) {
     Account("\uEB99", "账号"),
     Java("\uE738", "Java"),
-    Network("\uEF09", "网络");
+    Network("\uEF09", "网络"),
+    AI("\uDB84\uDECA", "AI");
 
     /** Whether this category is visible on the current platform */
     val visible: Boolean
@@ -597,6 +667,87 @@ private fun JavaSettings(
     }
 }
 
+@Composable
+private fun AiSettings(
+    provider: AiProvider,
+    baseUrl: String,
+    apiKey: String,
+    model: String,
+    showApiKey: Boolean,
+    onProviderChange: (AiProvider) -> Unit,
+    onBaseUrlChange: (String) -> Unit,
+    onApiKeyChange: (String) -> Unit,
+    onModelChange: (String) -> Unit,
+    onToggleApiKey: () -> Unit
+) {
+    var modelMenuExpanded by remember { mutableStateOf(false) }
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        Text("AI设置（没开发完）", style = MaterialTheme.typography.h6)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            RadioButton(
+                selected = provider == AiProvider.OPENAI,
+                onClick = { onProviderChange(AiProvider.OPENAI) }
+            )
+            Text("OpenAI")
+            Space8w()
+            RadioButton(
+                selected = provider == AiProvider.DEEPSEEK,
+                onClick = { onProviderChange(AiProvider.DEEPSEEK) }
+            )
+            Text("DeepSeek")
+        }
+        OutlinedTextField(
+            label = { Text("API Base URL") },
+            value = baseUrl,
+            onValueChange = onBaseUrlChange,
+            singleLine = true,
+            enabled = provider != AiProvider.DEEPSEEK,
+            modifier = Modifier.fillMaxWidth()
+        )
+        PasswordField(
+            value = apiKey,
+            onValueChange = onApiKeyChange,
+            label = "API Key",
+            showPassword = showApiKey,
+            onToggleVisibility = onToggleApiKey,
+            onEnter = {}
+        )
+        Box(modifier = Modifier.fillMaxWidth()) {
+            OutlinedTextField(
+                label = { Text("模型") },
+                value = model,
+                onValueChange = onModelChange,
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                trailingIcon = {
+                    Text(
+                        text = "\uE70D".asIconText,
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .clickable { modelMenuExpanded = true }
+                    )
+                }
+            )
+            DropdownMenu(
+                expanded = modelMenuExpanded,
+                onDismissRequest = { modelMenuExpanded = false }
+            ) {
+                provider.modelCandidates.forEach { candidate ->
+                    DropdownMenuItem(onClick = {
+                        onModelChange(candidate)
+                        modelMenuExpanded = false
+                    }) {
+                        Text(candidate)
+                    }
+                }
+            }
+        }
+    }
+}
+
 
 @Composable
 private fun NetworkSettings(
@@ -618,6 +769,7 @@ private fun NetworkSettings(
     onProxyPwdChange: (String) -> Unit,
     switchingNode: Boolean,
     onAutoSwitchFastestNode: () -> Unit,
+    onUseGameBackupNode: () -> Unit,
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -631,7 +783,8 @@ private fun NetworkSettings(
         Space8h()
         AutoRouteStatus(
             switchingNode = switchingNode,
-            onAutoSwitchFastestNode = onAutoSwitchFastestNode
+            onAutoSwitchFastestNode = onAutoSwitchFastestNode,
+            onUseGameBackupNode = onUseGameBackupNode
         )
 
         // Proxy settings — desktop only
@@ -710,7 +863,8 @@ private fun NetworkSettings(
 @Composable
 private fun AutoRouteStatus(
     switchingNode: Boolean,
-    onAutoSwitchFastestNode: () -> Unit
+    onAutoSwitchFastestNode: () -> Unit,
+    onUseGameBackupNode: () -> Unit
 ) {
     val routeState by RServer.routeState.collectAsState()
     Column(
@@ -723,13 +877,24 @@ private fun AutoRouteStatus(
             Text("当前节点: $it")
         }
         Text(if (routeState.useBackupNode) "当前使用加速入口" else "当前使用主入口")
-        CircleIconButton(
-            "\uDB80\uDC02",
-            if (switchingNode) "已切换节点" else "自动切换最快节点",
-            bgColor = MaterialColor.TEAL_900.color,
-            enabled = !switchingNode,
-            onClick = onAutoSwitchFastestNode
-        )
+        FlowRowV {
+
+            CircleIconButton(
+                "\uDB80\uDC02",
+                if (switchingNode) "已切换节点" else "自动切换最快节点",
+                bgColor = MaterialColor.TEAL_900.color,
+                enabled = !switchingNode,
+                onClick = onAutoSwitchFastestNode
+            )
+            Space8w()
+            CircleIconButton(
+                "\uDB80\uDC02",
+                "临时使用备用节点" ,
+                bgColor = MaterialColor.BLUE_900.color,
+                enabled = !switchingNode,
+                onClick = onUseGameBackupNode
+            )
+        }
     }
 }
 

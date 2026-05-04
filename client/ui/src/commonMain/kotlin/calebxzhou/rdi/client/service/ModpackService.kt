@@ -530,7 +530,8 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
     )
 }
 
-private fun isClientInstallableMod(mod: Mod): Boolean = mod.side != Mod.Side.SERVER
+private fun isClientInstallableMod(mod: Mod): Boolean =
+    mod.side != Mod.Side.SERVER && mod.side != Mod.Side.UNKNOWN
 
 suspend fun ModpackService.getLocalPackDirs(): List<ModpackLocalDir> = coroutineScope {
     val pattern = Regex("^([0-9a-fA-F]{24})_(.+)$")

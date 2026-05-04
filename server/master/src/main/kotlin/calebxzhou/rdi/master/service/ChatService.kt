@@ -9,6 +9,8 @@ import calebxzhou.rdi.master.net.uid
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.model.ChatMsg
+import calebxzhou.rdi.common.util.objectId
+import calebxzhou.rdi.master.model.RChatMessage
 import com.mongodb.client.model.Sorts
 import io.ktor.server.routing.*
 import io.ktor.server.sse.*
@@ -18,6 +20,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.toList
 import org.bson.types.ObjectId
+import java.util.UUID
 import kotlin.time.Duration.Companion.seconds
 
 fun Route.chatRoutes() = route("/chat") {
@@ -62,18 +65,18 @@ object ChatService {
             .toList()
             .asReversed()
         val senderNames = with(PlayerService) {
-            history.map { it.senderId }.getPlayerNames()
+            history.map { it.uid }.getPlayerNames()
         }
 
         for (msg in history) {
             val dto = ChatMsg.Dto(
-                senderId = msg.senderId,
-                senderName = senderNames[msg.senderId] ?: "未知",
+                senderId = msg.uid,
+                senderName = senderNames[msg.uid] ?: "未知",
                 content = msg.content
             )
             session.send(
                 ServerSentEvent(
-                    id = msg.id.toHexString(),
+                    id = msg._id.toHexString(),
                     event = "history",
                     data = serdesJson.encodeToString(ChatMsg.Dto.serializer(), dto)
                 )
@@ -112,8 +115,21 @@ object ChatService {
         val message = ChatMsg(sender, normalized)
         dbcl.insertOne(message)
         val dto = message.toDto(sender)
-        broadcaster.emit(OutgoingMessage(message.id, dto))
+        broadcaster.emit(OutgoingMessage(message._id, dto))
         return dto
+    }
+
+    suspend fun recordGameChat(chatMessage: RChatMessage) {
+        val normalized = chatMessage.content.trim()
+        if (normalized.isEmpty()) return
+        val uid = runCatching { UUID.fromString(chatMessage.playerId).objectId }.getOrNull()
+            ?: runCatching { ObjectId(chatMessage.playerId) }.getOrNull()
+            ?: run {
+                lgr.warn { "游戏聊天玩家ID格式错误: ${chatMessage.playerId}" }
+                return
+            }
+        val message = ChatMsg(uid = uid, content = normalized, global = chatMessage.global)
+        dbcl.insertOne(message)
     }
 
     private fun checkSendRateLimit(senderId: ObjectId) {

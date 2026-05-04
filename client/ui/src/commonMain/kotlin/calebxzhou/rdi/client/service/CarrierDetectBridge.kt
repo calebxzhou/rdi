@@ -16,7 +16,10 @@ private val ipv4Regex =
     Regex("""^(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$""")
 
 
-internal suspend fun refreshNodeSettings(usePrimaryServer: Boolean = false): Result<ServerEntry> {
+internal suspend fun refreshNodeSettings(
+    usePrimaryServer: Boolean = false,
+    gameBackup: Boolean = false
+): Result<ServerEntry> {
     val ipv4 = runCatching { detectPublicIpv4() }.getOrElse {
         lgr.warn(it) { "无法读取ip信息" }
         return Result.failure(it)
@@ -26,8 +29,12 @@ internal suspend fun refreshNodeSettings(usePrimaryServer: Boolean = false): Res
     } else {
         server
     }
+    val params = buildMap<String, Any> {
+        put("myIp", ipv4)
+        if (gameBackup) put("gameBackup", true)
+    }
     val entry = runCatching {
-        routeLookupServer.makeRequest<ServerEntry>("server-entry", params = mapOf("myIp" to ipv4)).data
+        routeLookupServer.makeRequest<ServerEntry>("server-entry", params = params).data
     }.getOrElse {
         lgr.warn(it) { "获取游戏节点失败，继续使用本地回退节点 " }
         return Result.failure(it)
@@ -38,7 +45,8 @@ internal suspend fun refreshNodeSettings(usePrimaryServer: Boolean = false): Res
     return Result.success(entry)
 }
 
-internal suspend fun refreshNodeSettingsFromPrimary(): Result<ServerEntry> = refreshNodeSettings(usePrimaryServer = true)
+internal suspend fun refreshNodeSettingsFromPrimary(gameBackup: Boolean = false): Result<ServerEntry> =
+    refreshNodeSettings(usePrimaryServer = true, gameBackup = gameBackup)
 
 private suspend fun detectPublicIpv4() = withContext(Dispatchers.IO) {
     val ipv4 = httpRequest {

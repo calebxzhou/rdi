@@ -15,6 +15,7 @@ version = mod_version
 
 repositories {
     mavenLocal()
+    mavenCentral()
 }
 
 base {
@@ -37,6 +38,11 @@ jar {
     dependsOn project(":c-mc-common2").tasks.named("classes")
     from(project(":c-mc-common").sourceSets.main.output.classesDirs)
     from(project(":c-mc-common2").sourceSets.main.output.classesDirs)
+    from({
+        configurations.shaded.collect { it.isDirectory() ? it : zipTree(it) }
+    }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
 
     manifest {
         attributes([
@@ -70,6 +76,8 @@ neoForge {
             programArgument '2560'
             programArgument '--height'
             programArgument '1440'
+            programArgument '--quickPlayMultiplayer'
+            programArgument 'localhost:56370'
             systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
             systemProperty 'mixin.hotSwap', 'true'
             systemProperty 'rdi.play', Base64.encoder.encodeToString(playArg.getBytes(Charset.forName("UTF-8")))
@@ -101,6 +109,7 @@ neoForge {
 
 def localRuntimeConfiguration = configurations.maybeCreate('localRuntime')
 def librariesConfiguration = configurations.maybeCreate('libraries')
+def shadedConfiguration = configurations.maybeCreate('shaded')
 
 configurations.named('runtimeClasspath') {
     extendsFrom localRuntimeConfiguration
@@ -147,6 +156,17 @@ dependencies {
     additionalRuntimeClasspath project(':c-mc-common')
     implementation project(':c-mc-common2')
     additionalRuntimeClasspath project(':c-mc-common2')
+    localRuntime 'tools.jackson.core:jackson-databind:3.0.4'
+    localRuntime 'tools.jackson.module:jackson-module-blackbird:3.0.4'
+    additionalRuntimeClasspath 'tools.jackson.core:jackson-databind:3.0.4'
+    additionalRuntimeClasspath 'tools.jackson.module:jackson-module-blackbird:3.0.4'
+    additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
+    shaded('io.fusionauth:java-http:1.4.0') {
+        transitive = false
+    }
+    shaded('dev.toonformat:jtoon:1.0.9') {
+        transitive = false
+    }
 }
 
 publishing {

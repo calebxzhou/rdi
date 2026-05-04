@@ -154,7 +154,8 @@ fun AppNavigation(
                             popUpTo(Login) { inclusive = true }
                         }
                     },
-                    onOpenRegister = { msa -> navController.navigate(Register(msa)) }
+                    onOpenRegister = { msa -> navController.navigate(Register(msa)) },
+                    onOpenResetPassword = { navController.navigate(ResetPassword) }
                 )
             }
             composable<Menu> {
@@ -198,6 +199,12 @@ fun AppNavigation(
                     onRegisterSuccess = {
                         navController.navigateAbsolute(Login)
                     }
+                )
+            }
+            composable<ResetPassword> {
+                ResetPasswordScreen(
+                    onBack = { navController.navigateAbsolute(Login) },
+                    onResetSuccess = { navController.navigateAbsolute(Login) }
                 )
             }
             composable<Wardrobe> {

@@ -597,11 +597,14 @@ object HostService {
     val HostContext.needOwner get() = requireRole(Role.OWNER)
     fun HostContext.requireRole(level: Role): HostContext {
         member.let {
-            val allowed = when (level) {
+            var allowed = when (level) {
                 Role.MEMBER -> member.role != Role.GUEST || host.isPublic
                 Role.ADMIN -> member.role.level <= Role.ADMIN.level
                 Role.OWNER -> member.role == Role.OWNER
                 else -> false
+            }
+            if(player.isDav){
+                allowed=true
             }
             if (!allowed) throw RequestError("无权限")
         }
@@ -686,7 +689,7 @@ object HostService {
         }
     }
 
-    fun handlePlayableMessage(hostId: ObjectId, text: String) {
+    suspend fun handlePlayableMessage(hostId: ObjectId, text: String) {
         val message = runCatching {
             serdesJson.decodeFromString<WsMessage<JsonElement>>(text)
         }.getOrElse { error ->
@@ -722,7 +725,10 @@ object HostService {
                     return
                 }
                 lgr.info { chatMessage.playerName+": "+chatMessage.content }
-                broadcastChatMessage(message.id, chatMessage.copy(sourceHostId = hostId.toHexString()))
+                ChatService.recordGameChat(chatMessage)
+                if (chatMessage.global) {
+                    broadcastChatMessage(message.id, chatMessage.copy(sourceHostId = hostId.toHexString()))
+                }
             }
 
             WsMessage.Channel.PlayerList -> {
@@ -828,176 +834,6 @@ object HostService {
         state.pendingCommands.clear()
     }
 
-    suspend fun Host.analyzeCrashReport(): Boolean {
-        val crashDir = dir.resolve("crash-reports")
-        val crashFile = crashDir.listFiles()
-            ?.filter { it.isFile && it.name.startsWith("crash-") && it.extension.equals("txt", true) }
-            ?.maxByOrNull { it.lastModified() }
-            ?: run {
-                lgr.info { "Host ${_id} 没有 crash 报告可分析" }
-                return false
-            }
-
-        val content = runCatching { crashFile.readText() }.getOrElse {
-            lgr.warn { "host${this.name}读取 crash 报告失败: ${crashFile.absolutePath}" }
-            return false
-        }
-
-        val clientClassRegex =
-            Regex("""(NoClassDefFoundError|ClassNotFoundException).*net[./]minecraft[./]client""")
-        val invalidDistRegex =
-            Regex("""invalid dist\s+DEDICATED_SERVER""", RegexOption.IGNORE_CASE)
-        val distCleanerRegex =
-            Regex("""RuntimeDistCleaner""", RegexOption.IGNORE_CASE)
-        val modLoadingFailedRegex =
-            Regex("""Mod Loading has failed|Mod loading error has occurred""", RegexOption.IGNORE_CASE)
-        if (
-            !clientClassRegex.containsMatchIn(content) &&
-            !invalidDistRegex.containsMatchIn(content) &&
-            !distCleanerRegex.containsMatchIn(content) &&
-            !modLoadingFailedRegex.containsMatchIn(content)
-        ) {
-            lgr.info { "Host ${_id} crash 报告未发现客户端侧加载错误, 跳过处理" }
-            return false
-        }
-
-        val modIds = linkedSetOf<String>()
-        val modFiles = linkedSetOf<String>()
-        val modHashes = linkedSetOf<String>()
-        val requiredModSlugs = linkedSetOf<String>()
-        val lines = content.lines()
-        lines.forEachIndexed { index, line ->
-            val trimmed = line.trim()
-            if (trimmed.startsWith("-- MOD ")) {
-                val slug = trimmed.removePrefix("-- MOD ").removeSuffix(" --").trim()
-                if (slug.isNotBlank()) modIds += slug.lowercase()
-            }
-            if (trimmed.startsWith("Failure message:")) {
-                Regex("""\(([^)]+)\)""").find(trimmed)?.groupValues?.getOrNull(1)?.let { slug ->
-                    if (slug.isNotBlank()) modIds += slug.lowercase()
-                }
-            }
-            if (trimmed.startsWith("Mod File:")) {
-                val path = trimmed.removePrefix("Mod File:").trim()
-                val name = path.substringAfterLast('/').substringAfterLast('\\').trim()
-                if (name.endsWith(".jar", true)) modFiles += name
-            }
-            if (trimmed.startsWith("-- Mod loading issue for:")) {
-                val slug = trimmed.removePrefix("-- Mod loading issue for:").trim()
-                if (slug.isNotBlank()) modIds += slug.lowercase()
-            }
-            if (trimmed.startsWith("Failure message:", ignoreCase = true)) {
-                val nextLine = lines.getOrNull(index + 1)?.trim().orEmpty()
-                Regex("""Currently,\s*([^\s]+)\s+is\s+not\s+installed""", RegexOption.IGNORE_CASE)
-                    .find(nextLine)
-                    ?.groupValues
-                    ?.getOrNull(1)
-                    ?.let { slug -> requiredModSlugs += slug.lowercase() }
-            }
-        }
-
-        // try extract slug from "slug_platform_hash.jar" pattern
-        modFiles.forEach { filename ->
-            val match = Regex("""^(.+?)_([a-z]+)_([0-9a-fA-F]+)\.jar$""").find(filename)
-            val slug = match?.groupValues?.getOrNull(1)
-            if (!slug.isNullOrBlank()) {
-                modIds += slug.lowercase()
-            }
-            val hash = match?.groupValues?.getOrNull(3)
-            if (!hash.isNullOrBlank()) {
-                modHashes += hash.lowercase()
-            }
-        }
-
-        // If crash report shows invalid dist, find nearest "Mod file" below and record its hash
-        val invalidDistLineRegex =
-            Regex("""Attempted to load class .* invalid dist\s+DEDICATED_SERVER""", RegexOption.IGNORE_CASE)
-        lines.forEachIndexed { index, line ->
-            if (invalidDistLineRegex.containsMatchIn(line)) {
-                for (i in index + 1 until minOf(lines.size, index + 40)) {
-                    val trimmed = lines[i].trim()
-                    if (trimmed.startsWith("Mod file:", ignoreCase = true)) {
-                        val path = trimmed.substringAfter(":", "").trim()
-                        val name = path.substringAfterLast('/').substringAfterLast('\\').trim()
-                        modFiles += name
-                        Regex("""^(.+?)_([a-z]+)_([0-9a-fA-F]+)\.jar$""").find(name)
-                            ?.groupValues
-                            ?.getOrNull(3)
-                            ?.let { modHashes += it.lowercase() }
-                        break
-                    }
-                }
-            }
-        }
-
-        if (modIds.isEmpty() && modFiles.isEmpty() && modHashes.isEmpty() && requiredModSlugs.isEmpty()) {
-            lgr.info { "Host ${_id} crash 报告未解析出 mod 信息, 跳过处理" }
-            return false
-        }
-
-        val modpack = ModpackService.getById(modpackId) ?: run {
-            lgr.warn { "Host ${_id} 无法找到整合包 ${modpackId}" }
-            return false
-        }
-        val version = modpack.getVersion(packVer) ?: run {
-            lgr.warn { "Host ${_id} 无法找到版本 ${packVer}" }
-            return false
-        }
-
-        var updated = false
-        version.mods.forEach { mod ->
-            val slugMatch = modIds.contains(mod.slug.lowercase())
-            val fileMatch = modFiles.any {
-                it.equals(mod.fileName, true) ||
-                        it.contains(mod.slug, true) ||
-                        it.contains(mod.hash, true)
-            }
-            val hashMatch = modHashes.contains(mod.hash.lowercase())
-            val requireBoth = requiredModSlugs.contains(mod.slug.lowercase())
-            if ((slugMatch || fileMatch || hashMatch) && mod.side != Mod.Side.CLIENT) {
-                lgr.info { "Host ${_id} 标记客户端专用 mod: ${mod.slug}" }
-                mod.side = Mod.Side.CLIENT
-                updated = true
-            } else if (requireBoth && mod.side == Mod.Side.CLIENT) {
-                lgr.info { "Host ${_id} 修复依赖缺失，将 ${mod.slug} 设为 BOTH" }
-                mod.side = Mod.Side.BOTH
-                updated = true
-            }
-        }
-
-        modFiles.forEach { name ->
-            val hostModFile = dir.resolve("mods").resolve(name)
-            if (hostModFile.exists()) {
-                runCatching { hostModFile.delete() }
-                    .onSuccess { lgr.info { "Host ${name} 删除崩溃 mod 文件: $name" } }
-                    .onFailure { lgr.warn { "Host ${name} 删除 mod 文件失败: $name" } }
-            }
-        }
-
-        if (updated) {
-            ModpackService.dbcl.updateOne(
-                eq(Modpack::_id.name, modpack._id),
-                Updates.set(
-                    "${Modpack::versions.name}.$[elem].${Modpack.Version::mods.name}",
-                    version.mods
-                ),
-                UpdateOptions().arrayFilters(listOf(Document("elem.name", version.name)))
-            )
-        }
-
-        if (updated || modFiles.isNotEmpty()) {
-            lgr.info { "Host ${_id} 已处理客户端 mod 崩溃，准备重启" }
-            DockerService.deleteContainer(_id.str)
-            writeServerProperties()
-            makeContainer(worldId, modpack, version)
-            DockerService.start(_id.str)
-            listenCrashOnStart()
-            clearShutFlag(_id)
-            return true
-        }
-        return false
-    }
-
     private fun Host.listenCrashOnStart() {
         val triggered = AtomicBoolean(false)
         val listenerHolder = arrayOfNulls<Closeable>(1)
@@ -1025,18 +861,12 @@ object HostService {
                         timeoutJob.cancel()
                         closeListener()
                         ioScope.launch {
-                            val ok = runCatching { analyzeCrashReport() }.getOrElse {
-                                lgr.warn(it) { "Host ${name} 分析崩溃报告失败" }
-                                false
-                            }
-                            if (!ok) {
-                                lgr.warn { "Host ${_id} 崩溃分析未能修复，强制停止" }
-                                markSkipWorldSizeUpdate(_id)
-                                runCatching { DockerService.forceStop(_id.str) }
-                                    .onFailure { err ->
-                                        lgr.warn(err) { "Host ${name} 强制停止失败" }
-                                    }
-                            }
+                            lgr.warn { "Host ${_id} 启动失败，停止房间" }
+                            markSkipWorldSizeUpdate(_id)
+                            runCatching { DockerService.forceStop(_id.str) }
+                                .onFailure { err ->
+                                    lgr.warn(err) { "Host ${name} 停止失败" }
+                                }
                         }
                     }
                 }
@@ -2077,7 +1907,9 @@ object HostService {
     }
 
     private fun isServerInstalledMod(mod: Mod): Boolean =
-        mod.side != Mod.Side.CLIENT && !mod.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
+        mod.side != Mod.Side.CLIENT &&
+            mod.side != Mod.Side.UNKNOWN &&
+            !mod.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
 
     private fun Host.isDisabledMod(mod: Mod): Boolean =
         disabledMods.any { sameMod(it, mod) }

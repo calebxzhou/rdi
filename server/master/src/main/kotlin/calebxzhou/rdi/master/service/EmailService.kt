@@ -103,21 +103,20 @@ object EmailService {
         if (markAsSeen) {
             unreadMessages.forEach { it.setFlag(Flags.Flag.SEEN, true) }
         }
-        if(mails.isNotEmpty()){
-            lgr.info { "fetched ${mails.size} unread email(s) from ${folder.fullName}" }
-        }
+
         mails
     }
 
     private suspend fun pollOperationMails() {
         val imapConfig = requireEnabledConfig()
         val mails = fetchUnreadEmails(
-            markAsSeen = true
+            markAsSeen = false
         ).mapNotNull { email ->
             runCatching {
                 validateOperationSender(email)
                 parseOperationReceiptId(email.subject)?.let { targetId -> email to targetId }
             }.getOrElse { error ->
+                if(_root_ide_package_.calebxzhou.rdi.common.DEBUG) error.printStackTrace()
                 lgr.warn { "skip operation email uid=${email.uid} subject=${email.subject}: ${error.message}" }
                 null
             }
@@ -126,14 +125,11 @@ object EmailService {
         if (mails.isEmpty()) {
             return
         }
-
         lgr.info { "received ${mails.size} operation email(s) with prefix=${imapConfig.operationSubject}" }
         mails.forEach { (email, reid) ->
+            markAsSeen(email)
             runCatching {
                 handleOperationMail(email, reid)
-                if (imapConfig.markAsSeenAfterHandle) {
-                    markAsSeen(email)
-                }
             }.onFailure { error ->
                 lgr.warn { "handle operation email failed uid=${email.uid} subject=${email.subject}: ${error.message}\n$error" }
             }
@@ -219,6 +215,18 @@ object EmailService {
                     lgr.info { "received register operation mail targetId=$receiptId from=${email.from}" }
                     PlayerService.addAccount(registerDto)
                     ReceiptService.changeMsg(receiptId,"注册完成")
+                }
+                "resetPwd" -> {
+                    val resetDto = runCatching {
+                        serdesJson.decodeFromJsonElement<RAccount.ResetPasswordByQqMailDto>(req.data)
+                    }.getOrElse {
+                        throw RequestError("重置密码数据格式错误")
+                    }
+                    val senderQq = extractSenderQq(email.from)
+                        ?: throw RequestError("resetPwd邮件发件人必须是QQ邮箱")
+                    lgr.info { "received resetPwd operation targetId=$receiptId from=${email.from}" }
+                    PlayerService.resetPasswordByQqMail(resetDto, senderQq)
+                    ReceiptService.changeMsg(receiptId,"密码重置完成")
                 }
 
                 else -> {

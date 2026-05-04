@@ -53,7 +53,7 @@ dependencies {
     implementation("com.github.docker-java:docker-java:3.7.0")
     implementation("com.github.docker-java:docker-java-transport-okhttp:3.7.0")
     implementation("org.apache.commons:commons-compress:1.27.1")
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.79")
+    implementation("org.bouncycastle:bcpkix-jdk18on:1.84")
     implementation("org.eclipse.angus:jakarta.mail:2.0.5")
     implementation("org.lionsoul:ip2region:3.3.7")
     implementation("calebxzhou.mykotutils:std:0.1")

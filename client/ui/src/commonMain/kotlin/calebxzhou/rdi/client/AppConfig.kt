@@ -13,6 +13,34 @@ import java.io.File
  * calebxzhou @ 2025-12-11 10:23
  */
 @Serializable
+enum class AiProvider(
+    val displayName: String,
+    val defaultBaseUrl: String,
+    val modelCandidates: List<String>
+) {
+    OPENAI(
+        displayName = "OpenAI",
+        defaultBaseUrl = "https://api.openai.com/v1",
+        modelCandidates = listOf("gpt-5.5", "gpt-5.4")
+    ),
+    DEEPSEEK(
+        displayName = "DeepSeek",
+        defaultBaseUrl = "https://api.deepseek.com",
+        modelCandidates = listOf("deepseek-v4-flash[1m]", "deepseek-v4-pro[1m]")
+    )
+    ;
+    val defaultModel get()  = modelCandidates.first()
+}
+
+@Serializable
+data class AiConfig(
+    val provider: AiProvider = AiProvider.OPENAI,
+    val baseUrl: String = AiProvider.OPENAI.defaultBaseUrl,
+    val apiKey: String = "",
+    val model: String = AiProvider.OPENAI.defaultModel
+)
+
+@Serializable
 data class AppConfig(
     val preferModMirror: Boolean = true,
     val preferMcMirror: Boolean = true,
@@ -22,6 +50,7 @@ data class AppConfig(
     val jre21Path: String?=null,
     val jre8Path: String?=null,
     val proxyConfig: ProxyConfig?=null,
+    val aiConfig: AiConfig = AiConfig(),
     val pinyinName: Boolean = false,
 ){
     companion object {

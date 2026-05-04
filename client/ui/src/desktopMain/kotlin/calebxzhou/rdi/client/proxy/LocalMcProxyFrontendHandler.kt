@@ -1,5 +1,6 @@
 package calebxzhou.rdi.client.proxy
 
+import calebxzhou.rdi.common.DEBUG
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
@@ -27,9 +28,14 @@ internal class LocalMcProxyFrontendHandler(
             connectToBackend(ctx, endpoint)
             forwardToBackend(ctx, msg)
             ctx.pipeline().remove(MinecraftFrameDecoder::class.java)
-            reportLog(
-                "bridge ${ctx.channel().remoteAddress()} -> ${endpoint.host}:${endpoint.port}"
-            )
+            if(DEBUG)
+            {
+                reportLog(
+                    "bridge ${ctx.channel().remoteAddress()} -> ${endpoint.host}:${endpoint.port}"
+                )
+            }else{
+                reportLog("bridge ${ctx.channel().remoteAddress()}")
+            }
             return
         }
         forwardToBackend(ctx, msg)
