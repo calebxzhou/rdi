@@ -30,6 +30,7 @@ import calebxzhou.rdi.client.ui.comp.PasswordField
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
+import calebxzhou.rdi.common.util.getDateTimeNow
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -66,10 +67,16 @@ fun SettingScreen(
     var proxyUsr by remember { mutableStateOf("") }
     var proxyPwd by remember { mutableStateOf("") }
     var totalMemoryMb by remember { mutableStateOf(0) }
-    var aiProvider by remember { mutableStateOf(AiProvider.OPENAI) }
-    var aiBaseUrl by remember { mutableStateOf(AiProvider.OPENAI.defaultBaseUrl) }
+    var aiProvider by remember { mutableStateOf(AiProvider.DEEPSEEK) }
+    var aiBaseUrl by remember { mutableStateOf(AiProvider.DEEPSEEK.defaultBaseUrl) }
     var aiApiKey by remember { mutableStateOf("") }
-    var aiModel by remember { mutableStateOf(AiProvider.OPENAI.defaultModel) }
+    var aiModel by remember { mutableStateOf("") }
+    var aiContextLimitText by remember { mutableStateOf("1000000") }
+    var fetchedAiModels by remember { mutableStateOf<List<String>>(emptyList()) }
+    var refreshingAiModels by remember { mutableStateOf(false) }
+    var aiModelRefreshError by remember { mutableStateOf<String?>(null) }
+    var aiModelRefreshMessage by remember { mutableStateOf<String?>(null) }
+    var aiBalanceMessage by remember { mutableStateOf<String?>(null) }
     var showAiApiKey by remember { mutableStateOf(false) }
     // Load config on all platforms
     LaunchedEffect(Unit) {
@@ -91,7 +98,8 @@ fun SettingScreen(
                 aiProvider = config.aiConfig.provider
                 aiBaseUrl = SettingsService.normalizeAiBaseUrl(config.aiConfig.provider, config.aiConfig.baseUrl)
                 aiApiKey = config.aiConfig.apiKey
-                aiModel = config.aiConfig.model.ifBlank { config.aiConfig.provider.defaultModel }
+                aiModel = config.aiConfig.model
+                aiContextLimitText = config.aiConfig.contextLimitTokens.coerceIn(64_000, 1_000_000).toString()
                 if (isDesktop) {
                     totalMemoryMb = calebxzhou.rdi.client.service.SettingsService.getTotalPhysicalMemoryMb()
                 }
@@ -159,11 +167,35 @@ fun SettingScreen(
                             }
                         }
 
+                        if (category == SettingCategory.AI) {
+                            val aiContextLimitValidation = svc.validateAiContextLimit(aiContextLimitText)
+                            if (!aiContextLimitValidation.success) {
+                                errorMessage = aiContextLimitValidation.errorMessage
+                                saving = false
+                                return@launch
+                            }
+                            val selectedAiModel = aiModel.trim()
+                            val fetchedAiModelSet = fetchedAiModels.map(String::trim).filter(String::isNotBlank).toSet()
+                            when {
+                                fetchedAiModelSet.isEmpty() -> {
+                                    errorMessage = "请先刷新AI模型列表"
+                                    saving = false
+                                    return@launch
+                                }
+
+                                selectedAiModel !in fetchedAiModelSet -> {
+                                    errorMessage = "请从服务端模型列表中选择AI模型"
+                                    saving = false
+                                    return@launch
+                                }
+                            }
+                        }
+
                         // Save settings
                         val aiValidation = svc.validateAiSettings(
                             aiProvider,
                             aiBaseUrl,
-                            aiModel.ifBlank { aiProvider.defaultModel }
+                            aiModel
                         )
                         if (!aiValidation.success) {
                             errorMessage = aiValidation.errorMessage
@@ -186,7 +218,8 @@ fun SettingScreen(
                             aiProvider = aiProvider,
                             aiBaseUrl = aiBaseUrl,
                             aiApiKey = aiApiKey,
-                            aiModel = aiModel
+                            aiModel = aiModel,
+                            aiContextLimitText = aiContextLimitText
                         ).onSuccess {
                             errorMessage = null
                             scaffoldState.snackbarHostState.showSnackbar("设置已保存")
@@ -279,7 +312,9 @@ fun SettingScreen(
                                                             scaffoldState.snackbarHostState.showSnackbar("已切换到${it.nodeName}")
                                                         }
                                                         .onFailure {
-                                                            scaffoldState.snackbarHostState.showSnackbar(it.message ?: "节点刷新失败")
+                                                            scaffoldState.snackbarHostState.showSnackbar(
+                                                                it.message ?: "节点刷新失败"
+                                                            )
                                                         }
                                                     switchingNode = false
                                                 }
@@ -294,7 +329,9 @@ fun SettingScreen(
                                                             scaffoldState.snackbarHostState.showSnackbar("已临时切换到${it.nodeName}")
                                                         }
                                                         .onFailure {
-                                                            scaffoldState.snackbarHostState.showSnackbar(it.message ?: "备用节点刷新失败")
+                                                            scaffoldState.snackbarHostState.showSnackbar(
+                                                                it.message ?: "备用节点刷新失败"
+                                                            )
                                                         }
                                                     switchingNode = false
                                                 }
@@ -309,26 +346,91 @@ fun SettingScreen(
                                         baseUrl = aiBaseUrl,
                                         apiKey = aiApiKey,
                                         model = aiModel,
+                                        contextLimitText = aiContextLimitText,
                                         showApiKey = showAiApiKey,
+                                        fetchedModels = fetchedAiModels,
+                                        refreshingModels = refreshingAiModels,
+                                        modelRefreshError = aiModelRefreshError,
+                                        modelRefreshMessage = aiModelRefreshMessage,
+                                        balanceMessage = aiBalanceMessage,
                                         onProviderChange = { provider ->
-                                            val keepCustomModel = aiModel.isNotBlank() &&
-                                                    aiModel !in aiProvider.modelCandidates
                                             val keepCustomBaseUrl = aiBaseUrl.isNotBlank() &&
                                                     aiBaseUrl != aiProvider.defaultBaseUrl
                                             aiProvider = provider
+                                            aiModel = ""
+                                            fetchedAiModels = emptyList()
+                                            aiModelRefreshError = null
+                                            aiModelRefreshMessage = null
+                                            aiBalanceMessage = null
                                             aiBaseUrl = when {
                                                 provider == AiProvider.DEEPSEEK -> provider.defaultBaseUrl
                                                 keepCustomBaseUrl -> aiBaseUrl
                                                 else -> provider.defaultBaseUrl
                                             }
-                                            if (!keepCustomModel) {
-                                                aiModel = provider.defaultModel
-                                            }
                                         },
-                                        onBaseUrlChange = { aiBaseUrl = it },
-                                        onApiKeyChange = { aiApiKey = it },
+                                        onBaseUrlChange = {
+                                            aiBaseUrl = it
+                                            aiModel = ""
+                                            fetchedAiModels = emptyList()
+                                            aiModelRefreshError = null
+                                            aiModelRefreshMessage = null
+                                            aiBalanceMessage = null
+                                        },
+                                        onApiKeyChange = {
+                                            aiApiKey = it
+                                            aiModel = ""
+                                            fetchedAiModels = emptyList()
+                                            aiModelRefreshError = null
+                                            aiModelRefreshMessage = null
+                                            aiBalanceMessage = null
+                                        },
                                         onModelChange = { aiModel = it },
-                                        onToggleApiKey = { showAiApiKey = !showAiApiKey }
+                                        onContextLimitChange = {
+                                            aiContextLimitText = it.filter(Char::isDigit).take(7)
+                                        },
+                                        onToggleApiKey = { showAiApiKey = !showAiApiKey },
+                                        onRefreshModels = {
+                                            if (!refreshingAiModels) {
+                                                refreshingAiModels = true
+                                                aiModelRefreshError = null
+                                                aiModelRefreshMessage = null
+                                                aiBalanceMessage = null
+                                                scope.launch {
+                                                    SettingsService.fetchAiModels(aiProvider, aiBaseUrl, aiApiKey)
+                                                        .onSuccess { ids ->
+                                                            val modelIds = ids.map(String::trim)
+                                                                .filter(String::isNotBlank)
+                                                                .distinct()
+                                                            fetchedAiModels = modelIds
+                                                            aiModelRefreshMessage =
+                                                                "[${getDateTimeNow("HH:mm:ss")}]已获取${modelIds.size}个模型"
+                                                            val selectedModel = aiModel.trim()
+                                                            aiModel = if (selectedModel in modelIds) {
+                                                                selectedModel
+                                                            } else {
+                                                                modelIds.firstOrNull().orEmpty()
+                                                            }
+                                                            if (aiProvider == AiProvider.DEEPSEEK) {
+                                                                SettingsService.fetchDeepSeekBalance(aiApiKey)
+                                                                    .onSuccess { balance ->
+                                                                        aiBalanceMessage = "余额$balance"
+                                                                    }
+                                                                    .onFailure {
+                                                                        aiModelRefreshError =
+                                                                            it.message ?: "刷新余额失败"
+                                                                    }
+                                                            }
+                                                        }
+                                                        .onFailure {
+                                                            fetchedAiModels = emptyList()
+                                                            aiModel = ""
+                                                            aiBalanceMessage = null
+                                                            aiModelRefreshError = it.message ?: "刷新模型失败"
+                                                        }
+                                                    refreshingAiModels = false
+                                                }
+                                            }
+                                        }
                                     )
                                 }
                             }
@@ -513,7 +615,7 @@ private fun AccountSettings(
                     }
                 }
             }
-        }else{
+        } else {
             Text("已绑定微软MC正版号")
         }
 
@@ -667,20 +769,35 @@ private fun JavaSettings(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AiSettings(
     provider: AiProvider,
     baseUrl: String,
     apiKey: String,
     model: String,
+    contextLimitText: String,
     showApiKey: Boolean,
+    fetchedModels: List<String>,
+    refreshingModels: Boolean,
+    modelRefreshError: String?,
+    modelRefreshMessage: String?,
+    balanceMessage: String?,
     onProviderChange: (AiProvider) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
-    onToggleApiKey: () -> Unit
+    onContextLimitChange: (String) -> Unit,
+    onToggleApiKey: () -> Unit,
+    onRefreshModels: () -> Unit
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    val dropdownModels = remember(fetchedModels) {
+        fetchedModels
+            .map(String::trim)
+            .filter(String::isNotBlank)
+            .distinct()
+    }
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -688,16 +805,18 @@ private fun AiSettings(
         Text("AI设置（没开发完）", style = MaterialTheme.typography.h6)
         Row(verticalAlignment = Alignment.CenterVertically) {
             RadioButton(
+                selected = provider == AiProvider.DEEPSEEK,
+                onClick = { onProviderChange(AiProvider.DEEPSEEK) }
+            )
+            Text("DeepSeek")
+            Space8w()
+            RadioButton(
                 selected = provider == AiProvider.OPENAI,
                 onClick = { onProviderChange(AiProvider.OPENAI) }
             )
             Text("OpenAI")
             Space8w()
-            RadioButton(
-                selected = provider == AiProvider.DEEPSEEK,
-                onClick = { onProviderChange(AiProvider.DEEPSEEK) }
-            )
-            Text("DeepSeek")
+
         }
         OutlinedTextField(
             label = { Text("API Base URL") },
@@ -715,19 +834,38 @@ private fun AiSettings(
             onToggleVisibility = onToggleApiKey,
             onEnter = {}
         )
-        Box(modifier = Modifier.fillMaxWidth()) {
+        OutlinedTextField(
+            label = { Text("上下文上限Tokens") },
+            value = contextLimitText,
+            onValueChange = onContextLimitChange,
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+        Text(
+            text = "范围64000-1000000",
+            color = MaterialColor.GRAY_700.color,
+            style = MaterialTheme.typography.body2
+        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+
             OutlinedTextField(
                 label = { Text("模型") },
                 value = model,
-                onValueChange = onModelChange,
+                onValueChange = {},
+                readOnly = true,
                 singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .clickable(enabled = dropdownModels.isNotEmpty()) { modelMenuExpanded = true },
                 trailingIcon = {
                     Text(
                         text = "\uE70D".asIconText,
                         modifier = Modifier
                             .padding(end = 8.dp)
-                            .clickable { modelMenuExpanded = true }
+                            .clickable(enabled = dropdownModels.isNotEmpty()) { modelMenuExpanded = true }
                     )
                 }
             )
@@ -735,7 +873,7 @@ private fun AiSettings(
                 expanded = modelMenuExpanded,
                 onDismissRequest = { modelMenuExpanded = false }
             ) {
-                provider.modelCandidates.forEach { candidate ->
+                dropdownModels.forEach { candidate ->
                     DropdownMenuItem(onClick = {
                         onModelChange(candidate)
                         modelMenuExpanded = false
@@ -744,6 +882,43 @@ private fun AiSettings(
                     }
                 }
             }
+            CircleIconButton(
+                icon = "\uDB85\uDEC4",
+                tooltip = if (refreshingModels) "刷新中" else "获取模型列表",
+                bgColor = MaterialColor.BLUE_900.color,
+                enabled = !refreshingModels,
+                onClick = onRefreshModels
+            )
+            if (provider == AiProvider.DEEPSEEK) {
+                CircleIconButton(
+                    icon = "\uF157",
+                    tooltip = "DeepSeek充值",
+                    bgColor = MaterialColor.TEAL_900.color,
+                    onClick = { openUrl("https://platform.deepseek.com/top_up") }
+                )
+            }
+
+        }
+        modelRefreshError?.let { error ->
+            Text(
+                text = error,
+                color = MaterialTheme.colors.error,
+                style = MaterialTheme.typography.body2
+            )
+        }
+        modelRefreshMessage?.let { message ->
+            Text(
+                text = message,
+                color = MaterialColor.GRAY_800.color,
+                style = MaterialTheme.typography.body2
+            )
+        }
+        balanceMessage?.let { message ->
+            Text(
+                text = message,
+                color = MaterialColor.GRAY_800.color,
+                style = MaterialTheme.typography.body2
+            )
         }
     }
 }
@@ -889,7 +1064,7 @@ private fun AutoRouteStatus(
             Space8w()
             CircleIconButton(
                 "\uDB80\uDC02",
-                "临时使用备用节点" ,
+                "临时使用备用节点",
                 bgColor = MaterialColor.BLUE_900.color,
                 enabled = !switchingNode,
                 onClick = onUseGameBackupNode

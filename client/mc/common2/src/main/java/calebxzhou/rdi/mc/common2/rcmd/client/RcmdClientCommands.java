@@ -11,10 +11,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonPrimitive;
-import dev.toonformat.jtoon.Delimiter;
-import dev.toonformat.jtoon.EncodeOptions;
-import dev.toonformat.jtoon.JToon;
-import dev.toonformat.jtoon.KeyFolding;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -91,7 +87,7 @@ public final class RcmdClientCommands {
             var result = exportRecipes(snapshot, bridge);
             bridge.executeOnMainThread(() -> reply(bridge, result));
         });
-        return RcmdResult.ok("已开始后台导出TOON配方" + snapshot.recipes().size() + "个，完成后会提示");
+        return RcmdResult.ok("已开始后台导出JSON配方" + snapshot.recipes().size() + "个，完成后会提示");
     }
 
     private static RcmdResult startExportLangKeys(RcmdClientBridge bridge) {
@@ -120,13 +116,9 @@ public final class RcmdClientCommands {
             exportJson.add("recipes", recipesByType);
             var exportDir = bridge.gameDirectory().resolve("rdi");
             Files.createDirectories(exportDir);
-            var exportPath = exportDir.resolve("export_receipes.toon");
-            var toon = JToon.encodeJson(
-                    GSON.toJson(exportJson),
-                    new EncodeOptions(2, Delimiter.PIPE, false, KeyFolding.OFF, Integer.MAX_VALUE)
-            );
-            Files.writeString(exportPath, toon, StandardCharsets.UTF_8);
-            return RcmdResult.ok("已导出TOON配方" + snapshot.recipes().size() + "个：" + exportPath.toAbsolutePath());
+            var exportPath = exportDir.resolve("export_recipes.json");
+            Files.writeString(exportPath, GSON.toJson(exportJson), StandardCharsets.UTF_8);
+            return RcmdResult.ok("已导出JSON配方" + snapshot.recipes().size() + "个：" + exportPath.toAbsolutePath());
         } catch (Exception e) {
             return RcmdResult.error("配方导出失败：" + e.getMessage());
         }
@@ -191,9 +183,6 @@ public final class RcmdClientCommands {
                 pattern.add(row);
             }
             json.add("pattern", pattern);
-        }
-        if (recipe.showNotification() != null) {
-            json.addProperty("show_notification", recipe.showNotification());
         }
         if (recipe.experience() != null) {
             json.addProperty("experience", recipe.experience());

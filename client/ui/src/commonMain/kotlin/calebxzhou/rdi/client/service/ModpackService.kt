@@ -494,8 +494,8 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
     }
 
     var gameAddr = "127.0.0.1:55667"
+    val verDir = ModpackService.getVersionDir(version.modpackId, version.name)
     if (!isDesktop) {
-        val verDir = ModpackService.getVersionDir(version.modpackId, version.name)
         ModpackService.installRdiCore(modpack.mcVer, modpack.modloader, verDir)
         //安卓端暂时不支持本地代理
         gameAddr = RServer.currentGameAddr
@@ -521,6 +521,8 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             mcVer = modpack.mcVer,
             versionId = versionId,
             playArg = playArg,
+            mcpPort = port,
+            versionDir = verDir.absolutePath,
             activeBaseMods = activeBaseMods,
             disabledBaseMods = disabledMods,
             manageHostBaseMods = true,

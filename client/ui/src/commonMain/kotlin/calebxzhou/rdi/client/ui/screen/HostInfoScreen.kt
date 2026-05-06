@@ -788,7 +788,20 @@ fun HostInfoScreen(
                                             color = MaterialColor.GRAY_300.color
                                         )
                                         Space8h()
-                                        Text("受邀成员：")
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Text("受邀成员：")
+                                            if (meAdmin) {
+                                                CircleIconButton(
+                                                    icon = "\uF067",
+                                                    tooltip = "邀请成员",
+                                                    size = 20,
+                                                    bgColor = MaterialColor.PURPLE_700.color,
+                                                    contentPadding = PaddingValues(0.dp)
+                                                ) {
+                                                    showInviteDialog = true
+                                                }
+                                            }
+                                        }
                                         Space8h()
                                     }
                                     items(
@@ -869,11 +882,6 @@ fun HostInfoScreen(
                                             if (meMember && !meOwner) {
                                                 TextButton(onClick = { quitConfirm = true }) {
                                                     Text("退出受邀成员列表", color = MaterialColor.RED_900.color)
-                                                }
-                                            }
-                                            if (meAdmin) {
-                                                TextButton(onClick = { showInviteDialog = true }) {
-                                                    Text("+ 邀请成员")
                                                 }
                                             }
                                         }

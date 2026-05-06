@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.OutlinedTextField
 import androidx.compose.material.Text
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -13,12 +14,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.PlayerModel
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.util.periodOfDay
 import org.bson.types.ObjectId
@@ -34,6 +37,7 @@ fun MenuScreen(
     onOpenResources: () -> Unit,
     onOpenMcmod: () -> Unit,
     onOpenSponsor: () -> Unit,
+    onOpenAiChat: (Int?, String?) -> Unit,
     onOpenTaskList: () -> Unit,
     onOpenMcConsole: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -46,6 +50,15 @@ fun MenuScreen(
 ) {
     val lastPlayHost = remember { LocalCredentials.read().lastPlayHost }
     var onlinePlayerIds by remember { mutableStateOf<List<ObjectId>>(emptyList()) }
+    var showAiDebugDialog by remember { mutableStateOf(false) }
+    var aiDebugPortText by remember { mutableStateOf("") }
+    var aiDebugVersionDir by remember { mutableStateOf("") }
+    var aiDebugError by remember { mutableStateOf<String?>(null) }
+
+    fun openAiDebugDialog() {
+        aiDebugError = null
+        showAiDebugDialog = true
+    }
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -93,6 +106,7 @@ fun MenuScreen(
                         onOpenResources = onOpenResources,
                         onOpenMcmod = onOpenMcmod,
                         onOpenSponsor = onOpenSponsor,
+                        onOpenAiChat = ::openAiDebugDialog,
                         onOpenTaskList = onOpenTaskList,
                         onOpenMcConsole = onOpenMcConsole,
                         onOpenSettings = onOpenSettings,
@@ -127,6 +141,7 @@ fun MenuScreen(
                         onOpenResources = onOpenResources,
                         onOpenMcmod = onOpenMcmod,
                         onOpenSponsor = onOpenSponsor,
+                        onOpenAiChat = ::openAiDebugDialog,
                         onOpenTaskList = onOpenTaskList,
                         onOpenMcConsole = onOpenMcConsole,
                         onOpenSettings = onOpenSettings,
@@ -160,6 +175,15 @@ fun MenuScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalAlignment = Alignment.End
                 ) {
+                    if (DEBUG) {
+                        CircleIconButton(
+                            icon = "\uE0CA",
+                            tooltip = "AI聊天",
+                            bgColor = MaterialColor.PURPLE_700.color
+                        ) {
+                            openAiDebugDialog()
+                        }
+                    }
                     ImageIconButton(
                         icon = "mcmod",
                         tooltip = "MC百科",
@@ -202,6 +226,52 @@ fun MenuScreen(
                 }
             }
         }
+    }
+    if (DEBUG && showAiDebugDialog) {
+        AlertDialog(
+            onDismissRequest = { showAiDebugDialog = false },
+            title = { Text("AI调试入口") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = aiDebugPortText,
+                        onValueChange = { aiDebugPortText = it.filter(Char::isDigit).take(5) },
+                        label = { Text("连接号/端口") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = aiDebugVersionDir,
+                        onValueChange = { aiDebugVersionDir = it },
+                        label = { Text("整合包目录") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    aiDebugError?.let {
+                        Text(it, color = MaterialColor.RED_700.color)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    val port = aiDebugPortText.toIntOrNull()
+                    if (port == null || port !in 1..65535) {
+                        aiDebugError = "端口必须在1-65535之间"
+                        return@TextButton
+                    }
+                    val versionDir = aiDebugVersionDir.trim().takeIf(String::isNotBlank)
+                    showAiDebugDialog = false
+                    onOpenAiChat(port, versionDir)
+                }) {
+                    Text("开始聊天")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAiDebugDialog = false }) {
+                    Text("取消")
+                }
+            }
+        )
     }
 }
 
@@ -253,9 +323,9 @@ private fun MenuAccountSummary(
             text = {
                 Text(
                     "请在${remainingDays}天内进行以下操作：\n" +
-                        "1.安装Java25\n" +
-                        "2.更换新的启动脚本\n\n" +
-                        "超过时限后客户端将永远无法启动，详见群文档。"
+                        "1.安装Java25（群文件有）\n" +
+                        "2.更换新的启动脚本 并删除重新创建RDI桌面快捷方式\n\n" +
+                        "超过时限后客户端将永远无法启动，详见群文档H2章节。"
                 )
             },
             confirmButton = {
@@ -276,6 +346,7 @@ private fun MenuActionButtons(
     onOpenResources: () -> Unit,
     onOpenMcmod: () -> Unit,
     onOpenSponsor: () -> Unit,
+    onOpenAiChat: () -> Unit,
     onOpenTaskList: () -> Unit,
     onOpenMcConsole: () -> Unit,
     onOpenSettings: () -> Unit,
@@ -323,6 +394,15 @@ private fun MenuActionButtons(
                     bgColor = MaterialColor.GRAY_900.color
                 ) {
                     onOpenMcConsole()
+                }
+            }
+            if(DEBUG){
+                CircleIconButton(
+                    "\uE0CA",
+                    "AI聊天",
+                    bgColor = MaterialColor.PURPLE_700.color
+                ) {
+                    onOpenAiChat()
                 }
             }
             CircleIconButton(

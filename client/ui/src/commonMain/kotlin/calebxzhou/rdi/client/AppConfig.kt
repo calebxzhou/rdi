@@ -15,21 +15,17 @@ import java.io.File
 @Serializable
 enum class AiProvider(
     val displayName: String,
-    val defaultBaseUrl: String,
-    val modelCandidates: List<String>
+    val defaultBaseUrl: String
 ) {
     OPENAI(
         displayName = "OpenAI",
         defaultBaseUrl = "https://api.openai.com/v1",
-        modelCandidates = listOf("gpt-5.5", "gpt-5.4")
     ),
     DEEPSEEK(
         displayName = "DeepSeek",
         defaultBaseUrl = "https://api.deepseek.com",
-        modelCandidates = listOf("deepseek-v4-flash[1m]", "deepseek-v4-pro[1m]")
     )
     ;
-    val defaultModel get()  = modelCandidates.first()
 }
 
 @Serializable
@@ -37,7 +33,8 @@ data class AiConfig(
     val provider: AiProvider = AiProvider.OPENAI,
     val baseUrl: String = AiProvider.OPENAI.defaultBaseUrl,
     val apiKey: String = "",
-    val model: String = AiProvider.OPENAI.defaultModel
+    val model: String = "",
+    val contextLimitTokens: Int = 1_000_000
 )
 
 @Serializable
@@ -88,4 +85,3 @@ data class AppConfig(
         }
     }
 }
-

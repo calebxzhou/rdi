@@ -39,6 +39,10 @@ object Wardrobe
 @Serializable object Menu
 @Serializable object Mcmod
 @Serializable object Sponsor
+@Serializable data class AiChat(
+    val mcpPort: Int? = null,
+    val versionDir: String? = null
+)
 @Serializable data class Register(val msa: Boolean)
 @Serializable object ResetPassword
 @Serializable object Setting

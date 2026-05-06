@@ -127,11 +127,12 @@ object EmailService {
         }
         lgr.info { "received ${mails.size} operation email(s) with prefix=${imapConfig.operationSubject}" }
         mails.forEach { (email, reid) ->
+
             markAsSeen(email)
             runCatching {
                 handleOperationMail(email, reid)
             }.onFailure { error ->
-                lgr.warn { "handle operation email failed uid=${email.uid} subject=${email.subject}: ${error.message}\n$error" }
+                lgr.warn { " handle operation email failed uid=${email.uid} subject=${email.subject}: ${error.message}\n$error" }
             }
         }
     }

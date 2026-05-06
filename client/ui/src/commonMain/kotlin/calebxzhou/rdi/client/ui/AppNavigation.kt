@@ -163,6 +163,7 @@ fun AppNavigation(
                     onOpenResources = { navController.navigate(ResourceRoute(ResourceTab.All.name)) },
                     onOpenMcmod = { navController.navigate(Mcmod) },
                     onOpenSponsor = { navController.navigate(Sponsor) },
+                    onOpenAiChat = { mcpPort, versionDir -> navController.navigate(AiChat(mcpPort, versionDir)) },
                     onOpenTaskList = { navController.navigate(TaskList()) },
                     onOpenMcConsole = {
                         McPlayStore.openConsoleOnly = true
@@ -189,6 +190,19 @@ fun AppNavigation(
             composable<Sponsor> {
                 SponsorScreen(
                     onBack = { navController.navigateAbsolute(Menu) }
+                )
+            }
+            composable<AiChat> {
+                val route = it.toRoute<AiChat>()
+                AiChatScreen(
+                    mcpPort = route.mcpPort,
+                    versionDir = route.versionDir,
+                    onBack = {
+                        if (!navController.popBackStack()) {
+                            navController.navigateAbsolute(Menu)
+                        }
+                    },
+                    onOpenSettings = { navController.navigate(Setting) }
                 )
             }
             composable<Register> {

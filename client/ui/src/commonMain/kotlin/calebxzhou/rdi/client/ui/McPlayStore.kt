@@ -20,6 +20,8 @@ data class McPlayArgs(
     val mcVer: McVersion,
     val versionId: String,
     val playArg: String,
+    val mcpPort: Int? = null,
+    val versionDir: String? = null,
     val activeBaseMods: List<Mod> = emptyList(),
     val disabledBaseMods: List<Mod> = emptyList(),
     val manageHostBaseMods: Boolean = false,

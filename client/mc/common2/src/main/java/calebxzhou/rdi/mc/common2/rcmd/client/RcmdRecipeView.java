@@ -13,7 +13,6 @@ public record RcmdRecipeView(
         List<RcmdIngredientView> ingredients,
         Map<String, RcmdIngredientView> key,
         List<String> pattern,
-        Boolean showNotification,
         Float experience,
         Integer cookingTime
 ) {

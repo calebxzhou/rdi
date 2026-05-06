@@ -53,6 +53,7 @@ fun McPlayScreen(
     launchArgs: McPlayArgs? = null,
     autoStart: Boolean = true,
     extraJvmArgs: List<String> = emptyList(),
+    onOpenAiChat: (Int?, String?) -> Unit = { _, _ -> },
     onBack: () -> Unit
 ) {
     val sessions = McPlayStore.sessions
@@ -156,6 +157,14 @@ fun McPlayScreen(
     MainColumn {
         TitleRow("MC控制台", onBack) {
             selectedSession?.let { session ->
+                CircleIconButton(
+                    icon = "\uE0CA",
+                    tooltip = "AI陪玩",
+                    bgColor = MaterialColor.PURPLE_700.color
+                ) {
+                    onOpenAiChat(session.args.mcpPort, session.args.versionDir)
+                }
+                Space8w()
                 CircleIconButton("\uEAD2", "重启MC") {
                     session.requestStop()
                     startSession(session.args, allowDuplicateVersion = true)

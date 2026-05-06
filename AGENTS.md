@@ -18,6 +18,7 @@ this project is minecraft multiplayer platform, player can upload modpacks to cr
 - reply in mandarin，but add english notation for terminologies, no matter how input language is
 - use Material3 as more as possible
 - hide technological details to user if possible, such as we dont need to let user know what's docker container, this situation use host instead.
+- you can read minecraft source code on "client\mc\1.21.1-neoforge\build\moddev\artifacts\neoforge-${neoforge-version}-sources.jar" for 1.21.1
 ## Build, Test, and Development Commands
 if you are an ai you are not needed to execute gradle commands unless explictly declared
 Run commands inside each module directory (there is no repo-root wrapper).

@@ -27,8 +27,10 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,6 +46,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import calebxzhou.rdi.client.IconFontFamily
 import kotlinx.coroutines.launch
+import kotlin.math.min
 
 /**
  * calebxzhou @ 2026-02-15 21:10
@@ -501,7 +504,12 @@ fun CircleIconButton(
                         contentPadding = contentPadding,
                         enabled = enabled
                     ) {
-                        Text(text = icon.asIconText, fontSize = TextUnit(size * 0.5f, TextUnitType.Sp))
+                        ScaledCircleIconText(
+                            icon = icon,
+                            size = size,
+                            contentPadding = contentPadding,
+                            color = iconColor
+                        )
                     }
                 }
             }
@@ -529,9 +537,10 @@ fun CircleIconButton(
                     .background(if (enabled) bgColor else MaterialColor.GRAY_200.color, CircleShape),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = icon.asIconText,
-                    fontSize = TextUnit(size * 0.5f, TextUnitType.Sp),
+                ScaledCircleIconText(
+                    icon = icon,
+                    size = size,
+                    contentPadding = PaddingValues(0.dp),
                     color = iconColor
                 )
             }
@@ -547,10 +556,59 @@ fun CircleIconButton(
                 contentPadding = contentPadding,
                 enabled = enabled
             ) {
-                Text(text = icon.asIconText, fontSize = TextUnit(size * 0.5f, TextUnitType.Sp))
+                ScaledCircleIconText(
+                    icon = icon,
+                    size = size,
+                    contentPadding = contentPadding,
+                    color = iconColor
+                )
             }
         }
     }
+}
+
+@Composable
+private fun ScaledCircleIconText(
+    icon: String,
+    size: Int,
+    contentPadding: PaddingValues,
+    color: Color
+) {
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val textMeasurer = rememberTextMeasurer()
+    val annotatedIcon = icon.asIconText
+    val baseFontSize = TextUnit(size * 0.5f, TextUnitType.Sp)
+    val measured = remember(annotatedIcon, baseFontSize) {
+        textMeasurer.measure(
+            text = annotatedIcon,
+            style = TextStyle(fontSize = baseFontSize),
+            maxLines = 1,
+            softWrap = false
+        ).size
+    }
+    val availableWidthPx = with(density) {
+        val horizontalPadding = contentPadding.calculateStartPadding(layoutDirection) +
+                contentPadding.calculateEndPadding(layoutDirection)
+        (size.dp - horizontalPadding).roundToPx()
+    }.coerceAtLeast(with(density) { (size * 0.45f).dp.roundToPx() })
+    val availableHeightPx = with(density) {
+        val verticalPadding = contentPadding.calculateTopPadding() + contentPadding.calculateBottomPadding()
+        (size.dp - verticalPadding).roundToPx()
+    }.coerceAtLeast(with(density) { (size * 0.45f).dp.roundToPx() })
+    val scale = min(
+        availableWidthPx / measured.width.toFloat().coerceAtLeast(1f),
+        availableHeightPx / measured.height.toFloat().coerceAtLeast(1f)
+    ).coerceAtMost(1f)
+    val fontSize = TextUnit((size * 0.5f * scale).coerceAtLeast(8f), TextUnitType.Sp)
+    Text(
+        text = annotatedIcon,
+        fontSize = fontSize,
+        color = color,
+        maxLines = 1,
+        softWrap = false,
+        overflow = TextOverflow.Clip
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

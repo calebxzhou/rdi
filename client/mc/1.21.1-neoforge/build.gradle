@@ -156,15 +156,8 @@ dependencies {
     additionalRuntimeClasspath project(':c-mc-common')
     implementation project(':c-mc-common2')
     additionalRuntimeClasspath project(':c-mc-common2')
-    localRuntime 'tools.jackson.core:jackson-databind:3.0.4'
-    localRuntime 'tools.jackson.module:jackson-module-blackbird:3.0.4'
-    additionalRuntimeClasspath 'tools.jackson.core:jackson-databind:3.0.4'
-    additionalRuntimeClasspath 'tools.jackson.module:jackson-module-blackbird:3.0.4'
     additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
     shaded('io.fusionauth:java-http:1.4.0') {
-        transitive = false
-    }
-    shaded('dev.toonformat:jtoon:1.0.9') {
         transitive = false
     }
 }

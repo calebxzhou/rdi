@@ -509,12 +509,13 @@ fun InstalledResourcePane(
                         title = "单机 - ${packdir.vo.name} ${packdir.verName}",
                         mcVer = packdir.vo.mcVer,
                         versionId = packdir.versionId,
-                        "${server.hqUrl}\n" +
+                        playArg = "${server.hqUrl}\n" +
                                 "127.0.0.1:55667\n" +
                                 "test\n" +
                                 "55555\n" +
                                 "${loggedAccount.uuid}\n" +
-                                loggedAccount.name
+                                loggedAccount.name,
+                        versionDir = packdir.dir.absolutePath
                     )
                     onOpenPlay?.invoke(playArgs)
                 }

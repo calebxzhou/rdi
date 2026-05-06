@@ -231,7 +231,7 @@ fun String?.isValidHttpUrl(): Boolean {
 fun InputStream.readAllString(charset: Charset = Charsets.UTF_8): String {
     return this.bufferedReader(charset).use { it.readText() }
 }
-val javaExePath = ProcessHandle.current()
+val javaExePath get() = ProcessHandle.current()
     .info()
     .command().orElseThrow { IllegalArgumentException("Can't find java process path ") }
 

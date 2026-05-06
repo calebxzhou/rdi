@@ -13,7 +13,7 @@ val zstdVer = "1.5.7-7"
 val desugarVersion = "2.1.5"
 val desktopJavaSdkVersion = 25
 val desktopJvmTarget = JvmTarget.JVM_21
-val version = "5.14.6"
+val version = "5.14.7"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
@@ -78,10 +78,13 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 val composeVersion = "1.10.3"
+                val markdownRendererVersion = "0.40.2"
                 implementation("org.jetbrains.compose.runtime:runtime:$composeVersion")
                 implementation("org.jetbrains.compose.foundation:foundation:$composeVersion")
                 implementation("org.jetbrains.compose.material:material:$composeVersion")
                 implementation("org.jetbrains.compose.ui:ui:$composeVersion")
+                implementation("com.mikepenz:multiplatform-markdown-renderer:$markdownRendererVersion")
+                implementation("com.mikepenz:multiplatform-markdown-renderer-m3:$markdownRendererVersion")
                 implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
                 implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
                 implementation(project(":common"))

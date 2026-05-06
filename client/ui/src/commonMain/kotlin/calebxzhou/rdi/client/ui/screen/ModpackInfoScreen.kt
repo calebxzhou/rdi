@@ -186,8 +186,8 @@ fun ModpackInfoScreen(
             if (pack != null) {
                 title="整合包 · "+pack.name
                 val tabTitles = listOf(
-                    "Mod列表(${pack.modCount})",
                     "简介",
+                    "Mod列表(${pack.modCount})",
                     "\uF019 下载版本(${pack.versions.size})"
                 )
                 TabRow(selectedTabIndex = selectedTab, backgroundColor = Color.White) {
@@ -202,6 +202,11 @@ fun ModpackInfoScreen(
                 Space8h()
                 when (selectedTab) {
                     0 -> {
+                        ModpackIntroTabContent(
+                            pack = pack
+                        )
+                    }
+                    1 -> {
                         if (pack.categories.isNotEmpty()) {
                             ModpackCategoryChips(
                                 categories = pack.categories,
@@ -220,11 +225,6 @@ fun ModpackInfoScreen(
                                 emptyText = "没有可显示的mod"
                             )
                         }
-                    }
-                    1 -> {
-                        ModpackIntroTabContent(
-                            pack = pack
-                        )
                     }
                     else -> {
                         Space8h()
