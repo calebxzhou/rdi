@@ -2,6 +2,7 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.AlertDialog
 import androidx.compose.material.LinearProgressIndicator
@@ -29,6 +31,7 @@ import androidx.compose.material.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme as MaterialTheme3
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
@@ -50,6 +53,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.AppConfig
 import calebxzhou.rdi.client.UIFontFamily
+import calebxzhou.rdi.client.service.AiChatHistoryService
+import calebxzhou.rdi.client.service.AiChatRecord
+import calebxzhou.rdi.client.service.AiChatRecordSummary
+import calebxzhou.rdi.client.service.AiChatSavedMessage
+import calebxzhou.rdi.client.service.AiChatSavedToolStatus
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainBox
 import calebxzhou.rdi.client.ui.MainColumn
@@ -64,18 +72,29 @@ import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.service.OpenaiChatEvent
 import calebxzhou.rdi.common.service.OpenaiChatMessage
 import calebxzhou.rdi.common.service.OpenaiService
+import calebxzhou.rdi.common.util.humanDateTimeNow
+import calebxzhou.rdi.common.util.millisToHumanDateTime
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownTypography
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private data class AiChatBubble(
     val role: String,
     val content: String,
+    val contextMessageCount: Int = 1,
+    val contextCompressed: Boolean = false,
     val reasoningContent: String = "",
     val reasoningExpanded: Boolean = true,
     val toolStatuses: List<AiToolStatus> = emptyList(),
     val promptTokens: Int? = null,
     val completionTokens: Int? = null,
+    val billablePromptTokens: Int? = null,
+    val billableCompletionTokens: Int? = null,
     val startedAtMillis: Long? = null,
     val reasoningFinishedAtMillis: Long? = null,
     val finishedAtMillis: Long? = null,
@@ -92,37 +111,183 @@ private data class AiToolStatus(
 fun AiChatScreen(
     mcpPort: Int? = null,
     versionDir: String? = null,
+    chatId: String? = null,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val messages = remember { mutableStateListOf<AiChatBubble>() }
+    val contextMessages = remember { mutableStateListOf<OpenaiChatMessage>() }
     val listState = rememberLazyListState()
     var input by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var responseJob by remember { mutableStateOf<Job?>(null) }
+    var saveJob by remember { mutableStateOf<Job?>(null) }
+    var activeRecordId by remember { mutableStateOf(chatId) }
+    var activeCreatedAt by remember { mutableStateOf(System.currentTimeMillis()) }
+    var effectiveMcpPort by remember { mutableStateOf(mcpPort) }
+    var effectiveVersionDir by remember { mutableStateOf(versionDir) }
+    var historyDialogOpen by remember { mutableStateOf(false) }
+    var historyRecords by remember { mutableStateOf<List<AiChatRecordSummary>>(emptyList()) }
     val aiConfig = remember { AppConfig.load().aiConfig }
     val missingConfig = aiConfig.apiKey.isBlank() || aiConfig.model.isBlank()
     val contextLimitTokens = aiConfig.contextLimitTokens.coerceIn(64_000, 1_000_000)
-    val contextUsedTokens = messages.asReversed()
-        .firstOrNull { it.role == "assistant" && it.promptTokens != null }
-        ?.promptTokens ?: 0
     val basicPromptResult = remember { loadAiBasicPrompt() }
     val basicPromptLoadError = basicPromptResult.exceptionOrNull()
     val basicPrompt = basicPromptResult.getOrNull().orEmpty()
-    val systemPrompt = remember(basicPrompt, mcpPort, versionDir) {
+    val systemPrompt = remember(basicPrompt, effectiveMcpPort, effectiveVersionDir) {
         buildAiSystemPrompt(
             basicPrompt = basicPrompt,
-            mcpPort = mcpPort,
-            versionDir = versionDir
+            mcpPort = effectiveMcpPort,
+            versionDir = effectiveVersionDir
         )
+    }
+    var contextWasCompressed by remember { mutableStateOf(false) }
+    val measuredContextTokens = messages.asReversed()
+        .firstOrNull { it.role == "assistant" && it.promptTokens != null }
+        ?.promptTokens ?: 0
+    val estimatedContextTokens = estimateContextTokens(systemPrompt, contextMessages)
+    val contextUsedTokens = if (contextWasCompressed || measuredContextTokens == 0) {
+        estimatedContextTokens
+    } else {
+        measuredContextTokens
     }
 
     fun buildRequestMessages(untilIndex: Int): List<OpenaiChatMessage> {
         return listOf(OpenaiChatMessage(role = "system", content = systemPrompt)) +
-            messages
-                .take(untilIndex)
-                .map { it.toOpenaiMessage() }
+            contextMessages.take(untilIndex.coerceAtMost(contextMessages.size))
+    }
+
+    fun compressContextIfNeeded(): Boolean {
+        val triggerTokens = contextLimitTokens * 3 / 5
+        if (measuredContextTokens < triggerTokens && estimatedContextTokens < triggerTokens) return false
+
+        var contextOffset = 0
+        val rebuiltContext = mutableListOf<OpenaiChatMessage>()
+        val keepFullToolAssistantIndexes = messages.indices
+            .filter { index ->
+                val message = messages[index]
+                message.role == "assistant" && message.contextMessageCount > 1 && !message.contextCompressed
+            }
+            .takeLast(2)
+            .toSet()
+        var compressed = false
+        messages.indices.forEach { index ->
+            val message = messages[index]
+            val count = message.contextMessageCount.coerceAtLeast(0)
+            val slice = contextMessages.drop(contextOffset).take(count)
+            contextOffset += count
+            if (
+                message.role == "assistant" &&
+                count > 1 &&
+                !message.contextCompressed &&
+                index !in keepFullToolAssistantIndexes &&
+                message.finishedAtMillis != null
+            ) {
+                rebuiltContext += message.toCompressedContextMessage()
+                messages[index] = message.copy(
+                    contextMessageCount = 1,
+                    contextCompressed = true
+                )
+                compressed = true
+            } else {
+                rebuiltContext += slice
+            }
+        }
+        if (!compressed) return false
+        contextMessages.clear()
+        contextMessages.addAll(rebuiltContext)
+        contextWasCompressed = true
+        return true
+    }
+
+    fun buildChatTitle(): String {
+        return messages.firstOrNull { it.role == "user" }
+            ?.content
+            ?.trim()
+            ?.take(20)
+            ?.takeIf(String::isNotBlank)
+            ?: "AI聊天 $humanDateTimeNow"
+    }
+
+    fun buildCurrentRecord(id: String, now: Long): AiChatRecord {
+        return AiChatRecord(
+            id = id,
+            title = buildChatTitle(),
+            createdAt = activeCreatedAt,
+            updatedAt = now,
+            mcpPort = effectiveMcpPort,
+            versionDir = effectiveVersionDir,
+            provider = aiConfig.provider,
+            baseUrl = aiConfig.baseUrl,
+            model = aiConfig.model,
+            messages = messages.map { it.toSavedMessage() },
+            contextMessages = contextMessages.toList()
+        )
+    }
+
+    fun ensureActiveRecordId(): String {
+        return activeRecordId ?: AiChatHistoryService.newRecordId().also {
+            activeRecordId = it
+            activeCreatedAt = System.currentTimeMillis()
+        }
+    }
+
+    fun saveCurrentChat(debounce: Boolean = true) {
+        if (messages.isEmpty()) return
+        ensureActiveRecordId()
+        saveJob?.cancel()
+        saveJob = scope.launch {
+            if (debounce) delay(800)
+            val id = activeRecordId ?: return@launch
+            val now = System.currentTimeMillis()
+            val record = buildCurrentRecord(id, now)
+            withContext(Dispatchers.IO) {
+                AiChatHistoryService.saveRecord(record)
+            }.onFailure {
+                errorMessage = "保存聊天记录失败: ${it.message ?: "未知错误"}"
+            }
+        }
+    }
+
+    fun loadChatRecord(record: AiChatRecord) {
+        responseJob?.cancel()
+        saveJob?.cancel()
+        sending = false
+        errorMessage = null
+        activeRecordId = record.id
+        activeCreatedAt = record.createdAt
+        effectiveMcpPort = record.mcpPort
+        effectiveVersionDir = record.versionDir
+        messages.clear()
+        contextMessages.clear()
+        val loadedMessages = record.messages.map { it.toBubble() }
+        if (record.contextMessages.isEmpty()) {
+            messages.addAll(loadedMessages.map { it.copy(contextMessageCount = 1, contextCompressed = true) })
+            contextMessages.addAll(record.messages.map { it.toContextMessageForLegacyRecord() })
+            contextWasCompressed = true
+        } else if (loadedMessages.sumOf { it.contextMessageCount.coerceAtLeast(0) } != record.contextMessages.size) {
+            messages.addAll(loadedMessages.map { it.copy(contextMessageCount = 1, contextCompressed = true) })
+            contextMessages.addAll(record.messages.map { it.toContextMessageForLegacyRecord() })
+            contextWasCompressed = true
+        } else {
+            messages.addAll(loadedMessages)
+            contextMessages.addAll(record.contextMessages)
+            contextWasCompressed = false
+        }
+    }
+
+    fun refreshHistoryRecords() {
+        scope.launch {
+            withContext(Dispatchers.IO) {
+                AiChatHistoryService.listRecords()
+            }.onSuccess {
+                historyRecords = it
+            }.onFailure {
+                errorMessage = "读取聊天记录失败: ${it.message ?: "未知错误"}"
+            }
+        }
     }
 
     fun startAssistantResponse(assistantIndex: Int, requestMessages: List<OpenaiChatMessage>) {
@@ -132,20 +297,23 @@ fun AiChatScreen(
             finishedAtMillis = null,
             promptTokens = null,
             completionTokens = null,
+            billablePromptTokens = null,
+            billableCompletionTokens = null,
+            contextCompressed = false,
             reasoningContent = "",
             reasoningExpanded = true,
             reasoningFinishedAtMillis = null,
             receivedChars = 0
         )
-        scope.launch {
+        responseJob = scope.launch {
             var failed = false
-            runCatching {
+            try {
                 OpenaiService.chat(
                     aiBaseUrl = aiConfig.baseUrl,
                     apiKey = aiConfig.apiKey,
                     model = aiConfig.model,
                     messages = requestMessages,
-                    versionDir = versionDir
+                    versionDir = effectiveVersionDir
                 ).collect { event ->
                     val current = messages.getOrNull(assistantIndex) ?: return@collect
                     when (event) {
@@ -180,14 +348,27 @@ fun AiChatScreen(
                         is OpenaiChatEvent.Usage -> {
                             messages[assistantIndex] = current.copy(
                                 promptTokens = event.promptTokens,
-                                completionTokens = event.completionTokens
+                                completionTokens = event.completionTokens,
+                                billablePromptTokens = event.billablePromptTokens,
+                                billableCompletionTokens = event.billableCompletionTokens
+                            )
+                            contextWasCompressed = false
+                        }
+
+                        is OpenaiChatEvent.ContextMessages -> {
+                            contextMessages += event.messages
+                            messages[assistantIndex] = current.copy(
+                                contextMessageCount = event.messages.size,
+                                contextCompressed = false
                             )
                         }
                     }
+                    saveCurrentChat()
                 }
-            }.onFailure {
+            } catch (_: CancellationException) {
+            } catch (err: Throwable) {
                 failed = true
-                errorMessage = it.message ?: "AI聊天失败"
+                errorMessage = err.message ?: "AI聊天失败"
                 if (assistantIndex in messages.indices) {
                     messages.removeAt(assistantIndex)
                 }
@@ -199,16 +380,30 @@ fun AiChatScreen(
                 )
             }
             sending = false
+            responseJob = null
+            saveCurrentChat(debounce = false)
         }
+    }
+
+    fun stopAssistantResponse() {
+        responseJob?.cancel()
     }
 
     fun regenerateAssistant(assistantIndex: Int) {
         if (sending || assistantIndex !in messages.indices) return
         if (messages.take(assistantIndex).none { it.role == "user" }) return
-        val requestMessages = buildRequestMessages(assistantIndex)
-        messages[assistantIndex] = AiChatBubble("assistant", "")
+        val contextIndex = messages.take(assistantIndex).sumOf { it.contextMessageCount }
+        while (messages.size > assistantIndex) {
+            messages.removeAt(messages.lastIndex)
+        }
+        while (contextMessages.size > contextIndex) {
+            contextMessages.removeAt(contextMessages.lastIndex)
+        }
+        messages += AiChatBubble("assistant", "", contextMessageCount = 0)
+        val newAssistantIndex = messages.lastIndex
+        val requestMessages = buildRequestMessages(contextIndex)
         errorMessage = null
-        startAssistantResponse(assistantIndex, requestMessages)
+        startAssistantResponse(newAssistantIndex, requestMessages)
     }
 
     fun sendMessage() {
@@ -216,12 +411,16 @@ fun AiChatScreen(
         if (userText.isBlank() || sending) return
         input = ""
         errorMessage = null
-        messages += AiChatBubble("user", userText)
-        messages += AiChatBubble("assistant", "")
+        compressContextIfNeeded()
+        val userBubble = AiChatBubble("user", userText)
+        messages += userBubble
+        contextMessages += userBubble.toContextMessage()
+        messages += AiChatBubble("assistant", "", contextMessageCount = 0)
         val assistantIndex = messages.lastIndex
+        saveCurrentChat(debounce = false)
         startAssistantResponse(
             assistantIndex = assistantIndex,
-            requestMessages = buildRequestMessages(assistantIndex)
+            requestMessages = buildRequestMessages(contextMessages.size)
         )
     }
 
@@ -232,7 +431,30 @@ fun AiChatScreen(
         messages.lastOrNull()?.toolStatuses?.size
     ) {
         if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
+            listState.animateScrollToItem(messages.size)
+        }
+    }
+
+    LaunchedEffect(chatId) {
+        if (chatId.isNullOrBlank()) return@LaunchedEffect
+        withContext(Dispatchers.IO) {
+            AiChatHistoryService.loadRecord(chatId)
+        }.onSuccess {
+            loadChatRecord(it)
+        }.onFailure {
+            errorMessage = "加载聊天记录失败: ${it.message ?: "未知错误"}"
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            responseJob?.cancel()
+            saveJob?.cancel()
+            if (messages.isNotEmpty()) {
+                val id = ensureActiveRecordId()
+                AiChatHistoryService.saveRecord(buildCurrentRecord(id, System.currentTimeMillis()))
+                    .onFailure { it.printStackTrace() }
+            }
         }
     }
 
@@ -251,13 +473,59 @@ fun AiChatScreen(
         return
     }
 
+    if (historyDialogOpen) {
+        AiChatHistoryDialog(
+            records = historyRecords,
+            activeRecordId = activeRecordId,
+            onDismiss = { historyDialogOpen = false },
+            onLoad = { summary ->
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        AiChatHistoryService.loadRecord(summary.id)
+                    }.onSuccess {
+                        loadChatRecord(it)
+                        historyDialogOpen = false
+                    }.onFailure {
+                        errorMessage = "加载聊天记录失败: ${it.message ?: "未知错误"}"
+                    }
+                }
+            },
+            onDelete = { summary ->
+                scope.launch {
+                    withContext(Dispatchers.IO) {
+                        AiChatHistoryService.deleteRecord(summary.id)
+                    }.onSuccess {
+                        if (summary.id == activeRecordId) activeRecordId = null
+                        refreshHistoryRecords()
+                    }.onFailure {
+                        errorMessage = "删除聊天记录失败: ${it.message ?: "未知错误"}"
+                    }
+                }
+            }
+        )
+    }
+
     MainBox {
         MainColumn {
             TitleRow("AI陪玩 w/ R-MCP", onBack) {
-                AiContextUsageProgress(
-                    usedTokens = contextUsedTokens,
-                    limitTokens = contextLimitTokens
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AiContextUsageProgress(
+                        usedTokens = contextUsedTokens,
+                        limitTokens = contextLimitTokens
+                    )
+                    CircleIconButton(
+                        icon = "\uF1DA",
+                        tooltip = "聊天记录",
+                        bgColor = MaterialColor.PURPLE_700.color,
+                        showText = false
+                    ) {
+                        historyDialogOpen = true
+                        refreshHistoryRecords()
+                    }
+                }
             }
             Space8h()
             if (missingConfig) {
@@ -310,6 +578,13 @@ fun AiChatScreen(
                                     }
                                 )
                             }
+                            item {
+                                Spacer(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(1.dp)
+                                )
+                            }
                         }
                         Box(
                             modifier = Modifier
@@ -340,7 +615,7 @@ fun AiChatScreen(
                                 enabled = messages.isNotEmpty()
                             ) {
                                 if (messages.isNotEmpty()) {
-                                    scope.launch { listState.animateScrollToItem(messages.lastIndex) }
+                                    scope.launch { listState.animateScrollToItem(messages.size) }
                                 }
                             }
                         }
@@ -374,20 +649,102 @@ fun AiChatScreen(
                                 },
                             maxLines = 4
                         )
-                        CircleIconButton(
-                            icon = "\uF1D8",
-                            tooltip = if (sending) "发送中" else "发送",
-                            bgColor = MaterialColor.GREEN_900.color,
-                            enabled = !sending && input.isNotBlank(),
-                            showText = false
-                        ) {
-                            sendMessage()
+                        if (sending) {
+                            CircleIconButton(
+                                icon = "\uF04D",
+                                tooltip = "停止生成",
+                                bgColor = MaterialColor.RED_700.color,
+                                showText = false
+                            ) {
+                                stopAssistantResponse()
+                            }
+                        } else {
+                            CircleIconButton(
+                                icon = "\uF1D8",
+                                tooltip = "发送",
+                                bgColor = MaterialColor.GREEN_900.color,
+                                enabled = input.isNotBlank(),
+                                showText = false
+                            ) {
+                                sendMessage()
+                            }
                         }
                     }
                 }
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AiChatHistoryDialog(
+    records: List<AiChatRecordSummary>,
+    activeRecordId: String?,
+    onDismiss: () -> Unit,
+    onLoad: (AiChatRecordSummary) -> Unit,
+    onDelete: (AiChatRecordSummary) -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("聊天记录") },
+        text = {
+            if (records.isEmpty()) {
+                Text("暂无聊天记录", color = MaterialColor.GRAY_700.color)
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(360.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(records) { record ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(MaterialColor.GRAY_100.color, RoundedCornerShape(8.dp))
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = if (record.id == activeRecordId) "${record.title}（当前）" else record.title,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialColor.GRAY_900.color
+                                )
+                                Text(
+                                    text = "${record.updatedAt.millisToHumanDateTime} · ${record.model.ifBlank { "未知模型" }} · ${record.messageCount}条消息",
+                                    color = MaterialColor.GRAY_700.color
+                                )
+                            }
+                            CircleIconButton(
+                                icon = "\uF07C",
+                                tooltip = "载入",
+                                bgColor = MaterialColor.PURPLE_700.color,
+                                showText = false
+                            ) {
+                                onLoad(record)
+                            }
+                            CircleIconButton(
+                                icon = "\uF1F8",
+                                tooltip = "删除",
+                                bgColor = MaterialColor.RED_700.color,
+                                showText = false
+                            ) {
+                                onDelete(record)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("关闭")
+            }
+        }
+    )
 }
 
 @Composable
@@ -406,7 +763,7 @@ private fun AiContextUsageProgress(
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Text(
-            text = "上下文${formatTokenCount(usedTokens)}/${formatTokenCount(limitTokens)}",
+            text = "上下文${usedTokens}/${limitTokens}",
             color = MaterialColor.GRAY_800.color,
             style = MaterialTheme.typography.body2
         )
@@ -437,7 +794,7 @@ private fun AiChatBubbleView(
     ) {
         Column(
             modifier = Modifier
-                .fillMaxWidth(0.75f)
+                .fillMaxWidth()
                 .background(
                     color = if (isUser) MaterialColor.GREEN_100.color else MaterialColor.GRAY_100.color,
                     shape = RoundedCornerShape(8.dp)
@@ -569,7 +926,9 @@ private fun AiChatResponseFooter(
     onRegenerate: () -> Unit
 ) {
     val elapsedSeconds = message.elapsedSeconds()
-    val speedText = message.completionTokens?.let { tokens ->
+    val sentTokens = message.billablePromptTokens ?: message.promptTokens
+    val receivedTokens = message.billableCompletionTokens ?: message.completionTokens
+    val speedText = receivedTokens?.let { tokens ->
         val seconds = elapsedSeconds.takeIf { it > 0.0 } ?: return@let null
         String.format("%.1f", tokens / seconds)
     } ?: "--"
@@ -598,11 +957,11 @@ private fun AiChatResponseFooter(
             onClick = onRegenerate
         )
         Text(
-            text = "\uDB81\uDD52 ${message.promptTokens?.toString() ?: "--"}tokens".asIconText,
+            text = "\uDB81\uDD52 ${sentTokens?.toString() ?: "--"}tokens".asIconText,
             color = MaterialColor.GRAY_700.color
         )
         Text(
-            text = "\uDB80\uDDDA ${message.completionTokens?.toString() ?: "--"}tokens".asIconText,
+            text = "\uDB80\uDDDA ${receivedTokens?.toString() ?: "--"}tokens".asIconText,
             color = MaterialColor.GRAY_700.color
         )
         Text(
@@ -664,10 +1023,88 @@ private fun formatTokenCount(tokens: Int): String = when {
     else -> tokens.toString()
 }
 
-private fun AiChatBubble.toOpenaiMessage(): OpenaiChatMessage {
+private fun AiChatBubble.toContextMessage(): OpenaiChatMessage {
     return OpenaiChatMessage(
         role = role,
-        content = content,
-        reasoningContent = reasoningContent.takeIf(String::isNotBlank)
+        content = content
     )
+}
+
+private fun AiChatBubble.toCompressedContextMessage(): OpenaiChatMessage {
+    val compressedContent = buildString {
+        append(content.ifBlank { "已完成一次工具辅助回答。" })
+        if (toolStatuses.isNotEmpty()) {
+            appendLine()
+            appendLine()
+            append("旧工具调用记录已压缩：")
+            append(toolStatuses.joinToString("；") { "${it.action}${it.target}" })
+        }
+    }
+    return OpenaiChatMessage(
+        role = "assistant",
+        content = compressedContent
+    )
+}
+
+private fun AiChatBubble.toSavedMessage(): AiChatSavedMessage {
+    return AiChatSavedMessage(
+        role = role,
+        content = content,
+        contextMessageCount = contextMessageCount,
+        contextCompressed = contextCompressed,
+        reasoningContent = reasoningContent,
+        reasoningExpanded = false,
+        toolStatuses = toolStatuses.map { AiChatSavedToolStatus(it.action, it.target) },
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        billablePromptTokens = billablePromptTokens,
+        billableCompletionTokens = billableCompletionTokens,
+        startedAtMillis = startedAtMillis,
+        reasoningFinishedAtMillis = reasoningFinishedAtMillis,
+        finishedAtMillis = finishedAtMillis,
+        receivedChars = receivedChars
+    )
+}
+
+private fun AiChatSavedMessage.toBubble(): AiChatBubble {
+    return AiChatBubble(
+        role = role,
+        content = content,
+        contextMessageCount = contextMessageCount,
+        contextCompressed = contextCompressed,
+        reasoningContent = reasoningContent,
+        reasoningExpanded = reasoningExpanded,
+        toolStatuses = toolStatuses.map { AiToolStatus(it.action, it.target) },
+        promptTokens = promptTokens,
+        completionTokens = completionTokens,
+        billablePromptTokens = billablePromptTokens,
+        billableCompletionTokens = billableCompletionTokens,
+        startedAtMillis = startedAtMillis,
+        reasoningFinishedAtMillis = reasoningFinishedAtMillis,
+        finishedAtMillis = finishedAtMillis,
+        receivedChars = receivedChars
+    )
+}
+
+private fun AiChatSavedMessage.toContextMessageForLegacyRecord(): OpenaiChatMessage {
+    return OpenaiChatMessage(
+        role = role,
+        content = content
+    )
+}
+
+private fun estimateContextTokens(systemPrompt: String, messages: List<OpenaiChatMessage>): Int {
+    val chars = systemPrompt.length + messages.sumOf { message ->
+        message.role.length +
+            (message.content?.length ?: 0) +
+            (message.reasoningContent?.length ?: 0) +
+            (message.toolCallId?.length ?: 0) +
+            message.toolCalls.orEmpty().sumOf { toolCall ->
+                toolCall.id.length +
+                    toolCall.type.length +
+                    toolCall.function.name.length +
+                    toolCall.function.arguments.length
+            }
+    }
+    return chars / 4 + messages.size * 4
 }

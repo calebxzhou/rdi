@@ -156,23 +156,48 @@ fun RemoteModInfoScreen(
     val versions = project?.versions.orEmpty()
     val supportedGameVersions = remember(versions) {
         McVersion.entries.filter { mcVersion ->
-            mcVersion.enabled && versions.any { version ->
-                mcVersion.mcVer in version.gameVersions &&
-                        mcVersion.supportedRdiRemoteModLoaders().any { loader ->
-                            version.loaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
-                        }
-            }
+            if (!mcVersion.enabled) return@filter false
+            val matchedVersions = versions.filter { mcVersion.mcVer in it.gameVersions }
+            val projectLoaders = matchedVersions.flatMap { it.loaders }
+            matchedVersions.isNotEmpty() && (projectLoaders.isEmpty() ||
+                    mcVersion.supportedRdiRemoteModLoaders().any { loader ->
+                        projectLoaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
+                    }
+            )
         }
     }
+    fun projectLoadersForGameVersion(gameVersion: String?): List<String> =
+        versions
+            .filter { version -> gameVersion?.let { it in version.gameVersions } != false }
+            .flatMap { it.loaders }
+
+    fun shouldFilterByLoader(gameVersion: String?): Boolean =
+        projectLoadersForGameVersion(gameVersion).isNotEmpty()
+
+    fun ModrinthProjectVersionVo.supportsSelectedLoader(
+        gameVersion: String?,
+        loader: ModLoader
+    ): Boolean =
+        !shouldFilterByLoader(gameVersion) ||
+                loaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
+
+    fun versionMatchesDownloadFilter(
+        version: ModrinthProjectVersionVo,
+        gameVersion: String,
+        loader: ModLoader
+    ): Boolean =
+        gameVersion in version.gameVersions && version.supportsSelectedLoader(gameVersion, loader)
+
     var selectedGameVersion by rememberSaveable(project?.projectId) { mutableStateOf<String?>(null) }
     var selectedLoader by rememberSaveable(project?.projectId) { mutableStateOf<ModLoader?>(null) }
     val availableLoaders = remember(versions, selectedGameVersion, supportedGameVersions) {
         val mcVersion = supportedGameVersions.firstOrNull { it.mcVer == selectedGameVersion }
-        val projectLoaders = versions
-            .filter { version -> selectedGameVersion?.let { it in version.gameVersions } != false }
-            .flatMap { it.loaders }
+        val projectLoaders = projectLoadersForGameVersion(selectedGameVersion)
         mcVersion?.supportedRdiRemoteModLoaders().orEmpty()
-            .filter { loader -> projectLoaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) } }
+            .filter { loader ->
+                projectLoaders.isEmpty() ||
+                        projectLoaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
+            }
     }
 
     LaunchedEffect(supportedGameVersions) {
@@ -254,6 +279,9 @@ fun RemoteModInfoScreen(
                     project = project,
                     selectedGameVersion = selectedGameVersion,
                     selectedLoader = selectedLoader,
+                    versionFilter = { version, gameVersion, loader ->
+                        versionMatchesDownloadFilter(version, gameVersion, loader)
+                    },
                     onOpenDependencyMod = onOpenDependencyMod,
                     onDownload = { downloadVersion = it }
                 )
@@ -486,6 +514,7 @@ private fun RemoteModDownloadTab(
     project: ModrinthProjectInfoVo?,
     selectedGameVersion: String?,
     selectedLoader: ModLoader?,
+    versionFilter: (ModrinthProjectVersionVo, String, ModLoader) -> Boolean,
     onOpenDependencyMod: (RemoteModCardVo) -> Unit,
     onDownload: (ModrinthProjectVersionVo) -> Unit
 ) {
@@ -497,8 +526,7 @@ private fun RemoteModDownloadTab(
             emptyList()
         } else {
             versions.filter { version ->
-                gameVersion in version.gameVersions &&
-                        version.loaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
+                versionFilter(version, gameVersion, loader)
             }.sortedByDescending { it.rawPublished }
         }
     }

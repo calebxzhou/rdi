@@ -8,6 +8,10 @@ public class RMcpEndpointException extends RuntimeException {
         this.code = code;
     }
 
+    public RMcpEndpointException(RErrorCode code) {
+        this(code.id());
+    }
+
     public String code() {
         return code;
     }

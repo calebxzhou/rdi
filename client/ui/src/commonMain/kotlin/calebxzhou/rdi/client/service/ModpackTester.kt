@@ -73,6 +73,12 @@ class ModpackTester(
         }
     }
 
+    fun markPassed(mods: List<Mod>) {
+        _passSeconds.value = null
+        _status.value = TestStatus.PASSED
+        _testedModsSignature.value = currentModsSignature(mods)
+    }
+
     fun dispose(uiScope: CoroutineScope) {
         stop(uiScope, markStopped = false)
         cleanupTestDir()
@@ -250,6 +256,12 @@ class ClientModpackTester(
             _status.value = TestStatus.NOT_RUN
             _passSeconds.value = null
         }
+    }
+
+    fun markPassed(mods: List<Mod>) {
+        _passSeconds.value = null
+        _status.value = TestStatus.PASSED
+        _testedModsSignature.value = currentModsSignature(mods)
     }
 
     fun dispose(uiScope: CoroutineScope) {

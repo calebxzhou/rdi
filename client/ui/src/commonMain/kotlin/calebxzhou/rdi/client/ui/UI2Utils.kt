@@ -115,11 +115,15 @@ inline fun RowV(
 fun FlowRowV(
     modifier: Modifier = Modifier,
     horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     content: @Composable (FlowRowScope.() -> Unit)
 ) {
     FlowRow(
         itemVerticalAlignment = Alignment.CenterVertically,
-        modifier = modifier, horizontalArrangement = horizontalArrangement, content = content
+        modifier = modifier,
+        horizontalArrangement = horizontalArrangement,
+        verticalArrangement = verticalArrangement,
+        content = content
     )
 }
 

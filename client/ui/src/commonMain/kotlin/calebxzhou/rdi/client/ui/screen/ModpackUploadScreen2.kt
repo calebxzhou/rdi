@@ -36,7 +36,6 @@ import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.client.ui.comp.ModGrid
-import calebxzhou.rdi.client.ui.comp.ModpackCategoryChips
 import calebxzhou.rdi.client.ui.comp.ModpackCategorySelector
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.client.ui.comp.Task2DetailDialog
@@ -290,6 +289,8 @@ fun ModpackUploadScreen2(
         }
         clientTester?.onModsChangedAfterManualEdit()
         serverTester?.onModsChangedAfterManualEdit()
+        clientTester?.markPassed(mods)
+        serverTester?.markPassed(mods)
     }
 
     fun defaultCurseForgeUnknownMods(source: List<Mod>): List<Mod> {
@@ -376,19 +377,21 @@ fun ModpackUploadScreen2(
         }
         val currentClientTester = clientTester
         val currentServerTester = serverTester
-        if (!allowUploadWithoutTests && isDesktop &&
-            currentClientTester != null &&
-            currentClientTester.status.value != TestStatus.PASSED
-        ) {
-            errorText = "请先完成客户端测试并通过"
-            return null
-        }
-        if (!allowUploadWithoutTests && isDesktop &&
-            currentServerTester != null &&
-            currentServerTester.status.value != TestStatus.PASSED
-        ) {
-            errorText = "请先完成服务端测试并通过"
-            return null
+        if (serverPackName == null) {
+            if (!allowUploadWithoutTests && isDesktop &&
+                currentClientTester != null &&
+                currentClientTester.status.value != TestStatus.PASSED
+            ) {
+                errorText = "请先完成客户端测试并通过"
+                return null
+            }
+            if (!allowUploadWithoutTests && isDesktop &&
+                currentServerTester != null &&
+                currentServerTester.status.value != TestStatus.PASSED
+            ) {
+                errorText = "请先完成服务端测试并通过"
+                return null
+            }
         }
         if (uploadMode == UploadMode.UPDATE && selectedUpdateTarget == null) {
             errorText = "请选择要更新的已有整合包"
@@ -577,6 +580,9 @@ fun ModpackUploadScreen2(
                 onBack = ::handleBack
             ) {
                 if (editMode) {
+                    if (serverPackName == null) {
+                        Text("如果选择了服务端，就不需要进行测试。")
+                    }
                     Space8w()
                     CircleIconButton(
                         "\uF07C",
@@ -747,10 +753,6 @@ fun ModpackUploadScreen2(
                                 selected = selectedCategories,
                                 onSelectedChange = { selectedCategories = it },
                                 modifier = Modifier.fillMaxWidth()
-                            )
-                            ModpackCategoryChips(
-                                categories = selectedCategories,
-                                emptyText = "未选择分类"
                             )
                             loadedModpack?.let {
                                 Text("来源类型 ${it.sourceType.name}")

@@ -51,8 +51,8 @@ fun MenuScreen(
     val lastPlayHost = remember { LocalCredentials.read().lastPlayHost }
     var onlinePlayerIds by remember { mutableStateOf<List<ObjectId>>(emptyList()) }
     var showAiDebugDialog by remember { mutableStateOf(false) }
-    var aiDebugPortText by remember { mutableStateOf("") }
-    var aiDebugVersionDir by remember { mutableStateOf("") }
+    var aiDebugPortText by remember { mutableStateOf("25565") }
+    var aiDebugVersionDir by remember { mutableStateOf("C:\\Users\\calebxzhou\\Documents\\coding\\rdi5\\client\\mc\\1.21.1-neoforge\\run") }
     var aiDebugError by remember { mutableStateOf<String?>(null) }
 
     fun openAiDebugDialog() {

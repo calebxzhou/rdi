@@ -197,6 +197,7 @@ fun AppNavigation(
                 AiChatScreen(
                     mcpPort = route.mcpPort,
                     versionDir = route.versionDir,
+                    chatId = route.chatId,
                     onBack = {
                         if (!navController.popBackStack()) {
                             navController.navigateAbsolute(Menu)

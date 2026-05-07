@@ -39,8 +39,10 @@ import calebxzhou.rdi.master.service.HostService.delMember
 import calebxzhou.rdi.master.service.HostService.delete
 import calebxzhou.rdi.master.service.HostService.deleteDisabledMods
 import calebxzhou.rdi.master.service.HostService.listConfigFiles
+import calebxzhou.rdi.master.service.HostService.listHostFiles
 import calebxzhou.rdi.master.service.HostService.readConfigFile
 import calebxzhou.rdi.master.service.HostService.deleteExtraMods
+import calebxzhou.rdi.master.service.HostService.deleteHostFile
 import calebxzhou.rdi.master.service.HostService.forceStop
 import calebxzhou.rdi.master.service.HostService.graceStop
 import calebxzhou.rdi.master.service.HostService.hostContext
@@ -58,6 +60,7 @@ import calebxzhou.rdi.master.service.HostService.start
 import calebxzhou.rdi.master.service.HostService.status
 import calebxzhou.rdi.master.service.HostService.toDetailVo
 import calebxzhou.rdi.master.service.HostService.transferOwnership
+import calebxzhou.rdi.master.service.HostService.uploadHostFile
 import calebxzhou.rdi.master.service.ModpackService.getVersion
 import calebxzhou.rdi.master.service.ModpackService.installToHost
 import calebxzhou.rdi.master.service.ModpackService.toBriefVo
@@ -75,6 +78,7 @@ import com.mongodb.client.model.Updates
 import com.mongodb.client.model.Updates.combine
 import com.mongodb.client.model.Updates.set
 import io.ktor.client.call.body
+import io.ktor.http.content.*
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.routing.*
@@ -82,13 +86,18 @@ import io.ktor.server.sse.*
 import io.ktor.server.websocket.*
 import io.ktor.sse.*
 import io.ktor.websocket.*
+import io.ktor.utils.io.*
 import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException as KxCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.io.Source
+import kotlinx.io.buffered
+import kotlinx.io.readByteArray
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
@@ -99,7 +108,10 @@ import org.bson.types.ObjectId
 import java.io.Closeable
 import java.io.File
 import java.net.URI
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.ConcurrentHashMap
@@ -236,6 +248,21 @@ fun Route.hostRoutes() = route("/host") {
                 response(data = ctx.saveConfigFile(call.receive()))
             }
         }
+        route("/files") {
+            get {
+                val ctx = call.hostContext().needAdmin
+                response(data = ctx.listHostFiles(paramNull("path") ?: ""))
+            }
+            put("/file") {
+                val ctx = call.hostContext().needAdmin
+                response(data = ctx.uploadHostFile(call))
+            }
+            delete("/file") {
+                val ctx = call.hostContext().needAdmin
+                ctx.deleteHostFile(call.receive())
+                ok()
+            }
+        }
         /*post("/modpack/{modpackId}/{verName}") {
             call.hostContext().needAdmin.changeModpack(idParam("modpackId"), param("verName"))
             ok()
@@ -366,8 +393,9 @@ object HostService {
     }
     private const val HOST_CONFIG_FILE_MAX_BYTES: Long = 8 * 1024
     private const val HOST_CONFIG_FILE_LIST_MAX_BYTES: Long = 8 * 1024
+    private const val HOST_FILE_MAX_BYTES: Long = 128L * 1024 * 1024
     private val editableConfigExtensions = setOf("json", "toml", "txt", "json5", "properties","yaml","yml")
-
+    private val allowFileOprDir = setOf("tacz","kubejs")
     private val idleMonitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var idleMonitorJob: Job? = null
 
@@ -418,7 +446,7 @@ object HostService {
             while (isActive) {
                 runCatching { pollAndBroadcastGlobalPlayerListIfChanged() }
                     .onFailure { error ->
-                        if (error is CancellationException) throw error
+                        if (error is KxCancellationException) throw error
                         lgr.warn { "轮询全局玩家列表失败: ${error.message}" }
                     }
                 delay(1.minutes)
@@ -800,7 +828,7 @@ object HostService {
         val players = runCatching {
             McServerPinger.ping(port, timeoutMillis = 1_000).players?.sample.orEmpty()
         }.getOrElse { error ->
-            if (error is CancellationException) throw error
+            if (error is KxCancellationException) throw error
             lgr.warn { "轮询host ${_id} 玩家列表失败: ${error.message}" }
             return null
         }
@@ -816,7 +844,7 @@ object HostService {
         if (players.isEmpty()) return null
         val modpackName = runCatching { ModpackService.getById(modpackId)?.name }
             .getOrElse { error ->
-                if (error is CancellationException) throw error
+                if (error is KxCancellationException) throw error
                 lgr.warn { "读取host ${_id} 整合包名称失败: ${error.message}" }
                 null
             } ?: "未知整合包"
@@ -927,7 +955,7 @@ object HostService {
             while (isActive) {
                 try {
                     runIdleMonitorTick()
-                } catch (cancel: CancellationException) {
+                } catch (cancel: KxCancellationException) {
                     throw cancel
                 } catch (t: Throwable) {
                     lgr.warn { "Idle monitor tick failed: ${t.message + "\n" + t}" }
@@ -949,7 +977,7 @@ object HostService {
     private suspend fun runIdleMonitorTick(forceStop: Boolean = false) {
         val runningHosts = try {
             getPlayables()
-        } catch (cancel: CancellationException) {
+        } catch (cancel: KxCancellationException) {
             throw cancel
         } catch (t: Throwable) {
             lgr.warn { "Failed to fetch running hosts: ${t.message + "\n" + t}" }
@@ -960,7 +988,7 @@ object HostService {
         for (host in runningHosts) {
             val onlinePlayers = try {
                 host.fetchOnlinePlayersNow()
-            } catch (cancel: CancellationException) {
+            } catch (cancel: KxCancellationException) {
                 throw cancel
             }.mapNotNull {
                 if (it == ObjectId("000000000000000000000000")) RAccount.DEFAULT else PlayerService.getById(
@@ -1032,7 +1060,7 @@ object HostService {
             } ?: emptyList()
             onlinePlayersCache[_id] = OnlinePlayersCacheEntry(playerIds, System.currentTimeMillis())
             playerIds
-        } catch (cancel: CancellationException) {
+        } catch (cancel: KxCancellationException) {
             throw cancel
         } catch (t: Throwable) {
             lgr.warn { "Failed to ping host ${this._id}: ${t.message}" }
@@ -1109,6 +1137,9 @@ object HostService {
         val world = resolveWorld(host.saveWorld, host.worldId, host.modpackId)
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此包")
         val version = modpack.getVersion(host.packVer) ?: throw RequestError("无此版本")
+        if (version.status != Modpack.Status.OK) {
+            throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
+        }
         val port = allocateRoomPort()
         val host = Host(
             name = host.name,
@@ -1496,7 +1527,7 @@ object HostService {
             }
         } catch (timeout: TimeoutCancellationException) {
             throw RequestError("命令已发送，但${COMMAND_RESPONSE_TIMEOUT_MS / 1000}秒内未收到返回")
-        } catch (cancel: CancellationException) {
+        } catch (cancel: KxCancellationException) {
             hostStates[hostId]?.let { state ->
                 if (state.session === session) {
                     state.session = null
@@ -1606,7 +1637,7 @@ object HostService {
                             .filter { it.isNotEmpty() }
                             .forEach { session.send(ServerSentEvent(data = it)) }
                     }
-                } catch (t: CancellationException) {
+                } catch (t: KxCancellationException) {
                     throw t
                 } catch (t: io.ktor.utils.io.ClosedWriteChannelException) {
                     return
@@ -1624,7 +1655,7 @@ object HostService {
                     lines.cancel()
                 }
             }
-        } catch (cancel: CancellationException) {
+        } catch (cancel: KxCancellationException) {
             //"已取消载入日志"
         } catch (t: Throwable) {
             val ignore = t is io.ktor.utils.io.ClosedWriteChannelException ||
@@ -1892,6 +1923,208 @@ object HostService {
         )
     }
 
+    private data class ResolvedHostFile(
+        val path: String,
+        val file: File
+    )
+
+    private val java.nio.file.Path.invariantSeparatorsPath: String
+        get() = toString().replace('\\', '/')
+
+    private fun Host.resolveHostFile(relativePath: String, allowAllowedRoot: Boolean = false): ResolvedHostFile {
+        val normalizedPath = relativePath.trim().replace('\\', '/')
+        if (normalizedPath.isBlank()) throw RequestError("文件路径不能为空")
+        if (normalizedPath.startsWith('/')) throw RequestError("非法文件路径")
+
+        val hostRoot = dir.toPath().toAbsolutePath().normalize()
+        val target = hostRoot.resolve(normalizedPath).normalize()
+        if (!target.startsWith(hostRoot)) throw RequestError("非法文件路径")
+
+        val resolvedPath = hostRoot.relativize(target).invariantSeparatorsPath
+        val rootDir = resolvedPath.substringBefore('/')
+        if (rootDir !in allowFileOprDir) throw RequestError("只能操作${allowFileOprDir.joinToString()}目录")
+        if (!allowAllowedRoot && resolvedPath == rootDir) throw RequestError("不能直接操作目录根")
+
+        checkNoHostFileSymlink(hostRoot, target)
+        return ResolvedHostFile(resolvedPath, target.toFile())
+    }
+
+    private fun checkNoHostFileSymlink(hostRoot: java.nio.file.Path, target: java.nio.file.Path) {
+        var current = hostRoot
+        for (segment in hostRoot.relativize(target)) {
+            current = current.resolve(segment)
+            if (Files.isSymbolicLink(current)) throw RequestError("不允许操作软链接文件")
+        }
+    }
+
+    private fun File.toHostFileEntry(root: File): Host.FileEntry =
+        Host.FileEntry(
+            path = relativeTo(root).invariantSeparatorsPath,
+            name = name,
+            directory = isDirectory,
+            size = if (isDirectory) 0 else length(),
+            updateTime = lastModified()
+        )
+
+    suspend fun HostContext.listHostFiles(path: String): List<Host.FileEntry> {
+        if (path.isBlank()) {
+            return allowFileOprDir.sorted().map { dirName ->
+                val file = host.dir.resolve(dirName)
+                Host.FileEntry(
+                    path = dirName,
+                    name = dirName,
+                    directory = true,
+                    size = 0,
+                    updateTime = file.takeIf(File::exists)?.lastModified() ?: 0L
+                )
+            }
+        }
+
+        val resolved = host.resolveHostFile(path, allowAllowedRoot = true)
+        val dir = resolved.file
+        if (!dir.exists()) return emptyList()
+        if (!dir.isDirectory) throw RequestError("目标不是目录")
+
+        val hostRoot = host.dir
+        return dir.listFiles()
+            ?.asSequence()
+            ?.filterNot { Files.isSymbolicLink(it.toPath()) }
+            ?.filterNot { it.name.startsWith(".rdi-upload-") }
+            ?.map { it.toHostFileEntry(hostRoot) }
+            ?.sortedWith(compareBy<Host.FileEntry> { !it.directory }.thenBy { it.name.lowercase() })
+            ?.toList()
+            ?: emptyList()
+    }
+
+    suspend fun HostContext.uploadHostFile(call: ApplicationCall): Host.FileUploadVo {
+        val multipart = call.receiveMultipart(formFieldLimit = HOST_FILE_MAX_BYTES)
+        var targetPath = call.request.queryParameters["path"]
+        var uploadTemp: File? = null
+        var uploadedSize = 0L
+
+        try {
+            while (true) {
+                val part = multipart.readPart() ?: break
+                try {
+                    when (part) {
+                        is PartData.FormItem -> if (part.name == "path") {
+                            targetPath = part.value
+                        }
+
+                        is PartData.FileItem -> if (part.name == "file") {
+                            uploadTemp?.delete()
+                            uploadTemp = host.createHostUploadTempFile()
+                            uploadedSize = receiveHostUploadFile(part.provider(), uploadTemp!!)
+                        }
+
+                        is PartData.BinaryItem -> if (part.name == "file") {
+                            uploadTemp?.delete()
+                            uploadTemp = host.createHostUploadTempFile()
+                            uploadedSize = receiveHostUploadFile(part.provider(), uploadTemp!!)
+                        }
+
+                        else -> {}
+                    }
+                } finally {
+                    part.dispose()
+                }
+            }
+
+            val normalizedTargetPath = targetPath?.takeIf { it.isNotBlank() } ?: throw ParamError("缺少路径")
+            val tempFile = uploadTemp ?: throw ParamError("缺少文件")
+            val resolved = host.resolveHostFile(normalizedTargetPath)
+            val target = resolved.file
+            if (target.exists() && target.isDirectory) throw RequestError("目标是目录")
+            target.parentFile?.let { parent ->
+                if (parent.exists() && !parent.isDirectory) throw RequestError("目标目录异常")
+                parent.mkdirs()
+            }
+
+            host.resolveHostFile(normalizedTargetPath)
+            host.checkHostFileQuota(tempFile, target, uploadedSize)
+            moveHostUploadFile(tempFile, target)
+            uploadTemp = null
+
+            lgr.info { "Host ${host._id} 用户${player._id}上传房间文件 ${resolved.path} ${uploadedSize.humanFileSize}" }
+            return Host.FileUploadVo(
+                path = resolved.path,
+                size = target.length(),
+                updateTime = target.lastModified()
+            )
+        } catch (error: Throwable) {
+            uploadTemp?.delete()
+            throw error
+        }
+    }
+
+    private fun Host.createHostUploadTempFile(): File {
+        dir.mkdirs()
+        return Files.createTempFile(dir.toPath(), ".rdi-upload-", ".tmp").toFile()
+    }
+
+    private suspend fun receiveHostUploadFile(channel: ByteReadChannel, target: File): Long {
+        val buffer = ByteArray(8192)
+        var total = 0L
+        Files.newOutputStream(
+            target.toPath(),
+            StandardOpenOption.TRUNCATE_EXISTING,
+            StandardOpenOption.WRITE
+        ).use { output ->
+            while (!channel.isClosedForRead) {
+                val read = channel.readAvailable(buffer, 0, buffer.size)
+                if (read == -1) break
+                if (read == 0) continue
+                total += read
+                if (total > HOST_FILE_MAX_BYTES) throw RequestError("文件过大，最大允许128MB")
+                output.write(buffer, 0, read)
+            }
+        }
+        return total
+    }
+
+    private fun receiveHostUploadFile(source: Source, target: File): Long {
+        val bytes = source.buffered().readByteArray()
+        if (bytes.size > HOST_FILE_MAX_BYTES) throw RequestError("文件过大，最大允许128MB")
+        target.writeBytes(bytes)
+        return bytes.size.toLong()
+    }
+
+    private fun Host.checkHostFileQuota(uploadTemp: File, target: File, newSize: Long) {
+        val ignoredPaths = setOf(uploadTemp, target)
+            .map { it.toPath().toAbsolutePath().normalize() }
+            .toSet()
+        val totalSize = dir.walkTopDown()
+            .filter { it.isFile && !Files.isSymbolicLink(it.toPath()) }
+            .filterNot { it.toPath().toAbsolutePath().normalize() in ignoredPaths }
+            .sumOf { it.length() }
+        if (totalSize + newSize > HOST_WORKDIR_LIMIT_BYTES) {
+            throw RequestError("房间目录超过限制，请删除不必要文件后再上传")
+        }
+    }
+
+    private fun moveHostUploadFile(source: File, target: File) {
+        try {
+            Files.move(
+                source.toPath(),
+                target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+        } catch (_: AtomicMoveNotSupportedException) {
+            Files.move(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    suspend fun HostContext.deleteHostFile(payload: Host.FileDeleteDto) {
+        val resolved = host.resolveHostFile(payload.path)
+        val target = resolved.file
+        if (!target.exists()) throw RequestError("文件不存在")
+        if (target.isDirectory && (target.list()?.isNotEmpty() == true)) throw RequestError("目录不为空")
+
+        Files.deleteIfExists(target.toPath())
+        lgr.info { "Host ${host._id} 用户${player._id}删除房间文件 ${resolved.path}" }
+    }
+
     private fun modIdentity(mod: Mod): String {
         return buildString {
             append(mod.platform)
@@ -2049,9 +2282,8 @@ object HostService {
         if (mods.isEmpty()) throw RequestError("禁用Mod列表不能为空")
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此整合包")
         val baseVersion = modpack.getVersion(host.packVer) ?: throw RequestError("无此整合包版本: ${host.packVer}")
-        val installableBaseMods = baseVersion.mods.filter(::isServerInstalledMod)
         val matchedMods = mods.map { requestMod ->
-            installableBaseMods.firstOrNull { sameMod(it, requestMod) }
+            baseVersion.mods.firstOrNull { sameMod(it, requestMod) }
                 ?: throw RequestError("整合包未安装此Mod: ${requestMod.displaySlugOrProject}")
         }.distinctBySameMod()
         val alreadyDisabled = matchedMods.filter { matched ->

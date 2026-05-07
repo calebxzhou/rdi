@@ -41,7 +41,8 @@ object Wardrobe
 @Serializable object Sponsor
 @Serializable data class AiChat(
     val mcpPort: Int? = null,
-    val versionDir: String? = null
+    val versionDir: String? = null,
+    val chatId: String? = null
 )
 @Serializable data class Register(val msa: Boolean)
 @Serializable object ResetPassword

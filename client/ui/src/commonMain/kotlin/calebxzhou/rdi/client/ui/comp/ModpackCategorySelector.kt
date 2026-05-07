@@ -24,7 +24,8 @@ fun ModpackCategorySelector(
     val selectedSet = selected.toSet()
     FlowRowV(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         Modpack.Category.entries.forEach { category ->
             val isSelected = category in selectedSet
@@ -66,7 +67,8 @@ fun ModpackCategoryChips(
     }
     FlowRowV(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         categories.forEach { category ->
             Surface(

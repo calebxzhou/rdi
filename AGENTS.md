@@ -13,28 +13,16 @@ this project is minecraft multiplayer platform, player can upload modpacks to cr
 - UI assets/icons are under `client/ui/src/main/resources/assets`.
 - when you reads or writes file content via powershell, use absolute path to avoid permission issues.
 - use CircleIconButton as more as possible when you are making buttons. do not forget @OptIn(ExperimentalMaterial3Api::class) for the component function definition
-- do not remove any files, for any dir or file to be removed, move to $$DEL dir instead.
+- do not remove any project files, for any dir or file to be removed, move to $$DEL dir instead.
 - use Syntactic sugar as more as possible
 - reply in mandarin，but add english notation for terminologies, no matter how input language is
 - use Material3 as more as possible
 - hide technological details to user if possible, such as we dont need to let user know what's docker container, this situation use host instead.
 - you can read minecraft source code on "client\mc\1.21.1-neoforge\build\moddev\artifacts\neoforge-${neoforge-version}-sources.jar" for 1.21.1
 ## Build, Test, and Development Commands
-if you are an ai you are not needed to execute gradle commands unless explictly declared
-Run commands inside each module directory (there is no repo-root wrapper).
-use pwsh instead of powershell
-- Client UI:
-  - `cd client/ui && .\gradlew.bat run` — start desktop app.
-  - `cd client/ui && .\gradlew.bat compileKotlin` — compile check.
-  - `cd client/ui && .\gradlew.bat test` — run UI module tests.
-- Common:
-  - `cd common && .\gradlew.bat build` — compile + package shared library.
-- Server master:
-  - `cd server/master && .\gradlew.bat run` — run backend locally.
-  - `cd server/master && .\gradlew.bat buildFatJar` — build deployable jar.
-- Server proxy:
-  - `cd server/proxy && .\gradlew.bat build` — build proxy artifacts.
-
+no need to execute gradle commands unless explictly declared
+no need execute javac i wanna execute it manually and tell you error
+no need execute git commands 
 ## Coding Style & Naming Conventions
 - Kotlin, 4-space indentation, UTF-8.
 - Types/files: `PascalCase`; functions/vars: `camelCase`; constants: `UPPER_SNAKE_CASE`.

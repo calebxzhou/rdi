@@ -159,6 +159,27 @@ data class Host(
     )
 
     @Serializable
+    data class FileEntry(
+        val path: String,
+        val name: String,
+        val directory: Boolean,
+        val size: Long,
+        val updateTime: Long
+    )
+
+    @Serializable
+    data class FileDeleteDto(
+        val path: String
+    )
+
+    @Serializable
+    data class FileUploadVo(
+        val path: String,
+        val size: Long,
+        val updateTime: Long
+    )
+
+    @Serializable
     data class DeleteDto(
         val deleteWorld: Boolean = false
     )

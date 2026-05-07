@@ -38,6 +38,9 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.net.URI
@@ -75,10 +78,13 @@ sealed interface OpenaiChatEvent {
     data class ReasoningDelta(val content: String) : OpenaiChatEvent
     data class ToolAccess(val target: String, val action: String = "访问") : OpenaiChatEvent
     data class ToolFailed(val message: String) : OpenaiChatEvent
+    data class ContextMessages(val messages: List<OpenaiChatMessage>) : OpenaiChatEvent
     data class Usage(
         val promptTokens: Int,
         val completionTokens: Int,
-        val totalTokens: Int
+        val totalTokens: Int,
+        val billablePromptTokens: Int,
+        val billableCompletionTokens: Int
     ) : OpenaiChatEvent
 }
 
@@ -89,12 +95,12 @@ object OpenaiService {
     private const val JDEPS_JAR_TOOL_NAME = "jdeps_jar"
     private const val LOCAL_FILE_LIST_TOOL_NAME = "local_file_list"
     private const val LOCAL_TEXT_READ_TOOL_NAME = "local_text_read"
-    private const val MAX_TOOL_ROUNDS = 1024
+    private const val MAX_TOOL_ROUNDS = 32
     private const val MAX_TOOL_RESPONSE_BYTES = 64 * 1024 * 1024
-    private const val MAX_TOOL_CONTENT_CHARS = 128 * 1024
-    private const val MAX_JAVA_TOOL_OUTPUT_CHARS = 128 * 1024
+    private const val MAX_TOOL_CONTENT_CHARS = 32 * 1024
+    private const val MAX_JAVA_TOOL_OUTPUT_CHARS = 32 * 1024
     private const val MAX_LOCAL_TEXT_BYTES = 1024 * 1024
-    private const val MAX_LOCAL_TEXT_OUTPUT_CHARS = 128 * 1024
+    private const val MAX_LOCAL_TEXT_OUTPUT_CHARS = 32 * 1024
     private const val JAVA_TOOL_TIMEOUT_MILLIS = 15_000L
     private val allowedToolHosts = setOf("minecraft.wiki", "mcmod.cn", "bilibili.com")
 
@@ -145,8 +151,10 @@ object OpenaiService {
         require(messages.isNotEmpty()) { "消息不能为空" }
 
         val conversation = messages.toMutableList()
+        val turnContextMessages = mutableListOf<OpenaiChatMessage>()
         var totalPromptTokens = 0
         var totalCompletionTokens = 0
+        var usedTool = false
 
         repeat(MAX_TOOL_ROUNDS + 1) { roundIndex ->
             val result = requestChatRound(baseUrl, key, modelName, conversation, versionDir)
@@ -155,31 +163,47 @@ object OpenaiService {
                 totalCompletionTokens += it.completionTokens
                 emit(
                     OpenaiChatEvent.Usage(
-                        promptTokens = totalPromptTokens,
-                        completionTokens = totalCompletionTokens,
-                        totalTokens = totalPromptTokens + totalCompletionTokens
+                        promptTokens = it.promptTokens,
+                        completionTokens = it.completionTokens,
+                        totalTokens = it.totalTokens,
+                        billablePromptTokens = totalPromptTokens,
+                        billableCompletionTokens = totalCompletionTokens
                     )
                 )
             }
-            if (result.toolCalls.isEmpty()) return@flow
+            if (result.toolCalls.isEmpty()) {
+                turnContextMessages += OpenaiChatMessage(
+                    role = "assistant",
+                    content = result.content.takeIf(String::isNotBlank),
+                    reasoningContent = result.reasoningContent.takeIf { usedTool && it.isNotBlank() }
+                )
+                emit(OpenaiChatEvent.ContextMessages(turnContextMessages))
+                return@flow
+            }
             if (roundIndex >= MAX_TOOL_ROUNDS) {
                 emit(OpenaiChatEvent.ToolFailed("AI工具调用次数过多，已停止继续访问外部地址"))
+                emit(OpenaiChatEvent.ContextMessages(turnContextMessages))
                 return@flow
             }
 
-            conversation += OpenaiChatMessage(
+            usedTool = true
+            val assistantToolMessage = OpenaiChatMessage(
                 role = "assistant",
                 content = result.content.takeIf(String::isNotBlank),
                 reasoningContent = result.reasoningContent.takeIf(String::isNotBlank),
                 toolCalls = result.toolCalls
             )
+            conversation += assistantToolMessage
+            turnContextMessages += assistantToolMessage
             result.toolCalls.forEach { toolCall ->
                 val toolContent = executeToolCall(toolCall, versionDir)
-                conversation += OpenaiChatMessage(
+                val toolMessage = OpenaiChatMessage(
                     role = "tool",
                     content = toolContent,
                     toolCallId = toolCall.id
                 )
+                conversation += toolMessage
+                turnContextMessages += toolMessage
             }
         }
     }
@@ -215,7 +239,7 @@ object OpenaiService {
         }
         if (!response.status.isSuccess()) {
             val errorBody = response.bodyAsText()
-            throw IllegalStateException("AI聊天请求失败: ${response.status.value} ${response.status.description} $errorBody")
+            throw IllegalStateException(response.toUserFriendlyChatError(errorBody))
         }
 
         val content = StringBuilder()
@@ -261,6 +285,25 @@ object OpenaiService {
             usage = usage
         )
     }
+
+    private fun io.ktor.client.statement.HttpResponse.toUserFriendlyChatError(body: String): String {
+        val detail = body.extractAiErrorMessage()
+        return when (status.value) {
+            401 -> "API Key错误，请检查AI设置"
+            402 -> "余额不足请充值"
+            429 -> "请求太频繁，请稍后再试"
+            500 -> "AI服务暂时故障，请稍后再试"
+            503 -> "AI服务繁忙，请稍后再试"
+            else -> detail?.let { "AI聊天请求失败：$it" } ?: "AI聊天请求失败：${status.value} ${status.description}"
+        }
+    }
+
+    private fun String.extractAiErrorMessage(): String? =
+        runCatching {
+            val root = serdesJson.parseToJsonElement(this).jsonObject
+            root["error"]?.jsonObject?.get("message")?.jsonPrimitive?.contentOrNull
+                ?: root["message"]?.jsonPrimitive?.contentOrNull
+        }.getOrNull()?.takeIf(String::isNotBlank)
 
     private suspend fun FlowCollector<OpenaiChatEvent>.executeToolCall(toolCall: OpenaiToolCall, versionDir: String?): String {
         return when (toolCall.function.name) {

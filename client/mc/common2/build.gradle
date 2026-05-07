@@ -18,6 +18,7 @@ java {
 
 sourceSets.named('main') {
     java.srcDir '../../../mc/rcmd/src/main/java'
+    java.srcDir '../../../mc/rmcp/src/main/java'
 }
 
 dependencies {

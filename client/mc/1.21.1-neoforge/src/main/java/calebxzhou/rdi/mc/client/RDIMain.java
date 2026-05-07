@@ -5,16 +5,28 @@ import calebxzhou.rdi.mc.client.network.RMcpClientBridge;
 import calebxzhou.rdi.mc.client.rcmd.RcmdClientCommands;
 import calebxzhou.rdi.mc.client.rcmd.RcmdRecipeCodec211;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockEntityData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpBlockActionData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpBlockBatchActionData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockStateData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpBlockStateBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpBlockStateEntryData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpChunkSemanticData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpCraftingOpenData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpEndpointException;
+import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpEntityData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpEntityDetailData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpFluidData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpGameConnector;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHarvestToolData;
-import calebxzhou.rdi.mc.common2.mcp.RMcpHttpServer;
+import calebxzhou.rdi.mc.common2.mcp.RMHttpServer;
+import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpInventorySwapData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpLangKeyIndex;
 import calebxzhou.rdi.mc.common2.mcp.RMcpNearbyEntitiesData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpNearbyResourcesData;
@@ -22,6 +34,7 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerDetailData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSectionSemanticData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpSituationData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpStaringBlockData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpTestData;
 import calebxzhou.rdi.mc.common.RDI;
@@ -32,6 +45,7 @@ import com.mojang.authlib.properties.Property;
 import com.mojang.blaze3d.pipeline.RenderCall;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.components.Button;
@@ -55,7 +69,10 @@ import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
+import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.level.LightLayer;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
@@ -81,8 +98,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 import static calebxzhou.rdi.mc.common.RDI.*;
 
@@ -97,9 +117,13 @@ public class RDIMain {
     private static final String CHUNK_FORMAT = "chunk-semantic-v1";
     private static final String NEARBY_RESOURCES_FORMAT = "nearby-resources-v1";
     private static final String NEARBY_ENTITIES_FORMAT = "nearby-entities-v1";
+    private static final String INVENTORY_FORMAT = "inventory-v1";
+    private static final String INVENTORY_MOVE_FORMAT = "inventory-move-v1";
+    private static final String INVENTORY_SWAP_FORMAT = "inventory-swap-v1";
+    private static final String SITUATION_FORMAT = "situation-v1";
     private static final String GRID_SYMBOLS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     private static final ExecutorService SCREENSHOT_EXECUTOR = Executors.newSingleThreadExecutor(task -> {
-        var thread = new Thread(task, "rdi-mcp-screenshot");
+        var thread = new Thread(task, "rdi-mcp-screenshot.md");
         thread.setDaemon(true);
         return thread;
     });
@@ -107,7 +131,7 @@ public class RDIMain {
 
     public RDIMain() {
         try {
-            RMcpHttpServer.start(HOST_PORT,new RMcpGameConnector() {
+            RMHttpServer.start(HOST_PORT,new RMcpGameConnector() {
                 @Override
                 public boolean playerInWorld() {
                     var minecraft = Minecraft.getInstance();
@@ -127,6 +151,36 @@ public class RDIMain {
                     }
                     var dim = player.level().dimension().location().toString();
                     return new RMcpPosData(dim, player.getX(), player.getY(), player.getZ(), player.getYRot(), player.getXRot());
+                }
+
+                @Override
+                public RMcpInventoryData inventoryData() {
+                    return RDIMain.inventoryData(Minecraft.getInstance());
+                }
+
+                @Override
+                public RMcpInventorySwapData swapInventorySlots(String from, String to, boolean dryRun) {
+                    return RDIMain.swapInventorySlots(Minecraft.getInstance(), from, to, dryRun);
+                }
+
+                @Override
+                public RMcpInventoryMoveData moveInventoryItems(String from, String to, int count, boolean dryRun) {
+                    return RDIMain.moveInventoryItems(Minecraft.getInstance(), from, to, count, dryRun);
+                }
+
+                @Override
+                public RMcpCraftingOpenData openCrafting(int radius, boolean dryRun) {
+                    return RMcpClientBridge.requestOpenCrafting(radius, dryRun);
+                }
+
+                @Override
+                public RMcpCraftData craft(Map<String, Integer> slots, String shape, int outputSlot, int times, boolean dryRun) {
+                    return RMcpClientBridge.requestCraft(slots, shape, outputSlot, times, dryRun);
+                }
+
+                @Override
+                public RMcpSituationData situationData(double entityRadius, int resourceChunkRadius, int resourceSectionRadius) {
+                    return RDIMain.situationData(Minecraft.getInstance(), entityRadius, resourceChunkRadius, resourceSectionRadius);
                 }
 
                 @Override
@@ -236,6 +290,29 @@ public class RDIMain {
                 }
 
                 @Override
+                public RMcpBlockStateBatchData blockStateBatchData(String dim, List<RMcpBlockPosData> positions) {
+                    var minecraft = Minecraft.getInstance();
+                    if (minecraft.level == null) {
+                        return null;
+                    }
+                    if (!minecraft.level.dimension().location().toString().equals(dim)) {
+                        return null;
+                    }
+                    var blocks = new ArrayList<RMcpBlockStateEntryData>();
+                    for (var posData : positions) {
+                        var pos = new BlockPos(posData.x(), posData.y(), posData.z());
+                        var blockState = minecraft.level.getBlockState(pos);
+                        var blockId = BuiltInRegistries.BLOCK.getKey(blockState.getBlock()).toString();
+                        blocks.add(new RMcpBlockStateEntryData(
+                                new RMcpBlockPosData(pos.getX(), pos.getY(), pos.getZ()),
+                                blockId,
+                                RMcpMcDataCodec211.stateString(blockId, blockState.toString())
+                        ));
+                    }
+                    return new RMcpBlockStateBatchData("blockstate-batch-v1", dim, positions.size(), blocks);
+                }
+
+                @Override
                 public RMcpBlockEntityData blockEntityData(String dim, int x, int y, int z) {
                     return RMcpClientBridge.requestBlockEntity(dim, x, y, z);
                 }
@@ -243,6 +320,46 @@ public class RDIMain {
                 @Override
                 public RMcpHarvestToolData harvestToolData(String blockId, String dim, Integer x, Integer y, Integer z) {
                     return RMcpClientBridge.requestHarvestTool(blockId, dim, x, y, z);
+                }
+
+                @Override
+                public RMcpContainerData containerData(String pos, String side) {
+                    return RMcpClientBridge.requestContainer(pos, side);
+                }
+
+                @Override
+                public RMcpContainerMoveData moveContainerItems(String fromPos, String fromSide, int fromSlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun) {
+                    return RMcpClientBridge.requestContainerMove(fromPos, fromSide, fromSlot, toPos, toSide, toSlot, count, dryRun);
+                }
+
+                @Override
+                public RMcpBlockActionData placeBlock(int x, int y, int z) {
+                    return RMcpClientBridge.requestPlaceBlock(x, y, z);
+                }
+
+                @Override
+                public RMcpBlockActionData breakBlock(int x, int y, int z) {
+                    return RMcpClientBridge.requestBreakBlock(x, y, z);
+                }
+
+                @Override
+                public RMcpBlockBatchActionData placeBlocks(List<RMcpBlockPosData> positions) {
+                    return RMcpClientBridge.requestPlaceBlocks(positions);
+                }
+
+                @Override
+                public RMcpBlockBatchActionData breakBlocks(List<RMcpBlockPosData> positions) {
+                    return RMcpClientBridge.requestBreakBlocks(positions);
+                }
+
+                @Override
+                public RMcpBlockBatchActionData placeBlockBox(RMcpBlockPosData from, RMcpBlockPosData to) {
+                    return RMcpClientBridge.requestPlaceBlockBox(from, to);
+                }
+
+                @Override
+                public RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to) {
+                    return RMcpClientBridge.requestBreakBlockBox(from, to);
                 }
 
                 @Override
@@ -485,13 +602,460 @@ public class RDIMain {
         );
     }
 
+    private static RMcpInventoryData inventoryData(Minecraft minecraft) {
+        var level = minecraft.level;
+        var player = minecraft.player;
+        if (level == null || player == null) {
+            return null;
+        }
+        var inventory = player.getInventory();
+        var registryAccess = level.registryAccess();
+        var dim = level.dimension().location().toString();
+        var hotbar = compactItemRange("hotbar", inventory.items, 0, 9, registryAccess);
+        var items = compactItemRange("inventory", inventory.items, 9, inventory.items.size(), registryAccess);
+        var armor = compactItemRange("armor", inventory.armor, 0, inventory.armor.size(), registryAccess);
+        var offhand = compactItemRange("offhand", inventory.offhand, 0, inventory.offhand.size(), registryAccess);
+        return new RMcpInventoryData(
+                INVENTORY_FORMAT,
+                dim,
+                inventory.selected,
+                compactItem("hotbar", inventory.selected, inventory.selected, inventory.getSelected(), registryAccess),
+                hotbar,
+                items,
+                armor,
+                offhand,
+                inventorySummary(allInventoryStacks(player))
+        );
+    }
+
+    private static RMcpInventorySwapData swapInventorySlots(Minecraft minecraft, String fromText, String toText, boolean dryRun) {
+        try {
+            return minecraft.submit(() -> swapInventorySlotsOnClient(minecraft, fromText, toText, dryRun)).get(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RMcpEndpointException(RErrorCode.ACTION_FAILED);
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RMcpEndpointException endpointException) {
+                throw endpointException;
+            }
+            throw new RMcpEndpointException(RErrorCode.ACTION_FAILED);
+        } catch (TimeoutException e) {
+            throw new RMcpEndpointException(RErrorCode.ACTION_FAILED);
+        }
+    }
+
+    private static RMcpInventoryMoveData moveInventoryItems(Minecraft minecraft, String fromText, String toText, int count, boolean dryRun) {
+        try {
+            return minecraft.submit(() -> moveInventoryItemsOnClient(minecraft, fromText, toText, count, dryRun)).get(2, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RMcpEndpointException(RErrorCode.ACTION_FAILED);
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RMcpEndpointException endpointException) {
+                throw endpointException;
+            }
+            throw new RMcpEndpointException(RErrorCode.ACTION_FAILED);
+        } catch (TimeoutException e) {
+            throw new RMcpEndpointException(RErrorCode.ACTION_FAILED);
+        }
+    }
+
+    private static RMcpInventorySwapData swapInventorySlotsOnClient(Minecraft minecraft, String fromText, String toText, boolean dryRun) {
+        var level = minecraft.level;
+        var player = minecraft.player;
+        if (level == null || player == null || minecraft.gameMode == null) {
+            throw new RMcpEndpointException(RErrorCode.NO_PLAYER);
+        }
+        if (player.containerMenu != player.inventoryMenu) {
+            throw new RMcpEndpointException(RErrorCode.BUSY_CONTAINER_OPEN);
+        }
+        if (!player.inventoryMenu.getCarried().isEmpty()) {
+            throw new RMcpEndpointException(RErrorCode.CARRIED_ITEM_NOT_EMPTY);
+        }
+        var from = parseInventorySlot(fromText);
+        var to = parseInventorySlot(toText);
+        if (from.canonical().equals(to.canonical())) {
+            throw new RMcpEndpointException(RErrorCode.SAME_SLOT);
+        }
+        var registryAccess = level.registryAccess();
+        var fromStack = stackAtSlot(player, from);
+        var toStack = stackAtSlot(player, to);
+        var beforeFrom = itemAtSlot(player, from, registryAccess);
+        var beforeTo = itemAtSlot(player, to, registryAccess);
+        if (!dryRun && !fromStack.isEmpty() && !toStack.isEmpty() && fromStack.isStackable() && toStack.isStackable() && ItemStack.isSameItemSameComponents(fromStack, toStack)) {
+            throw new RMcpEndpointException(RErrorCode.UNSUPPORTED_MERGE_RISK);
+        }
+        if (!dryRun) {
+            var menu = player.inventoryMenu;
+            minecraft.gameMode.handleInventoryMouseClick(menu.containerId, from.menuSlot(), 0, ClickType.PICKUP, player);
+            minecraft.gameMode.handleInventoryMouseClick(menu.containerId, to.menuSlot(), 0, ClickType.PICKUP, player);
+            minecraft.gameMode.handleInventoryMouseClick(menu.containerId, from.menuSlot(), 0, ClickType.PICKUP, player);
+        }
+        var afterFrom = itemAtSlot(player, from, registryAccess);
+        var afterTo = itemAtSlot(player, to, registryAccess);
+        return new RMcpInventorySwapData(
+                INVENTORY_SWAP_FORMAT,
+                from.canonical(),
+                to.canonical(),
+                dryRun,
+                !itemsEqual(beforeFrom, afterFrom) || !itemsEqual(beforeTo, afterTo),
+                beforeFrom,
+                beforeTo,
+                afterFrom,
+                afterTo,
+                inventoryData(minecraft)
+        );
+    }
+
+    private static RMcpInventoryMoveData moveInventoryItemsOnClient(Minecraft minecraft, String fromText, String toText, int count, boolean dryRun) {
+        var level = minecraft.level;
+        var player = minecraft.player;
+        if (level == null || player == null || minecraft.gameMode == null) {
+            return null;
+        }
+        if (player.containerMenu != player.inventoryMenu) {
+            throw new RMcpEndpointException(RErrorCode.BUSY_CONTAINER_OPEN);
+        }
+        if (!player.inventoryMenu.getCarried().isEmpty()) {
+            throw new RMcpEndpointException(RErrorCode.CARRIED_ITEM_NOT_EMPTY);
+        }
+        if (count <= 0) {
+            throw new RMcpEndpointException(RErrorCode.BAD_COUNT);
+        }
+        var from = parseInventorySlot(fromText);
+        var to = parseInventorySlot(toText);
+        if (from.canonical().equals(to.canonical())) {
+            throw new RMcpEndpointException(RErrorCode.SAME_SLOT);
+        }
+        var registryAccess = level.registryAccess();
+        var fromStack = stackAtSlot(player, from);
+        var toStack = stackAtSlot(player, to);
+        var beforeFrom = itemAtSlot(player, from, registryAccess);
+        var beforeTo = itemAtSlot(player, to, registryAccess);
+        if (fromStack.isEmpty()) {
+            throw new RMcpEndpointException(RErrorCode.EMPTY_SOURCE);
+        }
+        if (count > fromStack.getCount()) {
+            throw new RMcpEndpointException(RErrorCode.BAD_COUNT);
+        }
+        if (!toStack.isEmpty() && !ItemStack.isSameItemSameComponents(fromStack, toStack)) {
+            throw new RMcpEndpointException(RErrorCode.INCOMPATIBLE_TARGET);
+        }
+        var sourceSlot = player.inventoryMenu.getSlot(from.menuSlot());
+        if (!sourceSlot.mayPickup(player)) {
+            throw new RMcpEndpointException(RErrorCode.EMPTY_SOURCE);
+        }
+        var targetSlot = player.inventoryMenu.getSlot(to.menuSlot());
+        if (!targetSlot.mayPlace(fromStack)) {
+            throw new RMcpEndpointException(RErrorCode.INCOMPATIBLE_TARGET);
+        }
+        int targetCount = toStack.isEmpty() ? 0 : toStack.getCount();
+        int targetCapacity = targetSlot.getMaxStackSize(fromStack) - targetCount;
+        if (count > targetCapacity) {
+            throw new RMcpEndpointException(RErrorCode.TARGET_FULL);
+        }
+        if (!dryRun) {
+            clickInventorySlot(minecraft, player, from, 0);
+            if (count == fromStack.getCount()) {
+                clickInventorySlot(minecraft, player, to, 0);
+            } else {
+                for (int i = 0; i < count; i++) {
+                    clickInventorySlot(minecraft, player, to, 1);
+                }
+                clickInventorySlot(minecraft, player, from, 0);
+            }
+            if (!player.inventoryMenu.getCarried().isEmpty()) {
+                clickInventorySlot(minecraft, player, from, 0);
+            }
+            if (!player.inventoryMenu.getCarried().isEmpty()) {
+                throw new RMcpEndpointException(RErrorCode.CARRIED_ITEM_NOT_EMPTY);
+            }
+        }
+        var afterFrom = itemAtSlot(player, from, registryAccess);
+        var afterTo = itemAtSlot(player, to, registryAccess);
+        return new RMcpInventoryMoveData(
+                INVENTORY_MOVE_FORMAT,
+                from.canonical(),
+                to.canonical(),
+                count,
+                dryRun,
+                !itemsEqual(beforeFrom, afterFrom) || !itemsEqual(beforeTo, afterTo),
+                dryRun ? 0 : count,
+                beforeFrom,
+                beforeTo,
+                afterFrom,
+                afterTo,
+                inventoryData(minecraft)
+        );
+    }
+
+    private static void clickInventorySlot(Minecraft minecraft, Player player, InventorySlotRef slot, int button) {
+        minecraft.gameMode.handleInventoryMouseClick(player.inventoryMenu.containerId, slot.menuSlot(), button, ClickType.PICKUP, player);
+    }
+
+    private static RMcpSituationData situationData(Minecraft minecraft, double entityRadius, int resourceChunkRadius, int resourceSectionRadius) {
+        var level = minecraft.level;
+        var player = minecraft.player;
+        if (level == null || player == null) {
+            return null;
+        }
+        var dim = level.dimension().location().toString();
+        var pos = player.blockPosition();
+        var inventory = inventoryData(minecraft);
+        var nearbyEntities = nearbyEntitiesData(minecraft, dim, pos.getX(), pos.getY(), pos.getZ(), entityRadius, List.of("monster", "animal"), 12);
+        var nearbyResources = nearbyResourcesData(minecraft, dim, pos.getX(), pos.getY(), pos.getZ(), resourceChunkRadius, resourceSectionRadius);
+        return new RMcpSituationData(
+                SITUATION_FORMAT,
+                playerBrief(minecraft, player),
+                environmentData(level, player),
+                new RMcpSituationData.Inventory(
+                        inventory.selectedHotbarSlot(),
+                        inventory.selectedItem(),
+                        inventory.armor(),
+                        inventory.offhand().isEmpty() ? null : inventory.offhand().get(0),
+                        inventory.summary()
+                ),
+                new RMcpSituationData.Nearby(
+                        new RMcpSituationData.Range(entityRadius, resourceChunkRadius, resourceSectionRadius),
+                        nearbyEntities.summary(),
+                        nearbyEntities.entities(),
+                        nearbyResources.features(),
+                        nearbyResources.resources().stream().limit(12).toList()
+                )
+        );
+    }
+
+    private static RMcpSituationData.Environment environmentData(net.minecraft.client.multiplayer.ClientLevel level, Player player) {
+        var pos = player.blockPosition();
+        long timeOfDay = Math.floorMod(level.getDayTime(), 24000L);
+        return new RMcpSituationData.Environment(
+                level.dimension().location().toString(),
+                biomeId(level, pos),
+                level.getGameTime(),
+                level.getDayTime(),
+                timeOfDay,
+                timeBucket(timeOfDay),
+                level.isRaining(),
+                level.isThundering(),
+                level.getDifficulty().getKey(),
+                new RMcpSituationData.Light(
+                        level.getBrightness(LightLayer.BLOCK, pos),
+                        level.getBrightness(LightLayer.SKY, pos),
+                        level.getMaxLocalRawBrightness(pos)
+                ),
+                level.canSeeSky(pos),
+                player.isInWater(),
+                player.isUnderWater(),
+                player.onGround()
+        );
+    }
+
+    private static String biomeId(net.minecraft.client.multiplayer.ClientLevel level, BlockPos pos) {
+        return level.getBiome(pos)
+                .unwrapKey()
+                .map(key -> key.location().toString())
+                .orElse("unknown");
+    }
+
+    private static String timeBucket(long timeOfDay) {
+        if (timeOfDay < 1000 || timeOfDay >= 23000) {
+            return "dawn";
+        }
+        if (timeOfDay < 12000) {
+            return "day";
+        }
+        if (timeOfDay < 13800) {
+            return "dusk";
+        }
+        return "night";
+    }
+
+    private static List<RMcpInventoryData.Item> compactItemRange(String section, List<ItemStack> stacks, int from, int to, HolderLookup.Provider registryAccess) {
+        var items = new ArrayList<RMcpInventoryData.Item>();
+        for (int slot = from; slot < to; slot++) {
+            var item = compactItem(section, slot, "hotbar".equals(section) ? slot : null, stacks.get(slot), registryAccess);
+            if (item != null) {
+                items.add(item);
+            }
+        }
+        return items;
+    }
+
+    private static RMcpInventoryData.Item compactItem(String section, int slot, Integer hotbarSlot, ItemStack stack, HolderLookup.Provider registryAccess) {
+        if (stack == null || stack.isEmpty()) {
+            return null;
+        }
+        return new RMcpInventoryData.Item(
+                section,
+                slot,
+                hotbarSlot,
+                itemId(stack),
+                stack.getCount(),
+                stack.saveOptional(registryAccess).toString()
+        );
+    }
+
+    private static InventorySlotRef parseInventorySlot(String text) {
+        var parts = text == null ? new String[0] : text.trim().toLowerCase().split(":", 2);
+        if (parts.length != 2 || parts[0].isBlank()) {
+            throw new RMcpEndpointException(RErrorCode.BAD_SLOT);
+        }
+        int slot;
+        try {
+            slot = Integer.parseInt(parts[1].trim());
+        } catch (NumberFormatException e) {
+            throw new RMcpEndpointException(RErrorCode.BAD_SLOT);
+        }
+        return switch (parts[0].trim()) {
+            case "inventory" -> inventorySlot(slot);
+            case "hotbar" -> {
+                if (slot < 0 || slot > 8) {
+                    throw new RMcpEndpointException(RErrorCode.BAD_SLOT);
+                }
+                yield inventorySlot(slot);
+            }
+            case "main" -> {
+                if (slot < 0 || slot > 26) {
+                    throw new RMcpEndpointException(RErrorCode.BAD_SLOT);
+                }
+                yield inventorySlot(slot + 9);
+            }
+            case "armor" -> armorSlot(slot);
+            case "offhand" -> offhandSlot(slot);
+            default -> throw new RMcpEndpointException(RErrorCode.BAD_SLOT);
+        };
+    }
+
+    private static InventorySlotRef inventorySlot(int slot) {
+        if (slot < 0 || slot > 35) {
+            throw new RMcpEndpointException(RErrorCode.BAD_SLOT);
+        }
+        int menuSlot = slot < 9 ? slot + 36 : slot;
+        return new InventorySlotRef("inventory", slot, "inventory:" + slot, menuSlot);
+    }
+
+    private static InventorySlotRef armorSlot(int slot) {
+        if (slot < 0 || slot > 3) {
+            throw new RMcpEndpointException(RErrorCode.BAD_SLOT);
+        }
+        return new InventorySlotRef("armor", slot, "armor:" + slot, 8 - slot);
+    }
+
+    private static InventorySlotRef offhandSlot(int slot) {
+        if (slot != 0) {
+            throw new RMcpEndpointException(RErrorCode.BAD_SLOT);
+        }
+        return new InventorySlotRef("offhand", 0, "offhand:0", 45);
+    }
+
+    private static RMcpInventoryData.Item itemAtSlot(Player player, InventorySlotRef slot, HolderLookup.Provider registryAccess) {
+        var stack = switch (slot.section()) {
+            case "inventory" -> player.getInventory().items.get(slot.index());
+            case "armor" -> player.getInventory().armor.get(slot.index());
+            case "offhand" -> player.getInventory().offhand.get(slot.index());
+            default -> ItemStack.EMPTY;
+        };
+        return compactItem(slot.section(), slot.index(), slot.index() < 9 && "inventory".equals(slot.section()) ? slot.index() : null, stack, registryAccess);
+    }
+
+    private static ItemStack stackAtSlot(Player player, InventorySlotRef slot) {
+        return switch (slot.section()) {
+            case "inventory" -> player.getInventory().items.get(slot.index());
+            case "armor" -> player.getInventory().armor.get(slot.index());
+            case "offhand" -> player.getInventory().offhand.get(slot.index());
+            default -> ItemStack.EMPTY;
+        };
+    }
+
+    private static boolean itemsEqual(RMcpInventoryData.Item left, RMcpInventoryData.Item right) {
+        if (left == null || right == null) {
+            return left == right;
+        }
+        return left.id().equals(right.id())
+                && left.count() == right.count()
+                && left.snbt().equals(right.snbt());
+    }
+
+    private static RMcpInventoryData.Summary inventorySummary(List<ItemStack> stacks) {
+        var counts = new LinkedHashMap<String, Integer>();
+        int occupiedSlots = 0;
+        int totalItems = 0;
+        boolean hasFood = false;
+        boolean hasTool = false;
+        boolean hasWeapon = false;
+        boolean hasBlock = false;
+        for (var stack : stacks) {
+            if (stack == null || stack.isEmpty()) {
+                continue;
+            }
+            var id = itemId(stack);
+            occupiedSlots++;
+            totalItems += stack.getCount();
+            counts.merge(id, stack.getCount(), Integer::sum);
+            hasFood = hasFood || stack.get(DataComponents.FOOD) != null;
+            hasTool = hasTool || isToolItem(id);
+            hasWeapon = hasWeapon || isWeaponItem(id);
+            hasBlock = hasBlock || stack.getItem() instanceof BlockItem;
+        }
+        var topItems = counts.entrySet().stream()
+                .sorted((left, right) -> {
+                    int countCompare = Integer.compare(right.getValue(), left.getValue());
+                    return countCompare != 0 ? countCompare : left.getKey().compareTo(right.getKey());
+                })
+                .limit(12)
+                .map(entry -> new RMcpInventoryData.ItemCount(entry.getKey(), entry.getValue()))
+                .toList();
+        return new RMcpInventoryData.Summary(
+                occupiedSlots,
+                stacks.size() - occupiedSlots,
+                totalItems,
+                topItems,
+                hasFood,
+                hasTool,
+                hasWeapon,
+                hasBlock
+        );
+    }
+
+    private static List<ItemStack> allInventoryStacks(Player player) {
+        var inventory = player.getInventory();
+        var stacks = new ArrayList<ItemStack>();
+        stacks.addAll(inventory.items);
+        stacks.addAll(inventory.armor);
+        stacks.addAll(inventory.offhand);
+        return stacks;
+    }
+
+    private static String itemId(ItemStack stack) {
+        return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+    }
+
+    private static boolean isToolItem(String id) {
+        return id.endsWith("_pickaxe")
+                || id.endsWith("_axe")
+                || id.endsWith("_shovel")
+                || id.endsWith("_hoe")
+                || id.endsWith(":shears")
+                || id.endsWith(":flint_and_steel")
+                || id.endsWith(":bucket")
+                || id.endsWith("_bucket");
+    }
+
+    private static boolean isWeaponItem(String id) {
+        return id.endsWith("_sword")
+                || id.endsWith(":bow")
+                || id.endsWith(":crossbow")
+                || id.endsWith(":trident")
+                || id.endsWith(":mace");
+    }
+
     private static RMcpNearbyEntitiesData nearbyEntitiesData(Minecraft minecraft, String dim, int x, int y, int z, double radius, List<String> categories, int limit) {
         var level = minecraft.level;
         if (level == null) {
             return null;
         }
         if (!level.dimension().location().toString().equals(dim)) {
-            throw new RMcpEndpointException("dim_not_loaded");
+            throw new RMcpEndpointException(RErrorCode.DIM_NOT_LOADED);
         }
         var center = new Vec3(x + 0.5, y + 0.5, z + 0.5);
         double radiusSqr = radius * radius;
@@ -656,7 +1220,7 @@ public class RDIMain {
         }
         var chunk = loadedChunk(level, chunkX, chunkZ);
         if (sectionY < level.getMinSection() || sectionY >= level.getMaxSection()) {
-            throw new RMcpEndpointException("section_out_of_range");
+            throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
         }
         var analysis = analyzeSection(chunk, sectionY, true);
         return new RMcpSectionSemanticData(
@@ -678,7 +1242,7 @@ public class RDIMain {
             return null;
         }
         if (!level.dimension().location().toString().equals(dim)) {
-            throw new RMcpEndpointException("dim_not_loaded");
+            throw new RMcpEndpointException(RErrorCode.DIM_NOT_LOADED);
         }
         int centerChunkX = Math.floorDiv(x, 16);
         int centerChunkZ = Math.floorDiv(z, 16);
@@ -686,7 +1250,7 @@ public class RDIMain {
         int minSectionY = Math.max(level.getMinSection(), centerSectionY - sectionRadius);
         int maxSectionY = Math.min(level.getMaxSection() - 1, centerSectionY + sectionRadius);
         if (minSectionY > maxSectionY) {
-            throw new RMcpEndpointException("section_out_of_range");
+            throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
         }
 
         var resources = new LinkedHashMap<String, ResourceAccumulator>();
@@ -826,7 +1390,7 @@ public class RDIMain {
     private static LevelChunk loadedChunk(net.minecraft.client.multiplayer.ClientLevel level, int chunkX, int chunkZ) {
         var chunk = level.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, false);
         if (chunk == null) {
-            throw new RMcpEndpointException("chunk_not_loaded");
+            throw new RMcpEndpointException(RErrorCode.CHUNK_NOT_LOADED);
         }
         return chunk;
     }
@@ -834,7 +1398,7 @@ public class RDIMain {
     private static SectionAnalysis analyzeSection(LevelChunk chunk, int sectionY, boolean includeLayers) {
         var level = chunk.getLevel();
         if (sectionY < level.getMinSection() || sectionY >= level.getMaxSection()) {
-            throw new RMcpEndpointException("section_out_of_range");
+            throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
         }
         LevelChunkSection section = chunk.getSection(level.getSectionIndexFromSectionY(sectionY));
         var ids = includeLayers ? new String[4096] : null;
@@ -1105,6 +1669,9 @@ public class RDIMain {
     }
 
     private record LangKeyIndexCache(Object resourceManager, RMcpLangKeyIndex index) {
+    }
+
+    private record InventorySlotRef(String section, int index, String canonical, int menuSlot) {
     }
 
     private static final class ResourceAccumulator {
