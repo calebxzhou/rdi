@@ -11,9 +11,9 @@ this project is minecraft multiplayer platform, player can upload modpacks to cr
   - `src/main/kotlin`, `src/main/resources`
   - tests in `src/test/kotlin`.
 - UI assets/icons are under `client/ui/src/main/resources/assets`.
-- when you reads or writes file content via powershell, use absolute path to avoid permission issues.
+- when you reads or writes file content via powershell, if you face permission issues, you should cd to current directory (C:\Users\calebxzhou\Documents\coding\rdi5). if still not working, try absolute path
 - use CircleIconButton as more as possible when you are making buttons. do not forget @OptIn(ExperimentalMaterial3Api::class) for the component function definition
-- do not remove any project files, for any dir or file to be removed, move to $$DEL dir instead.
+- do not remove any project files, for any dir or file to be removed, move to /DEL dir instead.
 - use Syntactic sugar as more as possible
 - reply in mandarin，but add english notation for terminologies, no matter how input language is
 - use Material3 as more as possible

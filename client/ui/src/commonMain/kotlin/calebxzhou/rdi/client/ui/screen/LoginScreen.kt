@@ -143,11 +143,27 @@ fun LoginScreen(
                     .background(Color.Black.copy(alpha = 0.2f))
             )
             val isPortrait = maxHeight > maxWidth
-            val outerPadding = if (isPortrait) PaddingValues(18.dp) else PaddingValues(18.dp)
-            val rootSpacing = if (isPortrait) 12.dp else 16.dp
-            val formSpacing = if (isPortrait) 10.dp else 12.dp
+            val compactHeight = maxHeight < 650.dp
+            val tinyHeight = maxHeight < 560.dp
+            val outerPadding = if (compactHeight) PaddingValues(12.dp) else PaddingValues(18.dp)
+            val rootSpacing = when {
+                tinyHeight -> 8.dp
+                compactHeight -> 10.dp
+                else -> 20.dp
+            }
+            val formSpacing = when {
+                tinyHeight -> 6.dp
+                compactHeight -> 8.dp
+                isPortrait -> 10.dp
+                else -> 12.dp
+            }
             val panelWidthFraction = if (isPortrait) 0.92f else 0.3f
-            val panelHeightFraction = if (isPortrait) 0.82f else 0.6f
+            val panelHeightFraction = when {
+                tinyHeight -> if (isPortrait) 0.94f else 0.9f
+                compactHeight -> if (isPortrait) 0.9f else 0.82f
+                isPortrait -> 0.82f
+                else -> 0.6f
+            }
             val formWidthFraction = if (isPortrait) 1f else 0.82f
 
             Surface(
@@ -181,7 +197,7 @@ fun LoginScreen(
                             modifier = Modifier.fillMaxWidth(),
                             textAlign = TextAlign.Center
                         )
-                        Spacer(modifier = Modifier.height(20.dp))
+                        Spacer(modifier = Modifier.height(rootSpacing))
 
                         Column(
                             modifier = Modifier.fillMaxWidth(formWidthFraction),

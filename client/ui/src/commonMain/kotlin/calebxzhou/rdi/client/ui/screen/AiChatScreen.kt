@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.AlertDialog
+import androidx.compose.material.DropdownMenu
+import androidx.compose.material.DropdownMenuItem
 import androidx.compose.material.LinearProgressIndicator
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.OutlinedTextField
@@ -52,11 +54,14 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.AppConfig
+import calebxzhou.rdi.client.AiProvider
+import calebxzhou.rdi.client.AiReasoningEffort
 import calebxzhou.rdi.client.UIFontFamily
 import calebxzhou.rdi.client.service.AiChatHistoryService
 import calebxzhou.rdi.client.service.AiChatRecord
 import calebxzhou.rdi.client.service.AiChatRecordSummary
 import calebxzhou.rdi.client.service.AiChatSavedMessage
+import calebxzhou.rdi.client.service.AiChatSavedReasoningSegment
 import calebxzhou.rdi.client.service.AiChatSavedToolStatus
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainBox
@@ -89,7 +94,8 @@ private data class AiChatBubble(
     val contextMessageCount: Int = 1,
     val contextCompressed: Boolean = false,
     val reasoningContent: String = "",
-    val reasoningExpanded: Boolean = true,
+    val expandedReasoningIndexes: Set<Int> = emptySet(),
+    val reasoningSegments: List<AiReasoningSegment> = emptyList(),
     val toolStatuses: List<AiToolStatus> = emptyList(),
     val promptTokens: Int? = null,
     val completionTokens: Int? = null,
@@ -101,9 +107,17 @@ private data class AiChatBubble(
     val receivedChars: Int = 0
 )
 
+private data class AiReasoningSegment(
+    val content: String,
+    val contentOffset: Int = -1,
+    val startedAtMillis: Long? = null,
+    val finishedAtMillis: Long? = null
+)
+
 private data class AiToolStatus(
     val action: String,
-    val target: String
+    val target: String,
+    val contentOffset: Int = -1
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -130,9 +144,13 @@ fun AiChatScreen(
     var effectiveVersionDir by remember { mutableStateOf(versionDir) }
     var historyDialogOpen by remember { mutableStateOf(false) }
     var historyRecords by remember { mutableStateOf<List<AiChatRecordSummary>>(emptyList()) }
-    val aiConfig = remember { AppConfig.load().aiConfig }
-    val missingConfig = aiConfig.apiKey.isBlank() || aiConfig.model.isBlank()
-    val contextLimitTokens = aiConfig.contextLimitTokens.coerceIn(64_000, 1_000_000)
+    val aiConfig = remember { AppConfig.load().aiConfig.normalized() }
+    val activeAiProfile = remember(aiConfig) { aiConfig.activeProfile() }
+    var reasoningEffort by remember(activeAiProfile.id, activeAiProfile.provider, activeAiProfile.reasoningEffort) {
+        mutableStateOf(activeAiProfile.reasoningEffort.normalizedFor(activeAiProfile.provider))
+    }
+    val missingConfig = activeAiProfile.apiKey.isBlank() || activeAiProfile.model.isBlank()
+    val contextLimitTokens = activeAiProfile.contextLimitTokens.coerceIn(64_000, 1_000_000)
     val basicPromptResult = remember { loadAiBasicPrompt() }
     val basicPromptLoadError = basicPromptResult.exceptionOrNull()
     val basicPrompt = basicPromptResult.getOrNull().orEmpty()
@@ -219,9 +237,9 @@ fun AiChatScreen(
             updatedAt = now,
             mcpPort = effectiveMcpPort,
             versionDir = effectiveVersionDir,
-            provider = aiConfig.provider,
-            baseUrl = aiConfig.baseUrl,
-            model = aiConfig.model,
+            provider = activeAiProfile.provider,
+            baseUrl = activeAiProfile.baseUrl,
+            model = activeAiProfile.model,
             messages = messages.map { it.toSavedMessage() },
             contextMessages = contextMessages.toList()
         )
@@ -301,7 +319,8 @@ fun AiChatScreen(
             billableCompletionTokens = null,
             contextCompressed = false,
             reasoningContent = "",
-            reasoningExpanded = true,
+            expandedReasoningIndexes = emptySet(),
+            reasoningSegments = emptyList(),
             reasoningFinishedAtMillis = null,
             receivedChars = 0
         )
@@ -309,9 +328,10 @@ fun AiChatScreen(
             var failed = false
             try {
                 OpenaiService.chat(
-                    aiBaseUrl = aiConfig.baseUrl,
-                    apiKey = aiConfig.apiKey,
-                    model = aiConfig.model,
+                    aiBaseUrl = activeAiProfile.baseUrl,
+                    apiKey = activeAiProfile.apiKey,
+                    model = activeAiProfile.model,
+                    reasoningEffort = reasoningEffort.apiValue,
                     messages = requestMessages,
                     versionDir = effectiveVersionDir
                 ).collect { event ->
@@ -322,22 +342,39 @@ fun AiChatScreen(
                                 ?: System.currentTimeMillis().takeIf { current.reasoningContent.isNotBlank() }
                             messages[assistantIndex] = current.copy(
                                 content = current.content + event.content,
-                                reasoningExpanded = current.reasoningExpanded && reasoningFinishedAt == null,
                                 reasoningFinishedAtMillis = reasoningFinishedAt,
                                 receivedChars = current.receivedChars + event.content.length
                             )
                         }
 
                         is OpenaiChatEvent.ReasoningDelta -> {
+                            val offset = current.content.length
+                            val now = System.currentTimeMillis()
+                            var updatedSegmentIndex = current.reasoningSegments.lastIndex.coerceAtLeast(0)
+                            val updatedSegments = current.reasoningSegments.toMutableList().apply {
+                                val last = lastOrNull()
+                                if (last?.contentOffset == offset) {
+                                    updatedSegmentIndex = lastIndex
+                                    this[lastIndex] = last.copy(
+                                        content = last.content + event.content,
+                                        finishedAtMillis = now
+                                    )
+                                } else {
+                                    add(AiReasoningSegment(event.content, offset, now, now))
+                                    updatedSegmentIndex = lastIndex
+                                }
+                            }
                             messages[assistantIndex] = current.copy(
                                 reasoningContent = current.reasoningContent + event.content,
-                                reasoningExpanded = true
+                                expandedReasoningIndexes = current.expandedReasoningIndexes + updatedSegmentIndex,
+                                reasoningSegments = updatedSegments
                             )
                         }
 
                         is OpenaiChatEvent.ToolAccess -> {
                             messages[assistantIndex] = current.copy(
-                                toolStatuses = (current.toolStatuses + AiToolStatus(event.action, event.target)).distinct()
+                                toolStatuses = (current.toolStatuses +
+                                        AiToolStatus(event.action, event.target, current.content.length)).distinct()
                             )
                         }
 
@@ -375,7 +412,6 @@ fun AiChatScreen(
             }
             if (!failed && assistantIndex in messages.indices) {
                 messages[assistantIndex] = messages[assistantIndex].copy(
-                    reasoningExpanded = false,
                     finishedAtMillis = System.currentTimeMillis()
                 )
             }
@@ -571,9 +607,15 @@ fun AiChatScreen(
                                     active = sending && index == messages.lastIndex,
                                     onCopy = { copyToClipboard(messages[index].content) },
                                     onRegenerate = { regenerateAssistant(index) },
-                                    onToggleReasoning = {
-                                        messages[index] = messages[index].copy(
-                                            reasoningExpanded = !messages[index].reasoningExpanded
+                                    onToggleReasoning = { reasoningIndex ->
+                                        val message = messages[index]
+                                        val expanded = message.expandedReasoningIndexes
+                                        messages[index] = message.copy(
+                                            expandedReasoningIndexes = if (reasoningIndex in expanded) {
+                                                expanded - reasoningIndex
+                                            } else {
+                                                expanded + reasoningIndex
+                                            }
                                         )
                                     }
                                 )
@@ -648,6 +690,12 @@ fun AiChatScreen(
                                     }
                                 },
                             maxLines = 4
+                        )
+                        AiReasoningEffortMenu(
+                            provider = activeAiProfile.provider,
+                            value = reasoningEffort,
+                            enabled = !sending,
+                            onValueChange = { reasoningEffort = it }
                         )
                         if (sending) {
                             CircleIconButton(
@@ -779,80 +827,181 @@ private fun AiContextUsageProgress(
 }
 
 @Composable
+private fun AiReasoningEffortMenu(
+    provider: AiProvider,
+    value: AiReasoningEffort,
+    enabled: Boolean,
+    onValueChange: (AiReasoningEffort) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val options = remember(provider) { AiReasoningEffort.optionsFor(provider) }
+    Box {
+        Text(
+            text = "思考:${value.displayName} \uE70D".asIconText,
+            color = if (enabled) MaterialColor.GRAY_900.color else MaterialColor.GRAY_500.color,
+            modifier = Modifier
+                .background(MaterialColor.GRAY_100.color, RoundedCornerShape(8.dp))
+                .clickable(enabled = enabled) { expanded = true }
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        )
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEach { effort ->
+                DropdownMenuItem(onClick = {
+                    onValueChange(effort)
+                    expanded = false
+                }) {
+                    Text(effort.displayName)
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun AiChatBubbleView(
     message: AiChatBubble,
     sending: Boolean,
     active: Boolean,
     onCopy: () -> Unit,
     onRegenerate: () -> Unit,
-    onToggleReasoning: () -> Unit
+    onToggleReasoning: (Int) -> Unit
 ) {
     val isUser = message.role == "user"
-    Row(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+        verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = if (isUser) MaterialColor.GREEN_100.color else MaterialColor.GRAY_100.color,
-                    shape = RoundedCornerShape(8.dp)
-                )
-                .padding(12.dp)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
         ) {
-            Text(
-                text = if (isUser) "我" else "AI",
-                fontWeight = FontWeight.Bold,
-                color = if (isUser) MaterialColor.GREEN_900.color else MaterialColor.PURPLE_700.color
-            )
-            if (!isUser && message.toolStatuses.isNotEmpty()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = if (isUser) MaterialColor.GREEN_100.color else MaterialColor.GRAY_100.color,
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    .padding(12.dp)
+            ) {
+                Text(
+                    text = if (isUser) "我" else "AI",
+                    fontWeight = FontWeight.Bold,
+                    color = if (isUser) MaterialColor.GREEN_900.color else MaterialColor.PURPLE_700.color
+                )
                 Spacer(modifier = Modifier.height(4.dp))
-                message.toolStatuses.forEach { status ->
-                    val target = if(!DEBUG && (status.target.contains("localhost") || status.target.contains("127.0.0.1") || status.target.contains("[::1]"))) "R-MCP" else status.target
+                if (isUser) {
                     Text(
-                        text = "${if (active) "正在${status.action}" else "已${status.action}"}: $target",
-                        color = MaterialColor.BLUE_700.color,
-                        modifier = Modifier.fillMaxWidth(),
-                        softWrap = true
+                        text = message.content.ifBlank { "..." },
+                        color = Color.Black
+                    )
+                } else {
+                    AiAssistantContentWithTools(
+                        message = message,
+                        active = active,
+                        onToggleReasoning = onToggleReasoning
+                    )
+                }
+                if (!isUser) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    AiChatResponseFooter(
+                        message = message,
+                        sending = sending,
+                        onCopy = onCopy,
+                        onRegenerate = onRegenerate
                     )
                 }
             }
-            if (!isUser && message.reasoningContent.isNotBlank()) {
-                Spacer(modifier = Modifier.height(8.dp))
-                AiReasoningCard(
-                    message = message,
-                    onToggle = onToggleReasoning
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
             if (isUser) {
-                Text(
-                    text = message.content.ifBlank { "..." },
-                    color = Color.Black
-                )
-            } else {
-                AiMarkdownText(message.content.ifBlank { "..." })
-            }
-            if (!isUser) {
-                Spacer(modifier = Modifier.height(8.dp))
-                AiChatResponseFooter(
-                    message = message,
-                    sending = sending,
-                    onCopy = onCopy,
-                    onRegenerate = onRegenerate
-                )
+                Spacer(modifier = Modifier.width(8.dp))
             }
         }
-        if (isUser) {
-            Spacer(modifier = Modifier.width(8.dp))
+    }
+}
+
+@Composable
+private fun AiAssistantContentWithTools(
+    message: AiChatBubble,
+    active: Boolean,
+    onToggleReasoning: (Int) -> Unit
+) {
+    val content = message.content
+    val reasoningSegmentsByOffset = message.timelineReasoningSegments()
+        .withIndex()
+        .groupBy { (_, segment) ->
+            (segment.contentOffset.takeIf { offset -> offset >= 0 } ?: content.length).coerceIn(0, content.length)
+        }
+    val statusesByOffset = message.toolStatuses
+        .groupBy { (it.contentOffset.takeIf { offset -> offset >= 0 } ?: content.length).coerceIn(0, content.length) }
+    val offsets = (reasoningSegmentsByOffset.keys + statusesByOffset.keys)
+        .toSortedSet()
+    if (content.isBlank() && offsets.isEmpty()) {
+        AiMarkdownText("...")
+        return
+    }
+
+    var start = 0
+    offsets.forEach { offset ->
+        if (offset > start) {
+            AiMarkdownText(content.substring(start, offset))
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+        reasoningSegmentsByOffset[offset]?.forEach { indexedSegment ->
+            AiReasoningCard(
+                segment = indexedSegment.value,
+                expanded = indexedSegment.index in message.expandedReasoningIndexes,
+                onToggle = { onToggleReasoning(indexedSegment.index) }
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+        val statuses = statusesByOffset[offset]
+        if (!statuses.isNullOrEmpty()) {
+            AiToolStatusRows(statuses, active)
+            Spacer(modifier = Modifier.height(6.dp))
+        }
+        start = offset
+    }
+    if (start < content.length) {
+        AiMarkdownText(content.substring(start))
+    }
+}
+
+@Composable
+private fun AiToolStatusRows(
+    statuses: List<AiToolStatus>,
+    active: Boolean
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        statuses.forEach { status ->
+            val target = if (
+                !DEBUG &&
+                (status.target.contains("localhost") ||
+                        status.target.contains("127.0.0.1") ||
+                        status.target.contains("[::1]"))
+            ) "R-MCP" else status.target
+            Text(
+                text = "${if (active) "正在${status.action}" else "已${status.action}"}: $target",
+                color = MaterialColor.BLUE_700.color,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(MaterialColor.BLUE_50.color, RoundedCornerShape(8.dp))
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                softWrap = true
+            )
         }
     }
 }
 
 @Composable
 private fun AiReasoningCard(
-    message: AiChatBubble,
+    segment: AiReasoningSegment,
+    expanded: Boolean,
     onToggle: () -> Unit
 ) {
     Column(
@@ -868,17 +1017,17 @@ private fun AiReasoningCard(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "\uF0EB 思考了${String.format("%.1f", message.reasoningSeconds())}秒".asIconText,
+                text = "\uF0EB 思考了${String.format("%.1f", segment.reasoningSeconds())}秒".asIconText,
                 color = MaterialColor.BLUE_GRAY_900.color,
                 fontWeight = FontWeight.Bold
             )
             Spacer(modifier = Modifier.weight(1f))
             Text(
-                text = (if (message.reasoningExpanded) "\uF077" else "\uF078").asIconText,
+                text = (if (expanded) "\uF077" else "\uF078").asIconText,
                 color = MaterialColor.BLUE_GRAY_900.color
             )
         }
-        if (message.reasoningExpanded) {
+        if (expanded) {
             Spacer(modifier = Modifier.height(8.dp))
             Box(
                 modifier = Modifier
@@ -886,7 +1035,7 @@ private fun AiReasoningCard(
                     .background(MaterialColor.BLUE_GRAY_50.color, RoundedCornerShape(6.dp))
                     .padding(10.dp)
             ) {
-                AiMarkdownText(message.reasoningContent)
+                AiMarkdownText(segment.content)
             }
         }
     }
@@ -987,6 +1136,20 @@ private fun AiChatBubble.reasoningSeconds(): Double {
     return ((endedAt - startedAt).coerceAtLeast(0L) / 1000.0)
 }
 
+private fun AiReasoningSegment.reasoningSeconds(): Double {
+    val startedAt = startedAtMillis ?: return 0.0
+    val endedAt = finishedAtMillis ?: System.currentTimeMillis()
+    return ((endedAt - startedAt).coerceAtLeast(0L) / 1000.0)
+}
+
+private fun AiChatBubble.timelineReasoningSegments(): List<AiReasoningSegment> {
+    return reasoningSegments.takeIf { it.isNotEmpty() }
+        ?: reasoningContent.takeIf(String::isNotBlank)?.let {
+            listOf(AiReasoningSegment(it, 0, startedAtMillis, reasoningFinishedAtMillis ?: finishedAtMillis))
+        }
+        ?: emptyList()
+}
+
 private fun loadAiBasicPrompt(): Result<String> = runCatching {
     loadResourceStream("rmcp/basic-prompts.md").bufferedReader().use { it.readText() }
         .trim()
@@ -1054,7 +1217,16 @@ private fun AiChatBubble.toSavedMessage(): AiChatSavedMessage {
         contextCompressed = contextCompressed,
         reasoningContent = reasoningContent,
         reasoningExpanded = false,
-        toolStatuses = toolStatuses.map { AiChatSavedToolStatus(it.action, it.target) },
+        reasoningSegments = timelineReasoningSegments()
+            .map {
+                AiChatSavedReasoningSegment(
+                    it.content,
+                    it.contentOffset,
+                    it.startedAtMillis,
+                    it.finishedAtMillis
+                )
+            },
+        toolStatuses = toolStatuses.map { AiChatSavedToolStatus(it.action, it.target, it.contentOffset) },
         promptTokens = promptTokens,
         completionTokens = completionTokens,
         billablePromptTokens = billablePromptTokens,
@@ -1067,14 +1239,23 @@ private fun AiChatBubble.toSavedMessage(): AiChatSavedMessage {
 }
 
 private fun AiChatSavedMessage.toBubble(): AiChatBubble {
+    val restoredReasoningSegments = reasoningSegments
+        .map { AiReasoningSegment(it.content, it.contentOffset, it.startedAtMillis, it.finishedAtMillis) }
+        .ifEmpty {
+            reasoningContent.takeIf(String::isNotBlank)?.let {
+                listOf(AiReasoningSegment(it, 0, startedAtMillis, reasoningFinishedAtMillis ?: finishedAtMillis))
+            }
+                ?: emptyList()
+        }
     return AiChatBubble(
         role = role,
         content = content,
         contextMessageCount = contextMessageCount,
         contextCompressed = contextCompressed,
         reasoningContent = reasoningContent,
-        reasoningExpanded = reasoningExpanded,
-        toolStatuses = toolStatuses.map { AiToolStatus(it.action, it.target) },
+        expandedReasoningIndexes = if (reasoningExpanded) restoredReasoningSegments.indices.toSet() else emptySet(),
+        reasoningSegments = restoredReasoningSegments,
+        toolStatuses = toolStatuses.map { AiToolStatus(it.action, it.target, it.contentOffset) },
         promptTokens = promptTokens,
         completionTokens = completionTokens,
         billablePromptTokens = billablePromptTokens,

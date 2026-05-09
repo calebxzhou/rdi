@@ -163,9 +163,7 @@ actual suspend fun pickJavaExecutable(title: String): String? =
             dialog.isVisible = true
             val dir = dialog.directory ?: return@withContext null
             val name = dialog.file ?: return@withContext null
-            File(dir, name)
-                .takeIf { it.exists() && it.isFile }
-                ?.absolutePath
+            normalizePlatformJavaPath(File(dir, name).absolutePath)
         } finally {
             owner.dispose()
         }
@@ -316,25 +314,32 @@ actual fun getPlatformTotalPhysicalMemoryMb(): Int {
     return (totalBytes / (1024L * 1024L)).toInt()
 }
 
-actual fun validatePlatformJavaPath(rawPath: String, expectedMajor: Int): Result<Unit> {
-    fun isWindows(): Boolean =
-        System.getProperty("os.name").contains("windows", ignoreCase = true)
+private fun isWindows(): Boolean =
+    System.getProperty("os.name").contains("windows", ignoreCase = true)
 
-    fun resolveJavaExecutable(raw: String): File? {
-        val input = File(raw.trim())
-        if (input.isDirectory) {
-            val exe = input.resolve("bin").resolve(if (isWindows()) "java.exe" else "java")
-            return exe.takeIf { it.exists() }
-        }
-        if (input.exists()) {
-            val name = input.name.lowercase()
-            return if (isWindows()) input.takeIf { name == "java.exe" }
-            else input.takeIf { name == "java" }
-        }
-        val exe = File(raw.trim() + if (isWindows()) ".exe" else "")
+private fun resolveJavaExecutable(raw: String): File? {
+    val input = File(raw.trim())
+    if (input.isDirectory) {
+        val exe = input.resolve("bin").resolve(if (isWindows()) "java.exe" else "java")
         return exe.takeIf { it.exists() }
     }
+    if (input.exists()) {
+        val name = input.name.lowercase()
+        if (!isWindows()) return input.takeIf { name == "java" }
+        if (name == "java.exe") return input
+        if (name == "javaw.exe") {
+            return input.parentFile?.resolve("java.exe")?.takeIf { it.exists() } ?: input
+        }
+        return null
+    }
+    val exe = File(raw.trim() + if (isWindows()) ".exe" else "")
+    return exe.takeIf { it.exists() }
+}
 
+actual fun normalizePlatformJavaPath(rawPath: String): String? =
+    resolveJavaExecutable(rawPath)?.absolutePath
+
+actual fun validatePlatformJavaPath(rawPath: String, expectedMajor: Int): Result<Unit> {
     fun readJavaMajorVersion(javaExe: File): Int? = runCatching {
         val process = ProcessBuilder(javaExe.absolutePath, "-version")
             .redirectErrorStream(true).start()

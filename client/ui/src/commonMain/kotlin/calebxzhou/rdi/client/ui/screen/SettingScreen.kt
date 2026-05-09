@@ -2,8 +2,10 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -15,7 +17,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.javaExePath
+import calebxzhou.rdi.client.AiConfig
 import calebxzhou.rdi.client.AiProvider
+import calebxzhou.rdi.client.AiProviderProfile
+import calebxzhou.rdi.client.AiReasoningEffort
+import calebxzhou.rdi.client.AppConfig
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
@@ -67,11 +73,10 @@ fun SettingScreen(
     var proxyUsr by remember { mutableStateOf("") }
     var proxyPwd by remember { mutableStateOf("") }
     var totalMemoryMb by remember { mutableStateOf(0) }
-    var aiProvider by remember { mutableStateOf(AiProvider.DEEPSEEK) }
-    var aiBaseUrl by remember { mutableStateOf(AiProvider.DEEPSEEK.defaultBaseUrl) }
-    var aiApiKey by remember { mutableStateOf("") }
-    var aiModel by remember { mutableStateOf("") }
-    var aiContextLimitText by remember { mutableStateOf("1000000") }
+    val defaultAiProfile = remember { AiConfig().activeProfile() }
+    val aiProfiles = remember { mutableStateListOf(defaultAiProfile) }
+    var activeAiProfileId by remember { mutableStateOf(defaultAiProfile.id) }
+    var selectedAiProfileId by remember { mutableStateOf(defaultAiProfile.id) }
     var fetchedAiModels by remember { mutableStateOf<List<String>>(emptyList()) }
     var refreshingAiModels by remember { mutableStateOf(false) }
     var aiModelRefreshError by remember { mutableStateOf<String?>(null) }
@@ -82,7 +87,7 @@ fun SettingScreen(
     LaunchedEffect(Unit) {
         withContext(Dispatchers.IO) {
             runCatching {
-                val config = calebxzhou.rdi.client.AppConfig.load()
+                val config = AppConfig.load()
                 preferModMirror = config.preferModMirror
                 preferMcMirror = config.preferMcMirror
                 maxMemoryText = if (config.maxMemory <= 0) "" else config.maxMemory.toString()
@@ -95,11 +100,11 @@ fun SettingScreen(
                 proxyPortText = (config.proxyConfig?.port ?: 10808).toString()
                 proxyUsr = config.proxyConfig?.usr.orEmpty()
                 proxyPwd = config.proxyConfig?.pwd.orEmpty()
-                aiProvider = config.aiConfig.provider
-                aiBaseUrl = SettingsService.normalizeAiBaseUrl(config.aiConfig.provider, config.aiConfig.baseUrl)
-                aiApiKey = config.aiConfig.apiKey
-                aiModel = config.aiConfig.model
-                aiContextLimitText = config.aiConfig.contextLimitTokens.coerceIn(64_000, 1_000_000).toString()
+                val normalizedAiConfig = config.aiConfig.normalized()
+                aiProfiles.clear()
+                aiProfiles.addAll(normalizedAiConfig.profiles)
+                activeAiProfileId = normalizedAiConfig.activeProfileId
+                selectedAiProfileId = normalizedAiConfig.activeProfileId
                 if (isDesktop) {
                     totalMemoryMb = calebxzhou.rdi.client.service.SettingsService.getTotalPhysicalMemoryMb()
                 }
@@ -107,10 +112,48 @@ fun SettingScreen(
         }
     }
 
+    fun selectedAiProfile(): AiProviderProfile =
+        aiProfiles.firstOrNull { it.id == selectedAiProfileId }
+            ?: aiProfiles.first()
+
+    fun updateAiProfile(profileId: String, transform: (AiProviderProfile) -> AiProviderProfile) {
+        val index = aiProfiles.indexOfFirst { it.id == profileId }
+        if (index >= 0) {
+            aiProfiles[index] = transform(aiProfiles[index])
+        }
+    }
+
+    fun updateSelectedAiProfile(transform: (AiProviderProfile) -> AiProviderProfile) {
+        updateAiProfile(selectedAiProfileId, transform)
+    }
+
+    fun clearAiModelFetchState(clearModels: Boolean = true) {
+        if (clearModels) {
+            fetchedAiModels = emptyList()
+        }
+        aiModelRefreshError = null
+        aiModelRefreshMessage = null
+        aiBalanceMessage = null
+    }
+
+    fun buildAiConfig(): AiConfig =
+        AiConfig(
+            activeProfileId = activeAiProfileId,
+            profiles = aiProfiles.toList()
+        ).normalized()
+
 
     MainBox {
         MainColumn {
             TitleRow("设置", onBack) {
+                if (saving) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 3.dp,
+                        color = MaterialColor.GREEN_900.color
+                    )
+                    Space8w()
+                }
                 CircleIconButton(
                     icon = "\uF0C7",
                     tooltip = "保存",
@@ -167,36 +210,11 @@ fun SettingScreen(
                             }
                         }
 
-                        if (category == SettingCategory.AI) {
-                            val aiContextLimitValidation = svc.validateAiContextLimit(aiContextLimitText)
-                            if (!aiContextLimitValidation.success) {
-                                errorMessage = aiContextLimitValidation.errorMessage
-                                saving = false
-                                return@launch
-                            }
-                            val selectedAiModel = aiModel.trim()
-                            val fetchedAiModelSet = fetchedAiModels.map(String::trim).filter(String::isNotBlank).toSet()
-                            when {
-                                fetchedAiModelSet.isEmpty() -> {
-                                    errorMessage = "请先刷新AI模型列表"
-                                    saving = false
-                                    return@launch
-                                }
-
-                                selectedAiModel !in fetchedAiModelSet -> {
-                                    errorMessage = "请从服务端模型列表中选择AI模型"
-                                    saving = false
-                                    return@launch
-                                }
-                            }
-                        }
+                        val aiConfig = buildAiConfig()
+                        val requireActiveAiProfile = category == SettingCategory.AI
 
                         // Save settings
-                        val aiValidation = svc.validateAiSettings(
-                            aiProvider,
-                            aiBaseUrl,
-                            aiModel
-                        )
+                        val aiValidation = svc.validateAiConfig(aiConfig, requireActiveAiProfile)
                         if (!aiValidation.success) {
                             errorMessage = aiValidation.errorMessage
                             saving = false
@@ -215,13 +233,11 @@ fun SettingScreen(
                             proxyPortText = proxyPortText,
                             proxyUsr = proxyUsr,
                             proxyPwd = proxyPwd,
-                            aiProvider = aiProvider,
-                            aiBaseUrl = aiBaseUrl,
-                            aiApiKey = aiApiKey,
-                            aiModel = aiModel,
-                            aiContextLimitText = aiContextLimitText
+                            aiConfig = aiConfig,
+                            requireActiveAiProfile = requireActiveAiProfile
                         ).onSuccess {
                             errorMessage = null
+                            saving = false
                             scaffoldState.snackbarHostState.showSnackbar("设置已保存")
                         }.onFailure {
                             errorMessage = "保存失败: ${it.message}"
@@ -341,91 +357,145 @@ fun SettingScreen(
                                 }
 
                                 SettingCategory.AI -> {
+                                    val currentAiProfile = selectedAiProfile()
                                     AiSettings(
-                                        provider = aiProvider,
-                                        baseUrl = aiBaseUrl,
-                                        apiKey = aiApiKey,
-                                        model = aiModel,
-                                        contextLimitText = aiContextLimitText,
+                                        profiles = aiProfiles.toList(),
+                                        selectedProfileId = selectedAiProfileId,
+                                        activeProfileId = activeAiProfileId,
+                                        profile = currentAiProfile,
                                         showApiKey = showAiApiKey,
                                         fetchedModels = fetchedAiModels,
                                         refreshingModels = refreshingAiModels,
                                         modelRefreshError = aiModelRefreshError,
                                         modelRefreshMessage = aiModelRefreshMessage,
                                         balanceMessage = aiBalanceMessage,
-                                        onProviderChange = { provider ->
-                                            val keepCustomBaseUrl = aiBaseUrl.isNotBlank() &&
-                                                    aiBaseUrl != aiProvider.defaultBaseUrl
-                                            aiProvider = provider
-                                            aiModel = ""
-                                            fetchedAiModels = emptyList()
-                                            aiModelRefreshError = null
-                                            aiModelRefreshMessage = null
-                                            aiBalanceMessage = null
-                                            aiBaseUrl = when {
-                                                provider == AiProvider.DEEPSEEK -> provider.defaultBaseUrl
-                                                keepCustomBaseUrl -> aiBaseUrl
-                                                else -> provider.defaultBaseUrl
+                                        onSelectProfile = {
+                                            selectedAiProfileId = it
+                                            clearAiModelFetchState()
+                                        },
+                                        onAddProfile = {
+                                            val newProfile = AiProviderProfile(
+                                                id = "ai-${System.currentTimeMillis()}",
+                                                name = "AI配置${aiProfiles.size + 1}",
+                                                provider = AiProvider.OPENAI,
+                                                baseUrl = AiProvider.OPENAI.defaultBaseUrl
+                                            )
+                                            aiProfiles.add(newProfile)
+                                            selectedAiProfileId = newProfile.id
+                                            if (aiProfiles.size == 1) {
+                                                activeAiProfileId = newProfile.id
+                                            }
+                                            clearAiModelFetchState()
+                                        },
+                                        onDeleteProfile = {
+                                            if (aiProfiles.size <= 1) {
+                                                errorMessage = "至少保留1个AI配置"
+                                            } else {
+                                                val deleteIndex = aiProfiles.indexOfFirst { it.id == selectedAiProfileId }
+                                                if (deleteIndex >= 0) {
+                                                    val deletedProfile = aiProfiles.removeAt(deleteIndex)
+                                                    val nextProfile =
+                                                        aiProfiles.getOrNull(deleteIndex.coerceAtMost(aiProfiles.lastIndex))
+                                                            ?: aiProfiles.first()
+                                                    selectedAiProfileId = nextProfile.id
+                                                    if (activeAiProfileId == deletedProfile.id) {
+                                                        activeAiProfileId = nextProfile.id
+                                                    }
+                                                    clearAiModelFetchState()
+                                                }
                                             }
                                         },
+                                        onSetActiveProfile = {
+                                            activeAiProfileId = selectedAiProfileId
+                                        },
+                                        onProfileNameChange = { name ->
+                                            updateSelectedAiProfile { it.copy(name = name) }
+                                        },
+                                        onProviderChange = { provider ->
+                                            val keepCustomBaseUrl = currentAiProfile.baseUrl.isNotBlank() &&
+                                                    currentAiProfile.baseUrl != currentAiProfile.provider.defaultBaseUrl
+                                            updateSelectedAiProfile {
+                                                it.copy(
+                                                    provider = provider,
+                                                    baseUrl = when {
+                                                        provider == AiProvider.DEEPSEEK -> provider.defaultBaseUrl
+                                                        keepCustomBaseUrl -> it.baseUrl
+                                                        else -> provider.defaultBaseUrl
+                                                    },
+                                                    model = "",
+                                                    reasoningEffort = it.reasoningEffort.normalizedFor(provider)
+                                                )
+                                            }
+                                            clearAiModelFetchState()
+                                        },
                                         onBaseUrlChange = {
-                                            aiBaseUrl = it
-                                            aiModel = ""
-                                            fetchedAiModels = emptyList()
-                                            aiModelRefreshError = null
-                                            aiModelRefreshMessage = null
-                                            aiBalanceMessage = null
+                                            updateSelectedAiProfile { profile -> profile.copy(baseUrl = it) }
+                                            clearAiModelFetchState()
                                         },
                                         onApiKeyChange = {
-                                            aiApiKey = it
-                                            aiModel = ""
-                                            fetchedAiModels = emptyList()
-                                            aiModelRefreshError = null
-                                            aiModelRefreshMessage = null
-                                            aiBalanceMessage = null
+                                            updateSelectedAiProfile { profile -> profile.copy(apiKey = it) }
+                                            clearAiModelFetchState()
                                         },
-                                        onModelChange = { aiModel = it },
+                                        onModelChange = { model ->
+                                            updateSelectedAiProfile { profile -> profile.copy(model = model) }
+                                        },
+                                        onReasoningEffortChange = { effort ->
+                                            updateSelectedAiProfile { profile -> profile.copy(reasoningEffort = effort) }
+                                        },
                                         onContextLimitChange = {
-                                            aiContextLimitText = it.filter(Char::isDigit).take(7)
+                                            it.filter(Char::isDigit).take(7).toIntOrNull()?.let { limit ->
+                                                updateSelectedAiProfile { profile -> profile.copy(contextLimitTokens = limit) }
+                                            }
                                         },
                                         onToggleApiKey = { showAiApiKey = !showAiApiKey },
                                         onRefreshModels = {
                                             if (!refreshingAiModels) {
+                                                val refreshProfile = selectedAiProfile()
                                                 refreshingAiModels = true
                                                 aiModelRefreshError = null
                                                 aiModelRefreshMessage = null
                                                 aiBalanceMessage = null
                                                 scope.launch {
-                                                    SettingsService.fetchAiModels(aiProvider, aiBaseUrl, aiApiKey)
+                                                    SettingsService.fetchAiModels(
+                                                        refreshProfile.provider,
+                                                        refreshProfile.baseUrl,
+                                                        refreshProfile.apiKey
+                                                    )
                                                         .onSuccess { ids ->
                                                             val modelIds = ids.map(String::trim)
                                                                 .filter(String::isNotBlank)
                                                                 .distinct()
-                                                            fetchedAiModels = modelIds
-                                                            aiModelRefreshMessage =
-                                                                "[${getDateTimeNow("HH:mm:ss")}]已获取${modelIds.size}个模型"
-                                                            val selectedModel = aiModel.trim()
-                                                            aiModel = if (selectedModel in modelIds) {
-                                                                selectedModel
-                                                            } else {
-                                                                modelIds.firstOrNull().orEmpty()
+                                                            if (selectedAiProfileId == refreshProfile.id) {
+                                                                fetchedAiModels = modelIds
+                                                                aiModelRefreshMessage =
+                                                                    "[${getDateTimeNow("HH:mm:ss")}]已获取${modelIds.size}个模型"
                                                             }
-                                                            if (aiProvider == AiProvider.DEEPSEEK) {
-                                                                SettingsService.fetchDeepSeekBalance(aiApiKey)
+                                                            val selectedModel = refreshProfile.model.trim()
+                                                            if (selectedModel.isBlank()) {
+                                                                modelIds.firstOrNull()?.let { model ->
+                                                                    updateAiProfile(refreshProfile.id) { it.copy(model = model) }
+                                                                }
+                                                            }
+                                                            if (refreshProfile.provider == AiProvider.DEEPSEEK) {
+                                                                SettingsService.fetchDeepSeekBalance(refreshProfile.apiKey)
                                                                     .onSuccess { balance ->
-                                                                        aiBalanceMessage = "余额$balance"
+                                                                        if (selectedAiProfileId == refreshProfile.id) {
+                                                                            aiBalanceMessage = "余额$balance"
+                                                                        }
                                                                     }
                                                                     .onFailure {
-                                                                        aiModelRefreshError =
-                                                                            it.message ?: "刷新余额失败"
+                                                                        if (selectedAiProfileId == refreshProfile.id) {
+                                                                            aiModelRefreshError = it.message ?: "刷新余额失败"
+                                                                        }
                                                                     }
                                                             }
                                                         }
                                                         .onFailure {
-                                                            fetchedAiModels = emptyList()
-                                                            aiModel = ""
-                                                            aiBalanceMessage = null
-                                                            aiModelRefreshError = it.message ?: "刷新模型失败"
+                                                            if (selectedAiProfileId == refreshProfile.id) {
+                                                                fetchedAiModels = emptyList()
+                                                                aiBalanceMessage = null
+                                                                aiModelRefreshError = it.message ?: "刷新模型失败"
+                                                            }
                                                         }
                                                     refreshingAiModels = false
                                                 }
@@ -772,26 +842,32 @@ private fun JavaSettings(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AiSettings(
-    provider: AiProvider,
-    baseUrl: String,
-    apiKey: String,
-    model: String,
-    contextLimitText: String,
+    profiles: List<AiProviderProfile>,
+    selectedProfileId: String,
+    activeProfileId: String,
+    profile: AiProviderProfile,
     showApiKey: Boolean,
     fetchedModels: List<String>,
     refreshingModels: Boolean,
     modelRefreshError: String?,
     modelRefreshMessage: String?,
     balanceMessage: String?,
+    onSelectProfile: (String) -> Unit,
+    onAddProfile: () -> Unit,
+    onDeleteProfile: () -> Unit,
+    onSetActiveProfile: () -> Unit,
+    onProfileNameChange: (String) -> Unit,
     onProviderChange: (AiProvider) -> Unit,
     onBaseUrlChange: (String) -> Unit,
     onApiKeyChange: (String) -> Unit,
     onModelChange: (String) -> Unit,
+    onReasoningEffortChange: (AiReasoningEffort) -> Unit,
     onContextLimitChange: (String) -> Unit,
     onToggleApiKey: () -> Unit,
     onRefreshModels: () -> Unit
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    var reasoningMenuExpanded by remember { mutableStateOf(false) }
     val dropdownModels = remember(fetchedModels) {
         fetchedModels
             .map(String::trim)
@@ -802,32 +878,84 @@ private fun AiSettings(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("AI设置（没开发完）", style = MaterialTheme.typography.h6)
+        Text("AI设置", style = MaterialTheme.typography.h6)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            profiles.forEach { item ->
+                val selected = item.id == selectedProfileId
+                val active = item.id == activeProfileId
+                Text(
+                    text = "${if (active) "\uF00C ".asIconText else ""}${item.name.ifBlank { item.provider.displayName }}",
+                    color = if (selected) Color.White else MaterialColor.GRAY_900.color,
+                    modifier = Modifier
+                        .background(
+                            if (selected) MaterialTheme.colors.primary else MaterialColor.GRAY_200.color,
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable { onSelectProfile(item.id) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+            }
+            CircleIconButton(
+                icon = "\uF067",
+                tooltip = "新增AI配置",
+                bgColor = MaterialColor.BLUE_800.color,
+                size = 34,
+                showText = false,
+                onClick = onAddProfile
+            )
+            CircleIconButton(
+                icon = "\uF1F8",
+                tooltip = "删除AI配置",
+                bgColor = MaterialColor.RED_700.color,
+                size = 34,
+                showText = false,
+                enabled = profiles.size > 1,
+                onClick = onDeleteProfile
+            )
+            CircleIconButton(
+                icon = "\uF00C",
+                tooltip = "使用此AI配置",
+                bgColor = MaterialColor.GREEN_900.color,
+                size = 34,
+                showText = false,
+                enabled = profile.id != activeProfileId,
+                onClick = onSetActiveProfile
+            )
+        }
+        OutlinedTextField(
+            label = { Text("配置名称") },
+            value = profile.name,
+            onValueChange = onProfileNameChange,
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
         Row(verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(
-                selected = provider == AiProvider.DEEPSEEK,
-                onClick = { onProviderChange(AiProvider.DEEPSEEK) }
-            )
-            Text("DeepSeek")
-            Space8w()
-            RadioButton(
-                selected = provider == AiProvider.OPENAI,
-                onClick = { onProviderChange(AiProvider.OPENAI) }
-            )
-            Text("OpenAI")
-            Space8w()
+            AiProvider.entries.forEach { provider ->
+                RadioButton(
+                    selected = profile.provider == provider,
+                    onClick = { onProviderChange(provider) }
+                )
+                Text(provider.displayName)
+                Space8w()
+            }
 
         }
         OutlinedTextField(
             label = { Text("API Base URL") },
-            value = baseUrl,
+            value = profile.baseUrl,
             onValueChange = onBaseUrlChange,
             singleLine = true,
-            enabled = provider != AiProvider.DEEPSEEK,
+            enabled = profile.provider != AiProvider.DEEPSEEK,
             modifier = Modifier.fillMaxWidth()
         )
         PasswordField(
-            value = apiKey,
+            value = profile.apiKey,
             onValueChange = onApiKeyChange,
             label = "API Key",
             showPassword = showApiKey,
@@ -836,7 +964,7 @@ private fun AiSettings(
         )
         OutlinedTextField(
             label = { Text("上下文上限Tokens") },
-            value = contextLimitText,
+            value = profile.contextLimitTokens.toString(),
             onValueChange = onContextLimitChange,
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
@@ -851,15 +979,48 @@ private fun AiSettings(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
+            Text("推理强度")
+            Box {
+                Text(
+                    text = "${profile.reasoningEffort.displayName} \uE70D".asIconText,
+                    color = MaterialColor.GRAY_900.color,
+                    modifier = Modifier
+                        .background(MaterialColor.GRAY_200.color, RoundedCornerShape(8.dp))
+                        .clickable { reasoningMenuExpanded = true }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+                DropdownMenu(
+                    expanded = reasoningMenuExpanded,
+                    onDismissRequest = { reasoningMenuExpanded = false }
+                ) {
+                    AiReasoningEffort.optionsFor(profile.provider).forEach { effort ->
+                        DropdownMenuItem(onClick = {
+                            onReasoningEffortChange(effort)
+                            reasoningMenuExpanded = false
+                        }) {
+                            Text(effort.displayName)
+                        }
+                    }
+                }
+            }
+            Text(
+                text = "Auto不发送参数",
+                color = MaterialColor.GRAY_700.color,
+                style = MaterialTheme.typography.body2
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
 
             OutlinedTextField(
                 label = { Text("模型") },
-                value = model,
-                onValueChange = {},
-                readOnly = true,
+                value = profile.model,
+                onValueChange = onModelChange,
                 singleLine = true,
-                modifier = Modifier
-                    .clickable(enabled = dropdownModels.isNotEmpty()) { modelMenuExpanded = true },
+                modifier = Modifier.weight(1f),
                 trailingIcon = {
                     Text(
                         text = "\uE70D".asIconText,
@@ -889,7 +1050,7 @@ private fun AiSettings(
                 enabled = !refreshingModels,
                 onClick = onRefreshModels
             )
-            if (provider == AiProvider.DEEPSEEK) {
+            if (profile.provider == AiProvider.DEEPSEEK) {
                 CircleIconButton(
                     icon = "\uF157",
                     tooltip = "DeepSeek充值",

@@ -29,13 +29,102 @@ enum class AiProvider(
 }
 
 @Serializable
+enum class AiReasoningEffort(
+    val displayName: String,
+    val apiValue: String?
+) {
+    AUTO("自动", null),
+    LOW("低", "low"),
+    MEDIUM("中", "medium"),
+    HIGH("高", "high"),
+    MAX("极", "xhigh");
+
+    fun supportedBy(provider: AiProvider): Boolean =
+        this == AUTO || when (provider) {
+            AiProvider.OPENAI -> this in setOf(LOW, MEDIUM, HIGH, MAX)
+            AiProvider.DEEPSEEK -> this in setOf(LOW, MEDIUM,HIGH, MAX)
+        }
+
+    fun normalizedFor(provider: AiProvider): AiReasoningEffort =
+        takeIf { it.supportedBy(provider) } ?: AUTO
+
+    companion object {
+        fun optionsFor(provider: AiProvider): List<AiReasoningEffort> =
+            entries.filter { it.supportedBy(provider) }
+    }
+}
+
+@Serializable
 data class AiConfig(
+    val activeProfileId: String = "",
+    val profiles: List<AiProviderProfile> = emptyList(),
     val provider: AiProvider = AiProvider.OPENAI,
     val baseUrl: String = AiProvider.OPENAI.defaultBaseUrl,
     val apiKey: String = "",
     val model: String = "",
-    val contextLimitTokens: Int = 1_000_000
-)
+    val contextLimitTokens: Int = 1_000_000,
+    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.AUTO
+) {
+    fun normalized(): AiConfig {
+        val normalizedProfiles = profiles
+            .map { it.normalized() }
+            .ifEmpty { listOf(legacyProfile()) }
+        val activeId = activeProfileId
+            .takeIf { id -> normalizedProfiles.any { it.id == id } }
+            ?: normalizedProfiles.first().id
+        return copy(
+            activeProfileId = activeId,
+            profiles = normalizedProfiles
+        )
+    }
+
+    fun activeProfile(): AiProviderProfile =
+        normalized().let { config ->
+            config.profiles.firstOrNull { it.id == config.activeProfileId }
+                ?: config.profiles.first()
+        }
+
+    private fun legacyProfile(): AiProviderProfile =
+        AiProviderProfile(
+            id = DEFAULT_AI_PROFILE_ID,
+            name = provider.displayName,
+            provider = provider,
+            baseUrl = baseUrl,
+            apiKey = apiKey,
+            model = model,
+            contextLimitTokens = contextLimitTokens,
+            reasoningEffort = reasoningEffort
+        ).normalized()
+}
+
+@Serializable
+data class AiProviderProfile(
+    val id: String = DEFAULT_AI_PROFILE_ID,
+    val name: String = "",
+    val provider: AiProvider = AiProvider.OPENAI,
+    val baseUrl: String = AiProvider.OPENAI.defaultBaseUrl,
+    val apiKey: String = "",
+    val model: String = "",
+    val contextLimitTokens: Int = 1_000_000,
+    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.AUTO
+) {
+    fun normalized(): AiProviderProfile =
+        copy(
+            id = id.trim().ifBlank { DEFAULT_AI_PROFILE_ID },
+            name = name.trim().ifBlank { provider.displayName },
+            baseUrl = if (provider == AiProvider.DEEPSEEK) {
+                AiProvider.DEEPSEEK.defaultBaseUrl
+            } else {
+                baseUrl.trim().ifBlank { provider.defaultBaseUrl }
+            },
+            apiKey = apiKey.trim(),
+            model = model.trim(),
+            contextLimitTokens = contextLimitTokens,
+            reasoningEffort = reasoningEffort.normalizedFor(provider)
+        )
+}
+
+const val DEFAULT_AI_PROFILE_ID = "default"
 
 @Serializable
 data class AppConfig(

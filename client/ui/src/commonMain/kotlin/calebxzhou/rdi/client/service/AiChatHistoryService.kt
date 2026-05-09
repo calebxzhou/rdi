@@ -35,6 +35,7 @@ data class AiChatSavedMessage(
     val contextCompressed: Boolean = false,
     val reasoningContent: String = "",
     val reasoningExpanded: Boolean = false,
+    val reasoningSegments: List<AiChatSavedReasoningSegment> = emptyList(),
     val toolStatuses: List<AiChatSavedToolStatus> = emptyList(),
     val promptTokens: Int? = null,
     val completionTokens: Int? = null,
@@ -47,9 +48,18 @@ data class AiChatSavedMessage(
 )
 
 @Serializable
+data class AiChatSavedReasoningSegment(
+    val content: String,
+    val contentOffset: Int = -1,
+    val startedAtMillis: Long? = null,
+    val finishedAtMillis: Long? = null
+)
+
+@Serializable
 data class AiChatSavedToolStatus(
     val action: String,
-    val target: String
+    val target: String,
+    val contentOffset: Int = -1
 )
 
 data class AiChatRecordSummary(

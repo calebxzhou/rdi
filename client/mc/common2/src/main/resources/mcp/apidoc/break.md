@@ -1,8 +1,10 @@
 ### `POST /break?x=10&y=64&z=-20`
 
-Use to break a loaded block using the player's current main hand item. The target position must be in the current dimension and less than 9 blocks from the player.
+Use to break a loaded block using the player's current main hand item. The target position must be in the current dimension, loaded, and within 32 blocks of the player.
 
 The server uses normal block breaking logic, so tool durability, harvest checks, drops, block break events, protection checks, and item break events follow Minecraft and NeoForge rules.
+
+After a successful break, pick up harvested drops by default unless the user explicitly says not to pick them up. Use `POST /entity/pickup-item?radius=64&limit=256`.
 
 Returns:
 
@@ -22,4 +24,13 @@ Returns:
   }
 }
 ```
+
+Errors:
+
+- `bad_pos`: `x`, `y`, or `z` is missing or is not an integer.
+- `no_player`: the local player is not in a loaded world.
+- `too_far`: target is outside the allowed interaction range.
+- `chunk_not_loaded`: target chunk is not loaded.
+- `no_block`: target position is air.
+- `break_failed`: Minecraft block breaking logic refused the action.
 

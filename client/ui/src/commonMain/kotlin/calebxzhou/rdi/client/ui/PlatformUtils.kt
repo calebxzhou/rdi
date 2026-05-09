@@ -90,7 +90,8 @@ expect suspend fun pickLocalDirectory(title: String): File?
 
 /**
  * Pick a Java executable path with a platform file dialog.
- * Desktop: opens a native chooser for java/java.exe/javaw.exe. Android: returns null.
+ * Desktop: opens a native chooser for java/java.exe/javaw.exe and normalizes to java.exe when possible.
+ * Android: returns null.
  */
 expect suspend fun pickJavaExecutable(title: String): String?
 
@@ -174,6 +175,12 @@ expect fun imageBitmapFromArgb(
  * Desktop: uses OperatingSystemMXBean. Android: returns 0.
  */
 expect fun getPlatformTotalPhysicalMemoryMb(): Int
+
+/**
+ * Normalize a Java installation path to the executable used by game launch.
+ * Desktop: accepts a Java home directory or java/java.exe/javaw.exe path. Android: returns input.
+ */
+expect fun normalizePlatformJavaPath(rawPath: String): String?
 
 /**
  * Validate a Java installation path (check executable + version).

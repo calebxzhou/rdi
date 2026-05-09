@@ -240,6 +240,9 @@ actual fun imageBitmapFromArgb(
 
 actual fun getPlatformTotalPhysicalMemoryMb(): Int = 0
 
+actual fun normalizePlatformJavaPath(rawPath: String): String? =
+    rawPath.trim().takeIf { it.isNotEmpty() }
+
 actual fun validatePlatformJavaPath(rawPath: String, expectedMajor: Int): Result<Unit> =
     Result.success(Unit) // Not applicable on Android
 

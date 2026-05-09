@@ -16,7 +16,10 @@ public record RMcpNearbyEntitiesData(
     public record EntityRef(String type, double distance) {
     }
 
-    public record Summary(int total, int monsters, int animals, EntityRef nearestMonster, EntityRef nearestAnimal) {
+    public record Summary(int total, int monsters, int animals, int items, EntityRef nearestMonster, EntityRef nearestAnimal, EntityRef nearestItem) {
+    }
+
+    public record Item(String snbt) {
     }
 
     public record Entity(
@@ -30,7 +33,8 @@ public record RMcpNearbyEntitiesData(
             Float health,
             Float maxHealth,
             boolean hostile,
-            Boolean baby
+            Boolean baby,
+            Item item
     ) {
     }
 }

@@ -6,11 +6,15 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpBlockBatchActionData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
-import calebxzhou.rdi.mc.common2.mcp.RMcpCraftingOpenData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpEndpointException;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHarvestToolData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
 import com.google.gson.Gson;
 import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
@@ -19,6 +23,7 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -37,16 +42,20 @@ public final class RMcpClientBridge {
         return requestServer("harvest-tool", new HarvestToolRequest(blockId, dim, x, y, z), RMcpHarvestToolData.class);
     }
 
-    public static RMcpCraftingOpenData requestOpenCrafting(int radius, boolean dryRun) {
-        return requestServer("open-crafting", new OpenCraftingRequest(radius, dryRun), RMcpCraftingOpenData.class);
-    }
-
     public static RMcpCraftData requestCraft(Map<String, Integer> slots, String shape, int outputSlot, int times, boolean dryRun) {
         return requestServer("craft", new CraftRequest(slots, shape, outputSlot, times, dryRun), RMcpCraftData.class);
     }
 
     public static RMcpContainerData requestContainer(String pos, String side) {
         return requestServer("container", new ContainerRequest(pos, side), RMcpContainerData.class);
+    }
+
+    public static RMcpMenuData requestMenu() {
+        return requestServer("menu", Map.of(), RMcpMenuData.class);
+    }
+
+    public static RMcpMenuDropData requestMenuDrop(int slot, int count, boolean dryRun) {
+        return requestServer("menu-drop", new MenuDropRequest(slot, count, dryRun), RMcpMenuDropData.class);
     }
 
     public static RMcpContainerMoveData requestContainerMove(String fromPos, String fromSide, int fromSlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun) {
@@ -62,12 +71,25 @@ public final class RMcpClientBridge {
         );
     }
 
-    public static RMcpBlockActionData requestPlaceBlock(int x, int y, int z) {
-        return requestServer("place-block", new BlockActionRequest(x, y, z), RMcpBlockActionData.class);
+    public static RMcpContainerPutData requestContainerPut(int fromInventorySlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun) {
+        return requestServer(
+                "container-put",
+                new ContainerPutRequest(
+                        fromInventorySlot,
+                        new ContainerEndpointRequest(toPos, toSide, toSlot),
+                        count,
+                        dryRun
+                ),
+                RMcpContainerPutData.class
+        );
+    }
+
+    public static RMcpBlockActionData requestPlaceBlock(int x, int y, int z, String face) {
+        return requestServer("place-block", new BlockActionRequest(x, y, z, face), RMcpBlockActionData.class);
     }
 
     public static RMcpBlockActionData requestBreakBlock(int x, int y, int z) {
-        return requestServer("break-block", new BlockActionRequest(x, y, z), RMcpBlockActionData.class);
+        return requestServer("break-block", new BlockActionRequest(x, y, z, null), RMcpBlockActionData.class);
     }
 
     public static RMcpBlockBatchActionData requestPlaceBlocks(List<RMcpBlockPosData> positions) {
@@ -84,6 +106,14 @@ public final class RMcpClientBridge {
 
     public static RMcpBlockBatchActionData requestBreakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to) {
         return requestServer("break-block-box", new BlockBoxActionRequest(from, to), RMcpBlockBatchActionData.class);
+    }
+
+    public static RMcpPlayerMoveData requestMovePlayer(double x, double y, double z) {
+        return requestServer("move-player", new PlayerMoveRequest(x, y, z), RMcpPlayerMoveData.class);
+    }
+
+    public static RMcpItemPickupData requestPickupItemEntities(List<UUID> ids, double radius, int limit) {
+        return requestServer("pickup-item-entity", new ItemPickupRequest(ids.stream().map(UUID::toString).toList(), radius, limit), RMcpItemPickupData.class);
     }
 
     private static <T> T requestServer(String action, Object request, Class<T> responseClass) {
@@ -122,22 +152,31 @@ public final class RMcpClientBridge {
     private record HarvestToolRequest(String blockId, String dim, Integer x, Integer y, Integer z) {
     }
 
-    private record OpenCraftingRequest(int radius, boolean dryRun) {
-    }
-
     private record CraftRequest(Map<String, Integer> slots, String shape, int outputSlot, int times, boolean dryRun) {
     }
 
     private record ContainerRequest(String pos, String side) {
     }
 
+    private record MenuDropRequest(int slot, int count, boolean dryRun) {
+    }
+
     private record ContainerMoveRequest(ContainerEndpointRequest from, ContainerEndpointRequest to, int count, boolean dryRun) {
+    }
+
+    private record ContainerPutRequest(int fromInventorySlot, ContainerEndpointRequest to, int count, boolean dryRun) {
     }
 
     private record ContainerEndpointRequest(String pos, String side, Integer slot) {
     }
 
-    private record BlockActionRequest(int x, int y, int z) {
+    private record BlockActionRequest(int x, int y, int z, String face) {
+    }
+
+    private record PlayerMoveRequest(double x, double y, double z) {
+    }
+
+    private record ItemPickupRequest(List<String> ids, double radius, int limit) {
     }
 
     private record BlockBatchActionRequest(List<RMcpBlockPosData> positions) {

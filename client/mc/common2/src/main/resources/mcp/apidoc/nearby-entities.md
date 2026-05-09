@@ -1,8 +1,8 @@
 ### `GET /nearby-entities?radius=64&category=monster,animal&limit=64`
 
-Use to discover nearby monsters and animals from the client-loaded entity set. This is a brief semantic scan. Use `/entity?uuid=...` afterwards only when full runtime or NBT details are needed.
+Use to discover nearby monsters, animals, and dropped item entities from the client-loaded entity set. This is a brief semantic scan. Use `/entity?uuid=...` afterwards only when full runtime or NBT details are needed.
 
-`pos` is optional and defaults to the local player's current block position. `radius` defaults to `64` and must be `0..128`. `limit` defaults to `64` and must be `1..128`. `category` is comma-separated; common values are `monster`, `animal`, or `all`.
+`pos` is optional and defaults to the local player's current block position. `radius` defaults to `64` and must be `0..128`. `limit` defaults to `64` and must be `1..128`. `category` is comma-separated; common values are `monster`, `animal`, `item`, or `all`.
 
 Prefer omitting `pos` when the scan should be centered on the player.
 
@@ -25,8 +25,10 @@ Returns:
       "total": 8,
       "monsters": 3,
       "animals": 5,
+      "items": 0,
       "nearestMonster": {"type": "minecraft:zombie", "distance": 12.4},
-      "nearestAnimal": {"type": "minecraft:cow", "distance": 7.1}
+      "nearestAnimal": {"type": "minecraft:cow", "distance": 7.1},
+      "nearestItem": null
     },
     "entities": [
       {
@@ -40,7 +42,24 @@ Returns:
         "health": 20.0,
         "maxHealth": 20.0,
         "hostile": true,
-        "baby": false
+        "baby": false,
+        "item": null
+      },
+      {
+        "dim": "minecraft:overworld",
+        "uuid": "11111111-1111-1111-1111-111111111111",
+        "type": "minecraft:item",
+        "name": "Iron Ingot",
+        "category": "item",
+        "pos": {},
+        "distance": 4.2,
+        "health": null,
+        "maxHealth": null,
+        "hostile": false,
+        "baby": null,
+        "item": {
+          "snbt": "{id:\"minecraft:iron_ingot\",count:3}"
+        }
       }
     ]
   }
@@ -48,6 +67,8 @@ Returns:
 ```
 
 Use `summary` for quick threat or animal availability answers. Use `entities[].uuid` with `/entity` only for a specific entity that needs detail.
+
+Use `POST /entity/pickup-item?radius=64&limit=256` to pick up nearby non-moving dropped items directly. Use `/nearby-entities?category=item&radius=64&limit=256` first only when you need to inspect `entities[].item.snbt` and select specific `entities[].uuid` values as `ids`. If pickup returns `moving_item_entity`, wait briefly or query again; moving item entities are intentionally refused by direct pickup.
 
 Errors:
 

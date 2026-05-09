@@ -3,8 +3,10 @@ package calebxzhou.rdi.client.service
 import calebxzhou.rdi.CONF
 import calebxzhou.rdi.client.AiConfig
 import calebxzhou.rdi.client.AiProvider
+import calebxzhou.rdi.client.AiProviderProfile
 import calebxzhou.rdi.client.AppConfig
 import calebxzhou.rdi.client.ui.getPlatformTotalPhysicalMemoryMb
+import calebxzhou.rdi.client.ui.normalizePlatformJavaPath
 import calebxzhou.rdi.client.ui.validatePlatformJavaPath
 import calebxzhou.rdi.common.ProxyConfig
 import calebxzhou.rdi.common.net.ktorClient
@@ -86,12 +88,35 @@ object SettingsService {
     fun validateJavaPath(rawPath: String, expectedMajor: Int): Result<Unit> =
         validatePlatformJavaPath(rawPath, expectedMajor)
 
-    fun validateAiSettings(provider: AiProvider, baseUrl: String, model: String): ValidationResult {
+    fun validateAiSettings(provider: AiProvider, baseUrl: String): ValidationResult {
         val normalizedBaseUrl = normalizeAiBaseUrl(provider, baseUrl)
         if (!normalizedBaseUrl.startsWith("http://") && !normalizedBaseUrl.startsWith("https://")) {
             return ValidationResult(false, "AI接口地址必须以http://或https://开头")
         }
         return ValidationResult(true)
+    }
+
+    fun validateAiProfile(profile: AiProviderProfile, active: Boolean): ValidationResult {
+        val normalizedProfile = profile.normalized()
+        validateAiSettings(
+            normalizedProfile.provider,
+            normalizedProfile.baseUrl
+        ).takeIf { !it.success }?.let { return it }
+        if (active) {
+            if (normalizedProfile.apiKey.isBlank()) {
+                return ValidationResult(false, "当前AI配置的API Key不能为空")
+            }
+            if (normalizedProfile.model.isBlank()) {
+                return ValidationResult(false, "当前AI配置的模型不能为空")
+            }
+        }
+        return validateAiContextLimit(normalizedProfile.contextLimitTokens.toString())
+    }
+
+    fun validateAiConfig(aiConfig: AiConfig, requireActiveProfile: Boolean = true): ValidationResult {
+        val normalizedConfig = aiConfig.normalized()
+        val activeProfile = normalizedConfig.activeProfile()
+        return validateAiProfile(activeProfile, active = requireActiveProfile)
     }
 
     fun validateAiContextLimit(contextLimitText: String): ValidationResult {
@@ -179,24 +204,22 @@ object SettingsService {
         proxyPortText: String,
         proxyUsr: String,
         proxyPwd: String,
-        aiProvider: AiProvider,
-        aiBaseUrl: String,
-        aiApiKey: String,
-        aiModel: String,
-        aiContextLimitText: String
+        aiConfig: AiConfig,
+        requireActiveAiProfile: Boolean = false
     ): Result<Unit> = runCatching {
+        fun normalizeJavaPath(rawPath: String, label: String): String? =
+            rawPath.trim().takeIf { it.isNotEmpty() }?.let { path ->
+                normalizePlatformJavaPath(path) ?: throw IllegalArgumentException("${label}路径无效")
+            }
+
         val memoryValue = maxMemoryText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
-        val jre25 = jre25Path.trim().takeIf { it.isNotEmpty() }
-        val jre21 = jre21Path.trim().takeIf { it.isNotEmpty() }
-        val jre8 = jre8Path.trim().takeIf { it.isNotEmpty() }
+        val jre25 = normalizeJavaPath(jre25Path, "Java25")
+        val jre21 = normalizeJavaPath(jre21Path, "Java21")
+        val jre8 = normalizeJavaPath(jre8Path, "Java8")
         val proxyPort = proxyPortText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
-        val normalizedAiBaseUrl = normalizeAiBaseUrl(aiProvider, aiBaseUrl)
-        val normalizedAiModel = aiModel.trim().ifBlank { "" }
-        val aiValidation = validateAiSettings(aiProvider, normalizedAiBaseUrl, normalizedAiModel)
+        val normalizedAiConfig = normalizeAiConfigForSave(aiConfig)
+        val aiValidation = validateAiConfig(normalizedAiConfig, requireActiveAiProfile)
         require(aiValidation.success) { aiValidation.errorMessage ?: "AI设置无效" }
-        val aiContextLimitValidation = validateAiContextLimit(aiContextLimitText)
-        require(aiContextLimitValidation.success) { aiContextLimitValidation.errorMessage ?: "AI上下文上限无效" }
-        val aiContextLimit = aiContextLimitText.trim().toInt()
 
         val config = AppConfig(
             preferModMirror = preferModMirror,
@@ -213,13 +236,7 @@ object SettingsService {
                 usr = proxyUsr.takeIf { it.isNotBlank() },
                 pwd = proxyPwd.takeIf { it.isNotBlank() }
             ),
-            aiConfig = AiConfig(
-                provider = aiProvider,
-                baseUrl = normalizedAiBaseUrl,
-                apiKey = aiApiKey.trim(),
-                model = normalizedAiModel,
-                contextLimitTokens = aiContextLimit
-            ),
+            aiConfig = normalizedAiConfig,
             pinyinName = CONF.pinyinName
         )
         AppConfig.save(config)
@@ -231,6 +248,19 @@ object SettingsService {
         } else {
             baseUrl.trim().ifBlank { provider.defaultBaseUrl }
         }
+
+    fun normalizeAiConfigForSave(aiConfig: AiConfig): AiConfig {
+        val normalized = aiConfig.normalized()
+        val activeProfile = normalized.activeProfile()
+        return normalized.copy(
+            provider = activeProfile.provider,
+            baseUrl = activeProfile.baseUrl,
+            apiKey = activeProfile.apiKey,
+            model = activeProfile.model,
+            contextLimitTokens = activeProfile.contextLimitTokens,
+            reasoningEffort = activeProfile.reasoningEffort
+        )
+    }
 
     @Serializable
     private data class AiModelsResponse(

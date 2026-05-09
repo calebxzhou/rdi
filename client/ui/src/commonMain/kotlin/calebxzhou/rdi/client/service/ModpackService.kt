@@ -11,6 +11,7 @@ import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.isDesktop
+import calebxzhou.rdi.client.ui.loadResourceStream
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.archive.PackArchiveFormat
 import calebxzhou.rdi.common.archive.detectArchiveFormat
@@ -357,6 +358,11 @@ object ModpackService {
             ctx.emit(Task2Progress("解压完成", 1f))
         }
 
+        val patchFancyMenuTask = Task2.Leaf("写入菜单") { ctx ->
+            patchFancyMenuOptions(versionDir)
+            ctx.emit(Task2Progress("写入完成", 1f))
+        }
+
         val copyModsTask = Task2.Leaf("复制mod文件") { ctx ->
             val modsDir = versionDir.resolve("mods").apply { mkdirs() }
             val modFiles = installableMods.map { mod ->
@@ -391,7 +397,15 @@ object ModpackService {
             }
             ctx.emit(Task2Progress("写入完成", 1f))
         }
-        return listOf(prepareVersionDirTask, extractTask, copyModsTask, writeOptionsTask)
+        return listOf(prepareVersionDirTask, extractTask, patchFancyMenuTask, copyModsTask, writeOptionsTask)
+    }
+
+    private fun patchFancyMenuOptions(versionDir: File) {
+        val optionsFile = versionDir.resolve("config/fancymenu/options.txt")
+        optionsFile.parentFile?.mkdirs()
+        loadResourceStream("overrides/fancymenu-options.txt").use { input ->
+            optionsFile.outputStream().use(input::copyTo)
+        }
     }
 
     fun writeOptions(versionDir: File, mcVersion: McVersion) {

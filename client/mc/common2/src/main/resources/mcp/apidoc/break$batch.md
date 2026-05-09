@@ -15,3 +15,5 @@ Request body:
 
 The response shape is the same as `/place/batch`, with `"action": "break"`.
 
+After a successful batch break, pick up harvested drops by default unless the user explicitly says not to pick them up. Use `POST /entity/pickup-item?radius=64&limit=256`.
+

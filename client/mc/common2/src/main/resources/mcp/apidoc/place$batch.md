@@ -1,6 +1,6 @@
 ### `POST /place/batch`
 
-Use to place the player's current main hand block item into multiple sparse target positions. Each target follows the same rules as `/place`: loaded, less than 9 blocks from the player, target block is air, and Minecraft server placement logic decides the final result.
+Use to place the player's current main hand block item into multiple sparse target positions. Each target follows the same rules as `/place`: loaded, within 32 blocks of the player, target block is air, and Minecraft server placement logic decides the final result.
 
 At most 512 positions are accepted per request. The action continues through per-position failures and reports each position separately.
 

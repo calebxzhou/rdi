@@ -4,6 +4,7 @@ import calebxzhou.rdi.mc.common2.rcmd.client.RcmdRecipeView;
 
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 public interface RMcpGameConnector {
@@ -11,15 +12,21 @@ public interface RMcpGameConnector {
 
     RMcpTestData testData();
 
+    List<String> modIds();
+
+    RMcpModData modData(String id);
+
     RMcpPosData posData();
 
     RMcpInventoryData inventoryData();
 
+    RMcpMenuData menuData();
+
+    RMcpMenuDropData dropMenuItem(int slot, int count, boolean dryRun);
+
     RMcpInventorySwapData swapInventorySlots(String from, String to, boolean dryRun);
 
     RMcpInventoryMoveData moveInventoryItems(String from, String to, int count, boolean dryRun);
-
-    RMcpCraftingOpenData openCrafting(int radius, boolean dryRun);
 
     RMcpCraftData craft(Map<String, Integer> slots, String shape, int outputSlot, int times, boolean dryRun);
 
@@ -27,9 +34,9 @@ public interface RMcpGameConnector {
 
     RMcpStaringBlockData staringBlockData(boolean includeFluid);
 
-    RMcpBlockStateData blockStateData(String dim, int x, int y, int z);
+    RMcpBlockStateData blockStateData(int x, int y, int z);
 
-    RMcpBlockStateBatchData blockStateBatchData(String dim, List<RMcpBlockPosData> positions);
+    RMcpBlockStateBatchData blockStateBatchData(List<RMcpBlockPosData> positions);
 
     RMcpBlockEntityData blockEntityData(String dim, int x, int y, int z);
 
@@ -37,9 +44,11 @@ public interface RMcpGameConnector {
 
     RMcpContainerData containerData(String pos, String side);
 
+    RMcpContainerPutData putInventoryItemIntoContainer(int fromInventorySlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun);
+
     RMcpContainerMoveData moveContainerItems(String fromPos, String fromSide, int fromSlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun);
 
-    RMcpBlockActionData placeBlock(int x, int y, int z);
+    RMcpBlockActionData placeBlock(int x, int y, int z, String face);
 
     RMcpBlockActionData breakBlock(int x, int y, int z);
 
@@ -51,9 +60,21 @@ public interface RMcpGameConnector {
 
     RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to);
 
+    RMcpPlayerMoveData movePlayer(double x, double y, double z);
+
+    RMcpItemPickupData pickupItemEntities(List<UUID> ids, double radius, int limit);
+
     RMcpChunkSemanticData chunkData(int chunkX, int chunkZ);
 
     RMcpSectionSemanticData sectionData(int chunkX, int sectionY, int chunkZ);
+
+    RMcpBlockMapData blockMapSliceData(Integer x, Integer y, Integer z, int radius);
+
+    RMcpBlockMapData blockMapWalkableData(Integer x, Integer y, Integer z, int radius);
+
+    RMcpTerrainProfileData terrainProfileData(String axis, Integer x, Integer y, Integer z, int length, int verticalRadius);
+
+    RMcpBlocksFindData blocksFindData(RMcpBlocksFindRequest request);
 
     RMcpNearbyResourcesData nearbyResourcesData(String dim, int x, int y, int z, int chunkRadius, int sectionRadius);
 
@@ -61,13 +82,13 @@ public interface RMcpGameConnector {
 
     RMcpEntityData staringEntityData();
 
-    RMcpEntityDetailData entityData(java.util.UUID uuid);
+    RMcpEntityDetailData entityData(UUID uuid);
 
     RMcpLangKeyIndex langKeyIndex();
 
-    RMcpPlayerData playerData(java.util.UUID uuid);
+    RMcpPlayerData playerData(UUID uuid);
 
-    RMcpPlayerDetailData playerDetailData(java.util.UUID uuid);
+    RMcpPlayerDetailData playerDetailData(UUID uuid);
 
     Map<String, Object> mainHandItemData();
 

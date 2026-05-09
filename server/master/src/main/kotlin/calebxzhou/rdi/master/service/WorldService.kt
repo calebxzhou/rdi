@@ -7,6 +7,7 @@ import calebxzhou.rdi.common.model.PalettedContainer
 import calebxzhou.rdi.common.model.RegionSurfaceMap
 import calebxzhou.rdi.common.model.World
 import calebxzhou.rdi.common.model.RAccount
+import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.master.net.*
 import calebxzhou.rdi.master.service.WorldService.createWorld
 import calebxzhou.mykotutils.log.Loggers
@@ -19,6 +20,7 @@ import calebxzhou.rdi.common.model.world.RChunkPos
 import calebxzhou.rdi.common.util.ioScope
 import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.master.WORLDS_DIR
+import calebxzhou.rdi.master.service.HostService.status
 import calebxzhou.rdi.master.service.WorldService.getDimensions
 import calebxzhou.rdi.master.service.WorldService.readSurfaceCacheOnly
 import calebxzhou.rdi.master.service.WorldService.startSurfaceCacheBuild
@@ -77,6 +79,10 @@ fun Route.worldRoutes() = route("/world") {
         post("/surface/build"){
             val msg = call.world().startSurfaceCacheBuild(uid)
             ok(msg)
+        }
+        post("/reset"){
+            WorldService.reset(uid, idPathParam("worldId"))
+            ok()
         }
         get("/surface/{dimension}") {
             val dimension = call.pathParam("dimension")
@@ -225,6 +231,25 @@ object WorldService {
         sourceDir.copyRecursively(newWorld.dir, overwrite = true)
         dbcl.insertOne(newWorld)
         return newWorld
+    }
+
+    suspend fun reset(uid: ObjectId, worldId: ObjectId) {
+        val world = getById(worldId) ?: throw RequestError("存档不存在")
+        if (world.ownerId != uid) throw RequestError("无权限")
+        if (worldSurfaceBuildInProgress.contains(worldId.toHexString())) {
+            throw RequestError("地图缓存正在构建中，请稍后再重置存档")
+        }
+        HostService.findByWorld(worldId)?.let { host ->
+            if (host.status != HostStatus.STOPPED) {
+                throw RequestError("请先停止主机“${host.name}”再重置存档")
+            }
+        }
+        val dataDir = world.dir.resolve("data")
+        if (dataDir.exists()) {
+            dataDir.deleteRecursivelyNoSymlink()
+        }
+        worldSurfaceCol.deleteMany(eq("worldId", worldId))
+        updateWorldSize(worldId)
     }
 
     suspend fun delete(uid: ObjectId, worldId: ObjectId) {

@@ -2,6 +2,8 @@ package calebxzhou.rdi.mc.common2.mcp;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import calebxzhou.rdi.mc.common2.schem.SchemLegacyBlockMap;
+import calebxzhou.rdi.mc.common2.schem.SchemReader;
 import io.fusionauth.http.HTTPMethod;
 import io.fusionauth.http.server.HTTPListenerConfiguration;
 import io.fusionauth.http.server.HTTPRequest;
@@ -21,6 +23,8 @@ import java.util.function.BiConsumer;
 
 public final class RMHttpServer {
     private static final int BLOCK_BATCH_LIMIT = 512;
+    private static final int ITEM_PICKUP_LIMIT = 2048;
+    private static final char[] BUILDING_SYMBOLS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-/:;<=>?@[]^_{|}~".toCharArray();
     private static final Gson GSON = new GsonBuilder().create();
     private static HTTPServer server;
     private static RMcpGameConnector connector;
@@ -36,17 +40,25 @@ public final class RMHttpServer {
             LIST = List.of(
                     get("/", RMHttpServer::handlePrompts),
                     get("/prompts", RMHttpServer::handlePrompts),
+                    get("/buildings", RMHttpServer::handleBuildings),
+                    getPrefix("/buildings/", RMHttpServer::handleBuilding),
                     getPrefix("/apidoc/", RMHttpServer::handleApiDoc),
                     getPrefix("/errcode/", RMHttpServer::handleErrCode),
                     get("/test", RMHttpServer::handleTest),
+                    get("/mods", RMHttpServer::handleMods),
                     get("/pos", RMHttpServer::handlePos),
                     get("/inventory", RMHttpServer::handleInventory),
+                    get("/menu", RMHttpServer::handleMenu),
                     get("/situation", RMHttpServer::handleSituation),
                     get("/mainhand", RMHttpServer::handleMainHand),
                     get("/screenshot", RMHttpServer::handleScreenshot),
                     get("/recipe", RMHttpServer::handleRecipe),
                     get("/chunk", RMHttpServer::handleChunk),
                     get("/section", RMHttpServer::handleSection),
+                    get("/blockmap/slice", RMHttpServer::handleBlockMapSlice),
+                    get("/blockmap/walkable", RMHttpServer::handleBlockMapWalkable),
+                    get("/terrain/profile", RMHttpServer::handleTerrainProfile),
+                    post("/blocks/find", RMHttpServer::handleBlocksFind),
                     get("/nearby-resources", RMHttpServer::handleNearbyResources),
                     get("/nearby-entities", RMHttpServer::handleNearbyEntities),
                     get("/staring-block", RMHttpServer::handleStaringBlock),
@@ -62,9 +74,12 @@ public final class RMHttpServer {
                     get("/langkey-search", RMHttpServer::handleLangKeySearch),
                     post("/inventory/swap", RMHttpServer::handleInventorySwap),
                     post("/inventory/move", RMHttpServer::handleInventoryMove),
-                    post("/crafting/open", RMHttpServer::handleCraftingOpen),
+                    post("/menu/drop", RMHttpServer::handleMenuDrop),
                     post("/craft", RMHttpServer::handleCraft),
+                    post("/container/put", RMHttpServer::handleContainerPut),
                     post("/container/move", RMHttpServer::handleContainerMove),
+                    post("/move", RMHttpServer::handleMove),
+                    post("/entity/pickup-item", RMHttpServer::handleEntityPickupItem),
                     post("/place", RMHttpServer::handlePlace),
                     post("/break", RMHttpServer::handleBreak),
                     post("/place/batch", RMHttpServer::handlePlaceBatch),
@@ -136,6 +151,29 @@ public final class RMHttpServer {
         }
     }
 
+    private static void handleMods(HTTPRequest request, HTTPResponse response) {
+        var id = request.getURLParameter("id");
+        try {
+            if (id == null) {
+                ok(response, connector.modIds());
+                return;
+            }
+            id = id.trim();
+            if (id.isEmpty() || id.contains("/") || id.contains("\\") || id.contains(" ") || id.contains("`")) {
+                err400(response, RErrorCode.BAD_MOD_ID);
+                return;
+            }
+            var mod = connector.modData(id);
+            if (mod == null) {
+                err400(response, RErrorCode.NO_MOD);
+                return;
+            }
+            ok(response, mod);
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
     private static void handlePrompts(HTTPRequest request, HTTPResponse response) {
         var doc = readApiDoc();
         if (doc == null) {
@@ -143,6 +181,46 @@ public final class RMHttpServer {
             return;
         }
         writeMarkdown(response, doc);
+    }
+
+    private static void handleBuildings(HTTPRequest request, HTTPResponse response) {
+        var doc = readResourceText("mcp/buildings/index.md");
+        if (doc == null) {
+            err400(response, RErrorCode.BUILDINGS_NOT_FOUND);
+            return;
+        }
+        writeMarkdown(response, doc);
+    }
+
+    private static void handleBuilding(HTTPRequest request, HTTPResponse response) {
+        var prefix = "/buildings/";
+        var path = request.getPath();
+        if (path.length() <= prefix.length()) {
+            err400(response, RErrorCode.BAD_BUILDING_ID);
+            return;
+        }
+        var id = URLDecoder.decode(path.substring(prefix.length()), StandardCharsets.UTF_8).trim();
+        if (!isValidBuildingId(id)) {
+            err400(response, RErrorCode.BAD_BUILDING_ID);
+            return;
+        }
+        var resource = "mcp/buildings/" + id + ".schem";
+        try (var input = RMHttpServer.class.getClassLoader().getResourceAsStream(resource)) {
+            if (input == null) {
+                err400(response, RErrorCode.UNKNOWN_BUILDING);
+                return;
+            }
+            var schematic = SchemReader.read(input);
+            var layer = readBuildingLayer(request, schematic);
+            if (layer == null && request.getURLParameter("layer") != null) {
+                err400(response, RErrorCode.BAD_BUILDING_LAYER);
+                return;
+            }
+            writeMarkdown(response, describeBuilding(id, schematic, layer));
+        } catch (Exception e) {
+            e.printStackTrace();
+            err400(response, RErrorCode.BAD_BUILDING_SCHEMATIC);
+        }
     }
 
     private static void handleErrCode(HTTPRequest request, HTTPResponse response) {
@@ -245,6 +323,57 @@ public final class RMHttpServer {
         }
     }
 
+    private static void handleMenu(HTTPRequest request, HTTPResponse response) {
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.menuData());
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleMenuDrop(HTTPRequest request, HTTPResponse response) {
+        var dropRequest = readMenuDropRequest(request);
+        if (dropRequest == null || dropRequest.slot() == null || dropRequest.count() == null || dropRequest.count() <= 0) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.dropMenuItem(dropRequest.slot(), dropRequest.count(), dropRequest.dryRun()));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static MenuDropRequest readMenuDropRequest(HTTPRequest request) {
+        try {
+            if (request.hasBody()) {
+                var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+                if (!body.isBlank()) {
+                    return GSON.fromJson(body, MenuDropRequest.class);
+                }
+            }
+            return new MenuDropRequest(
+                    Integer.parseInt(String.valueOf(request.getURLParameter("slot"))),
+                    Integer.parseInt(String.valueOf(request.getURLParameter("count"))),
+                    Boolean.parseBoolean(String.valueOf(request.getURLParameter("dryRun")))
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static void handleInventorySwap(HTTPRequest request, HTTPResponse response) {
         var swapRequest = readInventorySwapRequest(request);
         if (swapRequest == null || swapRequest.from() == null || swapRequest.from().isBlank() || swapRequest.to() == null || swapRequest.to().isBlank()) {
@@ -320,52 +449,6 @@ public final class RMHttpServer {
         }
     }
 
-    private static void handleCraftingOpen(HTTPRequest request, HTTPResponse response) {
-        var openRequest = readCraftingOpenRequest(request);
-        if (openRequest == null) {
-            err400(response, RErrorCode.BAD_REQUEST);
-            return;
-        }
-        if (openRequest.radius() < 0 || openRequest.radius() > 8) {
-            err400(response, RErrorCode.BAD_CRAFTING_RADIUS);
-            return;
-        }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.openCrafting(openRequest.radius(), openRequest.dryRun()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
-    }
-
-    private static CraftingOpenRequest readCraftingOpenRequest(HTTPRequest request) {
-        try {
-            if (request.hasBody()) {
-                var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
-                if (!body.isBlank()) {
-                    var parsed = GSON.fromJson(body, CraftingOpenRequest.class);
-                    if (parsed == null) {
-                        return null;
-                    }
-                    return new CraftingOpenRequest(parsed.radius() == null ? 4 : parsed.radius(), parsed.dryRun());
-                }
-            }
-            var radiusText = request.getURLParameter("radius");
-            var radius = radiusText == null || radiusText.isBlank() ? 4 : Integer.parseInt(radiusText.trim());
-            return new CraftingOpenRequest(
-                    radius,
-                    Boolean.parseBoolean(String.valueOf(request.getURLParameter("dryRun")))
-            );
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
     private static void handleCraft(HTTPRequest request, HTTPResponse response) {
         var craftRequest = readCraftRequest(request);
         if (craftRequest == null) {
@@ -426,11 +509,147 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            ok(response, connector.placeBlock(pos.x(), pos.y(), pos.z()));
+            ok(response, connector.placeBlock(pos.x(), pos.y(), pos.z(), pos.face()));
         } catch (RMcpEndpointException e) {
             err400(response, e.code());
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleMove(HTTPRequest request, HTTPResponse response) {
+        var pos = readPlayerMoveRequest(request);
+        if (pos == null) {
+            err400(response, RErrorCode.BAD_POS);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.movePlayer(pos.x(), pos.y(), pos.z()));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleEntityPickupItem(HTTPRequest request, HTTPResponse response) {
+        var pickup = readItemPickupRequest(request);
+        if (pickup.error() != null) {
+            err400(response, pickup.error());
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.pickupItemEntities(pickup.ids(), pickup.radius(), pickup.limit()));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static ItemPickupParams readItemPickupRequest(HTTPRequest request) {
+        try {
+            List<String> texts = null;
+            Double radius = null;
+            Integer limit = null;
+            if (request.hasBody()) {
+                var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+                if (!body.isBlank()) {
+                    var parsed = GSON.fromJson(body, ItemPickupRequest.class);
+                    if (parsed != null) {
+                        texts = parsed.ids();
+                        radius = parsed.radius();
+                        limit = parsed.limit();
+                    }
+                }
+            }
+            var idsText = request.getURLParameter("ids");
+            if (idsText != null && !idsText.isBlank()) {
+                texts = Arrays.asList(idsText.split(","));
+            }
+            var radiusText = request.getURLParameter("radius");
+            if (radiusText != null && !radiusText.isBlank()) {
+                try {
+                    radius = Double.parseDouble(radiusText.trim());
+                } catch (NumberFormatException e) {
+                    return ItemPickupParams.error(RErrorCode.BAD_RADIUS);
+                }
+            }
+            var limitText = request.getURLParameter("limit");
+            if (limitText != null && !limitText.isBlank()) {
+                try {
+                    limit = Integer.parseInt(limitText.trim());
+                } catch (NumberFormatException e) {
+                    return ItemPickupParams.error(RErrorCode.BAD_LIMIT);
+                }
+            }
+            radius = radius == null ? 64.0D : radius;
+            limit = limit == null ? 256 : limit;
+            if (!Double.isFinite(radius) || radius < 1.0D || radius > 64.0D) {
+                return ItemPickupParams.error(RErrorCode.BAD_RADIUS);
+            }
+            if (limit < 0 || limit > ITEM_PICKUP_LIMIT) {
+                return ItemPickupParams.error(RErrorCode.BAD_LIMIT);
+            }
+            var ids = new ArrayList<UUID>();
+            if (texts != null) {
+                if (texts.size() > ITEM_PICKUP_LIMIT) {
+                    return ItemPickupParams.error(RErrorCode.BAD_IDS);
+                }
+                for (var text : texts) {
+                    if (text == null || text.isBlank()) {
+                        return ItemPickupParams.error(RErrorCode.BAD_IDS);
+                    }
+                    var id = UUID.fromString(text.trim());
+                    if (!ids.contains(id)) {
+                        ids.add(id);
+                    }
+                }
+            }
+            return new ItemPickupParams(List.copyOf(ids), radius, limit, null);
+        } catch (Exception e) {
+            return ItemPickupParams.error(RErrorCode.BAD_IDS);
+        }
+    }
+
+    private static PlayerMoveRequest readPlayerMoveRequest(HTTPRequest request) {
+        try {
+            PlayerMoveRequest move = null;
+            var xText = request.getURLParameter("x");
+            var yText = request.getURLParameter("y");
+            var zText = request.getURLParameter("z");
+            if (xText != null || yText != null || zText != null) {
+                move = new PlayerMoveRequest(
+                        Double.parseDouble(String.valueOf(xText)),
+                        Double.parseDouble(String.valueOf(yText)),
+                        Double.parseDouble(String.valueOf(zText))
+                );
+            } else if (request.hasBody()) {
+                var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+                if (!body.isBlank()) {
+                    move = GSON.fromJson(body, PlayerMoveRequest.class);
+                }
+            }
+            if (move == null || move.x() == null || move.y() == null || move.z() == null) {
+                return null;
+            }
+            var x = move.x();
+            var y = move.y();
+            var z = move.z();
+            if (!Double.isFinite(x) || !Double.isFinite(y) || !Double.isFinite(z)) {
+                return null;
+            }
+            return new PlayerMoveRequest(x, y, z);
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -458,7 +677,8 @@ public final class RMHttpServer {
             return new BlockActionRequest(
                     Integer.parseInt(String.valueOf(request.getURLParameter("x"))),
                     Integer.parseInt(String.valueOf(request.getURLParameter("y"))),
-                    Integer.parseInt(String.valueOf(request.getURLParameter("z")))
+                    Integer.parseInt(String.valueOf(request.getURLParameter("z"))),
+                    request.getURLParameter("face")
             );
         } catch (Exception e) {
             return null;
@@ -656,6 +876,40 @@ public final class RMHttpServer {
         }
     }
 
+    private static void handleContainerPut(HTTPRequest request, HTTPResponse response) {
+        var putRequest = readContainerPutRequest(request);
+        if (putRequest == null || putRequest.to() == null || putRequest.fromInventorySlot() == null) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (putRequest.to().pos() == null || putRequest.to().pos().isBlank()) {
+            err400(response, RErrorCode.MISSING_POS);
+            return;
+        }
+        if (putRequest.count() <= 0) {
+            err400(response, RErrorCode.BAD_COUNT);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.putInventoryItemIntoContainer(
+                    putRequest.fromInventorySlot(),
+                    putRequest.to().pos().trim(),
+                    putRequest.to().side(),
+                    putRequest.to().slot(),
+                    putRequest.count(),
+                    putRequest.dryRun()
+            ));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
     private static ContainerMoveRequest readContainerMoveRequest(HTTPRequest request) {
         try {
             if (request.hasBody()) {
@@ -670,6 +924,29 @@ public final class RMHttpServer {
                             request.getURLParameter("fromSide"),
                             Integer.parseInt(String.valueOf(request.getURLParameter("fromSlot")))
                     ),
+                    new ContainerEndpointRequest(
+                            request.getURLParameter("toPos"),
+                            request.getURLParameter("toSide"),
+                            request.getURLParameter("toSlot") == null || request.getURLParameter("toSlot").isBlank() ? null : Integer.parseInt(request.getURLParameter("toSlot").trim())
+                    ),
+                    Integer.parseInt(String.valueOf(request.getURLParameter("count"))),
+                    Boolean.parseBoolean(String.valueOf(request.getURLParameter("dryRun")))
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static ContainerPutRequest readContainerPutRequest(HTTPRequest request) {
+        try {
+            if (request.hasBody()) {
+                var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+                if (!body.isBlank()) {
+                    return GSON.fromJson(body, ContainerPutRequest.class);
+                }
+            }
+            return new ContainerPutRequest(
+                    Integer.parseInt(String.valueOf(request.getURLParameter("fromInventorySlot"))),
                     new ContainerEndpointRequest(
                             request.getURLParameter("toPos"),
                             request.getURLParameter("toSide"),
@@ -811,6 +1088,263 @@ public final class RMHttpServer {
         }
     }
 
+    private static void handleBlockMapSlice(HTTPRequest request, HTTPResponse response) {
+        var mapRequest = readBlockMapRequest(request, response);
+        if (mapRequest == null) {
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.blockMapSliceData(mapRequest.x(), mapRequest.y(), mapRequest.z(), mapRequest.radius()));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleBlockMapWalkable(HTTPRequest request, HTTPResponse response) {
+        var mapRequest = readBlockMapRequest(request, response);
+        if (mapRequest == null) {
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.blockMapWalkableData(mapRequest.x(), mapRequest.y(), mapRequest.z(), mapRequest.radius()));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleTerrainProfile(HTTPRequest request, HTTPResponse response) {
+        var profileRequest = readTerrainProfileRequest(request, response);
+        if (profileRequest == null) {
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.terrainProfileData(
+                    profileRequest.axis(),
+                    profileRequest.x(),
+                    profileRequest.y(),
+                    profileRequest.z(),
+                    profileRequest.length(),
+                    profileRequest.verticalRadius()
+            ));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static TerrainProfileRequest readTerrainProfileRequest(HTTPRequest request, HTTPResponse response) {
+        var axis = request.getURLParameter("axis");
+        if (axis == null || axis.isBlank()) {
+            err400(response, RErrorCode.BAD_AXIS);
+            return null;
+        }
+        axis = axis.trim().toLowerCase(Locale.ROOT);
+        if (!"x".equals(axis) && !"z".equals(axis)) {
+            err400(response, RErrorCode.BAD_AXIS);
+            return null;
+        }
+        var length = readOptionalIntParam(request, response, "length", 17, RErrorCode.BAD_TERRAIN_LENGTH);
+        if (length == null) {
+            return null;
+        }
+        if (length < 1 || length > 33 || length % 2 == 0) {
+            err400(response, RErrorCode.BAD_TERRAIN_LENGTH);
+            return null;
+        }
+        var verticalRadius = readOptionalIntParam(request, response, "verticalRadius", 16, RErrorCode.BAD_VERTICAL_RADIUS);
+        if (verticalRadius == null) {
+            return null;
+        }
+        if (verticalRadius < 1 || verticalRadius > 64) {
+            err400(response, RErrorCode.BAD_VERTICAL_RADIUS);
+            return null;
+        }
+        var xText = request.getURLParameter("x");
+        var yText = request.getURLParameter("y");
+        var zText = request.getURLParameter("z");
+        var anyPos = (xText != null && !xText.isBlank()) || (yText != null && !yText.isBlank()) || (zText != null && !zText.isBlank());
+        if (!anyPos) {
+            return new TerrainProfileRequest(axis, null, null, null, length, verticalRadius);
+        }
+        if (xText == null || xText.isBlank() || yText == null || yText.isBlank() || zText == null || zText.isBlank()) {
+            err400(response, RErrorCode.BAD_POS);
+            return null;
+        }
+        try {
+            return new TerrainProfileRequest(
+                    axis,
+                    Integer.parseInt(xText.trim()),
+                    Integer.parseInt(yText.trim()),
+                    Integer.parseInt(zText.trim()),
+                    length,
+                    verticalRadius
+            );
+        } catch (NumberFormatException e) {
+            err400(response, RErrorCode.BAD_POS);
+            return null;
+        }
+    }
+
+    private static BlockMapRequest readBlockMapRequest(HTTPRequest request, HTTPResponse response) {
+        var radius = readOptionalIntParam(request, response, "radius", 8, RErrorCode.BAD_BLOCKMAP_RADIUS);
+        if (radius == null) {
+            return null;
+        }
+        if (radius < 0 || radius > 16) {
+            err400(response, RErrorCode.BAD_BLOCKMAP_RADIUS);
+            return null;
+        }
+        var xText = request.getURLParameter("x");
+        var yText = request.getURLParameter("y");
+        var zText = request.getURLParameter("z");
+        var anyPos = (xText != null && !xText.isBlank()) || (yText != null && !yText.isBlank()) || (zText != null && !zText.isBlank());
+        if (!anyPos) {
+            return new BlockMapRequest(null, null, null, radius);
+        }
+        if (xText == null || xText.isBlank() || yText == null || yText.isBlank() || zText == null || zText.isBlank()) {
+            err400(response, RErrorCode.BAD_POS);
+            return null;
+        }
+        try {
+            return new BlockMapRequest(
+                    Integer.parseInt(xText.trim()),
+                    Integer.parseInt(yText.trim()),
+                    Integer.parseInt(zText.trim()),
+                    radius
+            );
+        } catch (NumberFormatException e) {
+            err400(response, RErrorCode.BAD_POS);
+            return null;
+        }
+    }
+
+    private static void handleBlocksFind(HTTPRequest request, HTTPResponse response) {
+        var findRequest = readBlocksFindRequest(request);
+        if (findRequest == null) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        var ids = normalizedBlockIds(findRequest.id(), findRequest.ids());
+        if (ids == null) {
+            err400(response, RErrorCode.BAD_BLOCK_IDS);
+            return;
+        }
+        var chunkRadius = findRequest.chunkRadius() == null ? 2 : findRequest.chunkRadius();
+        if (chunkRadius < 0 || chunkRadius > 4) {
+            err400(response, RErrorCode.BAD_CHUNK_RADIUS);
+            return;
+        }
+        var sectionRadius = findRequest.sectionRadius() == null ? 1 : findRequest.sectionRadius();
+        if (sectionRadius < 0 || sectionRadius > 4) {
+            err400(response, RErrorCode.BAD_SECTION_RADIUS);
+            return;
+        }
+        var limit = findRequest.limit() == null ? 64 : findRequest.limit();
+        if (limit < 1 || limit > BLOCK_BATCH_LIMIT) {
+            err400(response, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.blocksFindData(new RMcpBlocksFindRequest(null, ids, chunkRadius, sectionRadius, limit, findRequest.includeState())));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static RMcpBlocksFindRequest readBlocksFindRequest(HTTPRequest request) {
+        try {
+            if (!request.hasBody()) {
+                return null;
+            }
+            var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+            if (body.isBlank()) {
+                return null;
+            }
+            return GSON.fromJson(body, RMcpBlocksFindRequest.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static List<String> normalizedBlockIds(String id, List<String> ids) {
+        var normalized = new ArrayList<String>();
+        if (id != null && !id.isBlank()) {
+            var text = id.trim();
+            if (!isValidResourceId(text)) {
+                return null;
+            }
+            normalized.add(text);
+        }
+        if (ids == null) {
+            return normalized.isEmpty() ? null : List.copyOf(normalized);
+        }
+        for (var _id : ids) {
+            if (_id == null) {
+                return null;
+            }
+            var text = _id.trim();
+            if (!isValidResourceId(text)) {
+                return null;
+            }
+            if (!normalized.contains(text)) {
+                normalized.add(text);
+                if (normalized.size() > 16) {
+                    return null;
+                }
+            }
+        }
+        return normalized.isEmpty() ? null : List.copyOf(normalized);
+    }
+
+    private static boolean isValidResourceId(String id) {
+        var separator = id.indexOf(':');
+        if (separator <= 0 || separator == id.length() - 1 || id.indexOf(':', separator + 1) >= 0) {
+            return false;
+        }
+        for (int i = 0; i < separator; i++) {
+            if (!isValidNamespaceChar(id.charAt(i))) {
+                return false;
+            }
+        }
+        for (int i = separator + 1; i < id.length(); i++) {
+            if (!isValidPathChar(id.charAt(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean isValidNamespaceChar(char ch) {
+        return ch >= 'a' && ch <= 'z' || ch >= '0' && ch <= '9' || ch == '_' || ch == '-' || ch == '.';
+    }
+
+    private static boolean isValidPathChar(char ch) {
+        return isValidNamespaceChar(ch) || ch == '/';
+    }
+
     private static Integer readIntParam(HTTPRequest request, HTTPResponse response, String name, RErrorCode missingCode, RErrorCode badCode) {
         var text = request.getURLParameter(name);
         if (text == null || text.isBlank()) {
@@ -920,7 +1454,7 @@ public final class RMHttpServer {
         if (limit == null) {
             return;
         }
-        if (limit < 1 || limit > 128) {
+        if (limit < 1 || limit > 1024) {
             err400(response, RErrorCode.BAD_LIMIT);
             return;
         }
@@ -986,7 +1520,7 @@ public final class RMHttpServer {
     }
 
     private static void handleBlockState(HTTPRequest request, HTTPResponse response) {
-        var pos = readPos(request, response);
+        var pos = readXyzRequest(request, response);
         if (pos == null) {
             return;
         }
@@ -995,16 +1529,7 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            var playerPos = connector.posData();
-            if (playerPos == null) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            if (!playerPos.dim().equals(pos.dim())) {
-                err400(response, RErrorCode.DIM_NOT_LOADED);
-                return;
-            }
-            ok(response, connector.blockStateData(pos.dim(), pos.x(), pos.y(), pos.z()));
+            ok(response, connector.blockStateData(pos.x(), pos.y(), pos.z()));
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
         }
@@ -1013,6 +1538,10 @@ public final class RMHttpServer {
     private static void handleBlockStateBatch(HTTPRequest request, HTTPResponse response) {
         var batch = readBlockStateBatchRequest(request);
         if (batch == null || batch.positions() == null || batch.positions().isEmpty()) {
+            err400(response, RErrorCode.BAD_POSITIONS);
+            return;
+        }
+        if (batch.positions().stream().anyMatch(Objects::isNull)) {
             err400(response, RErrorCode.BAD_POSITIONS);
             return;
         }
@@ -1025,17 +1554,7 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            var playerPos = connector.posData();
-            if (playerPos == null) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            var dim = batch.dim() == null || batch.dim().isBlank() ? playerPos.dim() : batch.dim().trim();
-            if (!playerPos.dim().equals(dim)) {
-                err400(response, RErrorCode.DIM_NOT_LOADED);
-                return;
-            }
-            ok(response, connector.blockStateBatchData(dim, batch.positions()));
+            ok(response, connector.blockStateBatchData(batch.positions()));
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
         }
@@ -1052,6 +1571,27 @@ public final class RMHttpServer {
             }
             return GSON.fromJson(body, BlockStateBatchRequest.class);
         } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static BlockActionRequest readXyzRequest(HTTPRequest request, HTTPResponse response) {
+        var xText = request.getURLParameter("x");
+        var yText = request.getURLParameter("y");
+        var zText = request.getURLParameter("z");
+        if (xText == null || xText.isBlank() || yText == null || yText.isBlank() || zText == null || zText.isBlank()) {
+            err400(response, RErrorCode.MISSING_POS);
+            return null;
+        }
+        try {
+            return new BlockActionRequest(
+                    Integer.parseInt(xText.trim()),
+                    Integer.parseInt(yText.trim()),
+                    Integer.parseInt(zText.trim()),
+                    null
+            );
+        } catch (NumberFormatException e) {
+            err400(response, RErrorCode.BAD_POS);
             return null;
         }
     }
@@ -1303,6 +1843,125 @@ public final class RMHttpServer {
         }
     }
 
+    private static boolean isValidBuildingId(String id) {
+        if (id == null || id.isBlank()) {
+            return false;
+        }
+        for (int i = 0; i < id.length(); i++) {
+            var ch = id.charAt(i);
+            if (!((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-')) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Integer readBuildingLayer(HTTPRequest request, SchemReader.Schematic schematic) {
+        var layerText = request.getURLParameter("layer");
+        if (layerText == null) {
+            return null;
+        }
+        try {
+            var layer = Integer.parseInt(layerText.trim());
+            return layer >= 0 && layer < schematic.height() ? layer : null;
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private static String describeBuilding(String id, SchemReader.Schematic schematic, Integer layer) {
+        var counts = new LinkedHashMap<BuildingBlockKey, Integer>();
+        var nonAirBlocks = 0;
+        for (var block : schematic.blocks()) {
+            if (block.blockId() == 0) {
+                continue;
+            }
+            nonAirBlocks++;
+            counts.merge(new BuildingBlockKey(block.blockId(), block.data()), 1, Integer::sum);
+        }
+        var palette = new ArrayList<>(counts.entrySet());
+        palette.sort(Comparator
+                .<Map.Entry<BuildingBlockKey, Integer>>comparingInt(entry -> entry.getValue()).reversed()
+                .thenComparingInt(entry -> entry.getKey().blockId())
+                .thenComparingInt(entry -> entry.getKey().data()));
+
+        var symbols = new LinkedHashMap<BuildingBlockKey, Character>();
+        for (int i = 0; i < palette.size() && i < BUILDING_SYMBOLS.length; i++) {
+            symbols.put(palette.get(i).getKey(), BUILDING_SYMBOLS[i]);
+        }
+
+        var markdown = new StringBuilder();
+        if (layer != null) {
+            markdown.append("# Building Layer: ").append(id).append(" y=").append(layer).append("\n\n");
+            markdown.append("Each row is z. Each character is x. `.` means air. Read this layer carefully before placing blocks. Use the palette from `GET /buildings/")
+                    .append(id)
+                    .append("` without `layer`.\n\n");
+            markdown.append("```text\n");
+            for (int z = 0; z < schematic.length(); z++) {
+                appendBuildingLayerRow(markdown, schematic, symbols, layer, z);
+            }
+            markdown.append("```\n");
+            return markdown.toString();
+        }
+
+        markdown.append("# Building: ").append(id).append("\n\n");
+        markdown.append("## Summary\n");
+        markdown.append("- id: `").append(id).append("`\n");
+        markdown.append("- size: `").append(schematic.width()).append(" x ").append(schematic.height()).append(" x ").append(schematic.length()).append("`\n");
+        markdown.append("- materials: `").append(schematic.materials().isBlank() ? "unknown" : schematic.materials()).append("`\n");
+        markdown.append("- nonAirBlocks: `").append(nonAirBlocks).append("`\n");
+        markdown.append("- entities: `").append(schematic.entities().size()).append("`\n");
+        markdown.append("- tileEntities: `").append(schematic.tileEntities().size()).append("`\n");
+        var placement = schematic.worldEditPlacement();
+        if (placement.originX() != null || placement.originY() != null || placement.originZ() != null) {
+            markdown.append("- origin: `").append(formatNullableVec(placement.originX(), placement.originY(), placement.originZ())).append("`\n");
+        }
+        if (placement.offsetX() != null || placement.offsetY() != null || placement.offsetZ() != null) {
+            markdown.append("- offset: `").append(formatNullableVec(placement.offsetX(), placement.offsetY(), placement.offsetZ())).append("`\n");
+        }
+        markdown.append("- layerRange: `0..").append(schematic.height() - 1).append("`\n");
+        markdown.append("- layer: `not included; call /buildings/").append(id).append("?layer=Y`\n");
+        markdown.append("\n## Palette\n");
+        markdown.append("- `.`: air, skipped while building\n");
+        for (var entry : palette) {
+            var key = entry.getKey();
+            var symbol = symbols.getOrDefault(key, '?');
+            var legacyBlock = SchemLegacyBlockMap.resolve(key.blockId(), key.data());
+            markdown.append("- `").append(symbol).append("`: legacy `")
+                    .append(key.blockId()).append(":").append(key.data())
+                    .append("`, block `").append(legacyBlock.known() ? legacyBlock.resourceLocation() : "unknown")
+                    .append("`, count `").append(entry.getValue()).append("`");
+            if (!legacyBlock.note().isBlank()) {
+                markdown.append(", note: ").append(legacyBlock.note());
+            }
+            if (symbol == '?') {
+                markdown.append(", overflow palette entry");
+            }
+            markdown.append("\n");
+        }
+        return markdown.toString();
+    }
+
+    private static void appendBuildingLayerRow(StringBuilder markdown, SchemReader.Schematic schematic, Map<BuildingBlockKey, Character> symbols, int y, int z) {
+        for (int x = 0; x < schematic.width(); x++) {
+            var block = schematic.blockAt(x, y, z);
+            if (block.blockId() == 0) {
+                markdown.append('.');
+            } else {
+                markdown.append(symbols.getOrDefault(new BuildingBlockKey(block.blockId(), block.data()), '?'));
+            }
+        }
+        markdown.append('\n');
+    }
+
+    private static String formatNullableVec(Integer x, Integer y, Integer z) {
+        return formatNullableInt(x) + "," + formatNullableInt(y) + "," + formatNullableInt(z);
+    }
+
+    private static String formatNullableInt(Integer value) {
+        return value == null ? "?" : value.toString();
+    }
+
     private static void ok(HTTPResponse response, Object data) {
         writeJson(response, 200, RMcpResponse.ok(data));
     }
@@ -1339,20 +1998,38 @@ public final class RMHttpServer {
     private record InventoryMoveRequest(String from, String to, int count, boolean dryRun) {
     }
 
-    private record CraftingOpenRequest(Integer radius, boolean dryRun) {
+    private record MenuDropRequest(Integer slot, Integer count, boolean dryRun) {
     }
 
     private record CraftRequest(Map<String, Integer> slots, String shape, Integer outputSlot, Integer times,
                                 boolean dryRun) {
     }
 
-    private record BlockActionRequest(int x, int y, int z) {
+    private record BlockActionRequest(int x, int y, int z, String face) {
+    }
+
+    private record PlayerMoveRequest(Double x, Double y, Double z) {
+    }
+
+    private record ItemPickupRequest(List<String> ids, Double radius, Integer limit) {
+    }
+
+    private record ItemPickupParams(List<UUID> ids, double radius, int limit, RErrorCode error) {
+        private static ItemPickupParams error(RErrorCode error) {
+            return new ItemPickupParams(List.of(), 64.0D, 256, error);
+        }
+    }
+
+    private record BlockMapRequest(Integer x, Integer y, Integer z, int radius) {
+    }
+
+    private record TerrainProfileRequest(String axis, Integer x, Integer y, Integer z, int length, int verticalRadius) {
     }
 
     private record BlockBatchActionRequest(List<RMcpBlockPosData> positions) {
     }
 
-    private record BlockStateBatchRequest(String dim, List<RMcpBlockPosData> positions) {
+    private record BlockStateBatchRequest(List<RMcpBlockPosData> positions) {
     }
 
     private record BlockBoxActionRequest(RMcpBlockPosData from, RMcpBlockPosData to) {
@@ -1362,6 +2039,13 @@ public final class RMHttpServer {
                                         boolean dryRun) {
     }
 
+    private record ContainerPutRequest(Integer fromInventorySlot, ContainerEndpointRequest to, int count,
+                                       boolean dryRun) {
+    }
+
     private record ContainerEndpointRequest(String pos, String side, Integer slot) {
+    }
+
+    private record BuildingBlockKey(int blockId, int data) {
     }
 }

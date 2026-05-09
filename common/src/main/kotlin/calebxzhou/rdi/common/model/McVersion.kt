@@ -18,7 +18,7 @@ enum class McVersion(
         "1.21.1",
         "assets/icons/mace.png",
         25,
-        21,
+        25,
         // "https://piston-meta.mojang.com/v1/packages/a56257b4bc475ecac33571b51b68b33ac046fc72/1.21.1.json",
         mapOf(
             ModLoader.neoforge to ModLoader.Version(
@@ -31,7 +31,7 @@ enum class McVersion(
     ),
     V201(
         "1.20.1",
-        "assets/icons/brush.png", 25,21,
+        "assets/icons/brush.png", 25,25,
         // "https://piston-meta.mojang.com/v1/packages/9318a951bbc903b54a21463a7eb8c4d451f7b132/1.20.1.json",
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -98,9 +98,10 @@ enum class McVersion(
             )
         ),enabled = true
     ),
+    //GTNH only
     V071(
         "1.7.10",
-        "assets/icons/acacia_log.webp", 8,8,
+        "assets/icons/acacia_log.webp", 25,25,
         //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -130,15 +131,7 @@ enum class McVersion(
 
     fun supportsConfiguredJava(major: Int): Boolean = major in supportedJreVers
 
-    fun supportsCurrentJava(major: Int): Boolean {
-        if (supportsConfiguredJava(major)) {
-            return true
-        }
-        if (jreSupport == 8) {
-            return false
-        }
-        return major >= jreSupport
-    }
+    fun supportsCurrentJava(major: Int): Boolean = supportsConfiguredJava(major)
 
     companion object {
         fun from(mcVer: String): McVersion? = entries.firstOrNull { it.mcVer == mcVer }

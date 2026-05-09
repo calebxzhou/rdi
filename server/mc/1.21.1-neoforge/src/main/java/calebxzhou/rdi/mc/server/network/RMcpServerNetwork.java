@@ -5,24 +5,28 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpBlockBatchActionData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
-import calebxzhou.rdi.mc.common2.mcp.RMcpCraftingOpenData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
 import calebxzhou.rdi.mc.server.mcp.RMcpServerDataCodec211;
 import com.google.gson.Gson;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.stats.Stats;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.SimpleMenuProvider;
-import net.minecraft.world.inventory.ContainerLevelAccess;
-import net.minecraft.world.inventory.CraftingMenu;
+import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.crafting.CraftingInput;
@@ -30,7 +34,6 @@ import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.capabilities.Capabilities;
@@ -42,9 +45,11 @@ import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 @EventBusSubscriber(modid = "rdi")
 public final class RMcpServerNetwork {
@@ -53,10 +58,18 @@ public final class RMcpServerNetwork {
     private static final String BLOCK_BATCH_ACTION_FORMAT = "block-batch-action-v1";
     private static final int BLOCK_BATCH_LIMIT = 512;
     private static final String CRAFT_FORMAT = "craft-v2";
-    private static final String CRAFTING_OPEN_FORMAT = "crafting-open-v1";
     private static final String INVENTORY_FORMAT = "inventory-v1";
+    private static final String MENU_FORMAT = "menu-v1";
+    private static final String MENU_DROP_FORMAT = "menu-drop-v1";
     private static final String CONTAINER_FORMAT = "container-v1";
     private static final String CONTAINER_MOVE_FORMAT = "container-move-v1";
+    private static final String CONTAINER_PUT_FORMAT = "container-put-v1";
+    private static final String PLAYER_MOVE_FORMAT = "player-move-v1";
+    private static final double PLAYER_MOVE_MAX_DISTANCE = 128.0D;
+    private static final double BLOCK_ACTION_MAX_DISTANCE_SQR = 32.0D * 32.0D;
+    private static final String ITEM_PICKUP_FORMAT = "item-pickup-v1";
+    private static final int ITEM_PICKUP_LIMIT = 2048;
+    private static final double ITEM_PICKUP_STILL_MOTION_SQR = 1.0;
 
     private RMcpServerNetwork() {
     }
@@ -95,16 +108,20 @@ public final class RMcpServerNetwork {
             switch (payload.action()) {
                 case "blockentity" -> handleBlockEntity(payload, context, player);
                 case "harvest-tool" -> handleHarvestTool(payload, context, player);
-                case "open-crafting" -> handleOpenCrafting(payload, context, player);
                 case "craft" -> handleCraft(payload, context, player);
                 case "container" -> handleContainer(payload, context, player);
+                case "menu" -> handleMenu(payload, context, player);
+                case "menu-drop" -> handleMenuDrop(payload, context, player);
                 case "container-move" -> handleContainerMove(payload, context, player);
+                case "container-put" -> handleContainerPut(payload, context, player);
                 case "place-block" -> handlePlaceBlock(payload, context, player);
                 case "break-block" -> handleBreakBlock(payload, context, player);
                 case "place-block-batch" -> handlePlaceBlockBatch(payload, context, player);
                 case "break-block-batch" -> handleBreakBlockBatch(payload, context, player);
                 case "place-block-box" -> handlePlaceBlockBox(payload, context, player);
                 case "break-block-box" -> handleBreakBlockBox(payload, context, player);
+                case "move-player" -> handleMovePlayer(payload, context, player);
+                case "pickup-item-entity" -> handlePickupItemEntity(payload, context, player);
                 default -> replyError(context, payload, RErrorCode.BAD_ACTION);
             }
         } catch (Exception e) {
@@ -151,6 +168,71 @@ public final class RMcpServerNetwork {
             return;
         }
         replyOk(context, payload, containerData(resolved));
+    }
+
+    private static void handleMenu(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        replyOk(context, payload, menuData(player));
+    }
+
+    private static void handleMenuDrop(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), MenuDropRequest.class);
+        if (request == null || request.slot() == null || request.count() <= 0) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        var menu = player.containerMenu;
+        int slotIndex = request.slot();
+        if (slotIndex < 0 || slotIndex >= menu.slots.size()) {
+            replyError(context, payload, RErrorCode.BAD_SLOT);
+            return;
+        }
+        if (!menu.getCarried().isEmpty()) {
+            replyError(context, payload, RErrorCode.CARRIED_ITEM_NOT_EMPTY);
+            return;
+        }
+        var slot = menu.slots.get(slotIndex);
+        var beforeStack = slot.getItem().copy();
+        if (beforeStack.isEmpty()) {
+            replyError(context, payload, RErrorCode.EMPTY_SOURCE);
+            return;
+        }
+        if (request.count() > beforeStack.getCount()) {
+            replyError(context, payload, RErrorCode.BAD_COUNT);
+            return;
+        }
+        if (!slot.mayPickup(player)) {
+            replyError(context, payload, RErrorCode.ACTION_FAILED);
+            return;
+        }
+
+        var registryAccess = player.serverLevel().registryAccess();
+        var beforeSlot = menuSlotData(player, slotIndex, registryAccess);
+        if (!request.dryRun()) {
+            if (request.count() == beforeStack.getCount()) {
+                menu.clicked(slotIndex, 1, ClickType.THROW, player);
+            } else {
+                for (int i = 0; i < request.count(); i++) {
+                    menu.clicked(slotIndex, 0, ClickType.THROW, player);
+                }
+            }
+            player.getInventory().setChanged();
+            player.inventoryMenu.broadcastChanges();
+            player.containerMenu.broadcastChanges();
+        }
+        var afterSlot = menuSlotData(player, slotIndex, registryAccess);
+        var droppedCount = request.dryRun() ? 0 : request.count();
+        var changed = droppedCount > 0 || beforeSlot.count() != afterSlot.count() || !java.util.Objects.equals(beforeSlot.snbt(), afterSlot.snbt());
+        replyOk(context, payload, new RMcpMenuDropData(
+                MENU_DROP_FORMAT,
+                request.dryRun(),
+                slotIndex,
+                request.count(),
+                droppedCount,
+                changed,
+                beforeSlot,
+                afterSlot,
+                menuData(player)
+        ));
     }
 
     private static void handleContainerMove(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
@@ -233,6 +315,105 @@ public final class RMcpServerNetwork {
         replyOk(context, payload, data);
     }
 
+    private static void handleContainerPut(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), ContainerPutRequest.class);
+        if (request == null || request.to() == null || request.fromInventorySlot() == null || request.count() <= 0) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        var toPos = parsePos(request.to().pos());
+        if (toPos == null) {
+            replyError(context, payload, RErrorCode.BAD_POS);
+            return;
+        }
+        var toSide = parseSide(request.to().side());
+        if (toSide == SideParse.BAD) {
+            replyError(context, payload, RErrorCode.BAD_SIDE);
+            return;
+        }
+        var to = resolveContainer(player, toPos, toSide.direction());
+        if (!"ok".equals(to.code())) {
+            replyError(context, payload, to.code());
+            return;
+        }
+        int fromSlot = request.fromInventorySlot();
+        var inventory = player.getInventory();
+        if (fromSlot < 0 || fromSlot >= inventory.items.size()) {
+            replyError(context, payload, RErrorCode.BAD_SLOT);
+            return;
+        }
+        Integer toSlot = request.to().slot();
+        if (toSlot != null && !validSlot(to.handler(), toSlot)) {
+            replyError(context, payload, RErrorCode.BAD_SLOT);
+            return;
+        }
+        if (!player.containerMenu.getCarried().isEmpty()) {
+            replyError(context, payload, RErrorCode.CARRIED_ITEM_NOT_EMPTY);
+            return;
+        }
+
+        var sourceStack = inventory.items.get(fromSlot);
+        if (sourceStack.isEmpty()) {
+            replyError(context, payload, RErrorCode.EMPTY_SOURCE);
+            return;
+        }
+        if (request.count() > sourceStack.getCount()) {
+            replyError(context, payload, RErrorCode.BAD_COUNT);
+            return;
+        }
+
+        var registryAccess = player.serverLevel().registryAccess();
+        var beforeInventorySlot = inventorySlotData(inventory, fromSlot, registryAccess);
+        var requestedStack = sourceStack.copyWithCount(request.count());
+        var plan = insertionPlan(to.handler(), toSlot, requestedStack, null);
+        if (plan.movedCount() <= 0) {
+            replyError(context, payload, RErrorCode.TARGET_FULL);
+            return;
+        }
+
+        int movedCount = plan.movedCount();
+        if (!request.dryRun()) {
+            movedCount = 0;
+            int remainingToMove = plan.movedCount();
+            for (var insert : plan.inserts()) {
+                if (remainingToMove <= 0 || sourceStack.isEmpty()) {
+                    break;
+                }
+                var stepStack = sourceStack.copyWithCount(Math.min(insert.count(), remainingToMove));
+                var stepRemaining = to.handler().insertItem(insert.slot(), stepStack, false);
+                int inserted = stepStack.getCount() - stepRemaining.getCount();
+                if (inserted > 0) {
+                    sourceStack.shrink(inserted);
+                    movedCount += inserted;
+                    remainingToMove -= inserted;
+                }
+            }
+            if (movedCount <= 0) {
+                replyError(context, payload, RErrorCode.TARGET_FULL);
+                return;
+            }
+            inventory.setChanged();
+            markContainerChanged(to);
+            player.inventoryMenu.broadcastChanges();
+            player.containerMenu.broadcastChanges();
+        }
+
+        var movedStack = requestedStack.copyWithCount(movedCount);
+        replyOk(context, payload, new RMcpContainerPutData(
+                CONTAINER_PUT_FORMAT,
+                request.dryRun(),
+                fromSlot,
+                request.count(),
+                movedCount,
+                slotData(-1, movedStack, movedStack.getMaxStackSize(), true, registryAccess),
+                beforeInventorySlot,
+                inventorySlotData(inventory, fromSlot, registryAccess),
+                endpointData(to, toSlot),
+                inventoryData(player),
+                containerData(to)
+        ));
+    }
+
     private static void handleHarvestTool(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
         var request = GSON.fromJson(payload.json(), HarvestToolRequest.class);
         if (request == null || ((request.blockId() == null || request.blockId().isBlank()) && request.dim() == null)) {
@@ -249,47 +430,6 @@ public final class RMcpServerNetwork {
             replyError(context, payload, RErrorCode.BAD_BLOCK_ID);
             return;
         }
-        replyOk(context, payload, data);
-    }
-
-    private static void handleOpenCrafting(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
-        var request = GSON.fromJson(payload.json(), OpenCraftingRequest.class);
-        if (request == null || request.radius() < 0 || request.radius() > 8) {
-            replyError(context, payload, RErrorCode.BAD_CRAFTING_RADIUS);
-            return;
-        }
-        if (player.containerMenu instanceof CraftingMenu) {
-            var data = new RMcpCraftingOpenData(CRAFTING_OPEN_FORMAT, true, request.dryRun(), "crafting", request.radius(), null);
-            replyOk(context, payload, data);
-            return;
-        }
-        if (player.containerMenu != player.inventoryMenu) {
-            replyError(context, payload, RErrorCode.BUSY_CONTAINER_OPEN);
-            return;
-        }
-        var tablePos = nearestCraftingTable(player, request.radius());
-        if (tablePos == null) {
-            replyError(context, payload, RErrorCode.NO_CRAFTING_TABLE);
-            return;
-        }
-        if (!request.dryRun()) {
-            var opened = player.openMenu(new SimpleMenuProvider(
-                    (containerId, inventory, menuPlayer) -> new CraftingMenu(containerId, inventory, ContainerLevelAccess.create(player.level(), tablePos)),
-                    Component.translatable("container.crafting")
-            ));
-            if (opened.isEmpty()) {
-                replyError(context, payload, RErrorCode.CRAFTING_OPEN_FAILED);
-                return;
-            }
-        }
-        var data = new RMcpCraftingOpenData(
-                CRAFTING_OPEN_FORMAT,
-                !request.dryRun(),
-                request.dryRun(),
-                "crafting",
-                request.radius(),
-                new RMcpBlockPosData(tablePos.getX(), tablePos.getY(), tablePos.getZ())
-        );
         replyOk(context, payload, data);
     }
 
@@ -334,11 +474,16 @@ public final class RMcpServerNetwork {
             replyError(context, payload, RErrorCode.BAD_POS);
             return;
         }
+        var face = parseSide(request.face());
+        if (face == SideParse.BAD) {
+            replyError(context, payload, RErrorCode.BAD_SIDE);
+            return;
+        }
         var pos = new BlockPos(request.x(), request.y(), request.z());
         var level = player.serverLevel();
         var registryAccess = level.registryAccess();
         var mainHandBefore = mainHandData(player, registryAccess);
-        var step = placeBlockAt(player, pos);
+        var step = placeBlockAt(player, pos, face.direction());
         if (!"ok".equals(step.code())) {
             replyError(context, payload, step.code());
             return;
@@ -422,6 +567,165 @@ public final class RMcpServerNetwork {
         replyOk(context, payload, data);
     }
 
+    private static void handleMovePlayer(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), PlayerMoveRequest.class);
+        if (request == null || request.x() == null || request.y() == null || request.z() == null
+                || !Double.isFinite(request.x()) || !Double.isFinite(request.y()) || !Double.isFinite(request.z())) {
+            replyError(context, payload, RErrorCode.BAD_POS);
+            return;
+        }
+        var level = player.serverLevel();
+        var targetPos = BlockPos.containing(request.x(), request.y(), request.z());
+        if (level.isOutsideBuildHeight(targetPos)) {
+            replyError(context, payload, RErrorCode.SECTION_OUT_OF_RANGE);
+            return;
+        }
+        if (!level.isLoaded(targetPos)) {
+            replyError(context, payload, RErrorCode.CHUNK_NOT_LOADED);
+            return;
+        }
+        double distance = Math.sqrt(player.distanceToSqr(request.x(), request.y(), request.z()));
+        if (distance > PLAYER_MOVE_MAX_DISTANCE) {
+            replyError(context, payload, RErrorCode.TOO_FAR);
+            return;
+        }
+        var from = posData(player);
+        player.teleportTo(request.x(), request.y(), request.z());
+        var to = posData(player);
+        replyOk(context, payload, new RMcpPlayerMoveData(PLAYER_MOVE_FORMAT, true, from, to, distance, player.onGround()));
+    }
+
+    private static void handlePickupItemEntity(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), ItemPickupRequest.class);
+        if (request == null) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        double radius = request.radius() == null ? 64.0D : request.radius();
+        int limit = request.limit() == null ? 256 : request.limit();
+        if (!Double.isFinite(radius) || radius < 1.0D || radius > 64.0D) {
+            replyError(context, payload, RErrorCode.BAD_RADIUS);
+            return;
+        }
+        if (limit < 0 || limit > ITEM_PICKUP_LIMIT) {
+            replyError(context, payload, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        var ids = request.ids() == null || request.ids().isEmpty()
+                ? nearbyStillItemEntityIds(player, radius, limit)
+                : request.ids();
+        if (ids.size() > ITEM_PICKUP_LIMIT) {
+            replyError(context, payload, RErrorCode.BAD_IDS);
+            return;
+        }
+        var results = new ArrayList<RMcpItemPickupData.Result>();
+        int pickedCount = 0;
+        int failedCount = 0;
+        for (var idText : ids) {
+            var result = pickupItemEntity(player, idText, radius);
+            if (result.picked()) {
+                pickedCount++;
+            }
+            if (!"ok".equals(result.code())) {
+                failedCount++;
+            }
+            results.add(result);
+        }
+        replyOk(context, payload, new RMcpItemPickupData(
+                ITEM_PICKUP_FORMAT,
+                ids.size(),
+                pickedCount,
+                failedCount,
+                results,
+                inventoryData(player)
+        ));
+    }
+
+    private static List<String> nearbyStillItemEntityIds(ServerPlayer player, double radius, int limit) {
+        if (limit == 0) {
+            return List.of();
+        }
+        var radiusSqr = radius * radius;
+        var items = player.serverLevel().getEntitiesOfClass(
+                ItemEntity.class,
+                player.getBoundingBox().inflate(radius),
+                item -> !item.isRemoved() && !item.getItem().isEmpty()
+                        && item.getDeltaMovement().lengthSqr() <= ITEM_PICKUP_STILL_MOTION_SQR
+                        && player.distanceToSqr(item) <= radiusSqr
+        );
+        items.sort(Comparator.comparingDouble(item -> player.distanceToSqr(item)));
+        var ids = new ArrayList<String>(Math.min(items.size(), limit));
+        for (var item : items) {
+            if (ids.size() >= limit) {
+                break;
+            }
+            ids.add(item.getUUID().toString());
+        }
+        return ids;
+    }
+
+    private static RMcpItemPickupData.Result pickupItemEntity(ServerPlayer player, String idText, double radius) {
+        UUID id;
+        try {
+            id = UUID.fromString(idText);
+        } catch (Exception e) {
+            return itemPickupResult(idText, RErrorCode.BAD_IDS.id(), false, 0, null, null, 0.0D, 0.0D);
+        }
+        var registryAccess = player.serverLevel().registryAccess();
+        var entity = player.serverLevel().getEntity(id);
+        if (entity == null || entity.isRemoved()) {
+            return itemPickupResult(idText, RErrorCode.NO_ENTITY.id(), false, 0, null, null, 0.0D, 0.0D);
+        }
+        double distanceSqr = player.distanceToSqr(entity);
+        double distance = Math.sqrt(distanceSqr);
+        if (!(entity instanceof ItemEntity itemEntity)) {
+            return itemPickupResult(idText, RErrorCode.NOT_ITEM_ENTITY.id(), false, 0, null, null, 0.0D, distance);
+        }
+        var stack = itemEntity.getItem();
+        if (stack.isEmpty()) {
+            return itemPickupResult(idText, RErrorCode.NO_ENTITY.id(), false, 0, null, null, 0.0D, distance);
+        }
+        var motionSqr = itemEntity.getDeltaMovement().lengthSqr();
+        var beforeItem = itemSnbt(stack, registryAccess);
+        if (distanceSqr > radius * radius) {
+            return itemPickupResult(idText, RErrorCode.TOO_FAR.id(), false, 0, beforeItem, beforeItem, motionSqr, distance);
+        }
+        if (motionSqr > ITEM_PICKUP_STILL_MOTION_SQR) {
+            return itemPickupResult(idText, RErrorCode.MOVING_ITEM_ENTITY.id(), false, 0, beforeItem, beforeItem, motionSqr, distance);
+        }
+        var before = stack.copy();
+        player.getInventory().add(stack);
+        int moved = before.getCount() - stack.getCount();
+        if (moved <= 0) {
+            return itemPickupResult(idText, RErrorCode.INVENTORY_FULL.id(), false, 0, beforeItem, beforeItem, motionSqr, distance);
+        }
+        player.take(itemEntity, moved);
+        player.awardStat(Stats.ITEM_PICKED_UP.get(before.getItem()), moved);
+        player.onItemPickup(itemEntity);
+        if (stack.isEmpty()) {
+            itemEntity.discard();
+        } else {
+            itemEntity.setItem(stack);
+        }
+        player.getInventory().setChanged();
+        player.inventoryMenu.broadcastChanges();
+        player.containerMenu.broadcastChanges();
+        return itemPickupResult(
+                idText,
+                "ok",
+                true,
+                moved,
+                beforeItem,
+                stack.isEmpty() ? null : itemSnbt(stack, registryAccess),
+                motionSqr,
+                distance
+        );
+    }
+
+    private static RMcpItemPickupData.Result itemPickupResult(String id, String code, boolean picked, int pickedCount, String beforeItem, String remainingItem, double motionSqr, double distance) {
+        return new RMcpItemPickupData.Result(id, code, picked, pickedCount, beforeItem, remainingItem, motionSqr, distance);
+    }
+
     private static RMcpBlockBatchActionData runBlockBatchAction(ServerPlayer player, String action, List<RMcpBlockPosData> positions, boolean place) {
         var level = player.serverLevel();
         var registryAccess = level.registryAccess();
@@ -435,7 +739,7 @@ public final class RMcpServerNetwork {
                 step = new BlockActionStep(null, RErrorCode.BAD_POS.id(), false, null, null);
             } else {
                 var pos = blockPos(posData);
-                step = place ? placeBlockAt(player, pos) : breakBlockAt(player, pos);
+                step = place ? placeBlockAt(player, pos, null) : breakBlockAt(player, pos);
             }
             if (step.changed()) {
                 changedCount++;
@@ -458,7 +762,7 @@ public final class RMcpServerNetwork {
         );
     }
 
-    private static BlockActionStep placeBlockAt(ServerPlayer player, BlockPos pos) {
+    private static BlockActionStep placeBlockAt(ServerPlayer player, BlockPos pos, Direction face) {
         var level = player.serverLevel();
         var check = checkBlockActionTarget(player, pos);
         if (!"ok".equals(check)) {
@@ -473,10 +777,7 @@ public final class RMcpServerNetwork {
         if (!(stack.getItem() instanceof BlockItem blockItem)) {
             return new BlockActionStep(blockPosData(pos), RErrorCode.NO_PLACE_ITEM.id(), false, beforeBlockId, beforeBlockId);
         }
-        var hitResult = placeHitResult(player, pos);
-        if (hitResult == null) {
-            return new BlockActionStep(blockPosData(pos), RErrorCode.NO_PLACE_FACE.id(), false, beforeBlockId, beforeBlockId);
-        }
+        var hitResult = placeHitResult(player, pos, face);
         if (!level.mayInteract(player, hitResult.getBlockPos())) {
             return new BlockActionStep(blockPosData(pos), RErrorCode.PROTECTED.id(), false, beforeBlockId, beforeBlockId);
         }
@@ -555,12 +856,23 @@ public final class RMcpServerNetwork {
         return new RMcpBlockPosData(pos.getX(), pos.getY(), pos.getZ());
     }
 
+    private static RMcpPosData posData(ServerPlayer player) {
+        return new RMcpPosData(
+                player.serverLevel().dimension().location().toString(),
+                player.getX(),
+                player.getY(),
+                player.getZ(),
+                player.getYRot(),
+                player.getXRot()
+        );
+    }
+
     private static String checkBlockActionTarget(ServerPlayer player, BlockPos pos) {
         var level = player.serverLevel();
         if (!level.isLoaded(pos)) {
             return RErrorCode.CHUNK_NOT_LOADED.id();
         }
-        if (player.position().distanceToSqr(Vec3.atCenterOf(pos)) >= 81.0D) {
+        if (player.position().distanceToSqr(Vec3.atCenterOf(pos)) > BLOCK_ACTION_MAX_DISTANCE_SQR) {
             return RErrorCode.TOO_FAR.id();
         }
         if (!level.mayInteract(player, pos)) {
@@ -569,7 +881,10 @@ public final class RMcpServerNetwork {
         return "ok";
     }
 
-    private static BlockHitResult placeHitResult(ServerPlayer player, BlockPos target) {
+    private static BlockHitResult placeHitResult(ServerPlayer player, BlockPos target, Direction explicitFace) {
+        if (explicitFace != null) {
+            return new BlockHitResult(Vec3.atCenterOf(target), explicitFace, target, false);
+        }
         var level = player.serverLevel();
         Direction[] faces = {Direction.UP, Direction.NORTH, Direction.SOUTH, Direction.WEST, Direction.EAST, Direction.DOWN};
         for (var face : faces) {
@@ -579,7 +894,7 @@ public final class RMcpServerNetwork {
             }
             return new BlockHitResult(Vec3.atCenterOf(target), face, clickedPos, false);
         }
-        return null;
+        return new BlockHitResult(Vec3.atCenterOf(target), Direction.UP, target, false);
     }
 
     private static CraftPlan prepareCraftPlan(ServerPlayer player, CraftRequest request) {
@@ -776,23 +1091,6 @@ public final class RMcpServerNetwork {
         }
     }
 
-    private static BlockPos nearestCraftingTable(ServerPlayer player, int radius) {
-        var center = player.blockPosition();
-        BlockPos nearest = null;
-        double nearestDistance = Double.MAX_VALUE;
-        for (var pos : BlockPos.betweenClosed(center.offset(-radius, -radius, -radius), center.offset(radius, radius, radius))) {
-            if (!player.level().getBlockState(pos).is(Blocks.CRAFTING_TABLE) || !player.canInteractWithBlock(pos, 4.0)) {
-                continue;
-            }
-            double distance = player.distanceToSqr(pos.getX() + 0.5D, pos.getY() + 0.5D, pos.getZ() + 0.5D);
-            if (distance < nearestDistance) {
-                nearestDistance = distance;
-                nearest = pos.immutable();
-            }
-        }
-        return nearest;
-    }
-
     private static ContainerResolve resolveContainer(ServerPlayer player, ParsedPos pos, Direction side) {
         var level = player.serverLevel();
         if (!level.dimension().location().toString().equals(pos.dim())) {
@@ -827,6 +1125,57 @@ public final class RMcpServerNetwork {
                 sideName(container.side()),
                 container.handler().getSlots(),
                 items
+        );
+    }
+
+    private static RMcpMenuData menuData(ServerPlayer player) {
+        var menu = player.containerMenu;
+        var registryAccess = player.serverLevel().registryAccess();
+        var slots = new ArrayList<RMcpMenuData.Slot>(menu.slots.size());
+        for (int slot = 0; slot < menu.slots.size(); slot++) {
+            slots.add(menuSlotData(player, slot, registryAccess));
+        }
+        return new RMcpMenuData(
+                MENU_FORMAT,
+                player.serverLevel().dimension().location().toString(),
+                menu.containerId,
+                menu.getClass().getName(),
+                menu == player.inventoryMenu,
+                carriedMenuSlot(menu.getCarried(), registryAccess),
+                menu.slots.size(),
+                slots
+        );
+    }
+
+    private static RMcpMenuData.Slot menuSlotData(ServerPlayer player, int slotIndex, HolderLookup.Provider registryAccess) {
+        var slot = player.containerMenu.slots.get(slotIndex);
+        var stack = slot.getItem();
+        if (stack.isEmpty()) {
+            return new RMcpMenuData.Slot(slotIndex, true, false, null, 0, 0, null);
+        }
+        return new RMcpMenuData.Slot(
+                slotIndex,
+                false,
+                slot.mayPickup(player),
+                itemId(stack),
+                stack.getCount(),
+                slot.getMaxStackSize(stack),
+                stack.saveOptional(registryAccess).toString()
+        );
+    }
+
+    private static RMcpMenuData.Slot carriedMenuSlot(ItemStack stack, HolderLookup.Provider registryAccess) {
+        if (stack == null || stack.isEmpty()) {
+            return null;
+        }
+        return new RMcpMenuData.Slot(
+                -1,
+                false,
+                false,
+                itemId(stack),
+                stack.getCount(),
+                stack.getMaxStackSize(),
+                stack.saveOptional(registryAccess).toString()
         );
     }
 
@@ -926,6 +1275,10 @@ public final class RMcpServerNetwork {
         );
     }
 
+    private static RMcpInventoryData.Item inventorySlotData(net.minecraft.world.entity.player.Inventory inventory, int slot, HolderLookup.Provider registryAccess) {
+        return compactItem(slot < 9 ? "hotbar" : "inventory", slot, slot < 9 ? slot : null, inventory.items.get(slot), registryAccess);
+    }
+
     private static RMcpInventoryData.Summary inventorySummary(List<ItemStack> stacks) {
         var counts = new LinkedHashMap<String, Integer>();
         int occupiedSlots = 0;
@@ -978,6 +1331,10 @@ public final class RMcpServerNetwork {
 
     private static String itemId(ItemStack stack) {
         return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+    }
+
+    private static String itemSnbt(ItemStack stack, HolderLookup.Provider registryAccess) {
+        return stack == null || stack.isEmpty() ? null : stack.saveOptional(registryAccess).toString();
     }
 
     private static String blockId(BlockState state) {
@@ -1057,13 +1414,16 @@ public final class RMcpServerNetwork {
     private record HarvestToolRequest(String blockId, String dim, Integer x, Integer y, Integer z) {
     }
 
-    private record OpenCraftingRequest(int radius, boolean dryRun) {
-    }
-
     private record CraftRequest(Map<String, Integer> slots, String shape, int outputSlot, int times, boolean dryRun) {
     }
 
-    private record BlockActionRequest(int x, int y, int z) {
+    private record BlockActionRequest(int x, int y, int z, String face) {
+    }
+
+    private record PlayerMoveRequest(Double x, Double y, Double z) {
+    }
+
+    private record ItemPickupRequest(List<String> ids, Double radius, Integer limit) {
     }
 
     private record BlockBatchActionRequest(List<RMcpBlockPosData> positions) {
@@ -1085,7 +1445,13 @@ public final class RMcpServerNetwork {
     private record ContainerRequest(String pos, String side) {
     }
 
+    private record MenuDropRequest(Integer slot, int count, boolean dryRun) {
+    }
+
     private record ContainerMoveRequest(ContainerEndpointRequest from, ContainerEndpointRequest to, int count, boolean dryRun) {
+    }
+
+    private record ContainerPutRequest(Integer fromInventorySlot, ContainerEndpointRequest to, int count, boolean dryRun) {
     }
 
     private record ContainerEndpointRequest(String pos, String side, Integer slot) {

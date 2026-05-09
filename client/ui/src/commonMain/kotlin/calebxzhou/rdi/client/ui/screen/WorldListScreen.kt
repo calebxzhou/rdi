@@ -55,6 +55,7 @@ fun WorldListPane(
     var loading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var confirmDelete by remember { mutableStateOf<World.Vo?>(null) }
+    var confirmReset by remember { mutableStateOf<World.Vo?>(null) }
     var confirmCopy by remember { mutableStateOf<World.Vo?>(null) }
     var selectedWorld by remember { mutableStateOf<World.Vo?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -135,6 +136,16 @@ fun WorldListPane(
 
                     ) {
                         selectedWorld?.let { confirmCopy = it }
+                    }
+                    Space8w()
+                    CircleIconButton(
+                        icon = "\uDB81\uDC50",
+                        tooltip = "重置",
+                        enabled = canOperate,
+                        bgColor = MaterialColor.ORANGE_700.color,
+
+                    ) {
+                        selectedWorld?.let { confirmReset = it }
                     }
                     Space8w()
                     CircleIconButton(
@@ -220,6 +231,63 @@ fun WorldListPane(
             },
             dismissButton = {
                 TextButton(onClick = { confirmCopy = null }) {
+                    Text("取消")
+                }
+            }
+        )
+    }
+
+    confirmReset?.let { world ->
+        var resetConfirmName by remember(world.id) { mutableStateOf("") }
+        val resetConfirmed = resetConfirmName == world.name
+        AlertDialog(
+            onDismissRequest = { confirmReset = null },
+            title = { Text("确认重置") },
+            text = {
+                Column {
+                    Text("要清空存档“${world.name}”的世界数据吗？存档条目会保留，但世界内容无法恢复。使用该存档的房间必须先停止。")
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = resetConfirmName,
+                        onValueChange = { resetConfirmName = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("输入存档名确认") },
+                        placeholder = { Text(world.name) },
+                        singleLine = true,
+                        isError = resetConfirmName.isNotEmpty() && !resetConfirmed
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = resetConfirmed,
+                    onClick = {
+                        confirmReset = null
+                        scope.rdiRequestU(
+                            "world/${world.id}/reset",
+                            method = HttpMethod.Post,
+                            onOk = {
+                                okMessage = "已重置"
+                                reload()
+                            },
+                            onErr = {
+                                errorMessage = "重置失败: ${it.message}"
+                            }
+                        )
+                    }
+                ) {
+                    Text(
+                        "重置",
+                        color = if (resetConfirmed) {
+                            MaterialColor.ORANGE_900.color
+                        } else {
+                            MaterialTheme.colors.onSurface.copy(alpha = ContentAlpha.disabled)
+                        }
+                    )
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmReset = null }) {
                     Text("取消")
                 }
             }

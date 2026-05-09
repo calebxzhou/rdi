@@ -19,4 +19,4 @@ Batch and box action rules:
 - Use `/place/box` or `/break/box` only when every block in the cuboid should be acted on.
 - Inspect `results[].code`; the top-level `code=ok` means the request was accepted, not that every block changed.
 - Re-read `/inventory` or use the returned `inventory` after a large action because item count, durability, and drops may change.
-
+- After a successful break box action, pick up harvested drops by default unless the user explicitly says not to. Use `POST /entity/pickup-item?radius=64&limit=256`.

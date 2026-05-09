@@ -2,7 +2,7 @@
 
 Use when you already know several block positions and need exact block ID/state for each one. This is cheaper than calling `/blockstate` repeatedly.
 
-The request reads only the client's current loaded dimension. If `dim` is absent or blank, the current player dimension is used. If `dim` is provided and is not the current loaded dimension, the request fails with `dim_not_loaded`.
+The request reads only the client's current loaded dimension. Pass only block coordinates.
 
 At most 512 positions are accepted per request.
 
@@ -10,7 +10,6 @@ Request body:
 
 ```json
 {
-  "dim": "minecraft:overworld",
   "positions": [
     {"x": 10, "y": 64, "z": -20},
     {"x": 11, "y": 64, "z": -20}
@@ -50,4 +49,3 @@ Errors:
 - `bad_positions`: request body is missing, empty, malformed, or has no `positions`.
 - `too_many_blocks`: more than 512 positions were requested.
 - `no_player`: the local player is not in a loaded world.
-- `dim_not_loaded`: requested `dim` is not the client's current loaded dimension.

@@ -11,11 +11,14 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpBlockPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockStateData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockStateBatchData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockStateEntryData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpBlockMapData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpBlocksFindData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpBlocksFindRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpChunkSemanticData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
-import calebxzhou.rdi.mc.common2.mcp.RMcpCraftingOpenData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpEndpointException;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpEntityData;
@@ -27,15 +30,21 @@ import calebxzhou.rdi.mc.common2.mcp.RMHttpServer;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryMoveData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventorySwapData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpLangKeyIndex;
+import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpModData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpNearbyEntitiesData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpNearbyResourcesData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerDetailData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSectionSemanticData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSituationData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpStaringBlockData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpTerrainProfileData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpTestData;
 import calebxzhou.rdi.mc.common.RDI;
 import calebxzhou.rdi.mc.common2.rcmd.client.RcmdRecipeView;
@@ -55,17 +64,20 @@ import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.multiplayer.resolver.ServerAddress;
 import net.minecraft.client.resources.language.ClientLanguage;
 import net.minecraft.commands.Commands;
+import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.SectionPos;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.MobCategory;
 import net.minecraft.world.entity.animal.Animal;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
@@ -73,6 +85,7 @@ import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.level.LightLayer;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
@@ -81,8 +94,10 @@ import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
+import net.neoforged.fml.ModList;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforgespi.language.IModInfo;
 import net.neoforged.neoforge.client.event.ClientChatEvent;
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
@@ -95,7 +110,9 @@ import java.util.ArrayDeque;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.PriorityQueue;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -115,6 +132,10 @@ public class RDIMain {
     private static final Logger LGR = LoggerFactory.getLogger("rdi-mcp");
     private static final String SECTION_FORMAT = "section-semantic-v1";
     private static final String CHUNK_FORMAT = "chunk-semantic-v1";
+    private static final String BLOCKMAP_SLICE_FORMAT = "blockmap-slice-v1";
+    private static final String BLOCKMAP_WALKABLE_FORMAT = "blockmap-walkable-v1";
+    private static final String BLOCKS_FIND_FORMAT = "blocks-find-v1";
+    private static final String TERRAIN_PROFILE_FORMAT = "terrain-profile-v1";
     private static final String NEARBY_RESOURCES_FORMAT = "nearby-resources-v1";
     private static final String NEARBY_ENTITIES_FORMAT = "nearby-entities-v1";
     private static final String INVENTORY_FORMAT = "inventory-v1";
@@ -144,6 +165,16 @@ public class RDIMain {
                 }
 
                 @Override
+                public List<String> modIds() {
+                    return RDIMain.modIds();
+                }
+
+                @Override
+                public RMcpModData modData(String id) {
+                    return RDIMain.modData(id);
+                }
+
+                @Override
                 public RMcpPosData posData() {
                     var player = Minecraft.getInstance().player;
                     if (player == null) {
@@ -159,6 +190,16 @@ public class RDIMain {
                 }
 
                 @Override
+                public RMcpMenuData menuData() {
+                    return RMcpClientBridge.requestMenu();
+                }
+
+                @Override
+                public RMcpMenuDropData dropMenuItem(int slot, int count, boolean dryRun) {
+                    return RMcpClientBridge.requestMenuDrop(slot, count, dryRun);
+                }
+
+                @Override
                 public RMcpInventorySwapData swapInventorySlots(String from, String to, boolean dryRun) {
                     return RDIMain.swapInventorySlots(Minecraft.getInstance(), from, to, dryRun);
                 }
@@ -166,11 +207,6 @@ public class RDIMain {
                 @Override
                 public RMcpInventoryMoveData moveInventoryItems(String from, String to, int count, boolean dryRun) {
                     return RDIMain.moveInventoryItems(Minecraft.getInstance(), from, to, count, dryRun);
-                }
-
-                @Override
-                public RMcpCraftingOpenData openCrafting(int radius, boolean dryRun) {
-                    return RMcpClientBridge.requestOpenCrafting(radius, dryRun);
                 }
 
                 @Override
@@ -270,14 +306,12 @@ public class RDIMain {
                 }
 
                 @Override
-                public RMcpBlockStateData blockStateData(String dim, int x, int y, int z) {
+                public RMcpBlockStateData blockStateData(int x, int y, int z) {
                     var minecraft = Minecraft.getInstance();
                     if (minecraft.level == null) {
                         return null;
                     }
-                    if (!minecraft.level.dimension().location().toString().equals(dim)) {
-                        return null;
-                    }
+                    var dim = minecraft.level.dimension().location().toString();
                     var pos = new BlockPos(x, y, z);
                     var blockState = minecraft.level.getBlockState(pos);
                     var blockId = BuiltInRegistries.BLOCK.getKey(blockState.getBlock()).toString();
@@ -290,14 +324,12 @@ public class RDIMain {
                 }
 
                 @Override
-                public RMcpBlockStateBatchData blockStateBatchData(String dim, List<RMcpBlockPosData> positions) {
+                public RMcpBlockStateBatchData blockStateBatchData(List<RMcpBlockPosData> positions) {
                     var minecraft = Minecraft.getInstance();
                     if (minecraft.level == null) {
                         return null;
                     }
-                    if (!minecraft.level.dimension().location().toString().equals(dim)) {
-                        return null;
-                    }
+                    var dim = minecraft.level.dimension().location().toString();
                     var blocks = new ArrayList<RMcpBlockStateEntryData>();
                     for (var posData : positions) {
                         var pos = new BlockPos(posData.x(), posData.y(), posData.z());
@@ -328,13 +360,18 @@ public class RDIMain {
                 }
 
                 @Override
+                public RMcpContainerPutData putInventoryItemIntoContainer(int fromInventorySlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun) {
+                    return RMcpClientBridge.requestContainerPut(fromInventorySlot, toPos, toSide, toSlot, count, dryRun);
+                }
+
+                @Override
                 public RMcpContainerMoveData moveContainerItems(String fromPos, String fromSide, int fromSlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun) {
                     return RMcpClientBridge.requestContainerMove(fromPos, fromSide, fromSlot, toPos, toSide, toSlot, count, dryRun);
                 }
 
                 @Override
-                public RMcpBlockActionData placeBlock(int x, int y, int z) {
-                    return RMcpClientBridge.requestPlaceBlock(x, y, z);
+                public RMcpBlockActionData placeBlock(int x, int y, int z, String face) {
+                    return RMcpClientBridge.requestPlaceBlock(x, y, z, face);
                 }
 
                 @Override
@@ -363,6 +400,16 @@ public class RDIMain {
                 }
 
                 @Override
+                public RMcpPlayerMoveData movePlayer(double x, double y, double z) {
+                    return RMcpClientBridge.requestMovePlayer(x, y, z);
+                }
+
+                @Override
+                public RMcpItemPickupData pickupItemEntities(List<UUID> ids, double radius, int limit) {
+                    return RMcpClientBridge.requestPickupItemEntities(ids, radius, limit);
+                }
+
+                @Override
                 public RMcpChunkSemanticData chunkData(int chunkX, int chunkZ) {
                     return chunkSemanticData(Minecraft.getInstance(), chunkX, chunkZ);
                 }
@@ -370,6 +417,26 @@ public class RDIMain {
                 @Override
                 public RMcpSectionSemanticData sectionData(int chunkX, int sectionY, int chunkZ) {
                     return sectionSemanticData(Minecraft.getInstance(), chunkX, sectionY, chunkZ);
+                }
+
+                @Override
+                public RMcpBlockMapData blockMapSliceData(Integer x, Integer y, Integer z, int radius) {
+                    return RDIMain.blockMapSliceData(Minecraft.getInstance(), x, y, z, radius);
+                }
+
+                @Override
+                public RMcpBlockMapData blockMapWalkableData(Integer x, Integer y, Integer z, int radius) {
+                    return RDIMain. blockMapWalkableData(Minecraft.getInstance(), x, y, z, radius);
+                }
+
+                @Override
+                public RMcpTerrainProfileData terrainProfileData(String axis, Integer x, Integer y, Integer z, int length, int verticalRadius) {
+                    return RDIMain.terrainProfileData(Minecraft.getInstance(), axis, x, y, z, length, verticalRadius);
+                }
+
+                @Override
+                public RMcpBlocksFindData blocksFindData(RMcpBlocksFindRequest request) {
+                    return RDIMain.blocksFindData(Minecraft.getInstance(), request);
                 }
 
                 @Override
@@ -469,6 +536,37 @@ public class RDIMain {
         } catch (Exception e) {
             LGR.error("RDI MCP HTTP server启动失败", e);
         }
+    }
+
+    private static List<String> modIds() {
+        return ModList.get().getSortedMods().stream()
+                .map(mod -> mod.getModInfo().getModId())
+                .toList();
+    }
+
+    private static RMcpModData modData(String id) {
+        return ModList.get().getModContainerById(id)
+                .map(container -> modData(container.getModInfo()))
+                .orElse(null);
+    }
+
+    private static RMcpModData modData(IModInfo mod) {
+        var dependencies = mod.getDependencies().stream()
+                .map(dep -> new RMcpModData.Dependency(
+                        dep.getModId(),
+                        dep.getVersionRange().toString(),
+                        dep.getType().name().toLowerCase(Locale.ROOT),
+                        dep.getOrdering().name().toLowerCase(Locale.ROOT),
+                        dep.getSide().name().toLowerCase(Locale.ROOT)
+                ))
+                .toList();
+        return new RMcpModData(
+                mod.getModId(),
+                mod.getDisplayName(),
+                mod.getVersion().toString(),
+                mod.getDescription(),
+                dependencies
+        );
     }
 
     public static Button JOIN_BUTTON = Button.builder(Component.literal("进入地图 · " + HOST_NAME),(btn)->{
@@ -1064,6 +1162,9 @@ public class RDIMain {
             if (entity == minecraft.player || entity.isRemoved()) {
                 continue;
             }
+            if (entity instanceof ItemEntity itemEntity && itemEntity.getItem().isEmpty()) {
+                continue;
+            }
             var category = entityCategory(entity);
             if (!matchesCategory(category, categories)) {
                 continue;
@@ -1085,8 +1186,10 @@ public class RDIMain {
 
         int monsters = 0;
         int animals = 0;
+        int items = 0;
         RMcpNearbyEntitiesData.EntityRef nearestMonster = null;
         RMcpNearbyEntitiesData.EntityRef nearestAnimal = null;
+        RMcpNearbyEntitiesData.EntityRef nearestItem = null;
         for (var entity : sortedEntities) {
             if ("monster".equals(entity.category())) {
                 monsters++;
@@ -1097,6 +1200,11 @@ public class RDIMain {
                 animals++;
                 if (nearestAnimal == null) {
                     nearestAnimal = new RMcpNearbyEntitiesData.EntityRef(entity.type(), entity.distance());
+                }
+            } else if ("item".equals(entity.category())) {
+                items++;
+                if (nearestItem == null) {
+                    nearestItem = new RMcpNearbyEntitiesData.EntityRef(entity.type(), entity.distance());
                 }
             }
         }
@@ -1111,7 +1219,7 @@ public class RDIMain {
                         Math.floorDiv(y, 16)
                 ),
                 radius,
-                new RMcpNearbyEntitiesData.Summary(sortedEntities.size(), monsters, animals, nearestMonster, nearestAnimal),
+                new RMcpNearbyEntitiesData.Summary(sortedEntities.size(), monsters, animals, items, nearestMonster, nearestAnimal, nearestItem),
                 returnedEntities
         );
     }
@@ -1126,6 +1234,10 @@ public class RDIMain {
             maxHealth = livingEntity.getMaxHealth();
             baby = livingEntity.isBaby();
         }
+        RMcpNearbyEntitiesData.Item item = null;
+        if (entity instanceof ItemEntity itemEntity && !itemEntity.getItem().isEmpty()) {
+            item = new RMcpNearbyEntitiesData.Item(itemEntity.getItem().saveOptional(entity.registryAccess()).toString());
+        }
         return new RMcpNearbyEntitiesData.Entity(
                 dim,
                 entity.getStringUUID(),
@@ -1137,11 +1249,15 @@ public class RDIMain {
                 health,
                 maxHealth,
                 "monster".equals(category),
-                baby
+                baby,
+                item
         );
     }
 
     private static String entityCategory(Entity entity) {
+        if (entity instanceof ItemEntity) {
+            return "item";
+        }
         var mobCategory = entity.getType().getCategory();
         if (mobCategory == MobCategory.MONSTER || entity instanceof Monster) {
             return "monster";
@@ -1234,6 +1350,605 @@ public class RDIMain {
                 analysis.legend(),
                 analysis.features()
         );
+    }
+
+    private static RMcpBlockMapData blockMapSliceData(Minecraft minecraft, Integer x, Integer y, Integer z, int radius) {
+        var level = minecraft.level;
+        var center = blockMapCenter(minecraft, x, y, z);
+        if (level == null || center == null) {
+            return null;
+        }
+        if (level.isOutsideBuildHeight(center)) {
+            throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
+        }
+        int loadedChunks = ensureBlockMapChunksLoaded(level, center, radius);
+        var counts = new LinkedHashMap<String, Integer>();
+        var blockIds = new String[(radius * 2 + 1) * (radius * 2 + 1)];
+        int index = 0;
+        for (int dz = -radius; dz <= radius; dz++) {
+            for (int dx = -radius; dx <= radius; dx++) {
+                var pos = new BlockPos(center.getX() + dx, center.getY(), center.getZ() + dz);
+                var id = blockId(level.getBlockState(pos));
+                blockIds[index++] = id;
+                counts.merge(id, 1, Integer::sum);
+            }
+        }
+        var legend = blockMapLegend(counts);
+        var symbolById = symbolById(legend);
+        var rows = new ArrayList<String>();
+        int size = radius * 2 + 1;
+        index = 0;
+        for (int dz = -radius; dz <= radius; dz++) {
+            var line = new StringBuilder(size);
+            for (int dx = -radius; dx <= radius; dx++) {
+                var symbol = symbolById.getOrDefault(blockIds[index++], "?");
+                line.append(blockMapOverlaySymbol(minecraft, center.getX() + dx, center.getY(), center.getZ() + dz, center, symbol));
+            }
+            rows.add(line.toString());
+        }
+        return new RMcpBlockMapData(
+                BLOCKMAP_SLICE_FORMAT,
+                level.dimension().location().toString(),
+                "slice",
+                blockPosData(center),
+                radius,
+                blockMapAxes(),
+                center.getY(),
+                null,
+                new RMcpBlockMapData.Summary(size, size, loadedChunks, 0, 0, 0, 0, 0, topBlocks(counts, 16)),
+                legend,
+                rows,
+                List.of()
+        );
+    }
+
+    private static RMcpBlockMapData blockMapWalkableData(Minecraft minecraft, Integer x, Integer y, Integer z, int radius) {
+        var level = minecraft.level;
+        var center = blockMapCenter(minecraft, x, y, z);
+        if (level == null || center == null) {
+            return null;
+        }
+        if (level.isOutsideBuildHeight(center)) {
+            throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
+        }
+        int loadedChunks = ensureBlockMapChunksLoaded(level, center, radius);
+        int minY = Math.max(level.getMinBuildHeight() + 1, center.getY() - 4);
+        int maxY = Math.min(level.getMaxBuildHeight() - 2, center.getY() + 4);
+        if (minY > maxY) {
+            throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
+        }
+        var rows = new ArrayList<String>();
+        var cells = new ArrayList<RMcpBlockMapData.Cell>();
+        int size = radius * 2 + 1;
+        int walkable = 0;
+        int blocked = 0;
+        int hazards = 0;
+        int fluids = 0;
+        int drops = 0;
+        for (int dz = -radius; dz <= radius; dz++) {
+            var line = new StringBuilder(size);
+            for (int dx = -radius; dx <= radius; dx++) {
+                int blockX = center.getX() + dx;
+                int blockZ = center.getZ() + dz;
+                var cell = walkableCell(level, blockX, blockZ, minY, maxY, center.getY());
+                var symbol = blockMapOverlaySymbol(minecraft, blockX, cell.pos().y(), blockZ, center, cell.symbol());
+                line.append(symbol);
+                switch (cell.symbol()) {
+                    case "." -> walkable++;
+                    case "~" -> fluids++;
+                    case "!" -> hazards++;
+                    case "_" -> drops++;
+                    default -> blocked++;
+                }
+                if (".".equals(cell.symbol()) || "~".equals(cell.symbol()) || "!".equals(cell.symbol())) {
+                    cells.add(new RMcpBlockMapData.Cell(cell.pos(), cell.symbol(), cell.blockId(), cell.floorBlockId(), cell.note()));
+                }
+            }
+            rows.add(line.toString());
+        }
+        return new RMcpBlockMapData(
+                BLOCKMAP_WALKABLE_FORMAT,
+                level.dimension().location().toString(),
+                "walkable",
+                blockPosData(center),
+                radius,
+                blockMapAxes(),
+                null,
+                new RMcpSectionSemanticData.BlockYRange(minY, maxY),
+                new RMcpBlockMapData.Summary(size, size, loadedChunks, walkable, blocked, hazards, fluids, drops, List.of()),
+                walkableLegend(),
+                rows,
+                List.copyOf(cells)
+        );
+    }
+
+    private static RMcpTerrainProfileData terrainProfileData(Minecraft minecraft, String axis, Integer x, Integer y, Integer z, int length, int verticalRadius) {
+        var level = minecraft.level;
+        var center = blockMapCenter(minecraft, x, y, z);
+        if (level == null || center == null) {
+            return null;
+        }
+        if (!"x".equals(axis) && !"z".equals(axis)) {
+            throw new RMcpEndpointException(RErrorCode.BAD_AXIS);
+        }
+        if (level.isOutsideBuildHeight(center)) {
+            throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
+        }
+        int half = length / 2;
+        int minY = Math.max(level.getMinBuildHeight() + 1, center.getY() - verticalRadius);
+        int maxY = Math.min(level.getMaxBuildHeight() - 2, center.getY() + verticalRadius);
+        if (minY > maxY) {
+            throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
+        }
+        ensureTerrainProfileChunksLoaded(level, center, axis, half);
+        var points = new ArrayList<RMcpTerrainProfileData.Point>();
+        var profile = new StringBuilder(length);
+        Integer previousStandY = null;
+        Integer minSurfaceY = null;
+        Integer maxSurfaceY = null;
+        int maxStep = 0;
+        int walkable = 0;
+        int blocked = 0;
+        int drops = 0;
+        boolean hasCliff = false;
+        boolean hasOpenBelow = false;
+        boolean hasFluid = false;
+        for (int offset = -half; offset <= half; offset++) {
+            int blockX = "x".equals(axis) ? center.getX() + offset : center.getX();
+            int blockZ = "z".equals(axis) ? center.getZ() + offset : center.getZ();
+            var point = terrainProfilePoint(level, minecraft, center, axis, offset, blockX, blockZ, minY, maxY, previousStandY);
+            points.add(point);
+            profile.append(point.symbol());
+            if (point.surfaceY() != null) {
+                minSurfaceY = minSurfaceY == null ? point.surfaceY() : Math.min(minSurfaceY, point.surfaceY());
+                maxSurfaceY = maxSurfaceY == null ? point.surfaceY() : Math.max(maxSurfaceY, point.surfaceY());
+            }
+            if (point.deltaFromPrev() != null) {
+                maxStep = Math.max(maxStep, Math.abs(point.deltaFromPrev()));
+            }
+            hasCliff = hasCliff || "drop".equals(point.note()) || point.deltaFromPrev() != null && Math.abs(point.deltaFromPrev()) > 2;
+            hasOpenBelow = hasOpenBelow || "open_below".equals(point.note());
+            hasFluid = hasFluid || "fluid".equals(point.note());
+            if (point.walkable()) {
+                walkable++;
+            } else if ("drop".equals(point.note())) {
+                drops++;
+            } else {
+                blocked++;
+            }
+            if (point.standY() != null) {
+                previousStandY = point.standY();
+            }
+        }
+        return new RMcpTerrainProfileData(
+                TERRAIN_PROFILE_FORMAT,
+                level.dimension().location().toString(),
+                axis,
+                blockPosData(center),
+                length,
+                new RMcpSectionSemanticData.BlockYRange(minY, maxY),
+                new RMcpTerrainProfileData.Summary(
+                        minSurfaceY,
+                        maxSurfaceY,
+                        maxStep,
+                        hasCliff || maxStep > 2,
+                        hasOpenBelow,
+                        hasFluid,
+                        walkable,
+                        blocked,
+                        drops
+                ),
+                terrainProfileLegend(),
+                profile.toString(),
+                List.copyOf(points)
+        );
+    }
+
+    private static BlockPos blockMapCenter(Minecraft minecraft, Integer x, Integer y, Integer z) {
+        var level = minecraft.level;
+        var player = minecraft.player;
+        if (level == null || player == null) {
+            return null;
+        }
+        if (x == null || y == null || z == null) {
+            return player.blockPosition();
+        }
+        return new BlockPos(x, y, z);
+    }
+
+    private static void ensureTerrainProfileChunksLoaded(ClientLevel level, BlockPos center, String axis, int half) {
+        int minX = "x".equals(axis) ? center.getX() - half : center.getX();
+        int maxX = "x".equals(axis) ? center.getX() + half : center.getX();
+        int minZ = "z".equals(axis) ? center.getZ() - half : center.getZ();
+        int maxZ = "z".equals(axis) ? center.getZ() + half : center.getZ();
+        int minChunkX = Math.floorDiv(minX, 16);
+        int maxChunkX = Math.floorDiv(maxX, 16);
+        int minChunkZ = Math.floorDiv(minZ, 16);
+        int maxChunkZ = Math.floorDiv(maxZ, 16);
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                if (level.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, false) == null) {
+                    throw new RMcpEndpointException(RErrorCode.CHUNK_NOT_LOADED);
+                }
+            }
+        }
+    }
+
+    private static RMcpBlockMapData.Axes blockMapAxes() {
+        return new RMcpBlockMapData.Axes("z increases downward", "x increases rightward", "top-left is center minus radius on x and z");
+    }
+
+    private static Map<String, String> terrainProfileLegend() {
+        var legend = new LinkedHashMap<String, String>();
+        legend.put("P", "player xz");
+        legend.put("C", "center xz");
+        legend.put(".", "walkable");
+        legend.put("^", "step up from previous point");
+        legend.put("v", "step down from previous point");
+        legend.put("|", "cliff or height change greater than 2");
+        legend.put("#", "blocked");
+        legend.put("~", "fluid");
+        legend.put("!", "hazard");
+        legend.put("_", "drop/no floor in scan range");
+        return legend;
+    }
+
+    private static int ensureBlockMapChunksLoaded(ClientLevel level, BlockPos center, int radius) {
+        int minChunkX = Math.floorDiv(center.getX() - radius, 16);
+        int maxChunkX = Math.floorDiv(center.getX() + radius, 16);
+        int minChunkZ = Math.floorDiv(center.getZ() - radius, 16);
+        int maxChunkZ = Math.floorDiv(center.getZ() + radius, 16);
+        int loaded = 0;
+        for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
+            for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
+                if (level.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, false) == null) {
+                    throw new RMcpEndpointException(RErrorCode.CHUNK_NOT_LOADED);
+                }
+                loaded++;
+            }
+        }
+        return loaded;
+    }
+
+    private static Map<String, String> blockMapLegend(Map<String, Integer> counts) {
+        var legend = new LinkedHashMap<String, String>();
+        legend.put(".", "minecraft:air");
+        legend.put("P", "player xz");
+        legend.put("C", "center xz");
+        int symbolIndex = 0;
+        boolean hasOther = false;
+        for (var block : topBlocks(counts, counts.size())) {
+            if ("minecraft:air".equals(block.id())) {
+                continue;
+            }
+            String symbol = null;
+            while (symbolIndex < GRID_SYMBOLS.length()) {
+                var candidate = String.valueOf(GRID_SYMBOLS.charAt(symbolIndex++));
+                if (!legend.containsKey(candidate)) {
+                    symbol = candidate;
+                    break;
+                }
+            }
+            if (symbol == null) {
+                hasOther = true;
+                continue;
+            }
+            legend.put(symbol, block.id());
+        }
+        if (hasOther) {
+            legend.put("?", "other");
+        }
+        return legend;
+    }
+
+    private static Map<String, String> symbolById(Map<String, String> legend) {
+        var symbolById = new LinkedHashMap<String, String>();
+        for (var entry : legend.entrySet()) {
+            if (!"player xz".equals(entry.getValue()) && !"center xz".equals(entry.getValue())) {
+                symbolById.put(entry.getValue(), entry.getKey());
+            }
+        }
+        return symbolById;
+    }
+
+    private static Map<String, String> walkableLegend() {
+        var legend = new LinkedHashMap<String, String>();
+        legend.put("P", "player xz");
+        legend.put("C", "center xz");
+        legend.put(".", "walkable");
+        legend.put("#", "blocked");
+        legend.put("~", "fluid");
+        legend.put("!", "hazard");
+        legend.put("_", "drop/no floor in scan range");
+        return legend;
+    }
+
+    private static String blockMapOverlaySymbol(Minecraft minecraft, int x, int y, int z, BlockPos center, String fallback) {
+        var player = minecraft.player;
+        if (player != null && player.blockPosition().getX() == x && player.blockPosition().getZ() == z) {
+            return "P";
+        }
+        if (center.getX() == x && center.getZ() == z) {
+            return "C";
+        }
+        return fallback;
+    }
+
+    private static WalkableCell walkableCell(ClientLevel level, int x, int z, int minY, int maxY, int centerY) {
+        boolean foundFloor = false;
+        for (int y = maxY; y >= minY; y--) {
+            var feet = new BlockPos(x, y, z);
+            var head = feet.above();
+            var floor = feet.below();
+            var floorState = level.getBlockState(floor);
+            foundFloor = foundFloor || blocksMovement(level, floor);
+            if (!blocksMovement(level, floor) || blocksMovement(level, feet) || blocksMovement(level, head)) {
+                continue;
+            }
+            var blockId = blockId(level.getBlockState(feet));
+            var floorBlockId = blockId(floorState);
+            if (isHazard(level, feet) || isHazard(level, floor)) {
+                return new WalkableCell(blockPosData(feet), "!", blockId, floorBlockId, "hazard");
+            }
+            if (!level.getFluidState(feet).isEmpty() || !floorState.getFluidState().isEmpty()) {
+                return new WalkableCell(blockPosData(feet), "~", blockId, floorBlockId, "fluid");
+            }
+            return new WalkableCell(blockPosData(feet), ".", blockId, floorBlockId, "walkable");
+        }
+        var pos = new BlockPos(x, centerY, z);
+        return new WalkableCell(blockPosData(pos), foundFloor ? "#" : "_", blockId(level.getBlockState(pos)), null, foundFloor ? "blocked" : "drop");
+    }
+
+    private static RMcpTerrainProfileData.Point terrainProfilePoint(ClientLevel level, Minecraft minecraft, BlockPos center, String axis, int offset, int x, int z, int minY, int maxY, Integer previousStandY) {
+        Integer surfaceY = null;
+        String surfaceBlockId = null;
+        for (int y = maxY; y >= minY; y--) {
+            var feet = new BlockPos(x, y, z);
+            var head = feet.above();
+            var floor = feet.below();
+            var floorState = level.getBlockState(floor);
+            if (surfaceY == null && blocksMovement(level, floor)) {
+                surfaceY = floor.getY();
+                surfaceBlockId = blockId(floorState);
+            }
+            if (!blocksMovement(level, floor) || blocksMovement(level, feet) || blocksMovement(level, head)) {
+                continue;
+            }
+            var note = terrainProfileNote(level, feet, floor);
+            Integer delta = previousStandY == null ? null : y - previousStandY;
+            var symbol = terrainProfileSymbol(minecraft, center, x, y, z, note, delta);
+            boolean walkable = "walkable".equals(note) || "open_below".equals(note);
+            return new RMcpTerrainProfileData.Point(
+                    offset,
+                    blockPosData(feet),
+                    floor.getY(),
+                    y,
+                    blockId(floorState),
+                    blockId(level.getBlockState(feet)),
+                    blockId(level.getBlockState(head)),
+                    walkable,
+                    delta,
+                    symbol,
+                    note
+            );
+        }
+        var pos = new BlockPos(x, surfaceY == null ? center.getY() : surfaceY + 1, z);
+        Integer delta = previousStandY == null || surfaceY == null ? null : surfaceY + 1 - previousStandY;
+        var note = surfaceY == null ? "drop" : "blocked";
+        var symbol = terrainProfileSymbol(minecraft, center, x, pos.getY(), z, note, delta);
+        return new RMcpTerrainProfileData.Point(
+                offset,
+                blockPosData(pos),
+                surfaceY,
+                surfaceY == null ? null : surfaceY + 1,
+                surfaceBlockId,
+                blockId(level.getBlockState(pos)),
+                blockId(level.getBlockState(pos.above())),
+                false,
+                delta,
+                symbol,
+                note
+        );
+    }
+
+    private static String terrainProfileNote(ClientLevel level, BlockPos feet, BlockPos floor) {
+        if (isHazard(level, feet) || isHazard(level, floor)) {
+            return "hazard";
+        }
+        if (!level.getFluidState(feet).isEmpty() || !level.getBlockState(floor).getFluidState().isEmpty()) {
+            return "fluid";
+        }
+        if (!blocksMovement(level, floor.below()) && !blocksMovement(level, floor.below(2))) {
+            return "open_below";
+        }
+        return "walkable";
+    }
+
+    private static String terrainProfileSymbol(Minecraft minecraft, BlockPos center, int x, int y, int z, String note, Integer delta) {
+        var player = minecraft.player;
+        if (player != null && player.blockPosition().getX() == x && player.blockPosition().getZ() == z) {
+            return "P";
+        }
+        if (center.getX() == x && center.getZ() == z) {
+            return "C";
+        }
+        if ("drop".equals(note)) {
+            return "_";
+        }
+        if ("blocked".equals(note)) {
+            return "#";
+        }
+        if ("fluid".equals(note)) {
+            return "~";
+        }
+        if ("hazard".equals(note)) {
+            return "!";
+        }
+        if (delta != null) {
+            if (Math.abs(delta) > 2) {
+                return "|";
+            }
+            if (delta > 0) {
+                return "^";
+            }
+            if (delta < 0) {
+                return "v";
+            }
+        }
+        return ".";
+    }
+
+    private static boolean blocksMovement(ClientLevel level, BlockPos pos) {
+        if (level.isOutsideBuildHeight(pos)) {
+            return true;
+        }
+        return !level.getBlockState(pos).getCollisionShape(level, pos).isEmpty();
+    }
+
+    private static boolean isHazard(ClientLevel level, BlockPos pos) {
+        var state = level.getBlockState(pos);
+        var id = blockId(state);
+        var fluidId = state.getFluidState().isEmpty() ? "" : BuiltInRegistries.FLUID.getKey(state.getFluidState().getType()).toString();
+        return id.contains("fire")
+                || id.endsWith(":lava")
+                || id.endsWith(":magma_block")
+                || id.endsWith(":cactus")
+                || id.endsWith(":sweet_berry_bush")
+                || fluidId.contains("lava");
+    }
+
+    private static RMcpBlocksFindData blocksFindData(Minecraft minecraft, RMcpBlocksFindRequest request) {
+        var level = minecraft.level;
+        var player = minecraft.player;
+        if (level == null || player == null) {
+            return null;
+        }
+        var targetIds = new ArrayList<String>();
+        for (var id : request.ids()) {
+            var location = ResourceLocation.tryParse(id);
+            if (location == null || !BuiltInRegistries.BLOCK.containsKey(location)) {
+                throw new RMcpEndpointException(RErrorCode.BAD_BLOCK_IDS);
+            }
+            targetIds.add(location.toString());
+        }
+
+        var center = player.blockPosition();
+        int centerChunkX = Math.floorDiv(center.getX(), 16);
+        int centerChunkZ = Math.floorDiv(center.getZ(), 16);
+        int centerSectionY = Math.floorDiv(center.getY(), 16);
+        int minSectionY = Math.max(level.getMinSection(), centerSectionY - request.sectionRadius());
+        int maxSectionY = Math.min(level.getMaxSection() - 1, centerSectionY + request.sectionRadius());
+        if (minSectionY > maxSectionY) {
+            throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
+        }
+
+        var counts = new LinkedHashMap<String, Integer>();
+        Comparator<BlockFindHit> hitOrder = Comparator.comparingLong(BlockFindHit::distanceSquared)
+                .thenComparing(BlockFindHit::id)
+                .thenComparingInt(hit -> hit.pos().y())
+                .thenComparingInt(hit -> hit.pos().x())
+                .thenComparingInt(hit -> hit.pos().z());
+        var nearestHits = new PriorityQueue<BlockFindHit>(hitOrder.reversed());
+        var nearestById = new LinkedHashMap<String, BlockFindHit>();
+        int loadedChunks = 0;
+        int skippedChunks = 0;
+        int scannedSections = 0;
+        int scannedBlocks = 0;
+        int matched = 0;
+        boolean includeState = Boolean.TRUE.equals(request.includeState());
+
+        for (int chunkX = centerChunkX - request.chunkRadius(); chunkX <= centerChunkX + request.chunkRadius(); chunkX++) {
+            for (int chunkZ = centerChunkZ - request.chunkRadius(); chunkZ <= centerChunkZ + request.chunkRadius(); chunkZ++) {
+                var chunk = level.getChunkSource().getChunk(chunkX, chunkZ, ChunkStatus.FULL, false);
+                if (chunk == null) {
+                    skippedChunks++;
+                    continue;
+                }
+                loadedChunks++;
+                for (int sectionY = minSectionY; sectionY <= maxSectionY; sectionY++) {
+                    LevelChunkSection section = chunk.getSection(level.getSectionIndexFromSectionY(sectionY));
+                    scannedSections++;
+                    for (int localY = 0; localY < 16; localY++) {
+                        int blockY = (sectionY << 4) + localY;
+                        for (int localZ = 0; localZ < 16; localZ++) {
+                            int blockZ = chunk.getPos().getMinBlockZ() + localZ;
+                            for (int localX = 0; localX < 16; localX++) {
+                                int blockX = chunk.getPos().getMinBlockX() + localX;
+                                scannedBlocks++;
+                                var state = section.getBlockState(localX, localY, localZ);
+                                var blockId = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+                                if (!targetIds.contains(blockId)) {
+                                    continue;
+                                }
+                                matched++;
+                                counts.merge(blockId, 1, Integer::sum);
+                                var pos = new RMcpBlockPosData(blockX, blockY, blockZ);
+                                var stateText = includeState ? RMcpMcDataCodec211.stateString(blockId, state.toString()) : null;
+                                var hit = new BlockFindHit(blockId, pos, stateText, blockDistanceSquared(blockX, blockY, blockZ, center));
+                                var nearest = nearestById.get(blockId);
+                                if (nearest == null || hitOrder.compare(hit, nearest) < 0) {
+                                    nearestById.put(blockId, hit);
+                                }
+                                if (nearestHits.size() < request.limit()) {
+                                    nearestHits.add(hit);
+                                } else if (hitOrder.compare(hit, nearestHits.peek()) < 0) {
+                                    nearestHits.poll();
+                                    nearestHits.add(hit);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        var returnedHits = new ArrayList<>(nearestHits);
+        returnedHits.sort(hitOrder);
+        int returned = returnedHits.size();
+        var matches = new ArrayList<RMcpBlocksFindData.Match>();
+        for (var id : targetIds) {
+            var count = counts.get(id);
+            if (count == null) {
+                continue;
+            }
+            var positions = new ArrayList<RMcpBlockPosData>();
+            var states = includeState ? new ArrayList<String>() : null;
+            for (var hit : returnedHits) {
+                if (!id.equals(hit.id())) {
+                    continue;
+                }
+                positions.add(hit.pos());
+                if (states != null) {
+                    states.add(hit.state());
+                }
+            }
+            var nearest = nearestById.get(id).pos();
+            matches.add(new RMcpBlocksFindData.Match(id, count, nearest, List.copyOf(positions), states == null ? null : List.copyOf(states)));
+        }
+
+        return new RMcpBlocksFindData(
+                BLOCKS_FIND_FORMAT,
+                level.dimension().location().toString(),
+                new RMcpBlocksFindData.Center(blockPosData(center), centerChunkX, centerChunkZ, centerSectionY),
+                new RMcpBlocksFindData.Range(request.chunkRadius(), request.sectionRadius()),
+                new RMcpBlocksFindData.Scan(loadedChunks, skippedChunks, scannedSections, scannedBlocks, matched, returned, matched > returned),
+                List.copyOf(matches)
+        );
+    }
+
+    private static long blockDistanceSquared(int x, int y, int z, BlockPos center) {
+        long dx = x - center.getX();
+        long dy = y - center.getY();
+        long dz = z - center.getZ();
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    private static String blockId(BlockState state) {
+        return BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+    }
+
+    private static RMcpBlockPosData blockPosData(BlockPos pos) {
+        return new RMcpBlockPosData(pos.getX(), pos.getY(), pos.getZ());
     }
 
     private static RMcpNearbyResourcesData nearbyResourcesData(Minecraft minecraft, String dim, int x, int y, int z, int chunkRadius, int sectionRadius) {
@@ -1768,6 +2483,12 @@ public class RDIMain {
             Integer minNonAirY,
             Integer maxNonAirY
     ) {
+    }
+
+    private record WalkableCell(RMcpBlockPosData pos, String symbol, String blockId, String floorBlockId, String note) {
+    }
+
+    private record BlockFindHit(String id, RMcpBlockPosData pos, String state, long distanceSquared) {
     }
 
 }

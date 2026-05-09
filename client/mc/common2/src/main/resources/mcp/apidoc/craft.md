@@ -1,6 +1,6 @@
 ### `POST /craft`
 
-Use to craft from exact player inventory slots. This is an action API. The server builds the virtual crafting grid from `shape`, matches the normal Minecraft crafting recipe server-side, consumes ingredients from the specified inventory slots, and puts the result into `outputSlot`. No crafting table GUI or recipe book state is required.
+Use to craft from exact player inventory slots. This is an action API. The server builds the virtual crafting grid from `shape`, matches the normal Minecraft crafting recipe server-side, consumes ingredients from the specified inventory slots, and puts the result into `outputSlot`. No crafting table block, crafting table GUI, open menu, or recipe book state is required.
 
 Request body:
 

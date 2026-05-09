@@ -13,6 +13,7 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.BrowserUserAgent
 import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.timeout
 import io.ktor.client.plugins.compression.ContentEncoding
 import io.ktor.client.request.header
 import io.ktor.client.request.request
@@ -95,7 +96,7 @@ object OpenaiService {
     private const val JDEPS_JAR_TOOL_NAME = "jdeps_jar"
     private const val LOCAL_FILE_LIST_TOOL_NAME = "local_file_list"
     private const val LOCAL_TEXT_READ_TOOL_NAME = "local_text_read"
-    private const val MAX_TOOL_ROUNDS = 32
+    private const val MAX_TOOL_ROUNDS = 512
     private const val MAX_TOOL_RESPONSE_BYTES = 64 * 1024 * 1024
     private const val MAX_TOOL_CONTENT_CHARS = 32 * 1024
     private const val MAX_JAVA_TOOL_OUTPUT_CHARS = 32 * 1024
@@ -140,7 +141,8 @@ object OpenaiService {
         apiKey: String,
         model: String,
         messages: List<OpenaiChatMessage>,
-        versionDir: String? = null
+        versionDir: String? = null,
+        reasoningEffort: String? = null
     ): Flow<OpenaiChatEvent> = flow {
         val baseUrl = aiBaseUrl.trim().trimEnd('/')
         val key = apiKey.trim()
@@ -149,6 +151,7 @@ object OpenaiService {
         require(key.isNotBlank()) { "请输入API Key" }
         require(modelName.isNotBlank()) { "AI模型不能为空" }
         require(messages.isNotEmpty()) { "消息不能为空" }
+        val effort = reasoningEffort?.trim()?.ifBlank { null }
 
         val conversation = messages.toMutableList()
         val turnContextMessages = mutableListOf<OpenaiChatMessage>()
@@ -157,7 +160,7 @@ object OpenaiService {
         var usedTool = false
 
         repeat(MAX_TOOL_ROUNDS + 1) { roundIndex ->
-            val result = requestChatRound(baseUrl, key, modelName, conversation, versionDir)
+            val result = requestChatRound(baseUrl, key, modelName, effort, conversation, versionDir)
             result.usage?.let {
                 totalPromptTokens += it.promptTokens
                 totalCompletionTokens += it.completionTokens
@@ -212,6 +215,7 @@ object OpenaiService {
         baseUrl: String,
         apiKey: String,
         model: String,
+        reasoningEffort: String?,
         messages: List<OpenaiChatMessage>,
         versionDir: String?
     ): ChatRoundResult {
@@ -223,6 +227,11 @@ object OpenaiService {
         val response = ktorClient.request {
             url("$baseUrl/chat/completions")
             method = HttpMethod.Post
+            timeout {
+                requestTimeoutMillis = 5 * 60 * 1000L
+                connectTimeoutMillis = 10_000L
+                socketTimeoutMillis = 5 * 60 * 1000L
+            }
             json()
             header(HttpHeaders.Authorization, "Bearer $apiKey")
             setBody(
@@ -230,6 +239,7 @@ object OpenaiService {
                     ChatCompletionRequest(
                         model = model,
                         messages = messages,
+                        reasoningEffort = reasoningEffort,
                         stream = true,
                         streamOptions = ChatStreamOptions(includeUsage = true),
                         tools = tools
@@ -810,6 +820,8 @@ object OpenaiService {
     private data class ChatCompletionRequest(
         val model: String,
         val messages: List<OpenaiChatMessage>,
+        @SerialName("reasoning_effort")
+        val reasoningEffort: String? = null,
         val stream: Boolean,
         @SerialName("stream_options")
         val streamOptions: ChatStreamOptions,
