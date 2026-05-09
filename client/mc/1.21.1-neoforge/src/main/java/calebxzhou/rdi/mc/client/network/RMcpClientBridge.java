@@ -5,16 +5,25 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpBlockActionData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockBatchActionData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveBatchRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutBatchRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpEndpointException;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHarvestToolData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpHotbarSelectData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpRespawnData;
 import com.google.gson.Gson;
 import net.minecraft.client.Minecraft;
 import net.neoforged.api.distmarker.Dist;
@@ -58,6 +67,10 @@ public final class RMcpClientBridge {
         return requestServer("menu-drop", new MenuDropRequest(slot, count, dryRun), RMcpMenuDropData.class);
     }
 
+    public static RMcpHotbarSelectData requestHotbarSelect(int slot, boolean dryRun) {
+        return requestServer("hotbar-select", new HotbarSelectRequest(slot, dryRun), RMcpHotbarSelectData.class);
+    }
+
     public static RMcpContainerMoveData requestContainerMove(String fromPos, String fromSide, int fromSlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun) {
         return requestServer(
                 "container-move",
@@ -71,6 +84,10 @@ public final class RMcpClientBridge {
         );
     }
 
+    public static RMcpContainerMoveBatchData requestContainerMoveBatch(RMcpContainerMoveBatchRequest request) {
+        return requestServer("container-move-batch", request, RMcpContainerMoveBatchData.class);
+    }
+
     public static RMcpContainerPutData requestContainerPut(int fromInventorySlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun) {
         return requestServer(
                 "container-put",
@@ -82,6 +99,27 @@ public final class RMcpClientBridge {
                 ),
                 RMcpContainerPutData.class
         );
+    }
+
+    public static RMcpContainerPutBatchData requestContainerPutBatch(RMcpContainerPutBatchRequest request) {
+        return requestServer("container-put-batch", request, RMcpContainerPutBatchData.class);
+    }
+
+    public static RMcpContainerTakeData requestContainerTake(String fromPos, String fromSide, int fromSlot, Integer toInventorySlot, int count, boolean dryRun) {
+        return requestServer(
+                "container-take",
+                new ContainerTakeRequest(
+                        new ContainerEndpointRequest(fromPos, fromSide, fromSlot),
+                        toInventorySlot,
+                        count,
+                        dryRun
+                ),
+                RMcpContainerTakeData.class
+        );
+    }
+
+    public static RMcpContainerTakeBatchData requestContainerTakeBatch(RMcpContainerTakeBatchRequest request) {
+        return requestServer("container-take-batch", request, RMcpContainerTakeBatchData.class);
     }
 
     public static RMcpBlockActionData requestPlaceBlock(int x, int y, int z, String face) {
@@ -110,6 +148,10 @@ public final class RMcpClientBridge {
 
     public static RMcpPlayerMoveData requestMovePlayer(double x, double y, double z) {
         return requestServer("move-player", new PlayerMoveRequest(x, y, z), RMcpPlayerMoveData.class);
+    }
+
+    public static RMcpRespawnData requestRespawn() {
+        return requestServer("respawn", Map.of(), RMcpRespawnData.class);
     }
 
     public static RMcpItemPickupData requestPickupItemEntities(List<UUID> ids, double radius, int limit) {
@@ -161,10 +203,16 @@ public final class RMcpClientBridge {
     private record MenuDropRequest(int slot, int count, boolean dryRun) {
     }
 
+    private record HotbarSelectRequest(int slot, boolean dryRun) {
+    }
+
     private record ContainerMoveRequest(ContainerEndpointRequest from, ContainerEndpointRequest to, int count, boolean dryRun) {
     }
 
     private record ContainerPutRequest(int fromInventorySlot, ContainerEndpointRequest to, int count, boolean dryRun) {
+    }
+
+    private record ContainerTakeRequest(ContainerEndpointRequest from, Integer toInventorySlot, int count, boolean dryRun) {
     }
 
     private record ContainerEndpointRequest(String pos, String side, Integer slot) {

@@ -200,7 +200,7 @@ fun RemoteModInfoScreen(
             }
     }
 
-    LaunchedEffect(supportedGameVersions) {
+    LaunchedEffect(project?.projectId, supportedGameVersions) {
         selectedGameVersion = selectedGameVersion
             ?.takeIf { selected -> supportedGameVersions.any { it.mcVer == selected } }
             ?: supportedGameVersions.firstOrNull { it == McVersion.V211 }?.mcVer

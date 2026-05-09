@@ -4,11 +4,20 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpBlockActionData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockBatchActionData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveBatchRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutBatchRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpHotbarSelectData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpRespawnData;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
@@ -20,10 +29,16 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.network.protocol.game.ClientboundSetCarriedItemPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.level.GameRules;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.inventory.ClickType;
@@ -59,13 +74,22 @@ public final class RMcpServerNetwork {
     private static final int BLOCK_BATCH_LIMIT = 512;
     private static final String CRAFT_FORMAT = "craft-v2";
     private static final String INVENTORY_FORMAT = "inventory-v1";
+    private static final String HOTBAR_SELECT_FORMAT = "hotbar-select-v1";
     private static final String MENU_FORMAT = "menu-v1";
     private static final String MENU_DROP_FORMAT = "menu-drop-v1";
     private static final String CONTAINER_FORMAT = "container-v1";
     private static final String CONTAINER_MOVE_FORMAT = "container-move-v1";
+    private static final String CONTAINER_MOVE_BATCH_FORMAT = "container-move-batch-v1";
     private static final String CONTAINER_PUT_FORMAT = "container-put-v1";
+    private static final String CONTAINER_PUT_BATCH_FORMAT = "container-put-batch-v1";
+    private static final String CONTAINER_TAKE_FORMAT = "container-take-v1";
+    private static final String CONTAINER_TAKE_BATCH_FORMAT = "container-take-batch-v1";
+    private static final int CONTAINER_BATCH_LIMIT = 64;
     private static final String PLAYER_MOVE_FORMAT = "player-move-v1";
+    private static final String RESPAWN_FORMAT = "respawn-v1";
     private static final double PLAYER_MOVE_MAX_DISTANCE = 128.0D;
+    private static final int PLAYER_MOVE_SAFE_SEARCH_RADIUS = 4;
+    private static final int PLAYER_MOVE_SLOW_FALLING_TICKS = 60;
     private static final double BLOCK_ACTION_MAX_DISTANCE_SQR = 32.0D * 32.0D;
     private static final String ITEM_PICKUP_FORMAT = "item-pickup-v1";
     private static final int ITEM_PICKUP_LIMIT = 2048;
@@ -112,8 +136,13 @@ public final class RMcpServerNetwork {
                 case "container" -> handleContainer(payload, context, player);
                 case "menu" -> handleMenu(payload, context, player);
                 case "menu-drop" -> handleMenuDrop(payload, context, player);
+                case "hotbar-select" -> handleHotbarSelect(payload, context, player);
                 case "container-move" -> handleContainerMove(payload, context, player);
+                case "container-move-batch" -> handleContainerMoveBatch(payload, context, player);
                 case "container-put" -> handleContainerPut(payload, context, player);
+                case "container-put-batch" -> handleContainerPutBatch(payload, context, player);
+                case "container-take" -> handleContainerTake(payload, context, player);
+                case "container-take-batch" -> handleContainerTakeBatch(payload, context, player);
                 case "place-block" -> handlePlaceBlock(payload, context, player);
                 case "break-block" -> handleBreakBlock(payload, context, player);
                 case "place-block-batch" -> handlePlaceBlockBatch(payload, context, player);
@@ -121,6 +150,7 @@ public final class RMcpServerNetwork {
                 case "place-block-box" -> handlePlaceBlockBox(payload, context, player);
                 case "break-block-box" -> handleBreakBlockBox(payload, context, player);
                 case "move-player" -> handleMovePlayer(payload, context, player);
+                case "respawn" -> handleRespawn(payload, context, player);
                 case "pickup-item-entity" -> handlePickupItemEntity(payload, context, player);
                 default -> replyError(context, payload, RErrorCode.BAD_ACTION);
             }
@@ -235,58 +265,167 @@ public final class RMcpServerNetwork {
         ));
     }
 
-    private static void handleContainerMove(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
-        var request = GSON.fromJson(payload.json(), ContainerMoveRequest.class);
-        if (request == null || request.from() == null || request.to() == null || request.count() <= 0 || request.from().slot() == null) {
+    private static void handleHotbarSelect(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), HotbarSelectRequest.class);
+        if (request == null || request.slot() == null) {
             replyError(context, payload, RErrorCode.BAD_REQUEST);
             return;
+        }
+        int slot = request.slot();
+        if (slot < 0 || slot > 8) {
+            replyError(context, payload, RErrorCode.BAD_SLOT);
+            return;
+        }
+
+        var inventory = player.getInventory();
+        var registryAccess = player.serverLevel().registryAccess();
+        int beforeSlot = inventory.selected;
+        var beforeSelectedItem = inventorySlotData(inventory, beforeSlot, registryAccess);
+        if (!request.dryRun()) {
+            if (beforeSlot != slot && player.getUsedItemHand() == InteractionHand.MAIN_HAND) {
+                player.stopUsingItem();
+            }
+            inventory.selected = slot;
+            inventory.setChanged();
+            player.resetLastActionTime();
+            player.connection.send(new ClientboundSetCarriedItemPacket(slot));
+            player.inventoryMenu.broadcastChanges();
+            player.containerMenu.broadcastChanges();
+        }
+
+        int afterSlot = request.dryRun() ? slot : inventory.selected;
+        replyOk(context, payload, new RMcpHotbarSelectData(
+                HOTBAR_SELECT_FORMAT,
+                request.dryRun(),
+                slot,
+                beforeSlot,
+                afterSlot,
+                beforeSelectedItem,
+                inventorySlotData(inventory, afterSlot, registryAccess),
+                inventoryData(player)
+        ));
+    }
+
+    private static void handleContainerMove(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), ContainerMoveRequest.class);
+        var result = runContainerMoveStep(player, request, request == null || request.dryRun());
+        if (!"ok".equals(result.code())) {
+            replyError(context, payload, result.code());
+            return;
+        }
+        replyOk(context, payload, new RMcpContainerMoveData(
+                CONTAINER_MOVE_FORMAT,
+                request.dryRun(),
+                request.count(),
+                result.movedCount(),
+                result.movedItem(),
+                result.from(),
+                result.to(),
+                result.fromContainer(),
+                result.toContainer()
+        ));
+    }
+
+    private static void handleContainerMoveBatch(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpContainerMoveBatchRequest.class);
+        if (request == null || request.moves() == null || request.moves().isEmpty()) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (request.moves().size() > CONTAINER_BATCH_LIMIT) {
+            replyError(context, payload, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        var results = new ArrayList<RMcpContainerMoveBatchData.Result>();
+        int succeeded = 0;
+        int failed = 0;
+        int totalMoved = 0;
+        for (int i = 0; i < request.moves().size(); i++) {
+            var move = request.moves().get(i);
+            var stepRequest = move == null
+                    ? null
+                    : new ContainerMoveRequest(
+                    move.from() == null ? null : new ContainerEndpointRequest(move.from().pos(), move.from().side(), move.from().slot()),
+                    move.to() == null ? null : new ContainerEndpointRequest(move.to().pos(), move.to().side(), move.to().slot()),
+                    move.count(),
+                    request.dryRun()
+            );
+            var step = runContainerMoveStep(player, stepRequest, request.dryRun());
+            if ("ok".equals(step.code())) {
+                succeeded++;
+                totalMoved += step.movedCount();
+            } else {
+                failed++;
+            }
+            results.add(new RMcpContainerMoveBatchData.Result(
+                    i,
+                    step.code(),
+                    step.requestedCount(),
+                    step.movedCount(),
+                    step.movedItem(),
+                    step.from(),
+                    step.to(),
+                    step.fromContainer(),
+                    step.toContainer()
+            ));
+            if (!"ok".equals(step.code()) && request.stopOnError()) {
+                break;
+            }
+        }
+        replyOk(context, payload, new RMcpContainerMoveBatchData(
+                CONTAINER_MOVE_BATCH_FORMAT,
+                request.dryRun(),
+                request.stopOnError(),
+                request.moves().size(),
+                succeeded,
+                failed,
+                totalMoved,
+                results
+        ));
+    }
+
+    private static ContainerMoveStepResult runContainerMoveStep(ServerPlayer player, ContainerMoveRequest request, boolean dryRun) {
+        if (request == null || request.from() == null || request.to() == null || request.count() <= 0 || request.from().slot() == null) {
+            return ContainerMoveStepResult.error(RErrorCode.BAD_REQUEST.id(), request == null ? 0 : request.count());
         }
         var fromPos = parsePos(request.from().pos());
         var toPos = parsePos(request.to().pos());
         if (fromPos == null || toPos == null) {
-            replyError(context, payload, RErrorCode.BAD_POS);
-            return;
+            return ContainerMoveStepResult.error(RErrorCode.BAD_POS.id(), request.count());
         }
         var fromSide = parseSide(request.from().side());
         var toSide = parseSide(request.to().side());
         if (fromSide == SideParse.BAD || toSide == SideParse.BAD) {
-            replyError(context, payload, RErrorCode.BAD_SIDE);
-            return;
+            return ContainerMoveStepResult.error(RErrorCode.BAD_SIDE.id(), request.count());
         }
         var from = resolveContainer(player, fromPos, fromSide.direction());
         if (!"ok".equals(from.code())) {
-            replyError(context, payload, from.code());
-            return;
+            return ContainerMoveStepResult.error(from.code(), request.count());
         }
         var to = resolveContainer(player, toPos, toSide.direction());
         if (!"ok".equals(to.code())) {
-            replyError(context, payload, to.code());
-            return;
+            return ContainerMoveStepResult.error(to.code(), request.count());
         }
         int fromSlot = request.from().slot();
         Integer toSlot = request.to().slot();
         if (!validSlot(from.handler(), fromSlot) || (toSlot != null && !validSlot(to.handler(), toSlot))) {
-            replyError(context, payload, RErrorCode.BAD_SLOT);
-            return;
+            return ContainerMoveStepResult.error(RErrorCode.BAD_SLOT.id(), request.count(), from, fromSlot, to, toSlot);
         }
         if (sameEndpoint(from, fromSlot, to, toSlot)) {
-            replyError(context, payload, RErrorCode.SAME_SLOT);
-            return;
+            return ContainerMoveStepResult.error(RErrorCode.SAME_SLOT.id(), request.count(), from, fromSlot, to, toSlot);
         }
 
         var extracted = from.handler().extractItem(fromSlot, request.count(), true);
         if (extracted.isEmpty()) {
-            replyError(context, payload, RErrorCode.EMPTY_SOURCE);
-            return;
+            return ContainerMoveStepResult.error(RErrorCode.EMPTY_SOURCE.id(), request.count(), from, fromSlot, to, toSlot);
         }
         var plan = insertionPlan(to.handler(), toSlot, extracted, sameContainer(from, to) ? fromSlot : null);
         if (plan.movedCount() <= 0) {
-            replyError(context, payload, RErrorCode.TARGET_FULL);
-            return;
+            return ContainerMoveStepResult.error(RErrorCode.TARGET_FULL.id(), request.count(), from, fromSlot, to, toSlot);
         }
 
         ItemStack movedStack = extracted.copyWithCount(plan.movedCount());
-        if (!request.dryRun()) {
+        if (!dryRun) {
             var actualExtracted = from.handler().extractItem(fromSlot, plan.movedCount(), false);
             var remaining = actualExtracted;
             for (var insert : plan.inserts()) {
@@ -301,9 +440,8 @@ public final class RMcpServerNetwork {
             markContainerChanged(to);
         }
 
-        var data = new RMcpContainerMoveData(
-                CONTAINER_MOVE_FORMAT,
-                request.dryRun(),
+        return new ContainerMoveStepResult(
+                "ok",
                 request.count(),
                 plan.movedCount(),
                 slotData(-1, movedStack, movedStack.getMaxStackSize(), true, from.level().registryAccess()),
@@ -312,54 +450,128 @@ public final class RMcpServerNetwork {
                 containerData(from),
                 containerData(to)
         );
-        replyOk(context, payload, data);
     }
 
     private static void handleContainerPut(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
         var request = GSON.fromJson(payload.json(), ContainerPutRequest.class);
-        if (request == null || request.to() == null || request.fromInventorySlot() == null || request.count() <= 0) {
+        var step = runContainerPutStep(player, request, request == null || request.dryRun());
+        if (!"ok".equals(step.code())) {
+            replyError(context, payload, step.code());
+            return;
+        }
+        replyOk(context, payload, new RMcpContainerPutData(
+                CONTAINER_PUT_FORMAT,
+                request.dryRun(),
+                step.fromInventorySlot(),
+                step.requestedCount(),
+                step.movedCount(),
+                step.movedItem(),
+                step.beforeInventorySlot(),
+                step.afterInventorySlot(),
+                step.to(),
+                step.inventory(),
+                step.container()
+        ));
+    }
+
+    private static void handleContainerPutBatch(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpContainerPutBatchRequest.class);
+        if (request == null || request.moves() == null || request.moves().isEmpty()) {
             replyError(context, payload, RErrorCode.BAD_REQUEST);
             return;
         }
+        if (request.moves().size() > CONTAINER_BATCH_LIMIT) {
+            replyError(context, payload, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        var results = new ArrayList<RMcpContainerPutBatchData.Result>();
+        int succeeded = 0;
+        int failed = 0;
+        int totalMoved = 0;
+        for (int i = 0; i < request.moves().size(); i++) {
+            var move = request.moves().get(i);
+            var stepRequest = move == null
+                    ? null
+                    : new ContainerPutRequest(
+                    move.fromInventorySlot(),
+                    move.to() == null ? null : new ContainerEndpointRequest(move.to().pos(), move.to().side(), move.to().slot()),
+                    move.count(),
+                    request.dryRun()
+            );
+            var step = runContainerPutStep(player, stepRequest, request.dryRun());
+            if ("ok".equals(step.code())) {
+                succeeded++;
+                totalMoved += step.movedCount();
+            } else {
+                failed++;
+            }
+            results.add(new RMcpContainerPutBatchData.Result(
+                    i,
+                    step.code(),
+                    step.fromInventorySlot(),
+                    step.requestedCount(),
+                    step.movedCount(),
+                    step.movedItem(),
+                    step.beforeInventorySlot(),
+                    step.afterInventorySlot(),
+                    step.to(),
+                    step.inventory(),
+                    step.container()
+            ));
+            if (!"ok".equals(step.code()) && request.stopOnError()) {
+                break;
+            }
+        }
+        replyOk(context, payload, new RMcpContainerPutBatchData(
+                CONTAINER_PUT_BATCH_FORMAT,
+                request.dryRun(),
+                request.stopOnError(),
+                request.moves().size(),
+                succeeded,
+                failed,
+                totalMoved,
+                results
+        ));
+    }
+
+    private static ContainerPutStepResult runContainerPutStep(ServerPlayer player, ContainerPutRequest request, boolean dryRun) {
+        if (request == null || request.to() == null || request.fromInventorySlot() == null) {
+            return ContainerPutStepResult.error(RErrorCode.BAD_REQUEST.id(), request);
+        }
+        if (request.count() <= 0) {
+            return ContainerPutStepResult.error(RErrorCode.BAD_COUNT.id(), request);
+        }
         var toPos = parsePos(request.to().pos());
         if (toPos == null) {
-            replyError(context, payload, RErrorCode.BAD_POS);
-            return;
+            return ContainerPutStepResult.error(RErrorCode.BAD_POS.id(), request);
         }
         var toSide = parseSide(request.to().side());
         if (toSide == SideParse.BAD) {
-            replyError(context, payload, RErrorCode.BAD_SIDE);
-            return;
+            return ContainerPutStepResult.error(RErrorCode.BAD_SIDE.id(), request);
         }
         var to = resolveContainer(player, toPos, toSide.direction());
         if (!"ok".equals(to.code())) {
-            replyError(context, payload, to.code());
-            return;
+            return ContainerPutStepResult.error(to.code(), request);
         }
         int fromSlot = request.fromInventorySlot();
         var inventory = player.getInventory();
         if (fromSlot < 0 || fromSlot >= inventory.items.size()) {
-            replyError(context, payload, RErrorCode.BAD_SLOT);
-            return;
+            return ContainerPutStepResult.error(RErrorCode.BAD_SLOT.id(), request);
         }
         Integer toSlot = request.to().slot();
         if (toSlot != null && !validSlot(to.handler(), toSlot)) {
-            replyError(context, payload, RErrorCode.BAD_SLOT);
-            return;
+            return ContainerPutStepResult.error(RErrorCode.BAD_SLOT.id(), request);
         }
         if (!player.containerMenu.getCarried().isEmpty()) {
-            replyError(context, payload, RErrorCode.CARRIED_ITEM_NOT_EMPTY);
-            return;
+            return ContainerPutStepResult.error(RErrorCode.CARRIED_ITEM_NOT_EMPTY.id(), request);
         }
 
         var sourceStack = inventory.items.get(fromSlot);
         if (sourceStack.isEmpty()) {
-            replyError(context, payload, RErrorCode.EMPTY_SOURCE);
-            return;
+            return ContainerPutStepResult.error(RErrorCode.EMPTY_SOURCE.id(), request);
         }
         if (request.count() > sourceStack.getCount()) {
-            replyError(context, payload, RErrorCode.BAD_COUNT);
-            return;
+            return ContainerPutStepResult.error(RErrorCode.BAD_COUNT.id(), request);
         }
 
         var registryAccess = player.serverLevel().registryAccess();
@@ -367,12 +579,11 @@ public final class RMcpServerNetwork {
         var requestedStack = sourceStack.copyWithCount(request.count());
         var plan = insertionPlan(to.handler(), toSlot, requestedStack, null);
         if (plan.movedCount() <= 0) {
-            replyError(context, payload, RErrorCode.TARGET_FULL);
-            return;
+            return ContainerPutStepResult.error(RErrorCode.TARGET_FULL.id(), request);
         }
 
         int movedCount = plan.movedCount();
-        if (!request.dryRun()) {
+        if (!dryRun) {
             movedCount = 0;
             int remainingToMove = plan.movedCount();
             for (var insert : plan.inserts()) {
@@ -389,8 +600,7 @@ public final class RMcpServerNetwork {
                 }
             }
             if (movedCount <= 0) {
-                replyError(context, payload, RErrorCode.TARGET_FULL);
-                return;
+                return ContainerPutStepResult.error(RErrorCode.TARGET_FULL.id(), request);
             }
             inventory.setChanged();
             markContainerChanged(to);
@@ -399,9 +609,8 @@ public final class RMcpServerNetwork {
         }
 
         var movedStack = requestedStack.copyWithCount(movedCount);
-        replyOk(context, payload, new RMcpContainerPutData(
-                CONTAINER_PUT_FORMAT,
-                request.dryRun(),
+        return new ContainerPutStepResult(
+                "ok",
                 fromSlot,
                 request.count(),
                 movedCount,
@@ -411,7 +620,163 @@ public final class RMcpServerNetwork {
                 endpointData(to, toSlot),
                 inventoryData(player),
                 containerData(to)
+        );
+    }
+
+    private static void handleContainerTake(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), ContainerTakeRequest.class);
+        var step = runContainerTakeStep(player, request, request == null || request.dryRun());
+        if (!"ok".equals(step.code())) {
+            replyError(context, payload, step.code());
+            return;
+        }
+        replyOk(context, payload, new RMcpContainerTakeData(
+                CONTAINER_TAKE_FORMAT,
+                request.dryRun(),
+                step.requestedCount(),
+                step.movedCount(),
+                step.movedItem(),
+                step.from(),
+                step.toInventorySlot(),
+                step.targetInventorySlots(),
+                step.beforeToInventorySlot(),
+                step.afterToInventorySlot(),
+                step.inventory(),
+                step.container()
         ));
+    }
+
+    private static void handleContainerTakeBatch(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpContainerTakeBatchRequest.class);
+        if (request == null || request.moves() == null || request.moves().isEmpty()) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (request.moves().size() > CONTAINER_BATCH_LIMIT) {
+            replyError(context, payload, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        var results = new ArrayList<RMcpContainerTakeBatchData.Result>();
+        int succeeded = 0;
+        int failed = 0;
+        int totalMoved = 0;
+        for (int i = 0; i < request.moves().size(); i++) {
+            var move = request.moves().get(i);
+            var stepRequest = move == null
+                    ? null
+                    : new ContainerTakeRequest(
+                    move.from() == null ? null : new ContainerEndpointRequest(move.from().pos(), move.from().side(), move.from().slot()),
+                    move.toInventorySlot(),
+                    move.count(),
+                    request.dryRun()
+            );
+            var step = runContainerTakeStep(player, stepRequest, request.dryRun());
+            if ("ok".equals(step.code())) {
+                succeeded++;
+                totalMoved += step.movedCount();
+            } else {
+                failed++;
+            }
+            results.add(new RMcpContainerTakeBatchData.Result(
+                    i,
+                    step.code(),
+                    step.requestedCount(),
+                    step.movedCount(),
+                    step.movedItem(),
+                    step.from(),
+                    step.toInventorySlot(),
+                    step.targetInventorySlots(),
+                    step.beforeToInventorySlot(),
+                    step.afterToInventorySlot(),
+                    step.inventory(),
+                    step.container()
+            ));
+            if (!"ok".equals(step.code()) && request.stopOnError()) {
+                break;
+            }
+        }
+        replyOk(context, payload, new RMcpContainerTakeBatchData(
+                CONTAINER_TAKE_BATCH_FORMAT,
+                request.dryRun(),
+                request.stopOnError(),
+                request.moves().size(),
+                succeeded,
+                failed,
+                totalMoved,
+                results
+        ));
+    }
+
+    private static ContainerTakeStepResult runContainerTakeStep(ServerPlayer player, ContainerTakeRequest request, boolean dryRun) {
+        if (request == null || request.from() == null || request.from().slot() == null) {
+            return ContainerTakeStepResult.error(RErrorCode.BAD_REQUEST.id(), request);
+        }
+        if (request.count() <= 0) {
+            return ContainerTakeStepResult.error(RErrorCode.BAD_COUNT.id(), request);
+        }
+        var fromPos = parsePos(request.from().pos());
+        if (fromPos == null) {
+            return ContainerTakeStepResult.error(RErrorCode.BAD_POS.id(), request);
+        }
+        var fromSide = parseSide(request.from().side());
+        if (fromSide == SideParse.BAD) {
+            return ContainerTakeStepResult.error(RErrorCode.BAD_SIDE.id(), request);
+        }
+        var from = resolveContainer(player, fromPos, fromSide.direction());
+        if (!"ok".equals(from.code())) {
+            return ContainerTakeStepResult.error(from.code(), request);
+        }
+        int fromSlot = request.from().slot();
+        if (!validSlot(from.handler(), fromSlot)) {
+            return ContainerTakeStepResult.error(RErrorCode.BAD_SLOT.id(), request);
+        }
+        var inventory = player.getInventory();
+        Integer toInventorySlot = request.toInventorySlot();
+        if (toInventorySlot != null && (toInventorySlot < 0 || toInventorySlot >= inventory.items.size())) {
+            return ContainerTakeStepResult.error(RErrorCode.BAD_SLOT.id(), request);
+        }
+        if (!player.containerMenu.getCarried().isEmpty()) {
+            return ContainerTakeStepResult.error(RErrorCode.CARRIED_ITEM_NOT_EMPTY.id(), request);
+        }
+
+        var extracted = from.handler().extractItem(fromSlot, request.count(), true);
+        if (extracted.isEmpty()) {
+            return ContainerTakeStepResult.error(RErrorCode.EMPTY_SOURCE.id(), request);
+        }
+        var plan = inventoryInsertionPlan(inventory, toInventorySlot, extracted);
+        if (plan.movedCount() <= 0) {
+            return ContainerTakeStepResult.error(inventoryInsertFailureCode(inventory, toInventorySlot, extracted).id(), request);
+        }
+
+        var registryAccess = player.serverLevel().registryAccess();
+        var beforeToInventorySlot = toInventorySlot == null ? null : inventorySlotData(inventory, toInventorySlot, registryAccess);
+        int movedCount = plan.movedCount();
+        if (!dryRun) {
+            var actualExtracted = from.handler().extractItem(fromSlot, plan.movedCount(), false);
+            movedCount = applyInventoryInsertPlan(inventory, actualExtracted, plan);
+            if (movedCount <= 0) {
+                return ContainerTakeStepResult.error(RErrorCode.TARGET_FULL.id(), request);
+            }
+            inventory.setChanged();
+            markContainerChanged(from);
+            player.inventoryMenu.broadcastChanges();
+            player.containerMenu.broadcastChanges();
+        }
+
+        var movedStack = extracted.copyWithCount(movedCount);
+        return new ContainerTakeStepResult(
+                "ok",
+                request.count(),
+                movedCount,
+                slotData(-1, movedStack, movedStack.getMaxStackSize(), true, registryAccess),
+                endpointData(from, fromSlot),
+                toInventorySlot,
+                plan.inserts().stream().map(InsertStep::slot).toList(),
+                beforeToInventorySlot,
+                toInventorySlot == null ? null : inventorySlotData(inventory, toInventorySlot, registryAccess),
+                inventoryData(player),
+                containerData(from)
+        );
     }
 
     private static void handleHarvestTool(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
@@ -575,24 +940,57 @@ public final class RMcpServerNetwork {
             return;
         }
         var level = player.serverLevel();
-        var targetPos = BlockPos.containing(request.x(), request.y(), request.z());
-        if (level.isOutsideBuildHeight(targetPos)) {
-            replyError(context, payload, RErrorCode.SECTION_OUT_OF_RANGE);
+        var moveTarget = findSafeMoveTarget(level, BlockPos.containing(request.x(), request.y(), request.z()));
+        if (!moveTarget.ok()) {
+            replyError(context, payload, moveTarget.errorCode());
             return;
         }
-        if (!level.isLoaded(targetPos)) {
-            replyError(context, payload, RErrorCode.CHUNK_NOT_LOADED);
-            return;
-        }
-        double distance = Math.sqrt(player.distanceToSqr(request.x(), request.y(), request.z()));
+        double distance = Math.sqrt(player.distanceToSqr(moveTarget.x(), moveTarget.y(), moveTarget.z()));
         if (distance > PLAYER_MOVE_MAX_DISTANCE) {
             replyError(context, payload, RErrorCode.TOO_FAR);
             return;
         }
         var from = posData(player);
-        player.teleportTo(request.x(), request.y(), request.z());
+        player.teleportTo(moveTarget.x(), moveTarget.y(), moveTarget.z());
+        player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, PLAYER_MOVE_SLOW_FALLING_TICKS, 0, false, true, true));
         var to = posData(player);
-        replyOk(context, payload, new RMcpPlayerMoveData(PLAYER_MOVE_FORMAT, true, from, to, distance, player.onGround()));
+        replyOk(context, payload, new RMcpPlayerMoveData(PLAYER_MOVE_FORMAT, !samePosition(from, to), from, to, distance, player.onGround()));
+    }
+
+    private static void handleRespawn(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var before = posData(player);
+        float beforeHealth = player.getHealth();
+        boolean wasDead = beforeHealth <= 0.0F || player.isDeadOrDying();
+        if (!wasDead) {
+            replyOk(context, payload, new RMcpRespawnData(
+                    RESPAWN_FORMAT,
+                    false,
+                    false,
+                    player.server.isHardcore(),
+                    beforeHealth,
+                    player.getHealth(),
+                    before,
+                    posData(player)
+            ));
+            return;
+        }
+
+        var respawned = player.server.getPlayerList().respawn(player, false, Entity.RemovalReason.KILLED);
+        respawned.connection.player = respawned;
+        if (player.server.isHardcore()) {
+            respawned.setGameMode(GameType.SPECTATOR);
+            respawned.level().getGameRules().getRule(GameRules.RULE_SPECTATORSGENERATECHUNKS).set(false, player.server);
+        }
+        replyOk(context, payload, new RMcpRespawnData(
+                RESPAWN_FORMAT,
+                true,
+                true,
+                player.server.isHardcore(),
+                beforeHealth,
+                respawned.getHealth(),
+                before,
+                posData(respawned)
+        ));
     }
 
     private static void handlePickupItemEntity(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
@@ -1225,6 +1623,73 @@ public final class RMcpServerNetwork {
         return remaining;
     }
 
+    private static InsertPlan inventoryInsertionPlan(net.minecraft.world.entity.player.Inventory inventory, Integer targetSlot, ItemStack stack) {
+        var inserts = new ArrayList<InsertStep>();
+        var remaining = stack.copy();
+        if (targetSlot != null) {
+            remaining = simulateInventoryInsert(inventory, targetSlot, remaining, inserts);
+        } else {
+            for (int slot = 0; slot < inventory.items.size() && !remaining.isEmpty(); slot++) {
+                remaining = simulateInventoryInsert(inventory, slot, remaining, inserts);
+            }
+        }
+        return new InsertPlan(stack.getCount() - remaining.getCount(), inserts);
+    }
+
+    private static ItemStack simulateInventoryInsert(net.minecraft.world.entity.player.Inventory inventory, int slot, ItemStack stack, ArrayList<InsertStep> inserts) {
+        var target = inventory.items.get(slot);
+        int moved = 0;
+        if (target.isEmpty()) {
+            moved = Math.min(stack.getCount(), stack.getMaxStackSize());
+        } else if (ItemStack.isSameItemSameComponents(target, stack)) {
+            int limit = Math.min(target.getMaxStackSize(), stack.getMaxStackSize());
+            moved = Math.min(stack.getCount(), limit - target.getCount());
+        }
+        if (moved <= 0) {
+            return stack;
+        }
+        inserts.add(new InsertStep(slot, moved));
+        var remaining = stack.copy();
+        remaining.shrink(moved);
+        return remaining;
+    }
+
+    private static int applyInventoryInsertPlan(net.minecraft.world.entity.player.Inventory inventory, ItemStack stack, InsertPlan plan) {
+        int moved = 0;
+        for (var insert : plan.inserts()) {
+            if (stack.isEmpty()) {
+                break;
+            }
+            int stepCount = Math.min(insert.count(), stack.getCount());
+            var target = inventory.items.get(insert.slot());
+            if (target.isEmpty()) {
+                inventory.items.set(insert.slot(), stack.copyWithCount(stepCount));
+                stack.shrink(stepCount);
+                moved += stepCount;
+            } else if (ItemStack.isSameItemSameComponents(target, stack)) {
+                int limit = Math.min(target.getMaxStackSize(), stack.getMaxStackSize());
+                int inserted = Math.min(stepCount, limit - target.getCount());
+                if (inserted > 0) {
+                    target.grow(inserted);
+                    stack.shrink(inserted);
+                    moved += inserted;
+                }
+            }
+        }
+        return moved;
+    }
+
+    private static RErrorCode inventoryInsertFailureCode(net.minecraft.world.entity.player.Inventory inventory, Integer targetSlot, ItemStack stack) {
+        if (targetSlot == null) {
+            return RErrorCode.TARGET_FULL;
+        }
+        var target = inventory.items.get(targetSlot);
+        if (!target.isEmpty() && !ItemStack.isSameItemSameComponents(target, stack)) {
+            return RErrorCode.INCOMPATIBLE_TARGET;
+        }
+        return RErrorCode.TARGET_FULL;
+    }
+
     private static void markContainerChanged(ContainerResolve container) {
         var blockEntity = container.level().getBlockEntity(container.pos());
         if (blockEntity != null) {
@@ -1369,6 +1834,82 @@ public final class RMcpServerNetwork {
         return slot >= 0 && slot < handler.getSlots();
     }
 
+    private static boolean blocksMovement(net.minecraft.server.level.ServerLevel level, BlockPos pos) {
+        if (level.isOutsideBuildHeight(pos)) {
+            return true;
+        }
+        return !level.getBlockState(pos).getCollisionShape(level, pos).isEmpty();
+    }
+
+    private static SafeMoveTarget findSafeMoveTarget(net.minecraft.server.level.ServerLevel level, BlockPos center) {
+        var candidates = new ArrayList<BlockPos>();
+        for (int dy = -PLAYER_MOVE_SAFE_SEARCH_RADIUS; dy <= PLAYER_MOVE_SAFE_SEARCH_RADIUS; dy++) {
+            for (int dx = -PLAYER_MOVE_SAFE_SEARCH_RADIUS; dx <= PLAYER_MOVE_SAFE_SEARCH_RADIUS; dx++) {
+                for (int dz = -PLAYER_MOVE_SAFE_SEARCH_RADIUS; dz <= PLAYER_MOVE_SAFE_SEARCH_RADIUS; dz++) {
+                    candidates.add(center.offset(dx, dy, dz));
+                }
+            }
+        }
+        candidates.sort(Comparator
+                .comparingInt((BlockPos pos) -> moveCandidateDistanceSqr(pos, center))
+                .thenComparingInt(pos -> Math.abs(pos.getY() - center.getY()))
+                .thenComparingInt(pos -> Math.abs(pos.getX() - center.getX()) + Math.abs(pos.getZ() - center.getZ())));
+
+        boolean sawBuildHeight = false;
+        boolean sawLoaded = false;
+        for (var feetPos : candidates) {
+            var headPos = feetPos.above();
+            var floorPos = feetPos.below();
+            if (level.isOutsideBuildHeight(feetPos) || level.isOutsideBuildHeight(headPos) || level.isOutsideBuildHeight(floorPos)) {
+                continue;
+            }
+            sawBuildHeight = true;
+            if (!level.isLoaded(feetPos) || !level.isLoaded(headPos) || !level.isLoaded(floorPos)) {
+                continue;
+            }
+            sawLoaded = true;
+            if (!blocksMovement(level, feetPos)
+                    && !blocksMovement(level, headPos)
+                    && blocksMovement(level, floorPos)
+                    && !isMoveHazard(level, feetPos)
+                    && !isMoveHazard(level, floorPos)) {
+                return SafeMoveTarget.ok(feetPos);
+            }
+        }
+        if (!sawBuildHeight) {
+            return SafeMoveTarget.error(RErrorCode.SECTION_OUT_OF_RANGE);
+        }
+        if (!sawLoaded) {
+            return SafeMoveTarget.error(RErrorCode.CHUNK_NOT_LOADED);
+        }
+        return SafeMoveTarget.error(RErrorCode.MOVE_TARGET_BLOCKED);
+    }
+
+    private static int moveCandidateDistanceSqr(BlockPos pos, BlockPos center) {
+        int dx = pos.getX() - center.getX();
+        int dy = pos.getY() - center.getY();
+        int dz = pos.getZ() - center.getZ();
+        return dx * dx + dy * dy + dz * dz;
+    }
+
+    private static boolean isMoveHazard(net.minecraft.server.level.ServerLevel level, BlockPos pos) {
+        var blockId = BuiltInRegistries.BLOCK.getKey(level.getBlockState(pos).getBlock()).toString();
+        var fluidId = BuiltInRegistries.FLUID.getKey(level.getFluidState(pos).getType()).toString();
+        return blockId.contains("fire")
+                || blockId.endsWith(":lava")
+                || blockId.endsWith(":magma_block")
+                || blockId.endsWith(":cactus")
+                || blockId.endsWith(":sweet_berry_bush")
+                || fluidId.contains("lava");
+    }
+
+    private static boolean samePosition(RMcpPosData from, RMcpPosData to) {
+        return from.dim().equals(to.dim())
+                && Double.compare(from.x(), to.x()) == 0
+                && Double.compare(from.y(), to.y()) == 0
+                && Double.compare(from.z(), to.z()) == 0;
+    }
+
     private static boolean sameEndpoint(ContainerResolve from, int fromSlot, ContainerResolve to, Integer toSlot) {
         return toSlot != null && sameContainer(from, to) && fromSlot == toSlot;
     }
@@ -1423,6 +1964,20 @@ public final class RMcpServerNetwork {
     private record PlayerMoveRequest(Double x, Double y, Double z) {
     }
 
+    private record SafeMoveTarget(String errorCode, double x, double y, double z) {
+        static SafeMoveTarget ok(BlockPos feetPos) {
+            return new SafeMoveTarget(null, feetPos.getX() + 0.5D, feetPos.getY(), feetPos.getZ() + 0.5D);
+        }
+
+        static SafeMoveTarget error(RErrorCode errorCode) {
+            return new SafeMoveTarget(errorCode.id(), 0.0D, 0.0D, 0.0D);
+        }
+
+        boolean ok() {
+            return errorCode == null;
+        }
+    }
+
     private record ItemPickupRequest(List<String> ids, Double radius, Integer limit) {
     }
 
@@ -1448,13 +2003,105 @@ public final class RMcpServerNetwork {
     private record MenuDropRequest(Integer slot, int count, boolean dryRun) {
     }
 
+    private record HotbarSelectRequest(Integer slot, boolean dryRun) {
+    }
+
     private record ContainerMoveRequest(ContainerEndpointRequest from, ContainerEndpointRequest to, int count, boolean dryRun) {
     }
 
     private record ContainerPutRequest(Integer fromInventorySlot, ContainerEndpointRequest to, int count, boolean dryRun) {
     }
 
+    private record ContainerTakeRequest(ContainerEndpointRequest from, Integer toInventorySlot, int count, boolean dryRun) {
+    }
+
     private record ContainerEndpointRequest(String pos, String side, Integer slot) {
+    }
+
+    private record ContainerMoveStepResult(
+            String code,
+            int requestedCount,
+            int movedCount,
+            RMcpContainerData.Slot movedItem,
+            RMcpContainerMoveData.Endpoint from,
+            RMcpContainerMoveData.Endpoint to,
+            RMcpContainerData fromContainer,
+            RMcpContainerData toContainer
+    ) {
+        private static ContainerMoveStepResult error(String code, int requestedCount) {
+            return new ContainerMoveStepResult(code, requestedCount, 0, null, null, null, null, null);
+        }
+
+        private static ContainerMoveStepResult error(String code, int requestedCount, ContainerResolve from, int fromSlot, ContainerResolve to, Integer toSlot) {
+            return new ContainerMoveStepResult(
+                    code,
+                    requestedCount,
+                    0,
+                    null,
+                    endpointData(from, fromSlot),
+                    endpointData(to, toSlot),
+                    containerData(from),
+                    containerData(to)
+            );
+        }
+    }
+
+    private record ContainerPutStepResult(
+            String code,
+            int fromInventorySlot,
+            int requestedCount,
+            int movedCount,
+            RMcpContainerData.Slot movedItem,
+            RMcpInventoryData.Item beforeInventorySlot,
+            RMcpInventoryData.Item afterInventorySlot,
+            RMcpContainerMoveData.Endpoint to,
+            RMcpInventoryData inventory,
+            RMcpContainerData container
+    ) {
+        private static ContainerPutStepResult error(String code, ContainerPutRequest request) {
+            return new ContainerPutStepResult(
+                    code,
+                    request == null || request.fromInventorySlot() == null ? -1 : request.fromInventorySlot(),
+                    request == null ? 0 : request.count(),
+                    0,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+        }
+    }
+
+    private record ContainerTakeStepResult(
+            String code,
+            int requestedCount,
+            int movedCount,
+            RMcpContainerData.Slot movedItem,
+            RMcpContainerMoveData.Endpoint from,
+            Integer toInventorySlot,
+            List<Integer> targetInventorySlots,
+            RMcpInventoryData.Item beforeToInventorySlot,
+            RMcpInventoryData.Item afterToInventorySlot,
+            RMcpInventoryData inventory,
+            RMcpContainerData container
+    ) {
+        private static ContainerTakeStepResult error(String code, ContainerTakeRequest request) {
+            return new ContainerTakeStepResult(
+                    code,
+                    request == null ? 0 : request.count(),
+                    0,
+                    null,
+                    null,
+                    request == null ? null : request.toInventorySlot(),
+                    List.of(),
+                    null,
+                    null,
+                    null,
+                    null
+            );
+        }
     }
 
     private record ParsedPos(String dim, int x, int y, int z) {

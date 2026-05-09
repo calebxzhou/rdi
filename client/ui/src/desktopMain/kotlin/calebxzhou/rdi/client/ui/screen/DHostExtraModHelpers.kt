@@ -30,6 +30,16 @@ actual fun selectHostExtraModFiles(): List<File>? {
         ?.takeIf { it.isNotEmpty() }
 }
 
+actual fun selectHostTaczFiles(): List<File>? {
+    return pickAwtOpenFiles(
+        title = "选择TaCZ枪包ZIP",
+        filenameFilter = { _, name -> name.endsWith(".zip", ignoreCase = true) }
+    )
+        ?.filter { it.isFile && it.extension.equals("zip", ignoreCase = true) }
+        ?.distinctBy { it.absolutePath }
+        ?.takeIf { it.isNotEmpty() }
+}
+
 actual suspend fun matchHostExtraModFiles(
     files: List<File>,
     hostMcVersion: McVersion,

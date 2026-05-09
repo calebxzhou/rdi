@@ -18,11 +18,13 @@ JSON body form:
 }
 ```
 
-`x`, `y`, and `z` may be integers or decimals. They are interpreted as the player's target feet position.
+`x`, `y`, and `z` may be integers or decimals. They are interpreted as the requested feet-position search center.
 
-The target position must be at most 128 blocks from the player's current position. The action is executed on the Minecraft server side and keeps the player's current yaw and pitch.
+The final safe position selected by the server must be at most 128 blocks from the player's current position. The action is executed on the Minecraft server side and keeps the player's current yaw and pitch.
 
-Important safety rule: the `x/y/z` target is the player's feet position. Do not call this API with an unverified structure center, room center, `/pos` value, or guessed coordinate. A safe target has air/non-colliding space at the feet and head positions, plus a non-air floor below. Prefer `GET /blockmap/walkable` and move only to a `cells[].pos` entry with `symbol="."`.
+Important safety rule: the `x/y/z` target is a nearby search center, not a guaranteed final position. The API searches within 4 blocks of it for a safe standable feet position, then moves the player to the center of the selected safe block. A safe target has empty/non-colliding feet and head spaces, a solid floor below, and no obvious hazard such as lava, fire, magma block, cactus, or sweet berry bush. If no nearby safe position is found, the API returns an error and does not move the player. Prefer `GET /blockmap/walkable` and pass a `cells[].pos` entry with `symbol="."` when possible.
+
+After a successful move, the API immediately gives the player `Slow Falling` for 3 seconds.
 
 Returns:
 
@@ -60,12 +62,15 @@ Returns:
 }
 ```
 
+The `to` field is the player's actual position after the server-side move attempt. It may differ from the requested `x/y/z` because the server can choose a nearby safe block. If `moved=false`, or if `to.dim/x/y/z` equals `from.dim/x/y/z`, the player did not actually move. This often means the player is dead or otherwise unable to teleport. Immediately call `GET /player` and check `data.health`. If health is `0` or below, call `POST /respawn`, then re-read `/situation` or `/player` before continuing.
+
 Common errors:
 
 - `bad_pos`: `x`, `y`, or `z` is missing, not a number, NaN, or infinity.
-- `too_far`: the target is more than 128 blocks from the player.
-- `chunk_not_loaded`: the target chunk is not loaded on the server.
-- `section_out_of_range`: the target y is outside the world build height.
+- `too_far`: the selected safe target is more than 128 blocks from the player.
+- `chunk_not_loaded`: no loaded candidate blocks were available near the requested search center.
+- `section_out_of_range`: no candidate blocks near the requested search center are inside the world build height.
+- `move_target_blocked`: no nearby safe standable block was found.
 - `server_mcp_unavailable`: the connected server does not expose the server MCP bridge.
 
-This API does not find a safe floor or path. Use `/blockmap/walkable` first for normal movement. If constructing a target manually, use `POST /blockstate/batch` first to verify the feet block and head block are air and the floor block below is not air.
+This API finds a nearby safe standable destination, but it does not pathfind. Use `/blockmap/walkable` first for normal movement and pass a known walkable `cells[].pos` when possible. Always trust `data.to` as the actual moved position.

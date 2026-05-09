@@ -13,7 +13,7 @@ public record RMcpBlocksFindData(
     public record Center(RMcpBlockPosData block, int chunkX, int chunkZ, int sectionY) {
     }
 
-    public record Range(int chunkRadius, int sectionRadius) {
+    public record Range(int chunkRadius, Integer sectionRadius, String scanMode, int minSectionY, int maxSectionY) {
     }
 
     public record Scan(int loadedChunks, int skippedChunks, int sections, int blocks, int matched, int returned, boolean truncated) {

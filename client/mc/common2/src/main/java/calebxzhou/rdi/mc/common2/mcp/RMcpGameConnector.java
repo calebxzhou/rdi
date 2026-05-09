@@ -20,6 +20,8 @@ public interface RMcpGameConnector {
 
     RMcpInventoryData inventoryData();
 
+    RMcpHotbarSelectData selectHotbarSlot(int slot, boolean dryRun);
+
     RMcpMenuData menuData();
 
     RMcpMenuDropData dropMenuItem(int slot, int count, boolean dryRun);
@@ -46,7 +48,15 @@ public interface RMcpGameConnector {
 
     RMcpContainerPutData putInventoryItemIntoContainer(int fromInventorySlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun);
 
+    RMcpContainerPutBatchData putInventoryItemsIntoContainerBatch(RMcpContainerPutBatchRequest request);
+
+    RMcpContainerTakeData takeContainerItemToInventory(String fromPos, String fromSide, int fromSlot, Integer toInventorySlot, int count, boolean dryRun);
+
+    RMcpContainerTakeBatchData takeContainerItemsToInventoryBatch(RMcpContainerTakeBatchRequest request);
+
     RMcpContainerMoveData moveContainerItems(String fromPos, String fromSide, int fromSlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun);
+
+    RMcpContainerMoveBatchData moveContainerItemsBatch(RMcpContainerMoveBatchRequest request);
 
     RMcpBlockActionData placeBlock(int x, int y, int z, String face);
 
@@ -61,6 +71,8 @@ public interface RMcpGameConnector {
     RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to);
 
     RMcpPlayerMoveData movePlayer(double x, double y, double z);
+
+    RMcpRespawnData respawnPlayer();
 
     RMcpItemPickupData pickupItemEntities(List<UUID> ids, double radius, int limit);
 

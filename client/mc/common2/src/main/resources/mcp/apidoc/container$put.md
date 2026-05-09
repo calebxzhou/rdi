@@ -50,3 +50,7 @@ Returns:
 ```
 
 Call `GET /inventory` to choose the source inventory slot. Call `GET /container?pos=...` when you need to inspect target slots first. Prefer `to.slot=null` unless a machine input slot is already known.
+
+Use `POST /container/put/batch` when moving multiple known player inventory slots into containers.
+
+Use `POST /container/take` for the opposite direction, from a known block container into the current player's inventory.

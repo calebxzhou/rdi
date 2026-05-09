@@ -17,6 +17,7 @@ import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.service.McServerPinger
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.ModrinthService
+import calebxzhou.rdi.common.service.TaczGunpackValidator
 import calebxzhou.rdi.common.service.runInline
 import calebxzhou.rdi.common.util.ioScope
 import calebxzhou.rdi.common.util.objectId
@@ -253,7 +254,7 @@ fun Route.hostRoutes() = route("/host") {
                 val ctx = call.hostContext().needAdmin
                 response(data = ctx.listHostFiles(paramNull("path") ?: ""))
             }
-            put("/file") {
+            post("/file") {
                 val ctx = call.hostContext().needAdmin
                 response(data = ctx.uploadHostFile(call))
             }
@@ -393,7 +394,9 @@ object HostService {
     }
     private const val HOST_CONFIG_FILE_MAX_BYTES: Long = 8 * 1024
     private const val HOST_CONFIG_FILE_LIST_MAX_BYTES: Long = 8 * 1024
-    private const val HOST_FILE_MAX_BYTES: Long = 128L * 1024 * 1024
+    private const val HOST_FILE_MAX_BYTES: Long = 64L * 1024 * 1024
+    private const val TACZ_FILE_MAX_BYTES: Long = 100L * 1024 * 1024
+    private const val TACZ_MAX_ZIP_FILES = 10
     private val editableConfigExtensions = setOf("json", "toml", "txt", "json5", "properties","yaml","yml")
     private val allowFileOprDir = setOf("tacz","kubejs")
     private val idleMonitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -1957,14 +1960,17 @@ object HostService {
         }
     }
 
-    private fun File.toHostFileEntry(root: File): Host.FileEntry =
-        Host.FileEntry(
-            path = relativeTo(root).invariantSeparatorsPath,
+    private fun File.toHostFileEntry(root: File): Host.FileEntry {
+        val absoluteRoot = root.absoluteFile
+        val absoluteFile = this.absoluteFile
+        return Host.FileEntry(
+            path = absoluteFile.relativeTo(absoluteRoot).invariantSeparatorsPath,
             name = name,
             directory = isDirectory,
             size = if (isDirectory) 0 else length(),
             updateTime = lastModified()
         )
+    }
 
     suspend fun HostContext.listHostFiles(path: String): List<Host.FileEntry> {
         if (path.isBlank()) {
@@ -1981,15 +1987,17 @@ object HostService {
         }
 
         val resolved = host.resolveHostFile(path, allowAllowedRoot = true)
+        if (resolved.path.startsWith("tacz/")) throw RequestError("TaCZ枪包不允许子目录操作")
         val dir = resolved.file
         if (!dir.exists()) return emptyList()
         if (!dir.isDirectory) throw RequestError("目标不是目录")
 
-        val hostRoot = host.dir
+        val hostRoot = host.dir.absoluteFile
         return dir.listFiles()
             ?.asSequence()
             ?.filterNot { Files.isSymbolicLink(it.toPath()) }
             ?.filterNot { it.name.startsWith(".rdi-upload-") }
+            ?.filter { resolved.path != "tacz" || (it.isFile && it.extension.equals("zip", ignoreCase = true)) }
             ?.map { it.toHostFileEntry(hostRoot) }
             ?.sortedWith(compareBy<Host.FileEntry> { !it.directory }.thenBy { it.name.lowercase() })
             ?.toList()
@@ -1997,10 +2005,17 @@ object HostService {
     }
 
     suspend fun HostContext.uploadHostFile(call: ApplicationCall): Host.FileUploadVo {
-        val multipart = call.receiveMultipart(formFieldLimit = HOST_FILE_MAX_BYTES)
+        val multipart = call.receiveMultipart(formFieldLimit = TACZ_FILE_MAX_BYTES)
         var targetPath = call.request.queryParameters["path"]
         var uploadTemp: File? = null
         var uploadedSize = 0L
+
+        fun uploadLimit(): Long =
+            if (targetPath?.trim()?.replace('\\', '/')?.startsWith("tacz/") == true) {
+                TACZ_FILE_MAX_BYTES
+            } else {
+                HOST_FILE_MAX_BYTES
+            }
 
         try {
             while (true) {
@@ -2014,13 +2029,13 @@ object HostService {
                         is PartData.FileItem -> if (part.name == "file") {
                             uploadTemp?.delete()
                             uploadTemp = host.createHostUploadTempFile()
-                            uploadedSize = receiveHostUploadFile(part.provider(), uploadTemp!!)
+                            uploadedSize = receiveHostUploadFile(part.provider(), uploadTemp!!, uploadLimit())
                         }
 
                         is PartData.BinaryItem -> if (part.name == "file") {
                             uploadTemp?.delete()
                             uploadTemp = host.createHostUploadTempFile()
-                            uploadedSize = receiveHostUploadFile(part.provider(), uploadTemp!!)
+                            uploadedSize = receiveHostUploadFile(part.provider(), uploadTemp!!, uploadLimit())
                         }
 
                         else -> {}
@@ -2030,11 +2045,15 @@ object HostService {
                 }
             }
 
-            val normalizedTargetPath = targetPath?.takeIf { it.isNotBlank() } ?: throw ParamError("缺少路径")
+            val normalizedTargetPath = targetPath
+                ?.takeIf { it.isNotBlank() }
+                ?.normalizeHostUploadTargetPath()
+                ?: throw ParamError("缺少路径")
             val tempFile = uploadTemp ?: throw ParamError("缺少文件")
             val resolved = host.resolveHostFile(normalizedTargetPath)
             val target = resolved.file
             if (target.exists() && target.isDirectory) throw RequestError("目标是目录")
+            host.validateHostUploadTarget(resolved.path, target, tempFile)
             target.parentFile?.let { parent ->
                 if (parent.exists() && !parent.isDirectory) throw RequestError("目标目录异常")
                 parent.mkdirs()
@@ -2057,12 +2076,38 @@ object HostService {
         }
     }
 
+    private fun String.normalizeHostUploadTargetPath(): String {
+        val normalizedPath = trim().replace('\\', '/').trim('/')
+        if (normalizedPath.isBlank()) throw RequestError("文件路径不能为空")
+        val parent = normalizedPath.substringBeforeLast('/', "")
+        val rawName = normalizedPath.substringAfterLast('/').trim()
+        val dotIndex = rawName.lastIndexOf('.')
+        val rawBaseName = if (dotIndex > 0) rawName.substring(0, dotIndex) else rawName
+        val rawExtension = if (dotIndex > 0 && dotIndex < rawName.lastIndex) rawName.substring(dotIndex + 1) else ""
+        val cleanBaseName = rawBaseName.filter { it.isAllowedHostUploadFileNameChar() }.ifBlank { "file" }
+        val cleanExtension = rawExtension.filter { it.isLetterOrDigit() }
+        val cleanName = if (cleanExtension.isBlank()) cleanBaseName else "$cleanBaseName.$cleanExtension"
+        return if (parent.isBlank()) cleanName else "$parent/$cleanName"
+    }
+
+    private fun Char.isAllowedHostUploadFileNameChar(): Boolean =
+        this == '-' || this == '_' || isDigit() || this in 'a'..'z' || this in 'A'..'Z' || this in '\u4e00'..'\u9fff'
+
+    private fun String.isUnderTaczPath(): Boolean =
+        this == "tacz" || startsWith("tacz/")
+
+    private fun String.isDirectTaczFilePath(): Boolean {
+        if (!startsWith("tacz/")) return false
+        val childPath = removePrefix("tacz/")
+        return childPath.isNotBlank() && '/' !in childPath
+    }
+
     private fun Host.createHostUploadTempFile(): File {
         dir.mkdirs()
         return Files.createTempFile(dir.toPath(), ".rdi-upload-", ".tmp").toFile()
     }
 
-    private suspend fun receiveHostUploadFile(channel: ByteReadChannel, target: File): Long {
+    private suspend fun receiveHostUploadFile(channel: ByteReadChannel, target: File, maxBytes: Long): Long {
         val buffer = ByteArray(8192)
         var total = 0L
         Files.newOutputStream(
@@ -2075,18 +2120,45 @@ object HostService {
                 if (read == -1) break
                 if (read == 0) continue
                 total += read
-                if (total > HOST_FILE_MAX_BYTES) throw RequestError("文件过大，最大允许128MB")
+                if (total > maxBytes) throw RequestError("文件过大，最大允许${maxBytes.toHostUploadLimitText()}")
                 output.write(buffer, 0, read)
             }
         }
         return total
     }
 
-    private fun receiveHostUploadFile(source: Source, target: File): Long {
+    private fun receiveHostUploadFile(source: Source, target: File, maxBytes: Long): Long {
         val bytes = source.buffered().readByteArray()
-        if (bytes.size > HOST_FILE_MAX_BYTES) throw RequestError("文件过大，最大允许128MB")
+        if (bytes.size > maxBytes) throw RequestError("文件过大，最大允许${maxBytes.toHostUploadLimitText()}")
         target.writeBytes(bytes)
         return bytes.size.toLong()
+    }
+
+    private fun Long.toHostUploadLimitText(): String =
+        if (this % (1024L * 1024L) == 0L) "${this / 1024L / 1024L}MB" else humanFileSize
+
+    private fun Host.validateHostUploadTarget(path: String, target: File, uploadTemp: File) {
+        if (!path.isUnderTaczPath()) return
+        if (!path.isDirectTaczFilePath()) {
+            throw RequestError("TaCZ枪包只能上传到tacz根目录")
+        }
+        if (!target.extension.equals("zip", ignoreCase = true)) {
+            throw RequestError("TaCZ枪包只允许上传zip文件")
+        }
+        TaczGunpackValidator.validate(uploadTemp)
+            .getOrElse { throw RequestError(it.message ?: "TaCZ枪包格式无效") }
+        val taczRoot = dir.resolve("tacz")
+        val targetPath = target.toPath().toAbsolutePath().normalize()
+        val currentZipCount = taczRoot.listFiles()
+            ?.asSequence()
+            ?.filter { it.isFile && !Files.isSymbolicLink(it.toPath()) }
+            ?.filter { it.extension.equals("zip", ignoreCase = true) }
+            ?.filterNot { it.toPath().toAbsolutePath().normalize() == targetPath }
+            ?.count()
+            ?: 0
+        if (currentZipCount >= TACZ_MAX_ZIP_FILES) {
+            throw RequestError("TaCZ枪包最多只能上传${TACZ_MAX_ZIP_FILES}个zip文件")
+        }
     }
 
     private fun Host.checkHostFileQuota(uploadTemp: File, target: File, newSize: Long) {
@@ -2118,6 +2190,10 @@ object HostService {
     suspend fun HostContext.deleteHostFile(payload: Host.FileDeleteDto) {
         val resolved = host.resolveHostFile(payload.path)
         val target = resolved.file
+        if (resolved.path.isUnderTaczPath()) {
+            if (!resolved.path.isDirectTaczFilePath()) throw RequestError("TaCZ枪包不允许子目录操作")
+            if (target.isDirectory) throw RequestError("TaCZ枪包不允许目录操作")
+        }
         if (!target.exists()) throw RequestError("文件不存在")
         if (target.isDirectory && (target.list()?.isNotEmpty() == true)) throw RequestError("目录不为空")
 

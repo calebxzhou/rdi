@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -20,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
@@ -27,6 +29,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import calebxzhou.mykotutils.std.humanFileSize
+import calebxzhou.mykotutils.std.millisToHumanDateTime
 import calebxzhou.mykotutils.std.secondsToHumanDateTime
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.auth.updateLastPlayHost
@@ -34,6 +38,7 @@ import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
+import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.net.sse
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.GithubExtraModService
@@ -49,18 +54,31 @@ import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.*
 import calebxzhou.rdi.common.extension.isAdmin
+import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.ModService
+import calebxzhou.rdi.common.service.TaczGunpackValidator
 import calebxzhou.rdi.model.Role
 import io.ktor.client.plugins.sse.*
+import io.ktor.client.request.forms.*
+import io.ktor.client.request.setBody
 import io.ktor.http.*
+import io.ktor.utils.io.streams.asInput
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.io.buffered
 import org.bson.types.ObjectId
+import java.io.File
 import java.net.URI
+
+private const val TACZ_ROOT_DIR = "tacz"
+private const val TACZ_MOD_SLUG = "timeless-and-classics-zero"
+private const val PRIVATE_THINGS_TACZ_TAB_INDEX = 3
+private const val TACZ_FILE_MAX_BYTES: Long = 100L * 1024 * 1024
+private const val TACZ_MAX_ZIP_FILES = 10
 
 /**
  * calebxzhou @ 2026-01-15 19:38
@@ -389,6 +407,9 @@ fun HostInfoScreen(
         ?.mods
         ?.filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }
         .orEmpty()
+    val hasTacz = (extraMods + baseVersionMods)
+        .filterNot { mod -> disabledMods.any { sameMod(it, mod) } }
+        .any { it.normalizedSlug == TACZ_MOD_SLUG }
     val configDirty = selectedConfigPath != null && configEditorText != configOriginalText
 
     fun switchExtraModPlatform(platform: String) {
@@ -509,6 +530,12 @@ fun HostInfoScreen(
 
     LaunchedEffect(disabledMods, selectedDisabledModKeys) {
         selectAllDisabledMods = disabledMods.isNotEmpty() && selectedDisabledModKeys.size == disabledMods.size
+    }
+
+    LaunchedEffect(hasTacz, privateThingsSubTab) {
+        if (!hasTacz && privateThingsSubTab == PRIVATE_THINGS_TACZ_TAB_INDEX) {
+            privateThingsSubTab = 0
+        }
     }
 
     LaunchedEffect(selectedTab, host?._id, canManageConfigFiles) {
@@ -896,36 +923,43 @@ fun HostInfoScreen(
                                     baseVersionMods.filter { extraModKey(it) in selectedModListKeys }
                                 val selectedDisabledMods =
                                     disabledMods.filter { extraModKey(it) in selectedDisabledModKeys }
+                                val selectedPrivateThingsSubTab = when {
+                                    privateThingsSubTab == PRIVATE_THINGS_TACZ_TAB_INDEX && hasTacz -> PRIVATE_THINGS_TACZ_TAB_INDEX
+                                    privateThingsSubTab in 0..2 -> privateThingsSubTab
+                                    else -> 0
+                                }
                                 Column(
                                     modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     TabRow(
-                                        selectedTabIndex = privateThingsSubTab,
+                                        selectedTabIndex = selectedPrivateThingsSubTab,
                                         backgroundColor = Color.White,
                                     ) {
                                         Tab(
-                                            selected = privateThingsSubTab == 0,
+                                            selected = selectedPrivateThingsSubTab == 0,
                                             onClick = { privateThingsSubTab = 0 },
                                             text = { Text("附加mod") }
                                         )
                                         Tab(
-                                            selected = privateThingsSubTab == 1,
+                                            selected = selectedPrivateThingsSubTab == 1,
                                             onClick = { privateThingsSubTab = 1 },
                                             text = { Text("mod总表") }
                                         )
                                         Tab(
-                                            selected = privateThingsSubTab == 2,
+                                            selected = selectedPrivateThingsSubTab == 2,
                                             onClick = { privateThingsSubTab = 2 },
                                             text = { Text("已停用的mod") }
                                         )
-                                        Tab(
-                                            selected = privateThingsSubTab == 3,
-                                            onClick = { privateThingsSubTab = 3 },
-                                            text = { Text("KubeJS（开发中）") }
-                                        )
+                                        if (hasTacz) {
+                                            Tab(
+                                                selected = selectedPrivateThingsSubTab == PRIVATE_THINGS_TACZ_TAB_INDEX,
+                                                onClick = { privateThingsSubTab = PRIVATE_THINGS_TACZ_TAB_INDEX },
+                                                text = { Text("TaCZ枪包") }
+                                            )
+                                        }
                                     }
-                                    when (privateThingsSubTab) {
+                                    when (selectedPrivateThingsSubTab) {
                                         0 -> HostExtraModsPane(
                                             extraUiMods = extraUiMods,
                                             selectedExtraMods = selectedExtraMods,
@@ -1038,7 +1072,13 @@ fun HostInfoScreen(
                                                 )
                                             }
                                         )
-                                        3->{}
+                                        PRIVATE_THINGS_TACZ_TAB_INDEX -> HostTaczPackPane(
+                                            hostId = hostId,
+                                            canManage = canManageExtraMods,
+                                            onOk = { okMessage = it },
+                                            onError = { errorMessage = it },
+                                            onOpenTaskList = onOpenTaskList
+                                        )
                                         else -> {}
                                     }
                                 }
@@ -2148,6 +2188,220 @@ private data class RoleChange(
     val newRole: Role
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HostTaczPackPane(
+    hostId: ObjectId,
+    canManage: Boolean,
+    onOk: (String) -> Unit,
+    onError: (String) -> Unit,
+    onOpenTaskList: (String) -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var files by remember(hostId) { mutableStateOf<List<Host.FileEntry>>(emptyList()) }
+    var loading by remember(hostId) { mutableStateOf(false) }
+    var deletingPath by remember(hostId) { mutableStateOf<String?>(null) }
+    var deleteConfirmFile by remember(hostId) { mutableStateOf<Host.FileEntry?>(null) }
+
+    fun loadFiles() {
+        loading = true
+        scope.rdiRequest<List<Host.FileEntry>>(
+            path = "host/$hostId/files",
+            params = mapOf("path" to TACZ_ROOT_DIR),
+            onOk = { response ->
+                files = response.data.orEmpty().filter { it.isTaczZipFileEntry() }
+            },
+            onErr = { onError(it.message ?: "读取TaCZ枪包失败") },
+            onDone = { loading = false }
+        )
+    }
+
+    fun uploadFiles() {
+        if (!canManage) return
+        val selectedFiles = selectHostTaczFiles() ?: return
+        val notZipFile = selectedFiles.firstOrNull { !it.extension.equals("zip", ignoreCase = true) }
+        if (notZipFile != null) {
+            onError("${notZipFile.name}不是zip文件，TaCZ枪包只允许上传zip")
+            return
+        }
+        if (selectedFiles.size > TACZ_MAX_ZIP_FILES) {
+            onError("TaCZ枪包最多只能上传${TACZ_MAX_ZIP_FILES}个zip文件")
+            return
+        }
+        val tooLargeFile = selectedFiles.firstOrNull { it.length() > TACZ_FILE_MAX_BYTES }
+        if (tooLargeFile != null) {
+            onError("${tooLargeFile.name}超过100MB，单个文件最大允许100MB")
+            return
+        }
+        val task = createHostTaczUploadTask(
+            hostId = hostId,
+            files = selectedFiles,
+            onUploaded = {
+                withContext(Dispatchers.Main) {
+                    onOk("已上传TaCZ枪包文件${selectedFiles.size}个")
+                    loadFiles()
+                }
+            }
+        )
+        val runId = ClientTaskManager.submit(task)
+        onOpenTaskList(runId)
+    }
+
+    fun deleteFile(file: Host.FileEntry) {
+        if (!canManage || deletingPath != null) return
+        deletingPath = file.path
+        scope.rdiRequestU(
+            path = "host/$hostId/files/file",
+            method = HttpMethod.Delete,
+            body = serdesJson.encodeToString(Host.FileDeleteDto(file.path)),
+            onOk = {
+                onOk("已删除${file.name}")
+                loadFiles()
+            },
+            onErr = { onError(it.message ?: "删除TaCZ枪包文件失败") },
+            onDone = { deletingPath = null }
+        )
+    }
+
+    LaunchedEffect(hostId) {
+        loadFiles()
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        shape = RoundedCornerShape(8.dp),
+        color = Color.White,
+        border = BorderStroke(1.dp, MaterialColor.GRAY_200.color),
+        elevation = 1.dp
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("TaCZ枪包", fontWeight = FontWeight.Bold, color = MaterialColor.GRAY_900.color)
+                    Text(TACZ_ROOT_DIR, color = MaterialColor.GRAY_700.color, fontSize = 13.sp)
+                }
+                CircleIconButton(
+                    icon = "\uF021",
+                    tooltip = "刷新",
+                    showText = false,
+                    bgColor = MaterialColor.GRAY_200.color,
+                    iconColor = MaterialColor.GRAY_900.color,
+                    enabled = !loading
+                ) {
+                    loadFiles()
+                }
+                if (canManage) {
+                    CircleIconButton(
+                        icon = "\uF093",
+                        tooltip = "上传文件",
+                        showText = false,
+                        bgColor = MaterialColor.GREEN_900.color,
+                        enabled = !loading
+                    ) {
+                        uploadFiles()
+                    }
+                }
+            }
+
+            when {
+                loading -> Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator()
+                }
+
+                files.isEmpty() -> Text("当前目录没有枪包文件", color = MaterialColor.GRAY_700.color)
+                else -> LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(files, key = { it.path }) { file ->
+                        HostTaczFileRow(
+                            file = file,
+                            canManage = canManage,
+                            deleting = deletingPath == file.path,
+                            onDelete = { deleteConfirmFile = file }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    deleteConfirmFile?.let { file ->
+        ConfirmDialog(
+            title = "确认删除TaCZ枪包",
+            message = "确定删除${file.name}吗？删除后需要重新上传才能恢复。",
+            onConfirm = {
+                deleteConfirmFile = null
+                deleteFile(file)
+            },
+            onDismiss = { deleteConfirmFile = null }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun HostTaczFileRow(
+    file: Host.FileEntry,
+    canManage: Boolean,
+    deleting: Boolean,
+    onDelete: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialColor.GRAY_50.color, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "\uF15B".asIconText,
+            color = MaterialColor.GRAY_700.color,
+            fontSize = 18.sp
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = file.name,
+                color = MaterialColor.GRAY_900.color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${file.size.humanFileSize} · ${file.updateTime.takeIf { it > 0 }?.millisToHumanDateTime ?: "--"}",
+                color = MaterialColor.GRAY_700.color,
+                fontSize = 13.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        if (canManage) {
+            CircleIconButton(
+                icon = "\uF1F8",
+                tooltip = "删除文件",
+                size = 28,
+                showText = false,
+                bgColor = MaterialColor.RED_700.color,
+                enabled = !deleting
+            ) {
+                onDelete()
+            }
+        }
+    }
+}
+
 @Composable
 private fun GithubReleaseAssetRow(
     asset: GithubReleaseAsset,
@@ -2290,4 +2544,73 @@ private fun filterExtraModsForAdding(candidateMods: List<Mod>, existingMods: Lis
 
 private fun extraModSlugIdentity(mod: Mod): String = mod.normalizedSlug.ifBlank {
     mod.normalizedProjectId.lowercase()
+}
+
+private fun Host.FileEntry.isTaczZipFileEntry(): Boolean =
+    !directory && name.endsWith(".zip", ignoreCase = true)
+
+private fun hostTaczChildPath(fileName: String): String {
+    val normalizedName = fileName.replace('\\', '/').substringAfterLast('/').trim()
+    require(normalizedName.isNotBlank()) { "文件名不能为空" }
+    return "$TACZ_ROOT_DIR/$normalizedName"
+}
+
+private fun createHostTaczUploadTask(
+    hostId: ObjectId,
+    files: List<File>,
+    onUploaded: suspend () -> Unit
+): Task2 {
+    val uploadTasks = files.map { file ->
+        Task2.Leaf("上传${file.name}") { ctx ->
+            ctx.emit(Task2Progress("校验${file.name}", 0f))
+            withContext(Dispatchers.IO) {
+                TaczGunpackValidator.validate(file).getOrThrow()
+            }
+            ctx.ensureActive()
+            ctx.emit(Task2Progress("上传${file.name}", 0.4f))
+            uploadHostFile(
+                hostId = hostId,
+                targetPath = hostTaczChildPath(file.name),
+                file = file
+            )
+            ctx.emit(Task2Progress("完成${file.name}", 1f))
+        }
+    }
+    return Task2.Sequence(
+        title = "上传TaCZ枪包${files.size}个",
+        children = uploadTasks + Task2.Leaf("刷新TaCZ枪包列表") { ctx ->
+            ctx.emit(Task2Progress("刷新TaCZ枪包列表", 0f))
+            onUploaded()
+            ctx.emit(Task2Progress("刷新完成", 1f))
+        }
+    )
+}
+
+private suspend fun uploadHostFile(
+    hostId: ObjectId,
+    targetPath: String,
+    file: File
+): Host.FileUploadVo {
+    val multipartContent = MultiPartFormDataContent(
+        formData {
+            append("path", targetPath)
+            append(
+                key = "file",
+                value = InputProvider { file.inputStream().asInput().buffered() },
+                headers = Headers.build {
+                    append(HttpHeaders.ContentType, ContentType.Application.OctetStream.toString())
+                    append(HttpHeaders.ContentDisposition, "filename=\"${file.name.replace("\"", "")}\"")
+                }
+            )
+        }
+    )
+    val response = server.makeRequest<Host.FileUploadVo>(
+        path = "host/$hostId/files/file",
+        method = HttpMethod.Post,
+        params = mapOf("path" to targetPath)
+    ) {
+        setBody(multipartContent)
+    }
+    if (!response.ok) throw RequestError(response.msg)
+    return response.data ?: throw RequestError("上传TaCZ枪包失败")
 }

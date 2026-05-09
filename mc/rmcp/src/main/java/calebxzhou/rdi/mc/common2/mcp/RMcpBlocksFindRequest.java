@@ -7,6 +7,7 @@ public record RMcpBlocksFindRequest(
         List<String> ids,
         Integer chunkRadius,
         Integer sectionRadius,
+        String scanMode,
         Integer limit,
         Boolean includeState
 ) {

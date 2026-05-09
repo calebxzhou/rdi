@@ -24,6 +24,7 @@ import java.util.function.BiConsumer;
 public final class RMHttpServer {
     private static final int BLOCK_BATCH_LIMIT = 512;
     private static final int ITEM_PICKUP_LIMIT = 2048;
+    private static final int CONTAINER_BATCH_LIMIT = 64;
     private static final char[] BUILDING_SYMBOLS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-/:;<=>?@[]^_{|}~".toCharArray();
     private static final Gson GSON = new GsonBuilder().create();
     private static HTTPServer server;
@@ -74,11 +75,17 @@ public final class RMHttpServer {
                     get("/langkey-search", RMHttpServer::handleLangKeySearch),
                     post("/inventory/swap", RMHttpServer::handleInventorySwap),
                     post("/inventory/move", RMHttpServer::handleInventoryMove),
+                    post("/hotbar/select", RMHttpServer::handleHotbarSelect),
                     post("/menu/drop", RMHttpServer::handleMenuDrop),
                     post("/craft", RMHttpServer::handleCraft),
                     post("/container/put", RMHttpServer::handleContainerPut),
+                    post("/container/put/batch", RMHttpServer::handleContainerPutBatch),
+                    post("/container/take", RMHttpServer::handleContainerTake),
+                    post("/container/take/batch", RMHttpServer::handleContainerTakeBatch),
                     post("/container/move", RMHttpServer::handleContainerMove),
+                    post("/container/move/batch", RMHttpServer::handleContainerMoveBatch),
                     post("/move", RMHttpServer::handleMove),
+                    post("/respawn", RMHttpServer::handleRespawn),
                     post("/entity/pickup-item", RMHttpServer::handleEntityPickupItem),
                     post("/place", RMHttpServer::handlePlace),
                     post("/break", RMHttpServer::handleBreak),
@@ -449,6 +456,42 @@ public final class RMHttpServer {
         }
     }
 
+    private static void handleHotbarSelect(HTTPRequest request, HTTPResponse response) {
+        var selectRequest = readHotbarSelectRequest(request);
+        if (selectRequest == null || selectRequest.slot() == null) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.selectHotbarSlot(selectRequest.slot(), selectRequest.dryRun()));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static HotbarSelectRequest readHotbarSelectRequest(HTTPRequest request) {
+        try {
+            if (request.hasBody()) {
+                var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+                if (!body.isBlank()) {
+                    return GSON.fromJson(body, HotbarSelectRequest.class);
+                }
+            }
+            return new HotbarSelectRequest(
+                    Integer.parseInt(String.valueOf(request.getURLParameter("slot"))),
+                    Boolean.parseBoolean(String.valueOf(request.getURLParameter("dryRun")))
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static void handleCraft(HTTPRequest request, HTTPResponse response) {
         var craftRequest = readCraftRequest(request);
         if (craftRequest == null) {
@@ -529,6 +572,20 @@ public final class RMHttpServer {
                 return;
             }
             ok(response, connector.movePlayer(pos.x(), pos.y(), pos.z()));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleRespawn(HTTPRequest request, HTTPResponse response) {
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.respawnPlayer());
         } catch (RMcpEndpointException e) {
             err400(response, e.code());
         } catch (Exception e) {
@@ -910,6 +967,155 @@ public final class RMHttpServer {
         }
     }
 
+    private static void handleContainerTake(HTTPRequest request, HTTPResponse response) {
+        var takeRequest = readContainerTakeRequest(request);
+        if (takeRequest == null || takeRequest.from() == null || takeRequest.from().slot() == null) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (takeRequest.from().pos() == null || takeRequest.from().pos().isBlank()) {
+            err400(response, RErrorCode.MISSING_POS);
+            return;
+        }
+        if (takeRequest.count() <= 0) {
+            err400(response, RErrorCode.BAD_COUNT);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.takeContainerItemToInventory(
+                    takeRequest.from().pos().trim(),
+                    takeRequest.from().side(),
+                    takeRequest.from().slot(),
+                    takeRequest.toInventorySlot(),
+                    takeRequest.count(),
+                    takeRequest.dryRun()
+            ));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleContainerPutBatch(HTTPRequest request, HTTPResponse response) {
+        var batchRequest = readContainerPutBatchRequest(request);
+        if (batchRequest == null || batchRequest.moves() == null || batchRequest.moves().isEmpty()) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (batchRequest.moves().size() > CONTAINER_BATCH_LIMIT) {
+            err400(response, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        for (var move : batchRequest.moves()) {
+            if (move == null || move.fromInventorySlot() == null || move.to() == null) {
+                err400(response, RErrorCode.BAD_REQUEST);
+                return;
+            }
+            if (move.to().pos() == null || move.to().pos().isBlank()) {
+                err400(response, RErrorCode.MISSING_POS);
+                return;
+            }
+            if (move.count() <= 0) {
+                err400(response, RErrorCode.BAD_COUNT);
+                return;
+            }
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.putInventoryItemsIntoContainerBatch(batchRequest));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleContainerTakeBatch(HTTPRequest request, HTTPResponse response) {
+        var batchRequest = readContainerTakeBatchRequest(request);
+        if (batchRequest == null || batchRequest.moves() == null || batchRequest.moves().isEmpty()) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (batchRequest.moves().size() > CONTAINER_BATCH_LIMIT) {
+            err400(response, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        for (var move : batchRequest.moves()) {
+            if (move == null || move.from() == null || move.from().slot() == null) {
+                err400(response, RErrorCode.BAD_REQUEST);
+                return;
+            }
+            if (move.from().pos() == null || move.from().pos().isBlank()) {
+                err400(response, RErrorCode.MISSING_POS);
+                return;
+            }
+            if (move.count() <= 0) {
+                err400(response, RErrorCode.BAD_COUNT);
+                return;
+            }
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.takeContainerItemsToInventoryBatch(batchRequest));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleContainerMoveBatch(HTTPRequest request, HTTPResponse response) {
+        var batchRequest = readContainerMoveBatchRequest(request);
+        if (batchRequest == null || batchRequest.moves() == null || batchRequest.moves().isEmpty()) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (batchRequest.moves().size() > CONTAINER_BATCH_LIMIT) {
+            err400(response, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        for (var move : batchRequest.moves()) {
+            if (move == null || move.from() == null || move.to() == null) {
+                err400(response, RErrorCode.BAD_REQUEST);
+                return;
+            }
+            if (move.from().pos() == null || move.from().pos().isBlank() || move.to().pos() == null || move.to().pos().isBlank()) {
+                err400(response, RErrorCode.MISSING_POS);
+                return;
+            }
+            if (move.from().slot() == null) {
+                err400(response, RErrorCode.BAD_SLOT);
+                return;
+            }
+            if (move.count() <= 0) {
+                err400(response, RErrorCode.BAD_COUNT);
+                return;
+            }
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.moveContainerItemsBatch(batchRequest));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
     private static ContainerMoveRequest readContainerMoveRequest(HTTPRequest request) {
         try {
             if (request.hasBody()) {
@@ -937,6 +1143,42 @@ public final class RMHttpServer {
         }
     }
 
+    private static RMcpContainerMoveBatchRequest readContainerMoveBatchRequest(HTTPRequest request) {
+        try {
+            if (!request.hasBody()) {
+                return null;
+            }
+            var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+            return body.isBlank() ? null : GSON.fromJson(body, RMcpContainerMoveBatchRequest.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static RMcpContainerPutBatchRequest readContainerPutBatchRequest(HTTPRequest request) {
+        try {
+            if (!request.hasBody()) {
+                return null;
+            }
+            var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+            return body.isBlank() ? null : GSON.fromJson(body, RMcpContainerPutBatchRequest.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static RMcpContainerTakeBatchRequest readContainerTakeBatchRequest(HTTPRequest request) {
+        try {
+            if (!request.hasBody()) {
+                return null;
+            }
+            var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+            return body.isBlank() ? null : GSON.fromJson(body, RMcpContainerTakeBatchRequest.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static ContainerPutRequest readContainerPutRequest(HTTPRequest request) {
         try {
             if (request.hasBody()) {
@@ -952,6 +1194,29 @@ public final class RMHttpServer {
                             request.getURLParameter("toSide"),
                             request.getURLParameter("toSlot") == null || request.getURLParameter("toSlot").isBlank() ? null : Integer.parseInt(request.getURLParameter("toSlot").trim())
                     ),
+                    Integer.parseInt(String.valueOf(request.getURLParameter("count"))),
+                    Boolean.parseBoolean(String.valueOf(request.getURLParameter("dryRun")))
+            );
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static ContainerTakeRequest readContainerTakeRequest(HTTPRequest request) {
+        try {
+            if (request.hasBody()) {
+                var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+                if (!body.isBlank()) {
+                    return GSON.fromJson(body, ContainerTakeRequest.class);
+                }
+            }
+            return new ContainerTakeRequest(
+                    new ContainerEndpointRequest(
+                            request.getURLParameter("fromPos"),
+                            request.getURLParameter("fromSide"),
+                            Integer.parseInt(String.valueOf(request.getURLParameter("fromSlot")))
+                    ),
+                    request.getURLParameter("toInventorySlot") == null || request.getURLParameter("toInventorySlot").isBlank() ? null : Integer.parseInt(request.getURLParameter("toInventorySlot").trim()),
                     Integer.parseInt(String.valueOf(request.getURLParameter("count"))),
                     Boolean.parseBoolean(String.valueOf(request.getURLParameter("dryRun")))
             );
@@ -1251,8 +1516,13 @@ public final class RMHttpServer {
             err400(response, RErrorCode.BAD_CHUNK_RADIUS);
             return;
         }
-        var sectionRadius = findRequest.sectionRadius() == null ? 1 : findRequest.sectionRadius();
-        if (sectionRadius < 0 || sectionRadius > 4) {
+        var scanMode = findRequest.scanMode() == null || findRequest.scanMode().isBlank() ? "nearby_sections" : findRequest.scanMode().trim();
+        if (!"nearby_sections".equals(scanMode) && !"chunk".equals(scanMode)) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        Integer sectionRadius = "chunk".equals(scanMode) ? null : findRequest.sectionRadius() == null ? 1 : findRequest.sectionRadius();
+        if (sectionRadius != null && (sectionRadius < 0 || sectionRadius > 4)) {
             err400(response, RErrorCode.BAD_SECTION_RADIUS);
             return;
         }
@@ -1266,7 +1536,7 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            ok(response, connector.blocksFindData(new RMcpBlocksFindRequest(null, ids, chunkRadius, sectionRadius, limit, findRequest.includeState())));
+            ok(response, connector.blocksFindData(new RMcpBlocksFindRequest(null, ids, chunkRadius, sectionRadius, scanMode, limit, findRequest.includeState())));
         } catch (RMcpEndpointException e) {
             err400(response, e.code());
         } catch (Exception e) {
@@ -1998,6 +2268,9 @@ public final class RMHttpServer {
     private record InventoryMoveRequest(String from, String to, int count, boolean dryRun) {
     }
 
+    private record HotbarSelectRequest(Integer slot, boolean dryRun) {
+    }
+
     private record MenuDropRequest(Integer slot, Integer count, boolean dryRun) {
     }
 
@@ -2041,6 +2314,10 @@ public final class RMHttpServer {
 
     private record ContainerPutRequest(Integer fromInventorySlot, ContainerEndpointRequest to, int count,
                                        boolean dryRun) {
+    }
+
+    private record ContainerTakeRequest(ContainerEndpointRequest from, Integer toInventorySlot, int count,
+                                        boolean dryRun) {
     }
 
     private record ContainerEndpointRequest(String pos, String side, Integer slot) {

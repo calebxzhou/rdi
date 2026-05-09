@@ -5,6 +5,8 @@ import java.io.File
 
 actual fun selectHostExtraModFiles(): List<File>? = null
 
+actual fun selectHostTaczFiles(): List<File>? = null
+
 actual suspend fun matchHostExtraModFiles(
     files: List<File>,
     hostMcVersion: McVersion,

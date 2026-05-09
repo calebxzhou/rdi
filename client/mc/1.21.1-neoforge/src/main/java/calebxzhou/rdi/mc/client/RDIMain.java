@@ -16,8 +16,15 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpBlocksFindData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlocksFindRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpChunkSemanticData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveBatchRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutBatchRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerPutData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpEndpointException;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
@@ -26,6 +33,7 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpEntityDetailData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpFluidData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpGameConnector;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHarvestToolData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpHotbarSelectData;
 import calebxzhou.rdi.mc.common2.mcp.RMHttpServer;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryMoveData;
@@ -41,6 +49,7 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerDetailData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpRespawnData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSectionSemanticData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSituationData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpStaringBlockData;
@@ -187,6 +196,11 @@ public class RDIMain {
                 @Override
                 public RMcpInventoryData inventoryData() {
                     return RDIMain.inventoryData(Minecraft.getInstance());
+                }
+
+                @Override
+                public RMcpHotbarSelectData selectHotbarSlot(int slot, boolean dryRun) {
+                    return RMcpClientBridge.requestHotbarSelect(slot, dryRun);
                 }
 
                 @Override
@@ -365,8 +379,28 @@ public class RDIMain {
                 }
 
                 @Override
+                public RMcpContainerPutBatchData putInventoryItemsIntoContainerBatch(RMcpContainerPutBatchRequest request) {
+                    return RMcpClientBridge.requestContainerPutBatch(request);
+                }
+
+                @Override
+                public RMcpContainerTakeData takeContainerItemToInventory(String fromPos, String fromSide, int fromSlot, Integer toInventorySlot, int count, boolean dryRun) {
+                    return RMcpClientBridge.requestContainerTake(fromPos, fromSide, fromSlot, toInventorySlot, count, dryRun);
+                }
+
+                @Override
+                public RMcpContainerTakeBatchData takeContainerItemsToInventoryBatch(RMcpContainerTakeBatchRequest request) {
+                    return RMcpClientBridge.requestContainerTakeBatch(request);
+                }
+
+                @Override
                 public RMcpContainerMoveData moveContainerItems(String fromPos, String fromSide, int fromSlot, String toPos, String toSide, Integer toSlot, int count, boolean dryRun) {
                     return RMcpClientBridge.requestContainerMove(fromPos, fromSide, fromSlot, toPos, toSide, toSlot, count, dryRun);
+                }
+
+                @Override
+                public RMcpContainerMoveBatchData moveContainerItemsBatch(RMcpContainerMoveBatchRequest request) {
+                    return RMcpClientBridge.requestContainerMoveBatch(request);
                 }
 
                 @Override
@@ -402,6 +436,11 @@ public class RDIMain {
                 @Override
                 public RMcpPlayerMoveData movePlayer(double x, double y, double z) {
                     return RMcpClientBridge.requestMovePlayer(x, y, z);
+                }
+
+                @Override
+                public RMcpRespawnData respawnPlayer() {
+                    return RMcpClientBridge.requestRespawn();
                 }
 
                 @Override
@@ -1836,8 +1875,17 @@ public class RDIMain {
         int centerChunkX = Math.floorDiv(center.getX(), 16);
         int centerChunkZ = Math.floorDiv(center.getZ(), 16);
         int centerSectionY = Math.floorDiv(center.getY(), 16);
-        int minSectionY = Math.max(level.getMinSection(), centerSectionY - request.sectionRadius());
-        int maxSectionY = Math.min(level.getMaxSection() - 1, centerSectionY + request.sectionRadius());
+        var scanMode = request.scanMode() == null || request.scanMode().isBlank() ? "nearby_sections" : request.scanMode().trim();
+        int minSectionY;
+        int maxSectionY;
+        if ("chunk".equals(scanMode)) {
+            minSectionY = level.getMinSection();
+            maxSectionY = level.getMaxSection() - 1;
+        } else {
+            var sectionRadius = request.sectionRadius() == null ? 1 : request.sectionRadius();
+            minSectionY = Math.max(level.getMinSection(), centerSectionY - sectionRadius);
+            maxSectionY = Math.min(level.getMaxSection() - 1, centerSectionY + sectionRadius);
+        }
         if (minSectionY > maxSectionY) {
             throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
         }
@@ -1930,7 +1978,7 @@ public class RDIMain {
                 BLOCKS_FIND_FORMAT,
                 level.dimension().location().toString(),
                 new RMcpBlocksFindData.Center(blockPosData(center), centerChunkX, centerChunkZ, centerSectionY),
-                new RMcpBlocksFindData.Range(request.chunkRadius(), request.sectionRadius()),
+                new RMcpBlocksFindData.Range(request.chunkRadius(), request.sectionRadius(), scanMode, minSectionY, maxSectionY),
                 new RMcpBlocksFindData.Scan(loadedChunks, skippedChunks, scannedSections, scannedBlocks, matched, returned, matched > returned),
                 List.copyOf(matches)
         );

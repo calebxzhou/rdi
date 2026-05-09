@@ -48,6 +48,7 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode NO_PLACE_FACE = code("no_place_face", "/place could not build a valid placement hit face.");
     public static final RErrorCode PLACE_FAILED = code("place_failed", "Minecraft placement logic refused the action.");
     public static final RErrorCode BREAK_FAILED = code("break_failed", "Minecraft block breaking logic refused the action.");
+    public static final RErrorCode MOVE_TARGET_BLOCKED = code("move_target_blocked", "/move could not find a nearby safe standable target with empty feet/head space and a solid non-hazard floor.");
     public static final RErrorCode PROTECTED = code("protected", "the server says the player may not interact with the target position.");
     public static final RErrorCode TOO_MANY_BLOCKS = code("too_many_blocks", "a batch or box block request included more than 512 target blocks.");
 
@@ -108,7 +109,7 @@ public record RErrorCode(String id, String info) {
             SCREENSHOT_FAILED, SCREENSHOT_TIMEOUT, SERVER_MCP_UNAVAILABLE, SERVER_TIMEOUT,
             NO_PLAYER, DIM_NOT_LOADED, BUSY_CONTAINER_OPEN, CARRIED_ITEM_NOT_EMPTY,
             MISSING_INGREDIENTS, RESULT_FULL, CRAFT_FAILED, CRAFT_TIMEOUT,
-            TOO_FAR, NO_ITEM_HANDLER, TARGET_NOT_AIR, NO_PLACE_ITEM, NO_PLACE_FACE, PLACE_FAILED, BREAK_FAILED,
+            TOO_FAR, NO_ITEM_HANDLER, TARGET_NOT_AIR, NO_PLACE_ITEM, NO_PLACE_FACE, PLACE_FAILED, BREAK_FAILED, MOVE_TARGET_BLOCKED,
             PROTECTED, TOO_MANY_BLOCKS, MISSING_POS, BAD_POS, BAD_POSITIONS, BAD_BOX, BAD_BLOCK_IDS, MISSING_BLOCK_ID,
             BAD_BLOCK_ID, MISSING_UUID, BAD_UUID, MISSING_ITEM_ID, MISSING_CHUNK_X, MISSING_CHUNK_Z,
             MISSING_IDS, BAD_IDS,

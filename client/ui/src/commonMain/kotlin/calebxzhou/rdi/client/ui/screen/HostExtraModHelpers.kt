@@ -11,6 +11,8 @@ data class HostExtraModMatchResult(
 
 expect fun selectHostExtraModFiles(): List<File>?
 
+expect fun selectHostTaczFiles(): List<File>?
+
 expect suspend fun matchHostExtraModFiles(
     files: List<File>,
     hostMcVersion: McVersion,

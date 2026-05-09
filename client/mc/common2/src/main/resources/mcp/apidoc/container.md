@@ -31,3 +31,4 @@ Returns:
 
 Only occupied slots are listed in `items`. Use `slots` to know the valid slot range.
 
+Use these slot numbers with `POST /container/take`, `POST /container/take/batch`, `POST /container/move`, or `POST /container/move/batch`. Use `POST /container/put` or `POST /container/put/batch` for the opposite direction from player inventory into this container.

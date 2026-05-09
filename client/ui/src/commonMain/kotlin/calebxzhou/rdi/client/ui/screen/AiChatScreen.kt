@@ -308,6 +308,16 @@ fun AiChatScreen(
         }
     }
 
+    fun rememberInterruptedAssistantResponse(assistantIndex: Int) {
+        val current = messages.getOrNull(assistantIndex) ?: return
+        if (current.role != "assistant" || current.contextMessageCount > 0 || current.content.isBlank()) return
+        contextMessages += current.toInterruptedContextMessage()
+        messages[assistantIndex] = current.copy(
+            contextMessageCount = 1,
+            contextCompressed = true
+        )
+    }
+
     fun startAssistantResponse(assistantIndex: Int, requestMessages: List<OpenaiChatMessage>) {
         sending = true
         messages[assistantIndex] = messages[assistantIndex].copy(
@@ -403,6 +413,7 @@ fun AiChatScreen(
                     saveCurrentChat()
                 }
             } catch (_: CancellationException) {
+                rememberInterruptedAssistantResponse(assistantIndex)
             } catch (err: Throwable) {
                 failed = true
                 errorMessage = err.message ?: "AI聊天失败"
@@ -1206,6 +1217,24 @@ private fun AiChatBubble.toCompressedContextMessage(): OpenaiChatMessage {
     return OpenaiChatMessage(
         role = "assistant",
         content = compressedContent
+    )
+}
+
+private fun AiChatBubble.toInterruptedContextMessage(): OpenaiChatMessage {
+    val interruptedContent = buildString {
+        append(content)
+        appendLine()
+        appendLine()
+        append("以上AI回复被用户手动停止，后续继续时应承接这段已生成内容。")
+        if (toolStatuses.isNotEmpty()) {
+            appendLine()
+            append("停止前工具访问记录：")
+            append(toolStatuses.joinToString("；") { "${it.action}${it.target}" })
+        }
+    }
+    return OpenaiChatMessage(
+        role = "assistant",
+        content = interruptedContent
     )
 }
 
