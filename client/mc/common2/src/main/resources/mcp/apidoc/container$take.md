@@ -29,7 +29,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "container-take-v1",
     "dryRun": false,
     "requestedCount": 16,
     "movedCount": 16,
@@ -43,16 +42,12 @@ Returns:
     },
     "from": {},
     "toInventorySlot": null,
-    "targetInventorySlots": [0, 9],
-    "beforeToInventorySlot": null,
-    "afterToInventorySlot": null,
-    "inventory": {},
-    "container": {}
+    "targetInventorySlots": [0, 9]
   }
 }
 ```
 
-Call `GET /container?pos=...` first to choose `from.slot`. Call `GET /inventory` first when choosing a specific `toInventorySlot`. Prefer `toInventorySlot=null` unless a hotbar or exact slot placement is required.
+Call `GET /container?pos=...` first to choose `from.slot`. Call `GET /inventory` first when choosing a specific `toInventorySlot`. Prefer `toInventorySlot=null` unless a hotbar or exact slot placement is required. Re-read `/inventory` or `/container` after the action only when you need updated slot state.
 
 Use `POST /container/take/batch` when moving multiple known container slots into the current player's inventory.
 

@@ -3,7 +3,6 @@ package calebxzhou.rdi.mc.common2.mcp;
 import java.util.List;
 
 public record RMcpNearbyEntitiesData(
-        String format,
         String dim,
         Center center,
         double radius,

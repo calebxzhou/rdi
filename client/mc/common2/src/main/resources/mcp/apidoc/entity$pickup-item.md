@@ -49,7 +49,6 @@ Returns a batch result. A failed item does not stop later item pickups:
 {
   "code": "ok",
   "data": {
-    "format": "item-pickup-v1",
     "requestedCount": 2,
     "pickedCount": 1,
     "failedCount": 1,

@@ -22,6 +22,9 @@ If `code` is not `ok`, `data` is `null`. Use the HTTP status and `code` to decid
 - Need to know which mods are currently loaded: call `/mods`; add `id=...` only for detailed metadata.
 - Need to know available building templates and their IDs: call `/buildings`.
 - Need to understand one building schematic by ID: call `/buildings/{id}`.
+- Need to inspect FTB Quests chapter progress or find which chapters contain currently reachable quests: call `/quest/chapter-list`.
+- Need all FTB Quests quests the current player can start working on now: call `/quest/reachable`.
+- Need quests inside one FTB Quests chapter: call `/quest/chapter/{id}` after `/quest/chapter-list`.
 - User asks you to build a house, base, shelter, tower, farm, bridge, room, platform, or any structure: call `/buildings` first before choosing actions.
 - Need the current visual game frame: call `/screenshot`.
 - Need the exact meaning of an error code: call `/errcode/{code}`.
@@ -47,6 +50,8 @@ If `code` is not `ok`, `data` is `null`. Use the HTTP status and `code` to decid
 - Need exact block states for multiple known positions: call `POST /blockstate/batch` first.
 - Need exact block state for only one known position: call `/blockstate`.
 - Need detailed block entity data, inventory, NBT, or runtime fields at a known position: call `/blockentity`.
+- Need to read text from a known sign: call `GET /sign/text?x=...&y=...&z=...`; default returns both front and back.
+- Need to write Markdown text onto a sign: call `POST /sign/text`.
 - Need to read slots from a container or machine block: call `/container?pos=...`.
 - Need to put items from the current player's inventory into a known container or machine block: call `POST /container/put`.
 - Need to put multiple inventory slots into containers or machines: call `POST /container/put/batch`.
@@ -58,8 +63,12 @@ If `code` is not `ok`, `data` is `null`. Use the HTTP status and `code` to decid
 - Need to break a known block using the current main hand item: call `POST /break?x=...&y=...&z=...`; the player does not need to face the block when it is within 32 blocks.
 - Need to move the player to a nearby position in the current dimension: prefer a safe feet position from `/blockmap/walkable`, then call `POST /move` with JSON `{"x":...,"y":...,"z":...}` or query `?x=...&y=...&z=...`; `/move` searches within 4 blocks of that point for a safe standable target and returns an error if none exists.
 - Need to recover after confirming the current player is dead: call `POST /respawn`, then re-read `/situation` or `/player` before continuing.
-- Need to place or break several sparse positions: call `POST /place/batch` or `POST /break/batch`.
-- Need to place or break every block inside a small cuboid: call `POST /place/box` or `POST /break/box`.
+- Need to place the current main hand block item at several sparse positions with the same default placement behavior: call `POST /place/batch`.
+- Need to place one block type at sparse positions with different per-target block states: call `POST /place/discrete` with `blockId`, `targets[].pos`, optional `targets[].state`, and `dryRun`.
+- Need to place multiple block types at multiple sparse positions: call `POST /place/palette` with `palette`, `targets[].key`, and `dryRun`.
+- Need to break several sparse positions: call `POST /break/batch`.
+- Need to place a continuous run/box of one block type from the player's inventory: call `POST /place/box` with `blockId`, `startPos`, `endOffset`, optional safe `state`, and `dryRun`.
+- Need to break every block inside a small cuboid: call `POST /break/box`.
 - Need to know which tool can harvest a block and what it drops with different tools: call `/harvest-tool?blockId=...` or `/harvest-tool?pos=...`.
 - Need nearby monsters or animals: call `/nearby-entities`; add `pos=...` only for a known non-player center.
 - Need nearby dropped items to pick up: call `POST /entity/pickup-item?radius=64&limit=256`; use `ids` only when selecting specific dropped item entities.
@@ -114,7 +123,7 @@ In a normal 1.21 overworld, section Y can be negative, such as `-4` for blocks `
 - For a template build, first call `GET /buildings/{id}` without `layer` to read size, palette, material IDs, and valid layer range before placing blocks.
 - `GET /buildings/{id}?layer=Y` returns only that layer map, without repeating summary or palette. Keep the palette from the summary response.
 - Do not request every building layer at once. Call `GET /buildings/{id}?layer=Y` only for the next single layer you are about to build, and read that layer carefully before placing blocks.
-- Build templates from low y to high y. For each layer, use the stored palette symbols to choose block items, skip `.` air cells, and use `POST /place/batch` or `POST /place/box` only after checking target cells are air.
+- Build templates from low y to high y. For each layer, use the stored palette symbols to choose block IDs, skip `.` air cells, and use `POST /place/box` for continuous same-block runs, `POST /place/discrete` for one block with varied states, or `POST /place/palette` for mixed-material sparse targets only after checking target cells are air.
 - If the requested structure does not exist in `/buildings`, explain the available IDs from the index and ask the player whether to use the closest template or build a custom structure.
 - Call `/situation` first when deciding the next action from current game state.
 - Call `/inventory` when exact item stacks or slots are needed; do not use `/player?detail=true` only for inventory.
@@ -125,8 +134,16 @@ In a normal 1.21 overworld, section Y can be negative, such as `-4` for blocks `
 - Use `POST /menu/drop` only with a slot returned by `/menu`; use `dryRun=true` before throwing valuable items.
 - `POST /craft` runs server-side from selected inventory slots; it does not require a nearby crafting table, an open menu, or recipe book state.
 - To craft an item, call `/recipe?itemId=...` and `/inventory`, choose source inventory slots, build a `shape`, then call `POST /craft` with `dryRun=true` before the real action when the slot plan is uncertain.
-- Use `POST /blockstate/batch` before `/place/batch`, `/break/batch`, `/place/box`, or `/break/box` when target cells are not already known.
+- Use `POST /blockstate/batch` before `/place/batch`, `/place/discrete`, `/place/palette`, `/break/batch`, `/place/box`, or `/break/box` when target cells are not already known.
+- Batch block action responses contain only `data.action` and `data.failedBlocks`. If `failedBlocks` is empty, all accepted targets succeeded. Do not expect per-success `results`, counts, main hand snapshots, or inventory snapshots.
+- `POST /place/box` uses `blockId`, not `inventorySlot`. The server automatically finds and consumes matching block items from the player's hotbar/main inventory; do not swap or select slots first. It has no `face` and no `stopOnError`; it always stops at the first failed target. `endOffset` is relative to `startPos` and inclusive.
+- If `/place/box` does not have enough matching block items for the whole expanded box, it returns `missing_ingredients` before placing anything.
+- `POST /place/discrete` uses `blockId`, not `inventorySlot`, and each target may have its own `state`. It is for non-contiguous placement or blocks that need different orientations, such as spiral stairs. It has no `face` and no `stopOnError`; it always stops at the first failed target.
+- `POST /place/palette` uses multiple palette entries keyed by short symbols. Use it for mixed block IDs or repeated template symbols. It has no `inventorySlot`, `face`, or `stopOnError`; it always stops at the first failed target.
+- For `/place/box`, `/place/discrete`, and `/place/palette` state overrides, only send safe whitelisted fields: `axis`, `facing`, `open`, `rotation`, and `half` for stairs/trapdoors. Never send game-owned states such as `waterlogged`, `type`, `part`, `shape`, `powered`, or `lit`.
 - Use `/blockstate` before single `/place` or `/break` only when checking exactly one target cell; `/place` only accepts air targets and can place ordinary blocks floating when Minecraft rules allow it; `/break` only accepts non-air targets.
+- Use `POST /sign/text` to write sign text from Markdown. Keep text to at most 4 lines. Use `side:"front"` by default, `side:"back"` only when intentionally editing the back side, and `side:"auto"` when the player's current facing should decide. The API supports only safe Markdown-to-Component formatting, color switches like `{gold}text`, color spans like `{yellow:text}`, and `http/https` links; it never creates runnable commands.
+- Use `GET /sign/text` before overwriting a sign when existing text may matter. The response includes `waxed`, `front`, and `back`; do not assume the back side is empty.
 - `/break`, `/break/batch`, and `/break/box` are server-side remote break actions within 32 blocks. Do not move or rotate the player just to face the block. If a break action returns `too_far`, then use `/move` to get closer and retry.
 - Unless the player explicitly asks for it, do not break any player container, storage block, chest, barrel, shulker box, machine inventory, or modded container. If breaking such a block is necessary, ask the player for permission before calling `/break`, `/break/batch`, or `/break/box`.
 - After successful `/break`, `/break/batch`, or `/break/box`, pick up harvested drops by default unless the user explicitly says not to. Use `POST /entity/pickup-item?radius=64&limit=256`.
@@ -138,10 +155,10 @@ In a normal 1.21 overworld, section Y can be negative, such as `-4` for blocks `
 - If a movement target is manually constructed, verify the target feet position, head position, and floor with `POST /blockstate/batch` before `/move` when precision matters; feet and head should be air, and floor should not be air.
 - Use `/terrain/profile` before vertical-sensitive movement, digging, bridge building, stair planning, cliff handling, or cave entrance reasoning. Prefer it over `/section` when a single X or Z line is enough.
 - Use `/container` before `/container/move`; never infer container slot numbers from `/blockentity` SNBT when an item handler view is available.
-- Use `POST /container/move/batch` instead of repeated `/container/move` when moving multiple known container slots. Inspect every `results[].code`; top-level `code=ok` only means the batch request was accepted. Use `dryRun=true` before reorganizing important containers.
+- Use `POST /container/move/batch` instead of repeated `/container/move` when moving multiple known container slots. Inspect `failedMoves`; if it is empty, every accepted move succeeded. Use `dryRun=true` before reorganizing important containers.
 - Use `POST /container/put` when the source item is in the current player's inventory and the destination is a known block position. It does not require opening the container GUI. Check `/inventory` first for `fromInventorySlot`; check `/container` first when choosing a specific `to.slot`.
 - Use `POST /container/take` when the source item is in a known block container and the destination is the current player's inventory. It does not require opening the container GUI. Check `/container` first for `from.slot`; use `toInventorySlot=null` unless an exact hotbar/main inventory slot is required.
-- Use `POST /container/put/batch` or `POST /container/take/batch` instead of repeated single operations when moving multiple known inventory/container slots. Inspect every `results[].code`; top-level `code=ok` only means the batch request was accepted. Use `dryRun=true` before moving valuable items.
+- Use `POST /container/put/batch` or `POST /container/take/batch` instead of repeated single operations when moving multiple known inventory/container slots. Inspect `failedMoves`; if it is empty, every accepted move succeeded. Use `dryRun=true` before moving valuable items.
 - Prefer brief APIs first, then detail APIs only when the brief result is insufficient.
 - Use `/mods` without `id` when checking loaded mods; use `/mods?id=...` only after choosing one mod ID.
 - For terrain or build understanding, call `/chunk` first, then call `/section` only for sections that matter.
@@ -171,6 +188,9 @@ File names are endpoint paths without the leading slash, with `/` replaced by `$
 - `GET /apidoc/{file}`: `GET /apidoc/apidoc${file}.md`
 - `GET /errcode/{code}`: `GET /apidoc/errcode${code}.md`
 - `GET /mods`: `GET /apidoc/mods.md`
+- `GET /quest/chapter-list`: `GET /apidoc/quest$chapter-list.md`
+- `GET /quest/reachable`: `GET /apidoc/quest$reachable.md`
+- `GET /quest/chapter/{id}`: `GET /apidoc/quest$chapter${id}.md`
 
 - `GET /test`: `GET /apidoc/test.md`
 - `GET /screenshot`: `GET /apidoc/screenshot.md`
@@ -198,6 +218,8 @@ File names are endpoint paths without the leading slash, with `/` replaced by `$
 - `GET /blockstate?x=10&y=64&z=-20`: `GET /apidoc/blockstate.md`
 - `POST /blockstate/batch`: `GET /apidoc/blockstate$batch.md`
 - `GET /blockentity?pos=dim,x,y,z`: `GET /apidoc/blockentity.md`
+- `GET /sign/text?x=10&y=64&z=-20`: `GET /apidoc/sign$text$get.md`
+- `POST /sign/text`: `GET /apidoc/sign$text.md`
 - `GET /container?pos=dim,x,y,z&side=north`: `GET /apidoc/container.md`
 - `POST /container/put`: `GET /apidoc/container$put.md`
 - `POST /container/put/batch`: `GET /apidoc/container$put$batch.md`
@@ -208,6 +230,8 @@ File names are endpoint paths without the leading slash, with `/` replaced by `$
 - `POST /place?x=10&y=64&z=-20&face=up`: `GET /apidoc/place.md`
 - `POST /break?x=10&y=64&z=-20`: `GET /apidoc/break.md`
 - `POST /place/batch`: `GET /apidoc/place$batch.md`
+- `POST /place/discrete`: `GET /apidoc/place$discrete.md`
+- `POST /place/palette`: `GET /apidoc/place$palette.md`
 - `POST /break/batch`: `GET /apidoc/break$batch.md`
 - `POST /place/box`: `GET /apidoc/place$box.md`
 - `POST /break/box`: `GET /apidoc/break$box.md`

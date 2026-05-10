@@ -1,6 +1,5 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Task2Progress
 import kotlinx.coroutines.Dispatchers
@@ -26,10 +25,12 @@ suspend fun syncHostManagedBaseMods(
 
     distinctDisabledMods
         .forEach { mod ->
-            val target = modsDir.resolve(mod.fileName)
-            if (target.exists()) {
-                Files.deleteIfExists(target.toPath())
-                onProgress(Task2Progress("移除已禁用基础Mod ${target.name}"))
+            mod.fileNames.forEach { fileName ->
+                val target = modsDir.resolve(fileName)
+                if (target.exists()) {
+                    Files.deleteIfExists(target.toPath())
+                    onProgress(Task2Progress("移除已禁用基础Mod ${target.name}"))
+                }
             }
         }
 
@@ -40,8 +41,8 @@ suspend fun syncHostManagedBaseMods(
 
     distinctActiveMods
         .forEachIndexed { index, mod ->
-            val source = DL_MOD_DIR.resolve(mod.fileName)
-            require(source.exists()) { "缺少基础Mod文件: ${source.absolutePath}" }
+            val source = mod.candidateFiles.firstOrNull(File::exists)
+                ?: error("缺少基础Mod文件: ${mod.targetFile.absolutePath}")
             val target = modsDir.resolve(mod.fileName)
             if (!target.pointsTo(source)) {
                 linkOrCopyMod(source, target)

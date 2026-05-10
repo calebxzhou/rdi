@@ -3,7 +3,6 @@ package calebxzhou.rdi.mc.common2.mcp;
 import java.util.List;
 
 public record RMcpInventoryData(
-        String format,
         String dim,
         int selectedHotbarSlot,
         Item selectedItem,

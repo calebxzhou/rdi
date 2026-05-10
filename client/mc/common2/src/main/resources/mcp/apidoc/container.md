@@ -10,7 +10,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "container-v1",
     "dim": "minecraft:overworld",
     "pos": {"x": 10, "y": 64, "z": -20},
     "side": null,

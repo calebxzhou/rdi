@@ -29,7 +29,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "container-move-v1",
     "dryRun": false,
     "requestedCount": 16,
     "movedCount": 16,
@@ -42,14 +41,12 @@ Returns:
       "snbt": "{count:16,id:\"minecraft:iron_ingot\"}"
     },
     "from": {},
-    "to": {},
-    "fromContainer": {},
-    "toContainer": {}
+    "to": {}
   }
 }
 ```
 
-Call `GET /container` for both source and target before moving. Use the exact source slot from the source response. Prefer `to.slot=null` unless a machine requires a specific target slot.
+Call `GET /container` for both source and target before moving. Use the exact source slot from the source response. Prefer `to.slot=null` unless a machine requires a specific target slot. Re-read `/container` after the action only when you need the updated slot state.
 
 Use `POST /container/move/batch` when moving multiple known source slots between containers.
 

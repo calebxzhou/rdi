@@ -8,7 +8,6 @@ Returns a lossy semantic overview:
 {
   "code": "ok",
   "data": {
-    "format": "chunk-semantic-v1",
     "dim": "minecraft:overworld",
     "chunk": {"x": 0, "z": 0},
     "summary": {

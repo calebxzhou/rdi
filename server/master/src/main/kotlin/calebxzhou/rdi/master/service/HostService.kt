@@ -1268,8 +1268,8 @@ object HostService {
                 .filter(::isServerInstalledMod)
                 .filterNot { this@makeContainer.isDisabledMod(it) }
                 .forEach { mod ->
-                    val source = DL_MOD_DIR.resolve(mod.fileName)
-                    if (source.exists()) {
+                    val source = mod.candidateFiles.firstOrNull(File::exists)
+                    if (source != null) {
                         this += Mount()
                             .withType(MountType.BIND)
                             .withSource(source.absolutePath)
@@ -1279,8 +1279,8 @@ object HostService {
             extraMods
                 .filter(::isServerInstalledMod)
                 .forEach { mod ->
-                    val source = DL_MOD_DIR.resolve(mod.fileName)
-                    if (!source.exists()) {
+                    val source = mod.candidateFiles.firstOrNull(File::exists)
+                    if (source == null) {
                         throw RequestError("房间附加Mod文件缺失:${mod.slug} 请重新上传")
                     }
                     this += Mount()
@@ -2510,16 +2510,18 @@ object HostService {
             set(Host::extraMods.name, updatedMods)
         )
         removedMods.forEach { mod ->
-            val hostModPath = host.dir.resolve("mods").resolve(mod.fileName).toPath()
-            runCatching { Files.deleteIfExists(hostModPath) }
-                .onSuccess { deleted ->
-                    if (deleted) {
-                        lgr.info { "Host ${host._id} 删除附加Mod文件: ${hostModPath.fileName}" }
+            mod.fileNames.forEach { fileName ->
+                val hostModPath = host.dir.resolve("mods").resolve(fileName).toPath()
+                runCatching { Files.deleteIfExists(hostModPath) }
+                    .onSuccess { deleted ->
+                        if (deleted) {
+                            lgr.info { "Host ${host._id} 删除附加Mod文件: ${hostModPath.fileName}" }
+                        }
                     }
-                }
-                .onFailure { err ->
-                    lgr.warn { "Host ${host._id} 删除附加Mod文件失败 ${hostModPath.fileName}: ${err.message}" }
-                }
+                    .onFailure { err ->
+                        lgr.warn { "Host ${host._id} 删除附加Mod文件失败 ${hostModPath.fileName}: ${err.message}" }
+                    }
+            }
         }
         host.extraMods = updatedMods
         return updatedMods
@@ -2585,16 +2587,18 @@ object HostService {
     private fun deleteMountedDisabledModFiles(host: Host, disabledMods: List<Mod>) {
         if (disabledMods.isEmpty()) return
         disabledMods.forEach { mod ->
-            val hostModFile = host.dir.resolve("mods").resolve(mod.fileName).toPath()
-            runCatching { Files.deleteIfExists(hostModFile) }
-                .onSuccess { deleted ->
-                    if (deleted) {
-                        lgr.info { "Host ${host._id} 删除已停用Mod占位文件: ${hostModFile.fileName}" }
+            mod.fileNames.forEach { fileName ->
+                val hostModFile = host.dir.resolve("mods").resolve(fileName).toPath()
+                runCatching { Files.deleteIfExists(hostModFile) }
+                    .onSuccess { deleted ->
+                        if (deleted) {
+                            lgr.info { "Host ${host._id} 删除已停用Mod占位文件: ${hostModFile.fileName}" }
+                        }
                     }
-                }
-                .onFailure { err ->
-                    lgr.warn { "Host ${host._id} 删除已停用Mod占位文件失败 ${hostModFile.fileName}: ${err.message}" }
-                }
+                    .onFailure { err ->
+                        lgr.warn { "Host ${host._id} 删除已停用Mod占位文件失败 ${hostModFile.fileName}: ${err.message}" }
+                    }
+            }
         }
     }
 

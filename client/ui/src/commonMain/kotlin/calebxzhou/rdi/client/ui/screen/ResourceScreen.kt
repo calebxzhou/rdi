@@ -56,6 +56,7 @@ import calebxzhou.rdi.client.ui.TitleTabBar
 import calebxzhou.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.RowV
+import calebxzhou.rdi.client.ui.TitleRow2
 import calebxzhou.rdi.client.ui.asIconText
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.common.model.McVersion
@@ -111,7 +112,7 @@ fun ResourceScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         MainColumn {
             uploadErrorText?.let { AlertErr(it) { uploadErrorText = null } }
-            TitleRow("资源", onBack) {
+            TitleRow2("资源", onBack) {
                 TitleTabBar(
                     items = remember {
                         ResourceTab.entries.map { TitleTabItem(it, it.icon, it.label) }
@@ -119,7 +120,7 @@ fun ResourceScreen(
                     selected = category,
                     onSelect = { category = it }
                 )
-                Space8w()
+
                 if (loggedAccount.hasMsid) {
                     CircleIconButton(
                         icon = "\uDB80\uDFD5",
@@ -419,8 +420,7 @@ private fun RemoteModpackPane(
             Space8w()
             CircleIconButton(
                 icon = "\uE721",
-                tooltip = "搜索",
-                bgColor = MaterialColor.BLUE_700.color
+                tooltip = "搜索"
             ) {
                 submitSearch()
             }

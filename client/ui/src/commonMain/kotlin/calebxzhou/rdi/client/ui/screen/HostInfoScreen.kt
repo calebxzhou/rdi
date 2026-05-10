@@ -11,7 +11,8 @@ import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.material.*
+import androidx.compose.material.OutlinedTextField
+import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedTextField as M3OutlinedTextField
 import androidx.compose.material3.RadioButton as M3RadioButton
@@ -621,12 +622,11 @@ fun HostInfoScreen(
 
     MainBox {
         MainColumn {
-            TitleRow(title = host?.name ?: "房间详情", onBack = onBack) {
-
+            TitleRow2(title = host?.name ?: "房间详情", onBack = onBack) {
                     host?.let { host ->
                         Text("房主：")
                         HeadButton(host.ownerId)
-                        Space8w()
+
                         CircleIconButton(
                             icon = "\uF04B",
                             tooltip = "开始游玩",
@@ -634,7 +634,7 @@ fun HostInfoScreen(
                         ) {
                             startPlay(host)
                         }
-                        Space8w()
+
                         if (meAdmin) {
                             CircleIconButton(
                                 icon = "\uF013",
@@ -644,7 +644,7 @@ fun HostInfoScreen(
                                 onOpenHostEdit(host)
                             }
                             if (modpackDetail != null) {
-                                Space8w()
+
                                 CircleIconButton(
                                     icon = "\uDB80\uDFD5",
                                     tooltip = "更新"
@@ -652,7 +652,7 @@ fun HostInfoScreen(
                             }
                         }
                         if (meOwner) {
-                            Space8w()
+
                             CircleIconButton(
                                 icon = "\uEA81",
                                 tooltip = "删除",
@@ -726,17 +726,17 @@ fun HostInfoScreen(
                             "\uDB80\uDD8D 后台",
                             "\uE5FC 配置"
                         )
-                        TabRow(
+                        androidx.compose.material3.PrimaryTabRow(
                             selectedTabIndex = selectedTab,
-                            backgroundColor = Color.White,
+                            containerColor = Color.White,
                         ) {
                             tabs.forEachIndexed { index, title ->
-                                Tab(
+                                androidx.compose.material3.Tab(
                                     modifier = Modifier.padding(0.dp),
                                     selected = selectedTab == index,
                                     onClick = { selectedTab = index },
                                     text = {
-                                        Text(
+                                        androidx.compose.material3.Text(
                                             text = title.asIconText,
                                             maxLines = 1,
                                             softWrap = false,
@@ -932,9 +932,9 @@ fun HostInfoScreen(
                                     modifier = Modifier.fillMaxSize(),
                                     verticalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    TabRow(
+                                    SecondaryTabRow(
                                         selectedTabIndex = selectedPrivateThingsSubTab,
-                                        backgroundColor = Color.White,
+                                        containerColor = Color.White,
                                     ) {
                                         Tab(
                                             selected = selectedPrivateThingsSubTab == 0,
@@ -1176,7 +1176,7 @@ fun HostInfoScreen(
 
             }
         }
-        BottomSnakebar(snackbarHostState)
+        BottomSnakebarM3(snackbarHostState)
     }
 
     if (showDeleteConfirm) {
@@ -1199,9 +1199,9 @@ fun HostInfoScreen(
                                 "该房间没有关联存档"
                             },
                             color = if (hostDetail?.worldId != null) {
-                                MaterialTheme.colors.onSurface
+                                MaterialTheme.colorScheme.onSurface
                             } else {
-                                MaterialTheme.colors.onSurface.copy(alpha = 0.6f)
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
                             }
                         )
                     }
@@ -1407,7 +1407,7 @@ fun HostInfoScreen(
                         .padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("添加附加Mod（高级模式）", style = MaterialTheme.typography.h6)
+                    Text("添加附加Mod（高级模式）", style = MaterialTheme.typography.titleSmall)
                     Text("仅供高级玩家使用。通常情况不建议使用此功能")
                     LazyColumn(
                         modifier = Modifier
@@ -2272,7 +2272,6 @@ private fun HostTaczPackPane(
         shape = RoundedCornerShape(8.dp),
         color = Color.White,
         border = BorderStroke(1.dp, MaterialColor.GRAY_200.color),
-        elevation = 1.dp
     ) {
         Column(
             modifier = Modifier

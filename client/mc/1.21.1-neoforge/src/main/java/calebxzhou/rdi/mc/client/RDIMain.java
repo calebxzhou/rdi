@@ -48,13 +48,22 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpNearbyResourcesData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerDetailData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceBoxRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceDiscreteRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlacePaletteRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpRespawnData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSectionSemanticData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextReadData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSituationData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpStaringBlockData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpTerrainProfileData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpTestData;
+import calebxzhou.rdi.mc.common2.mcp.RReachableQuestList;
+import calebxzhou.rdi.mc.common2.mcp.RQuestChapter;
+import calebxzhou.rdi.mc.common2.mcp.RQuestChapterList;
 import calebxzhou.rdi.mc.common.RDI;
 import calebxzhou.rdi.mc.common2.rcmd.client.RcmdRecipeView;
 import com.google.common.net.HostAndPort;
@@ -63,6 +72,11 @@ import com.mojang.authlib.properties.Property;
 import com.mojang.blaze3d.pipeline.RenderCall;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import dev.ftb.mods.ftbquests.client.ClientQuestFile;
+import dev.ftb.mods.ftbquests.quest.Chapter;
+import dev.ftb.mods.ftbquests.quest.Quest;
+import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
+import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
@@ -139,18 +153,6 @@ import static calebxzhou.rdi.mc.common.RDI.*;
 @EventBusSubscriber(modid = "rdi",value = Dist.CLIENT)
 public class RDIMain {
     private static final Logger LGR = LoggerFactory.getLogger("rdi-mcp");
-    private static final String SECTION_FORMAT = "section-semantic-v1";
-    private static final String CHUNK_FORMAT = "chunk-semantic-v1";
-    private static final String BLOCKMAP_SLICE_FORMAT = "blockmap-slice-v1";
-    private static final String BLOCKMAP_WALKABLE_FORMAT = "blockmap-walkable-v1";
-    private static final String BLOCKS_FIND_FORMAT = "blocks-find-v1";
-    private static final String TERRAIN_PROFILE_FORMAT = "terrain-profile-v1";
-    private static final String NEARBY_RESOURCES_FORMAT = "nearby-resources-v1";
-    private static final String NEARBY_ENTITIES_FORMAT = "nearby-entities-v1";
-    private static final String INVENTORY_FORMAT = "inventory-v1";
-    private static final String INVENTORY_MOVE_FORMAT = "inventory-move-v1";
-    private static final String INVENTORY_SWAP_FORMAT = "inventory-swap-v1";
-    private static final String SITUATION_FORMAT = "situation-v1";
     private static final String GRID_SYMBOLS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
     private static final ExecutorService SCREENSHOT_EXECUTOR = Executors.newSingleThreadExecutor(task -> {
         var thread = new Thread(task, "rdi-mcp-screenshot.md");
@@ -181,6 +183,21 @@ public class RDIMain {
                 @Override
                 public RMcpModData modData(String id) {
                     return RDIMain.modData(id);
+                }
+
+                @Override
+                public RQuestChapterList questChapterList() {
+                    return RDIMain.questChapterList();
+                }
+
+                @Override
+                public RQuestChapter questChapter(String id) {
+                    return RDIMain.questChapter(id);
+                }
+
+                @Override
+                public RReachableQuestList reachableQuests() {
+                    return RDIMain.reachableQuests();
                 }
 
                 @Override
@@ -355,12 +372,22 @@ public class RDIMain {
                                 RMcpMcDataCodec211.stateString(blockId, blockState.toString())
                         ));
                     }
-                    return new RMcpBlockStateBatchData("blockstate-batch-v1", dim, positions.size(), blocks);
+                    return new RMcpBlockStateBatchData(dim, positions.size(), blocks);
                 }
 
                 @Override
                 public RMcpBlockEntityData blockEntityData(String dim, int x, int y, int z) {
                     return RMcpClientBridge.requestBlockEntity(dim, x, y, z);
+                }
+
+                @Override
+                public RMcpSignTextReadData signTextData(int x, int y, int z, String side) {
+                    return RMcpClientBridge.requestSignTextRead(x, y, z, side);
+                }
+
+                @Override
+                public RMcpSignTextData setSignText(RMcpSignTextRequest request) {
+                    return RMcpClientBridge.requestSignText(request);
                 }
 
                 @Override
@@ -419,13 +446,23 @@ public class RDIMain {
                 }
 
                 @Override
+                public RMcpBlockBatchActionData placeBlocksDiscrete(RMcpPlaceDiscreteRequest request) {
+                    return RMcpClientBridge.requestPlaceBlocksDiscrete(request);
+                }
+
+                @Override
+                public RMcpBlockBatchActionData placeBlocksPalette(RMcpPlacePaletteRequest request) {
+                    return RMcpClientBridge.requestPlaceBlocksPalette(request);
+                }
+
+                @Override
                 public RMcpBlockBatchActionData breakBlocks(List<RMcpBlockPosData> positions) {
                     return RMcpClientBridge.requestBreakBlocks(positions);
                 }
 
                 @Override
-                public RMcpBlockBatchActionData placeBlockBox(RMcpBlockPosData from, RMcpBlockPosData to) {
-                    return RMcpClientBridge.requestPlaceBlockBox(from, to);
+                public RMcpBlockBatchActionData placeBlockBox(RMcpPlaceBoxRequest request) {
+                    return RMcpClientBridge.requestPlaceBlockBox(request);
                 }
 
                 @Override
@@ -608,6 +645,151 @@ public class RDIMain {
         );
     }
 
+    private static RQuestChapterList questChapterList() {
+        if (!ClientQuestFile.exists()) {
+            return null;
+        }
+        var file = ClientQuestFile.INSTANCE;
+        var data = file.selfTeamData;
+        var chapters = file.getAllChapters().stream()
+                .map(chapter -> questChapterData(chapter, data))
+                .toList();
+        var visible = (int) chapters.stream().filter(RQuestChapterList.Chapter::visible).count();
+        return new RQuestChapterList(chapters.size(), visible, chapters);
+    }
+
+    private static RQuestChapterList.Chapter questChapterData(Chapter chapter, TeamData data) {
+        var quests = chapter.getQuests();
+        var visibleQuestCount = 0;
+        var startableQuestCount = 0;
+        var completedQuestCount = 0;
+        for (var quest : quests) {
+            var visible = quest.isVisible(data);
+            var completed = data.isCompleted(quest);
+            if (visible) {
+                visibleQuestCount++;
+            }
+            if (completed) {
+                completedQuestCount++;
+            }
+            if (!completed && visible && data.canStartTasks(quest)) {
+                startableQuestCount++;
+            }
+        }
+        var group = chapter.getGroup();
+        return new RQuestChapterList.Chapter(
+                chapter.getCodeString(),
+                chapter.getTitle().getString(),
+                group.getCodeString(),
+                group.getTitle().getString(),
+                chapter.isVisible(data),
+                data.isStarted(chapter),
+                data.isCompleted(chapter),
+                data.getRelativeProgress(chapter),
+                quests.size(),
+                visibleQuestCount,
+                startableQuestCount,
+                completedQuestCount
+        );
+    }
+
+    private static RQuestChapter questChapter(String id) {
+        if (!ClientQuestFile.exists()) {
+            throw new RMcpEndpointException(RErrorCode.QUEST_DATA_NOT_LOADED);
+        }
+        var chapterId = QuestObjectBase.parseHexId(id)
+                .orElseThrow(() -> new RMcpEndpointException(RErrorCode.BAD_QUEST_CHAPTER_ID));
+        var file = ClientQuestFile.INSTANCE;
+        var chapter = file.getChapter(chapterId);
+        if (chapter == null) {
+            return null;
+        }
+        var data = file.selfTeamData;
+        var quests = chapter.getQuests().stream()
+                .map(quest -> questBriefData(quest, data))
+                .toList();
+        var group = chapter.getGroup();
+        return new RQuestChapter(
+                chapter.getCodeString(),
+                chapter.getTitle().getString(),
+                group.getCodeString(),
+                group.getTitle().getString(),
+                chapter.isVisible(data),
+                data.isStarted(chapter),
+                data.isCompleted(chapter),
+                data.getRelativeProgress(chapter),
+                quests.size(),
+                quests
+        );
+    }
+
+    private static RReachableQuestList reachableQuests() {
+        if (!ClientQuestFile.exists()) {
+            return null;
+        }
+        var file = ClientQuestFile.INSTANCE;
+        var data = file.selfTeamData;
+        var quests = new ArrayList<RReachableQuestList.Quest>();
+        for (var chapter : file.getAllChapters()) {
+            var group = chapter.getGroup();
+            for (var quest : chapter.getQuests()) {
+                var visible = quest.isVisible(data);
+                var completed = data.isCompleted(quest);
+                if (completed || !visible || !data.canStartTasks(quest)) {
+                    continue;
+                }
+                var dependencyIds = quest.streamDependencies()
+                        .map((questObj) -> QuestObjectBase.getCodeString(questObj))
+                        .toList();
+                quests.add(new RReachableQuestList.Quest(
+                        quest.getCodeString(),
+                        quest.getTitle().getString(),
+                        quest.getRawSubtitle(),
+                        chapter.getCodeString(),
+                        chapter.getTitle().getString(),
+                        group.getCodeString(),
+                        group.getTitle().getString(),
+                        quest.getX(),
+                        quest.getY(),
+                        visible,
+                        data.isStarted(quest),
+                        completed,
+                        true,
+                        data.getRelativeProgress(quest),
+                        quest.getTasks().size(),
+                        quest.getRewards().size(),
+                        dependencyIds.size(),
+                        dependencyIds
+                ));
+            }
+        }
+        return new RReachableQuestList(quests.size(), quests);
+    }
+
+    private static RQuestChapter.Quest questBriefData(Quest quest, TeamData data) {
+        var visible = quest.isVisible(data);
+        var completed = data.isCompleted(quest);
+        var dependencyIds = quest.streamDependencies()
+                .map((questObj) -> QuestObjectBase.getCodeString(questObj))
+                .toList();
+        return new RQuestChapter.Quest(
+                quest.getCodeString(),
+                quest.getTitle().getString(),
+                quest.getRawSubtitle(),
+                quest.getX(),
+                quest.getY(),
+                visible,
+                data.isStarted(quest),
+                completed,
+                !completed && visible && data.canStartTasks(quest),
+                data.getRelativeProgress(quest),
+                quest.getTasks().size(),
+                quest.getRewards().size(),
+                dependencyIds.size(),
+                dependencyIds
+        );
+    }
+
     public static Button JOIN_BUTTON = Button.builder(Component.literal("进入地图 · " + HOST_NAME),(btn)->{
         HostAndPort hp = HostAndPort.fromString(GAME_IP);
         ConnectScreen.startConnecting(
@@ -753,7 +935,6 @@ public class RDIMain {
         var armor = compactItemRange("armor", inventory.armor, 0, inventory.armor.size(), registryAccess);
         var offhand = compactItemRange("offhand", inventory.offhand, 0, inventory.offhand.size(), registryAccess);
         return new RMcpInventoryData(
-                INVENTORY_FORMAT,
                 dim,
                 inventory.selected,
                 compactItem("hotbar", inventory.selected, inventory.selected, inventory.getSelected(), registryAccess),
@@ -831,7 +1012,6 @@ public class RDIMain {
         var afterFrom = itemAtSlot(player, from, registryAccess);
         var afterTo = itemAtSlot(player, to, registryAccess);
         return new RMcpInventorySwapData(
-                INVENTORY_SWAP_FORMAT,
                 from.canonical(),
                 to.canonical(),
                 dryRun,
@@ -911,7 +1091,6 @@ public class RDIMain {
         var afterFrom = itemAtSlot(player, from, registryAccess);
         var afterTo = itemAtSlot(player, to, registryAccess);
         return new RMcpInventoryMoveData(
-                INVENTORY_MOVE_FORMAT,
                 from.canonical(),
                 to.canonical(),
                 count,
@@ -942,7 +1121,6 @@ public class RDIMain {
         var nearbyEntities = nearbyEntitiesData(minecraft, dim, pos.getX(), pos.getY(), pos.getZ(), entityRadius, List.of("monster", "animal"), 12);
         var nearbyResources = nearbyResourcesData(minecraft, dim, pos.getX(), pos.getY(), pos.getZ(), resourceChunkRadius, resourceSectionRadius);
         return new RMcpSituationData(
-                SITUATION_FORMAT,
                 playerBrief(minecraft, player),
                 environmentData(level, player),
                 new RMcpSituationData.Inventory(
@@ -1249,7 +1427,6 @@ public class RDIMain {
         }
 
         return new RMcpNearbyEntitiesData(
-                NEARBY_ENTITIES_FORMAT,
                 dim,
                 new RMcpNearbyEntitiesData.Center(
                         new RMcpBlockPosData(x, y, z),
@@ -1354,7 +1531,6 @@ public class RDIMain {
         }
         var heightRange = minNonAirY == null ? null : new RMcpSectionSemanticData.BlockYRange(minNonAirY, maxNonAirY);
         return new RMcpChunkSemanticData(
-                CHUNK_FORMAT,
                 level.dimension().location().toString(),
                 new RMcpSectionSemanticData.ChunkPos(chunkX, chunkZ),
                 new RMcpChunkSemanticData.Summary(
@@ -1379,7 +1555,6 @@ public class RDIMain {
         }
         var analysis = analyzeSection(chunk, sectionY, true);
         return new RMcpSectionSemanticData(
-                SECTION_FORMAT,
                 level.dimension().location().toString(),
                 new RMcpSectionSemanticData.ChunkPos(chunkX, chunkZ),
                 sectionY,
@@ -1426,7 +1601,6 @@ public class RDIMain {
             rows.add(line.toString());
         }
         return new RMcpBlockMapData(
-                BLOCKMAP_SLICE_FORMAT,
                 level.dimension().location().toString(),
                 "slice",
                 blockPosData(center),
@@ -1486,7 +1660,6 @@ public class RDIMain {
             rows.add(line.toString());
         }
         return new RMcpBlockMapData(
-                BLOCKMAP_WALKABLE_FORMAT,
                 level.dimension().location().toString(),
                 "walkable",
                 blockPosData(center),
@@ -1560,7 +1733,6 @@ public class RDIMain {
             }
         }
         return new RMcpTerrainProfileData(
-                TERRAIN_PROFILE_FORMAT,
                 level.dimension().location().toString(),
                 axis,
                 blockPosData(center),
@@ -1975,7 +2147,6 @@ public class RDIMain {
         }
 
         return new RMcpBlocksFindData(
-                BLOCKS_FIND_FORMAT,
                 level.dimension().location().toString(),
                 new RMcpBlocksFindData.Center(blockPosData(center), centerChunkX, centerChunkZ, centerSectionY),
                 new RMcpBlocksFindData.Range(request.chunkRadius(), request.sectionRadius(), scanMode, minSectionY, maxSectionY),
@@ -2087,7 +2258,6 @@ public class RDIMain {
                 .map(ResourceAccumulator::data)
                 .toList();
         return new RMcpNearbyResourcesData(
-                NEARBY_RESOURCES_FORMAT,
                 dim,
                 new RMcpNearbyResourcesData.Center(
                         new RMcpBlockPosData(x, y, z),

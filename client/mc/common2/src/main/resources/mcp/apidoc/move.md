@@ -32,7 +32,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "player-move-v1",
     "moved": true,
     "from": {
       "dim": "minecraft:overworld",

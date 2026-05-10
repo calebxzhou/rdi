@@ -25,7 +25,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "craft-v2",
     "recipeId": "minecraft:diamond_pickaxe",
     "resultId": "minecraft:diamond_pickaxe",
     "requestedCount": 1,

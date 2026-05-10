@@ -12,7 +12,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "nearby-resources-v1",
     "dim": "minecraft:overworld",
     "center": {
       "block": {"x": 10, "y": 64, "z": -20},

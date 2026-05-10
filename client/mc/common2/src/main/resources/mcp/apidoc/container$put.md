@@ -27,7 +27,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "container-put-v1",
     "dryRun": false,
     "fromInventorySlot": 12,
     "requestedCount": 16,
@@ -40,16 +39,12 @@ Returns:
       "canInsert": true,
       "snbt": "{count:16,id:\"minecraft:iron_ingot\"}"
     },
-    "beforeInventorySlot": {},
-    "afterInventorySlot": {},
-    "to": {},
-    "inventory": {},
-    "container": {}
+    "to": {}
   }
 }
 ```
 
-Call `GET /inventory` to choose the source inventory slot. Call `GET /container?pos=...` when you need to inspect target slots first. Prefer `to.slot=null` unless a machine input slot is already known.
+Call `GET /inventory` to choose the source inventory slot. Call `GET /container?pos=...` when you need to inspect target slots first. Prefer `to.slot=null` unless a machine input slot is already known. Re-read `/inventory` or `/container` after the action only when you need updated slot state.
 
 Use `POST /container/put/batch` when moving multiple known player inventory slots into containers.
 

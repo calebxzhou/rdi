@@ -10,7 +10,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "menu-v1",
     "dim": "minecraft:overworld",
     "containerId": 3,
     "menuClass": "net.minecraft.world.inventory.ChestMenu",

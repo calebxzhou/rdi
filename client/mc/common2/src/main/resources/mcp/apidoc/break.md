@@ -16,7 +16,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "block-action-v1",
     "action": "break",
     "changed": true,
     "pos": {"x": 10, "y": 64, "z": -20},

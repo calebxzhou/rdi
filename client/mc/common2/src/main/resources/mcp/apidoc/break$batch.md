@@ -15,7 +15,7 @@ Request body:
 }
 ```
 
-The response shape is the same as `/place/batch`, with `"action": "break"`.
+The response shape is the same as `/place/batch`, with `"action": "break"`. Successful targets are omitted; inspect `failedBlocks` only.
 
 Do not include any player container, storage block, chest, barrel, shulker box, machine inventory, or modded container in a batch break unless the player explicitly asks for it. If breaking such a block is necessary, ask the player for permission before calling this API.
 

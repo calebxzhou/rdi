@@ -1,7 +1,6 @@
 package calebxzhou.rdi.mc.common2.mcp;
 
 public record RMcpMenuDropData(
-        String format,
         boolean dryRun,
         int slot,
         int requestedCount,

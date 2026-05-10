@@ -8,7 +8,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "section-semantic-v1",
     "dim": "minecraft:overworld",
     "chunk": {"x": 0, "z": 0},
     "sectionY": 4,

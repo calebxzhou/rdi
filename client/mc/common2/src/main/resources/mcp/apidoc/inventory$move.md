@@ -21,7 +21,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "inventory-move-v1",
     "from": "inventory:21",
     "to": "inventory:2",
     "count": 16,

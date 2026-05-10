@@ -3,7 +3,6 @@ package calebxzhou.rdi.client.service
 import calebxzhou.rdi.client.model.ModrinthProjectInfoVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
 import calebxzhou.rdi.client.model.RemoteModSource
-import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Progress
@@ -49,8 +48,8 @@ object RemoteModDownloadService {
         children = listOf(
             ModService.downloadModsTask2(listOf(mod)),
             Task2.Leaf("链接${mod.slug}到本地整合包") { ctx ->
-                val source = DL_MOD_DIR.resolve(mod.fileName)
-                require(source.isFile) { "Mod文件不存在: ${source.absolutePath}" }
+                val source = mod.candidateFiles.firstOrNull { it.isFile }
+                    ?: error("Mod文件不存在: ${mod.targetFile.absolutePath}")
                 val modsDir = packdir.dir.resolve("mods").also { it.mkdirs() }
                 val target = modsDir.resolve(mod.fileName)
                 linkOrCopyMod(source, target)

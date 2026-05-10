@@ -15,9 +15,17 @@ data class Mod(
     var side: Side= Side.BOTH,
     val downloadUrls: List<String> = emptyList(),
 ) {
-    val fileName
+    val fileSlug
+        get() = slug.toModFileSlugAlias()
+    val legacyFileName
         get() = "${slug}_${platform}_${hash}.jar"
-    val targetPath get() = DL_MOD_DIR.resolve(fileName).toPath()
+    val fileName
+        get() = "${fileSlug}_${platform}_${hash}.jar"
+    val fileNames
+        get() = listOf(fileName, legacyFileName).distinct()
+    val targetFile get() = DL_MOD_DIR.resolve(fileName)
+    val candidateFiles get() = fileNames.map { DL_MOD_DIR.resolve(it) }
+    val targetPath get() = targetFile.toPath()
 
     enum class Side(val text:String){
         CLIENT("客户端"),SERVER("服务端"),BOTH("客+服通用"),UNKNOWN("未知")
@@ -62,6 +70,16 @@ val Mod.isPlatformMr get() = platform=="mr"
 val Mod.normalizedProjectId get() = projectId.trim()
 val Mod.normalizedSlug get() = slug.trim().lowercase()
 val Mod.displaySlugOrProject get() = slug.trim().ifBlank { normalizedProjectId }
+
+val MOD_FILE_SLUG_ALIASES = mapOf(
+    "true-ending" to "trueending"
+)
+
+fun String.toModFileSlugAlias(): String {
+    val normalizedSlug = trim().lowercase()
+    return MOD_FILE_SLUG_ALIASES[normalizedSlug] ?: trim()
+}
+
 fun sameMod(a: Mod, b: Mod): Boolean {
     if (a.platform == b.platform &&
         a.normalizedProjectId.isNotBlank() &&

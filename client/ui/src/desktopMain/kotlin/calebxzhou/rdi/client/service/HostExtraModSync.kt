@@ -1,6 +1,5 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.EXTRA_MOD_PREFIX
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Task2
@@ -67,8 +66,8 @@ private fun syncHostExtraModLinks(
     }
 
     extraMods.forEachIndexed { index, mod ->
-        val source = DL_MOD_DIR.resolve(mod.fileName)
-        require(source.exists()) { "缺少附加Mod文件: ${source.absolutePath}" }
+        val source = mod.candidateFiles.firstOrNull(File::exists)
+            ?: error("缺少附加Mod文件: ${mod.targetFile.absolutePath}")
         val target = modsDir.resolve(extraModTargetFileName(mod))
         if (!target.pointsTo(source)) {
             linkOrCopyMod(source, target)

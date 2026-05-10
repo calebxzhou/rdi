@@ -3,7 +3,6 @@ package calebxzhou.rdi.mc.common2.mcp;
 import java.util.List;
 
 public record RMcpContainerData(
-        String format,
         String dim,
         RMcpBlockPosData pos,
         String side,

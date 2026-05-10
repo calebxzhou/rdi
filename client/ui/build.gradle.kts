@@ -1,10 +1,7 @@
 import org.gradle.api.GradleException
-import org.gradle.api.internal.artifacts.dsl.dependencies.DependenciesExtensionModule.module
 import org.gradle.jvm.tasks.Jar
-import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.gradle.jvm.toolchain.JavaToolchainService
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-import sun.jvmstat.monitor.MonitoredVmUtil.commandLine
 import java.io.File
 
 val ktorVersion = "3.4.2"
@@ -13,7 +10,7 @@ val zstdVer = "1.5.7-7"
 val desugarVersion = "2.1.5"
 val desktopJavaSdkVersion = 25
 val desktopJvmTarget = JvmTarget.JVM_21
-val version = "5.15.1"
+val version = "5.15.2"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
@@ -36,7 +33,7 @@ plugins {
     kotlin("plugin.serialization") version "2.3.20"
     id("org.jetbrains.kotlin.plugin.compose") version "2.3.20"
     id("org.jetbrains.compose") version "1.10.3"
-    id("com.android.application") version "8.12.3"
+    id("com.android.application") version "8.13.2"
     idea
 }
 

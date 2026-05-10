@@ -16,7 +16,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "harvest-tool-v1",
     "stateSource": "default",
     "block": {
       "id": "minecraft:diamond_ore",

@@ -26,7 +26,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "inventory-swap-v1",
     "from": "inventory:0",
     "to": "inventory:21",
     "dryRun": false,

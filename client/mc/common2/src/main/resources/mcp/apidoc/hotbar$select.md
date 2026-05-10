@@ -19,7 +19,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "hotbar-select-v1",
     "dryRun": false,
     "requestedSlot": 3,
     "beforeSlot": 0,

@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Map;
 
 public record RMcpBlockMapData(
-        String format,
         String dim,
         String mode,
         RMcpBlockPosData center,

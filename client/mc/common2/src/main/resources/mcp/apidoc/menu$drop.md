@@ -32,7 +32,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "menu-drop-v1",
     "dryRun": false,
     "slot": 12,
     "requestedCount": 1,

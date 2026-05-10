@@ -22,7 +22,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "blockmap-walkable-v1",
     "dim": "minecraft:overworld",
     "mode": "walkable",
     "center": {"x": 10, "y": 64, "z": -20},

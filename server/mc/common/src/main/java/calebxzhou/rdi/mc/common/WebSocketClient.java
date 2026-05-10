@@ -13,12 +13,21 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.ProxySelector;
+import java.net.Socket;
+import java.net.SocketAddress;
+import java.net.URI;
 import java.lang.reflect.Type;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import javax.net.SocketFactory;
 
 import static calebxzhou.rdi.mc.common.RDI.HOST_ID;
 import static calebxzhou.rdi.mc.common.RDI.IHQ_URL;
@@ -33,6 +42,8 @@ public class WebSocketClient {
     private static final Type WS_MESSAGE_JSON_TYPE = new TypeToken<WsMessage<JsonElement>>() {
     }.getType();
     private static final int CONNECT_TIMEOUT_MS = 10_000;
+    private static final SocketFactory DIRECT_SOCKET_FACTORY = new DirectSocketFactory();
+    private static final ProxySelector DIRECT_PROXY_SELECTOR = new DirectProxySelector();
     private static final ScheduledExecutorService reconnectExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "rdi-ws-reconnect");
         t.setDaemon(true);
@@ -50,6 +61,7 @@ public class WebSocketClient {
         wsUrl = "ws://" + IHQ_URL + "/host/play/" + HOST_ID;
         shuttingDown = false;
         WebSocketClient.handler = handler;
+        disableJvmProxy();
         attemptConnect();
     }
     public static void stop() {
@@ -113,7 +125,9 @@ public class WebSocketClient {
         isConnecting = true;
         lgr.info("ws try conn");
         try {
+            disableJvmProxy();
             WebSocket newWs = new WebSocketFactory()
+                    .setSocketFactory(DIRECT_SOCKET_FACTORY)
                     .setConnectionTimeout(CONNECT_TIMEOUT_MS)
                     .createSocket(wsUrl)
                     .addListener(new Listener());
@@ -196,6 +210,71 @@ public class WebSocketClient {
             lgr.error("ws error", cause);
             currentWebSocket = null;
             scheduleReconnect();
+        }
+    }
+
+    private static void disableJvmProxy() {
+        System.setProperty("java.net.useSystemProxies", "false");
+        System.clearProperty("socksProxyHost");
+        System.clearProperty("socksProxyPort");
+        System.clearProperty("socksProxyVersion");
+        System.clearProperty("java.net.socks.username");
+        System.clearProperty("java.net.socks.password");
+        System.clearProperty("http.proxyHost");
+        System.clearProperty("http.proxyPort");
+        System.clearProperty("https.proxyHost");
+        System.clearProperty("https.proxyPort");
+        System.clearProperty("ftp.proxyHost");
+        System.clearProperty("ftp.proxyPort");
+        System.clearProperty("http.nonProxyHosts");
+        ProxySelector.setDefault(DIRECT_PROXY_SELECTOR);
+    }
+
+    private static class DirectSocketFactory extends SocketFactory {
+        @Override
+        public Socket createSocket() {
+            return new Socket(Proxy.NO_PROXY);
+        }
+
+        @Override
+        public Socket createSocket(String host, int port) throws IOException {
+            Socket socket = createSocket();
+            socket.connect(new InetSocketAddress(host, port));
+            return socket;
+        }
+
+        @Override
+        public Socket createSocket(String host, int port, InetAddress localHost, int localPort) throws IOException {
+            Socket socket = createSocket();
+            socket.bind(new InetSocketAddress(localHost, localPort));
+            socket.connect(new InetSocketAddress(host, port));
+            return socket;
+        }
+
+        @Override
+        public Socket createSocket(InetAddress host, int port) throws IOException {
+            Socket socket = createSocket();
+            socket.connect(new InetSocketAddress(host, port));
+            return socket;
+        }
+
+        @Override
+        public Socket createSocket(InetAddress address, int port, InetAddress localAddress, int localPort) throws IOException {
+            Socket socket = createSocket();
+            socket.bind(new InetSocketAddress(localAddress, localPort));
+            socket.connect(new InetSocketAddress(address, port));
+            return socket;
+        }
+    }
+
+    private static class DirectProxySelector extends ProxySelector {
+        @Override
+        public List<Proxy> select(URI uri) {
+            return Collections.singletonList(Proxy.NO_PROXY);
+        }
+
+        @Override
+        public void connectFailed(URI uri, SocketAddress sa, IOException ioe) {
         }
     }
 

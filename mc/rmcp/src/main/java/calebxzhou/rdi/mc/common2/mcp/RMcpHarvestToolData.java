@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Map;
 
 public record RMcpHarvestToolData(
-        String format,
         String stateSource,
         Block block,
         List<ToolScenario> scenarios,

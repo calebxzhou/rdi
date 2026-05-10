@@ -2,7 +2,7 @@
 
 Use to place the player's current main hand block item into multiple sparse target positions. Each target follows the same rules as `/place`: loaded, within 32 blocks of the player, target block is air, and Minecraft server placement logic decides the final result.
 
-At most 512 positions are accepted per request. The action continues through per-position failures and reports each position separately.
+At most 512 positions are accepted per request. The action continues through per-position failures and returns only failed positions.
 
 Request body:
 
@@ -15,30 +15,22 @@ Request body:
 }
 ```
 
-Returns `RMcpBlockBatchActionData`:
+Returns `RMcpBlockBatchActionData`. Successful targets are omitted to reduce response noise; only failed block poses are returned:
 
 ```json
 {
   "code": "ok",
   "data": {
-    "format": "block-batch-action-v1",
     "action": "place",
-    "requestedCount": 2,
-    "changedCount": 2,
-    "failedCount": 0,
-    "results": [
+    "failedBlocks": [
       {
         "pos": {"x": 10, "y": 64, "z": -20},
-        "code": "ok",
-        "changed": true,
-        "beforeBlockId": "minecraft:air",
-        "afterBlockId": "minecraft:dirt"
+        "code": "target_not_air"
       }
-    ],
-    "mainHandBefore": {},
-    "mainHandAfter": {},
-    "inventory": {}
+    ]
   }
 }
 ```
+
+If `failedBlocks` is empty, all accepted targets succeeded.
 

@@ -19,7 +19,6 @@ import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.function.BiConsumer;
 
 public final class RMHttpServer {
     private static final int BLOCK_BATCH_LIMIT = 512;
@@ -33,8 +32,12 @@ public final class RMHttpServer {
     private RMHttpServer() {
     }
 
-    private record Route(HTTPMethod method, String endpoint, boolean prefix,
-                         BiConsumer<HTTPRequest, HTTPResponse> handler) {
+    @FunctionalInterface
+    private interface RouteHandler {
+        void handle(HTTPRequest request, HTTPResponse response) throws RMError;
+    }
+
+    private record Route(HTTPMethod method, String endpoint, boolean prefix, RouteHandler handler) {
         public static final List<Route> LIST;
 
         static {
@@ -47,6 +50,9 @@ public final class RMHttpServer {
                     getPrefix("/errcode/", RMHttpServer::handleErrCode),
                     get("/test", RMHttpServer::handleTest),
                     get("/mods", RMHttpServer::handleMods),
+                    get("/quest/chapter-list", RMHttpServer::handleQuestChapterList),
+                    get("/quest/reachable", RMHttpServer::handleReachableQuests),
+                    getPrefix("/quest/chapter/", RMHttpServer::handleQuestChapter),
                     get("/pos", RMHttpServer::handlePos),
                     get("/inventory", RMHttpServer::handleInventory),
                     get("/menu", RMHttpServer::handleMenu),
@@ -66,6 +72,8 @@ public final class RMHttpServer {
                     get("/blockstate", RMHttpServer::handleBlockState),
                     post("/blockstate/batch", RMHttpServer::handleBlockStateBatch),
                     get("/blockentity", RMHttpServer::handleBlockEntity),
+                    get("/sign/text", RMHttpServer::handleGetSignText),
+                    post("/sign/text", RMHttpServer::handleSignText),
                     get("/container", RMHttpServer::handleContainer),
                     get("/harvest-tool", RMHttpServer::handleHarvestTool),
                     get("/staring-entity", RMHttpServer::handleStaringEntity),
@@ -90,21 +98,23 @@ public final class RMHttpServer {
                     post("/place", RMHttpServer::handlePlace),
                     post("/break", RMHttpServer::handleBreak),
                     post("/place/batch", RMHttpServer::handlePlaceBatch),
+                    post("/place/discrete", RMHttpServer::handlePlaceDiscrete),
+                    post("/place/palette", RMHttpServer::handlePlacePalette),
                     post("/break/batch", RMHttpServer::handleBreakBatch),
                     post("/place/box", RMHttpServer::handlePlaceBox),
                     post("/break/box", RMHttpServer::handleBreakBox)
             );
         }
 
-        private static Route get(String endpoint, BiConsumer<HTTPRequest, HTTPResponse> handler) {
+        private static Route get(String endpoint, RouteHandler handler) {
             return new Route(HTTPMethod.GET, endpoint, false, handler);
         }
 
-        private static Route getPrefix(String endpoint, BiConsumer<HTTPRequest, HTTPResponse> handler) {
+        private static Route getPrefix(String endpoint, RouteHandler handler) {
             return new Route(HTTPMethod.GET, endpoint, true, handler);
         }
 
-        private static Route post(String endpoint, BiConsumer<HTTPRequest, HTTPResponse> handler) {
+        private static Route post(String endpoint, RouteHandler handler) {
             return new Route(HTTPMethod.POST, endpoint, false, handler);
         }
 
@@ -143,129 +153,162 @@ public final class RMHttpServer {
         }
         for (var route : Route.LIST) {
             if (route.matches(request)) {
-                route.handler().accept(request, response);
+                try {
+                    route.handler().handle(request, response);
+                } catch (RMError e) {
+                    err400(response, e.errorCode());
+                } catch (RMcpEndpointException e) {
+                    err400(response, e.code());
+                } catch (Exception e) {
+                    if(e instanceof ClassNotFoundException){
+                        err400(response, RErrorCode.MOD_CLASS_NOT_FOUND, e.getMessage());
+                    }else{
+                        err400(response, RErrorCode.INTERNAL_ERROR);
+                    }
+                }
                 return;
             }
         }
         err404(response);
     }
 
+    private static void requirePlayerInWorld() throws RMError {
+        if (!connector.playerInWorld()) {
+            throw new RMError(RErrorCode.NO_PLAYER);
+        }
+    }
+
     private static void handleTest(HTTPRequest request, HTTPResponse response) {
-        try {
-            ok(response, connector.testData());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        ok(response, connector.testData());
     }
 
-    private static void handleMods(HTTPRequest request, HTTPResponse response) {
+    private static void handleMods(HTTPRequest request, HTTPResponse response) throws RMError {
         var id = request.getURLParameter("id");
-        try {
-            if (id == null) {
-                ok(response, connector.modIds());
-                return;
-            }
-            id = id.trim();
-            if (id.isEmpty() || id.contains("/") || id.contains("\\") || id.contains(" ") || id.contains("`")) {
-                err400(response, RErrorCode.BAD_MOD_ID);
-                return;
-            }
-            var mod = connector.modData(id);
-            if (mod == null) {
-                err400(response, RErrorCode.NO_MOD);
-                return;
-            }
-            ok(response, mod);
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
+        if (id == null) {
+            ok(response, connector.modIds());
+            return;
         }
+        id = id.trim();
+        if (id.isEmpty() || id.contains("/") || id.contains("\\") || id.contains(" ") || id.contains("`")) {
+            throw new RMError(RErrorCode.BAD_MOD_ID);
+        }
+        var mod = connector.modData(id);
+        if (mod == null) {
+            throw new RMError(RErrorCode.NO_MOD);
+        }
+        ok(response, mod);
     }
 
-    private static void handlePrompts(HTTPRequest request, HTTPResponse response) {
+    private static void handleQuestChapterList(HTTPRequest request, HTTPResponse response) throws RMError {
+        requirePlayerInWorld();
+        var data = connector.questChapterList();
+        if (data == null) {
+            throw new RMError(RErrorCode.QUEST_DATA_NOT_LOADED);
+        }
+        ok(response, data);
+    }
+
+    private static void handleReachableQuests(HTTPRequest request, HTTPResponse response) throws RMError {
+        requirePlayerInWorld();
+        var data = connector.reachableQuests();
+        if (data == null) {
+            throw new RMError(RErrorCode.QUEST_DATA_NOT_LOADED);
+        }
+        ok(response, data);
+    }
+
+    private static void handleQuestChapter(HTTPRequest request, HTTPResponse response) throws RMError {
+        var prefix = "/quest/chapter/";
+        var path = request.getPath();
+        if (path.length() <= prefix.length()) {
+            throw new RMError(RErrorCode.MISSING_QUEST_CHAPTER_ID);
+        }
+        var id = URLDecoder.decode(path.substring(prefix.length()), StandardCharsets.UTF_8).trim();
+        if (id.isEmpty() || id.contains("/") || id.contains("\\") || id.contains(" ") || id.contains("`")) {
+            throw new RMError(RErrorCode.BAD_QUEST_CHAPTER_ID);
+        }
+        requirePlayerInWorld();
+        var data = connector.questChapter(id);
+        if (data == null) {
+            throw new RMError(RErrorCode.NO_QUEST_CHAPTER);
+        }
+        ok(response, data);
+    }
+
+    private static void handlePrompts(HTTPRequest request, HTTPResponse response) throws RMError {
         var doc = readApiDoc();
         if (doc == null) {
-            err400(response, RErrorCode.PROMPTS_NOT_FOUND);
-            return;
+            throw new RMError(RErrorCode.PROMPTS_NOT_FOUND);
         }
         writeMarkdown(response, doc);
     }
 
-    private static void handleBuildings(HTTPRequest request, HTTPResponse response) {
+    private static void handleBuildings(HTTPRequest request, HTTPResponse response) throws RMError {
         var doc = readResourceText("mcp/buildings/index.md");
         if (doc == null) {
-            err400(response, RErrorCode.BUILDINGS_NOT_FOUND);
-            return;
+            throw new RMError(RErrorCode.BUILDINGS_NOT_FOUND);
         }
         writeMarkdown(response, doc);
     }
 
-    private static void handleBuilding(HTTPRequest request, HTTPResponse response) {
+    private static void handleBuilding(HTTPRequest request, HTTPResponse response) throws RMError {
         var prefix = "/buildings/";
         var path = request.getPath();
         if (path.length() <= prefix.length()) {
-            err400(response, RErrorCode.BAD_BUILDING_ID);
-            return;
+            throw new RMError(RErrorCode.BAD_BUILDING_ID);
         }
         var id = URLDecoder.decode(path.substring(prefix.length()), StandardCharsets.UTF_8).trim();
         if (!isValidBuildingId(id)) {
-            err400(response, RErrorCode.BAD_BUILDING_ID);
-            return;
+            throw new RMError(RErrorCode.BAD_BUILDING_ID);
         }
         var resource = "mcp/buildings/" + id + ".schem";
         try (var input = RMHttpServer.class.getClassLoader().getResourceAsStream(resource)) {
             if (input == null) {
-                err400(response, RErrorCode.UNKNOWN_BUILDING);
-                return;
+                throw new RMError(RErrorCode.UNKNOWN_BUILDING);
             }
             var schematic = SchemReader.read(input);
             var layer = readBuildingLayer(request, schematic);
             if (layer == null && request.getURLParameter("layer") != null) {
-                err400(response, RErrorCode.BAD_BUILDING_LAYER);
-                return;
+                throw new RMError(RErrorCode.BAD_BUILDING_LAYER);
             }
             writeMarkdown(response, describeBuilding(id, schematic, layer));
+        } catch (RMError e) {
+            throw e;
         } catch (Exception e) {
-            e.printStackTrace();
-            err400(response, RErrorCode.BAD_BUILDING_SCHEMATIC);
+            throw new RMError(RErrorCode.BAD_BUILDING_SCHEMATIC, e);
         }
     }
 
-    private static void handleErrCode(HTTPRequest request, HTTPResponse response) {
+    private static void handleErrCode(HTTPRequest request, HTTPResponse response) throws RMError {
         var prefix = "/errcode/";
         var path = request.getPath();
         if (path.length() <= prefix.length()) {
-            err400(response, RErrorCode.MISSING_ERRCODE);
-            return;
+            throw new RMError(RErrorCode.MISSING_ERRCODE);
         }
         var code = URLDecoder.decode(path.substring(prefix.length()), StandardCharsets.UTF_8).trim();
         if (code.isEmpty() || code.contains("/") || code.contains(" ") || code.contains("`")) {
-            err400(response, RErrorCode.BAD_ERRCODE);
-            return;
+            throw new RMError(RErrorCode.BAD_ERRCODE);
         }
         var errcode = RErrorCode.get(code);
         if (errcode == null) {
-            err400(response, RErrorCode.UNKNOWN_ERRCODE);
-            return;
+            throw new RMError(RErrorCode.UNKNOWN_ERRCODE);
         }
         ok(response, errcode);
     }
 
-    private static void handleApiDoc(HTTPRequest request, HTTPResponse response) {
+    private static void handleApiDoc(HTTPRequest request, HTTPResponse response) throws RMError {
         var prefix = "/apidoc/";
         var path = request.getPath();
         if (path.length() <= prefix.length()) {
-            err400(response, RErrorCode.MISSING_APIDOC);
-            return;
+            throw new RMError(RErrorCode.MISSING_APIDOC);
         }
         var file = URLDecoder.decode(path.substring(prefix.length()), StandardCharsets.UTF_8).trim();
         if (file.isEmpty() || file.contains("/") || file.contains("\\") || file.contains("..") || !file.endsWith(".md")) {
-            err400(response, RErrorCode.BAD_APIDOC);
-            return;
+            throw new RMError(RErrorCode.BAD_APIDOC);
         }
         var doc = readResourceText("mcp/apidoc/" + file);
         if (doc == null) {
-            err400(response, RErrorCode.UNKNOWN_APIDOC);
-            return;
+            throw new RMError(RErrorCode.UNKNOWN_APIDOC);
         }
         writeMarkdown(response, doc);
     }
@@ -293,74 +336,36 @@ public final class RMHttpServer {
         }
     }
 
-    private static void handlePos(HTTPRequest request, HTTPResponse response) {
-        try {
-            var pos = connector.posData();
-            if (pos == null) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, pos);
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
+    private static void handlePos(HTTPRequest request, HTTPResponse response) throws RMError {
+        var pos = connector.posData();
+        if (pos == null) {
+            throw new RMError(RErrorCode.NO_PLAYER);
         }
+        ok(response, pos);
     }
 
-    private static void handleMainHand(HTTPRequest request, HTTPResponse response) {
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.mainHandItemData());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+    private static void handleMainHand(HTTPRequest request, HTTPResponse response) throws RMError {
+        requirePlayerInWorld();
+        ok(response, connector.mainHandItemData());
     }
 
-    private static void handleInventory(HTTPRequest request, HTTPResponse response) {
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.inventoryData());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+    private static void handleInventory(HTTPRequest request, HTTPResponse response) throws RMError {
+        requirePlayerInWorld();
+        ok(response, connector.inventoryData());
     }
 
-    private static void handleMenu(HTTPRequest request, HTTPResponse response) {
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.menuData());
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+    private static void handleMenu(HTTPRequest request, HTTPResponse response) throws RMError {
+        requirePlayerInWorld();
+        ok(response, connector.menuData());
     }
 
-    private static void handleMenuDrop(HTTPRequest request, HTTPResponse response) {
+    private static void handleMenuDrop(HTTPRequest request, HTTPResponse response) throws RMError {
         var dropRequest = readMenuDropRequest(request);
         if (dropRequest == null || dropRequest.slot() == null || dropRequest.count() == null || dropRequest.count() <= 0) {
-            err400(response, RErrorCode.BAD_REQUEST);
-            return;
+            throw new RMError(RErrorCode.BAD_REQUEST);
         }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.dropMenuItem(dropRequest.slot(), dropRequest.count(), dropRequest.dryRun()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        requirePlayerInWorld();
+        ok(response, connector.dropMenuItem(dropRequest.slot(), dropRequest.count(), dropRequest.dryRun()));
     }
 
     private static MenuDropRequest readMenuDropRequest(HTTPRequest request) {
@@ -381,23 +386,13 @@ public final class RMHttpServer {
         }
     }
 
-    private static void handleInventorySwap(HTTPRequest request, HTTPResponse response) {
+    private static void handleInventorySwap(HTTPRequest request, HTTPResponse response) throws RMError {
         var swapRequest = readInventorySwapRequest(request);
         if (swapRequest == null || swapRequest.from() == null || swapRequest.from().isBlank() || swapRequest.to() == null || swapRequest.to().isBlank()) {
-            err400(response, RErrorCode.BAD_REQUEST);
-            return;
+            throw new RMError(RErrorCode.BAD_REQUEST);
         }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.swapInventorySlots(swapRequest.from().trim(), swapRequest.to().trim(), swapRequest.dryRun()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        requirePlayerInWorld();
+        ok(response, connector.swapInventorySlots(swapRequest.from().trim(), swapRequest.to().trim(), swapRequest.dryRun()));
     }
 
     private static InventorySwapRequest readInventorySwapRequest(HTTPRequest request) {
@@ -418,23 +413,13 @@ public final class RMHttpServer {
         }
     }
 
-    private static void handleInventoryMove(HTTPRequest request, HTTPResponse response) {
+    private static void handleInventoryMove(HTTPRequest request, HTTPResponse response) throws RMError {
         var moveRequest = readInventoryMoveRequest(request);
         if (moveRequest == null || moveRequest.from() == null || moveRequest.from().isBlank() || moveRequest.to() == null || moveRequest.to().isBlank()) {
-            err400(response, RErrorCode.BAD_REQUEST);
-            return;
+            throw new RMError(RErrorCode.BAD_REQUEST);
         }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.moveInventoryItems(moveRequest.from().trim(), moveRequest.to().trim(), moveRequest.count(), moveRequest.dryRun()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        requirePlayerInWorld();
+        ok(response, connector.moveInventoryItems(moveRequest.from().trim(), moveRequest.to().trim(), moveRequest.count(), moveRequest.dryRun()));
     }
 
     private static InventoryMoveRequest readInventoryMoveRequest(HTTPRequest request) {
@@ -456,23 +441,13 @@ public final class RMHttpServer {
         }
     }
 
-    private static void handleHotbarSelect(HTTPRequest request, HTTPResponse response) {
+    private static void handleHotbarSelect(HTTPRequest request, HTTPResponse response) throws RMError {
         var selectRequest = readHotbarSelectRequest(request);
         if (selectRequest == null || selectRequest.slot() == null) {
-            err400(response, RErrorCode.BAD_REQUEST);
-            return;
+            throw new RMError(RErrorCode.BAD_REQUEST);
         }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.selectHotbarSlot(selectRequest.slot(), selectRequest.dryRun()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        requirePlayerInWorld();
+        ok(response, connector.selectHotbarSlot(selectRequest.slot(), selectRequest.dryRun()));
     }
 
     private static HotbarSelectRequest readHotbarSelectRequest(HTTPRequest request) {
@@ -492,35 +467,22 @@ public final class RMHttpServer {
         }
     }
 
-    private static void handleCraft(HTTPRequest request, HTTPResponse response) {
+    private static void handleCraft(HTTPRequest request, HTTPResponse response) throws RMError {
         var craftRequest = readCraftRequest(request);
         if (craftRequest == null) {
-            err400(response, RErrorCode.BAD_REQUEST);
-            return;
+            throw new RMError(RErrorCode.BAD_REQUEST);
         }
         if (craftRequest.slots() == null || craftRequest.slots().isEmpty() || craftRequest.shape() == null || craftRequest.shape().isBlank()) {
-            err400(response, RErrorCode.BAD_SHAPE);
-            return;
+            throw new RMError(RErrorCode.BAD_SHAPE);
         }
         if (craftRequest.outputSlot() == null) {
-            err400(response, RErrorCode.BAD_SLOT);
-            return;
+            throw new RMError(RErrorCode.BAD_SLOT);
         }
         if (craftRequest.times() <= 0 || craftRequest.times() > 64) {
-            err400(response, RErrorCode.BAD_COUNT);
-            return;
+            throw new RMError(RErrorCode.BAD_COUNT);
         }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.craft(craftRequest.slots(), craftRequest.shape().trim(), craftRequest.outputSlot(), craftRequest.times(), craftRequest.dryRun()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        requirePlayerInWorld();
+        ok(response, connector.craft(craftRequest.slots(), craftRequest.shape().trim(), craftRequest.outputSlot(), craftRequest.times(), craftRequest.dryRun()));
     }
 
     private static CraftRequest readCraftRequest(HTTPRequest request) {
@@ -541,75 +503,36 @@ public final class RMHttpServer {
         }
     }
 
-    private static void handlePlace(HTTPRequest request, HTTPResponse response) {
+    private static void handlePlace(HTTPRequest request, HTTPResponse response) throws RMError {
         var pos = readBlockActionRequest(request);
         if (pos == null) {
-            err400(response, RErrorCode.BAD_POS);
-            return;
+            throw new RMError(RErrorCode.BAD_POS);
         }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.placeBlock(pos.x(), pos.y(), pos.z(), pos.face()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        requirePlayerInWorld();
+        ok(response, connector.placeBlock(pos.x(), pos.y(), pos.z(), pos.face()));
     }
 
-    private static void handleMove(HTTPRequest request, HTTPResponse response) {
+    private static void handleMove(HTTPRequest request, HTTPResponse response) throws RMError {
         var pos = readPlayerMoveRequest(request);
         if (pos == null) {
-            err400(response, RErrorCode.BAD_POS);
-            return;
+            throw new RMError(RErrorCode.BAD_POS);
         }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.movePlayer(pos.x(), pos.y(), pos.z()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        requirePlayerInWorld();
+        ok(response, connector.movePlayer(pos.x(), pos.y(), pos.z()));
     }
 
-    private static void handleRespawn(HTTPRequest request, HTTPResponse response) {
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.respawnPlayer());
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+    private static void handleRespawn(HTTPRequest request, HTTPResponse response) throws RMError {
+        requirePlayerInWorld();
+        ok(response, connector.respawnPlayer());
     }
 
-    private static void handleEntityPickupItem(HTTPRequest request, HTTPResponse response) {
+    private static void handleEntityPickupItem(HTTPRequest request, HTTPResponse response) throws RMError {
         var pickup = readItemPickupRequest(request);
         if (pickup.error() != null) {
-            err400(response, pickup.error());
-            return;
+            throw new RMError(pickup.error());
         }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.pickupItemEntities(pickup.ids(), pickup.radius(), pickup.limit()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        requirePlayerInWorld();
+        ok(response, connector.pickupItemEntities(pickup.ids(), pickup.radius(), pickup.limit()));
     }
 
     private static ItemPickupParams readItemPickupRequest(HTTPRequest request) {
@@ -710,23 +633,13 @@ public final class RMHttpServer {
         }
     }
 
-    private static void handleBreak(HTTPRequest request, HTTPResponse response) {
+    private static void handleBreak(HTTPRequest request, HTTPResponse response) throws RMError {
         var pos = readBlockActionRequest(request);
         if (pos == null) {
-            err400(response, RErrorCode.BAD_POS);
-            return;
+            throw new RMError(RErrorCode.BAD_POS);
         }
-        try {
-            if (!connector.playerInWorld()) {
-                err400(response, RErrorCode.NO_PLAYER);
-                return;
-            }
-            ok(response, connector.breakBlock(pos.x(), pos.y(), pos.z()));
-        } catch (RMcpEndpointException e) {
-            err400(response, e.code());
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        requirePlayerInWorld();
+        ok(response, connector.breakBlock(pos.x(), pos.y(), pos.z()));
     }
 
     private static BlockActionRequest readBlockActionRequest(HTTPRequest request) {
@@ -769,6 +682,90 @@ public final class RMHttpServer {
         }
     }
 
+    private static void handlePlaceDiscrete(HTTPRequest request, HTTPResponse response) {
+        var discrete = readPlaceDiscreteRequest(request);
+        if (discrete == null || discrete.targets() == null || discrete.targets().isEmpty()) {
+            err400(response, RErrorCode.BAD_POSITIONS);
+            return;
+        }
+        if (discrete.blockId() == null || discrete.blockId().isBlank()) {
+            err400(response, RErrorCode.BAD_BLOCK_ID);
+            return;
+        }
+        if (discrete.targets().size() > BLOCK_BATCH_LIMIT) {
+            err400(response, RErrorCode.TOO_MANY_BLOCKS);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.placeBlocksDiscrete(discrete));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static RMcpPlaceDiscreteRequest readPlaceDiscreteRequest(HTTPRequest request) {
+        try {
+            if (!request.hasBody()) {
+                return null;
+            }
+            var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+            if (body.isBlank()) {
+                return null;
+            }
+            return GSON.fromJson(body, RMcpPlaceDiscreteRequest.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static void handlePlacePalette(HTTPRequest request, HTTPResponse response) {
+        var palette = readPlacePaletteRequest(request);
+        if (palette == null || palette.palette() == null || palette.palette().isEmpty()) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (palette.targets() == null || palette.targets().isEmpty()) {
+            err400(response, RErrorCode.BAD_POSITIONS);
+            return;
+        }
+        if (palette.targets().size() > BLOCK_BATCH_LIMIT) {
+            err400(response, RErrorCode.TOO_MANY_BLOCKS);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.placeBlocksPalette(palette));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static RMcpPlacePaletteRequest readPlacePaletteRequest(HTTPRequest request) {
+        try {
+            if (!request.hasBody()) {
+                return null;
+            }
+            var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+            if (body.isBlank()) {
+                return null;
+            }
+            return GSON.fromJson(body, RMcpPlacePaletteRequest.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static void handleBreakBatch(HTTPRequest request, HTTPResponse response) {
         var batch = readBlockBatchActionRequest(request);
         if (batch == null || batch.positions() == null || batch.positions().isEmpty()) {
@@ -808,12 +805,16 @@ public final class RMHttpServer {
     }
 
     private static void handlePlaceBox(HTTPRequest request, HTTPResponse response) {
-        var box = readBlockBoxActionRequest(request);
-        if (box == null || box.from() == null || box.to() == null) {
+        var box = readPlaceBoxRequest(request);
+        if (box == null || box.startPos() == null || box.endOffset() == null) {
             err400(response, RErrorCode.BAD_BOX);
             return;
         }
-        if (boxBlockCount(box.from(), box.to()) > BLOCK_BATCH_LIMIT) {
+        if (box.blockId() == null || box.blockId().isBlank()) {
+            err400(response, RErrorCode.BAD_BLOCK_ID);
+            return;
+        }
+        if (offsetBoxBlockCount(box.endOffset()) > BLOCK_BATCH_LIMIT) {
             err400(response, RErrorCode.TOO_MANY_BLOCKS);
             return;
         }
@@ -822,11 +823,26 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            ok(response, connector.placeBlockBox(box.from(), box.to()));
+            ok(response, connector.placeBlockBox(box));
         } catch (RMcpEndpointException e) {
             err400(response, e.code());
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static RMcpPlaceBoxRequest readPlaceBoxRequest(HTTPRequest request) {
+        try {
+            if (!request.hasBody()) {
+                return null;
+            }
+            var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+            if (body.isBlank()) {
+                return null;
+            }
+            return GSON.fromJson(body, RMcpPlaceBoxRequest.class);
+        } catch (Exception e) {
+            return null;
         }
     }
 
@@ -872,6 +888,12 @@ public final class RMHttpServer {
         return (long) (Math.abs(from.x() - to.x()) + 1)
                 * (Math.abs(from.y() - to.y()) + 1)
                 * (Math.abs(from.z() - to.z()) + 1);
+    }
+
+    private static long offsetBoxBlockCount(RMcpBlockPosData endOffset) {
+        return (long) (Math.abs(endOffset.x()) + 1)
+                * (Math.abs(endOffset.y()) + 1)
+                * (Math.abs(endOffset.z()) + 1);
     }
 
     private static void handleContainer(HTTPRequest request, HTTPResponse response) {
@@ -1957,6 +1979,64 @@ public final class RMHttpServer {
         }
     }
 
+    private static void handleSignText(HTTPRequest request, HTTPResponse response) {
+        var signRequest = readSignTextRequest(request);
+        if (signRequest == null || signRequest.pos() == null) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (signRequest.text() == null || signRequest.text().isBlank()) {
+            err400(response, RErrorCode.BAD_SIGN_TEXT);
+            return;
+        }
+        if (signRequest.text().replace("\r", "").split("\n", -1).length > 4) {
+            err400(response, RErrorCode.BAD_SIGN_TEXT);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.setSignText(signRequest));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleGetSignText(HTTPRequest request, HTTPResponse response) {
+        var pos = readXyzRequest(request, response);
+        if (pos == null) {
+            return;
+        }
+        var side = request.getURLParameter("side");
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.signTextData(pos.x(), pos.y(), pos.z(), side));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static RMcpSignTextRequest readSignTextRequest(HTTPRequest request) {
+        try {
+            if (!request.hasBody()) {
+                return null;
+            }
+            var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+            return body.isBlank() ? null : GSON.fromJson(body, RMcpSignTextRequest.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private static void handleHarvestTool(HTTPRequest request, HTTPResponse response) {
         var blockId = request.getURLParameter("blockId");
         if (blockId != null) {
@@ -2242,6 +2322,9 @@ public final class RMHttpServer {
 
     private static void err400(HTTPResponse response, RErrorCode errcode) {
         writeJson(response, 400, RMcpResponse.error(errcode.id()));
+    }
+    private static void err400(HTTPResponse response, RErrorCode errcode,String reason) {
+        writeJson(response, 400, RMcpResponse.error(errcode.id(),reason));
     }
 
     private static void err400(HTTPResponse response, String errcode) {

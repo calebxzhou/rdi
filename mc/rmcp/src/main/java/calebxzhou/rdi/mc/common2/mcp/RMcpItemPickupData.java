@@ -3,7 +3,6 @@ package calebxzhou.rdi.mc.common2.mcp;
 import java.util.List;
 
 public record RMcpItemPickupData(
-        String format,
         int requestedCount,
         int pickedCount,
         int failedCount,

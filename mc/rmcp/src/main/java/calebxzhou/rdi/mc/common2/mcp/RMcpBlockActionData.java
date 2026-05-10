@@ -1,7 +1,6 @@
 package calebxzhou.rdi.mc.common2.mcp;
 
 public record RMcpBlockActionData(
-        String format,
         String action,
         boolean changed,
         RMcpBlockPosData pos,

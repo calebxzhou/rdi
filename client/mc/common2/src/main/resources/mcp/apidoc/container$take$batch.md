@@ -43,35 +43,19 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "container-take-batch-v1",
-    "dryRun": false,
-    "stopOnError": false,
-    "requestedMoves": 2,
-    "succeededMoves": 2,
-    "failedMoves": 0,
-    "totalMovedCount": 17,
-    "results": [
+    "action": "container-take",
+    "failedMoves": [
       {
-        "index": 0,
-        "code": "ok",
-        "requestedCount": 16,
-        "movedCount": 16,
-        "movedItem": {},
-        "from": {},
-        "toInventorySlot": null,
-        "targetInventorySlots": [0, 9],
-        "beforeToInventorySlot": null,
-        "afterToInventorySlot": null,
-        "inventory": {},
-        "container": {}
+        "index": 1,
+        "code": "target_full"
       }
     ]
   }
 }
 ```
 
-Inspect every `results[].code`. The top-level `code=ok` means the batch request was accepted, not that every move succeeded.
+Inspect `failedMoves`. If it is empty, every accepted move succeeded. The top-level `code=ok` means the batch request was accepted.
 
-Call `GET /container?pos=...` first to choose source slots. Call `GET /inventory` first when choosing a specific `toInventorySlot`. Prefer `toInventorySlot=null` unless hotbar or exact slot placement is required.
+Call `GET /container?pos=...` first to choose source slots. Call `GET /inventory` first when choosing a specific `toInventorySlot`. Prefer `toInventorySlot=null` unless hotbar or exact slot placement is required. Re-read `/inventory` or `/container` after the batch only when you need updated slot state.
 
 Use `POST /container/put/batch` for the opposite direction, from the current player's inventory into known block containers.

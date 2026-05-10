@@ -588,7 +588,7 @@ private fun autoFixClientSideFromCrashReport(
         val key = modStableKey(mod)
         if (key in alreadyFixed) return@firstOrNull false
         val byFile = modFiles.any {
-            it.equals(mod.fileName, true) ||
+            mod.fileNames.any { fileName -> it.equals(fileName, true) } ||
                 it.contains(mod.hash, ignoreCase = true) ||
                 it.contains(mod.slug, ignoreCase = true)
         }
@@ -660,20 +660,22 @@ private fun findMatchedCrashMod(
         if (key in alreadyFixed) return@firstOrNull false
 
         val modSlugNorm = normalizeCrashModToken(mod.slug)
-        val modFileNameNorm = normalizeCrashModToken(mod.fileName)
-        val modFileStemNorm = normalizeCrashModToken(mod.fileName.substringBeforeLast('.').substringBefore("_${mod.platform}_"))
+        val modFileNameNorms = mod.fileNames.map(::normalizeCrashModToken)
+        val modFileStemNorms = mod.fileNames.map {
+            normalizeCrashModToken(it.substringBeforeLast('.').substringBefore("_${mod.platform}_"))
+        }
 
         val byId = normalizedId != null && (
             mod.slug.equals(reportedId, ignoreCase = true) ||
                 modSlugNorm == normalizedId ||
-                modFileStemNorm == normalizedId ||
-                modFileNameNorm.contains(normalizedId)
+                modFileStemNorms.any { it == normalizedId } ||
+                modFileNameNorms.any { it.contains(normalizedId) }
             )
         val byFile = rawFileName != null && (
-            rawFileName.equals(mod.fileName, ignoreCase = true) ||
+            mod.fileNames.any { rawFileName.equals(it, ignoreCase = true) } ||
                 rawFileName.contains(mod.hash, ignoreCase = true) ||
                 rawFileName.contains(mod.slug, ignoreCase = true) ||
-                (normalizedFileName != null && modFileNameNorm == normalizedFileName)
+                (normalizedFileName != null && modFileNameNorms.any { it == normalizedFileName })
             )
         byId || byFile
     }
@@ -1291,18 +1293,19 @@ private fun stageSourceModFiles(
             ?.asSequence()
             ?.filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
             ?.filterNot { isClientOnlyMarkedModName(it.name) || it.name in excludedFileNames }
-            ?.filter { source ->
-                val matchedMod = findMatchedSourceMod(source, mods)
-                matchedMod == null || includeMod(matchedMod)
-            }
             ?.forEach { source ->
-                linkOrCopyFile(source, modsDir.resolve(source.name))
+                val matchedMod = findMatchedSourceMod(source, mods)
+                if (matchedMod != null && !includeMod(matchedMod)) return@forEach
+                val targetName = matchedMod?.fileName ?: source.name
+                linkOrCopyFile(source, modsDir.resolve(targetName))
             }
     }
 }
 
 private fun findMatchedSourceMod(source: File, mods: List<Mod>): Mod? {
-    mods.firstOrNull { it.fileName.equals(source.name, ignoreCase = true) }?.let { return it }
+    mods.firstOrNull { mod ->
+        mod.fileNames.any { it.equals(source.name, ignoreCase = true) }
+    }?.let { return it }
     val sourceHash = runCatching { source.sha1 }.getOrNull()
     if (!sourceHash.isNullOrBlank()) {
         mods.firstOrNull { it.hash.equals(sourceHash, ignoreCase = true) }?.let { return it }
@@ -1322,14 +1325,13 @@ private fun stageDownloadedMods(
     mods.asSequence()
         .filter(includeMod)
         .forEach { mod ->
-            stageDownloadedModFile(modsDir, mod.fileName)
+            stageDownloadedModFile(modsDir, mod)
         }
 }
 
-private fun stageDownloadedModFile(modsDir: File, fileName: String) {
-    val source = DL_MOD_DIR.resolve(fileName)
-    if (!source.exists()) return
-    linkOrCopyFile(source, modsDir.resolve(source.name))
+private fun stageDownloadedModFile(modsDir: File, mod: Mod) {
+    val source = mod.candidateFiles.firstOrNull(File::exists) ?: return
+    linkOrCopyFile(source, modsDir.resolve(mod.fileName))
 }
 
 private fun linkOrCopyFile(source: File, target: File) {

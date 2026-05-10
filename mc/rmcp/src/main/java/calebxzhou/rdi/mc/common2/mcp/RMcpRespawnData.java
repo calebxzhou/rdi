@@ -1,7 +1,6 @@
 package calebxzhou.rdi.mc.common2.mcp;
 
 public record RMcpRespawnData(
-        String format,
         boolean wasDead,
         boolean respawned,
         boolean hardcore,

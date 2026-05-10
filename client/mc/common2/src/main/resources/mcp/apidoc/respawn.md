@@ -14,7 +14,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "respawn-v1",
     "wasDead": true,
     "respawned": true,
     "hardcore": false,

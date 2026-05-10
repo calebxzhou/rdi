@@ -8,7 +8,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "inventory-v1",
     "dim": "minecraft:overworld",
     "selectedHotbarSlot": 0,
     "selectedItem": {

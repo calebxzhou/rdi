@@ -1,10 +1,6 @@
 package calebxzhou.rdi.client.ui
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,13 +15,7 @@ import androidx.compose.material3.rememberTooltipState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.SpanStyle
@@ -37,15 +27,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import calebxzhou.rdi.client.IconFontFamily
-import kotlinx.coroutines.launch
 import kotlin.math.min
 
 /**
@@ -53,6 +39,7 @@ import kotlin.math.min
  */
 val DEFAULT_MODPACK_ICON by lazy { iconBitmap("modpack") }
 val DEFAULT_HOST_ICON by lazy { iconBitmap("host") }
+typealias M3MaterialTheme = androidx.compose.material3.MaterialTheme
 
 data class TitleTabItem<T>(
     val value: T,
@@ -84,7 +71,11 @@ fun Space8h() {
 @Composable
 fun Space24h() {
     Spacer(modifier = Modifier.height(24.dp))
+
 }
+
+val space8
+    get() = Arrangement.spacedBy(8.dp)
 
 @Composable
 fun MainColumn(content: @Composable (ColumnScope.() -> Unit)) {
@@ -277,127 +268,22 @@ private fun IconButtonBase(
     tooltip: String? = "",
     tooltipAnchorPosition: TooltipAnchorPosition = TooltipAnchorPosition.Below,
     size: Int = 36,
-    bgColor: Color = MaterialTheme.colors.primary,
-    enabled: Boolean = true,
-    longPressDelay: Long = 0L,
-    onClick: () -> Unit,
     content: @Composable (Modifier) -> Unit
 ) {
-    val scope = rememberCoroutineScope()
-    val progress = remember { Animatable(0f) }
-    var fired by remember { mutableStateOf(false) }
-    val ringPadding = 4.dp
-    val ringStroke = 3.dp
-    val useLongPress = longPressDelay > 0L
-    var isPressing by remember { mutableStateOf(false) }
-
-    val pressModifier = if (useLongPress) {
-        Modifier.pointerInput(longPressDelay, enabled) {
-            if (!enabled) return@pointerInput
-            detectTapGestures(
-                onPress = {
-                    fired = false
-                    isPressing = true
-                    val job = scope.launch {
-                        progress.snapTo(0f)
-                        progress.animateTo(
-                            targetValue = 1f,
-                            animationSpec = tween(
-                                durationMillis = longPressDelay.toInt(),
-                                easing = LinearEasing
-                            )
-                        )
-                        if (!fired) {
-                            fired = true
-                            onClick()
-                        }
-                    }
-                    val released = tryAwaitRelease()
-                    if (released) {
-                        job.cancel()
-                        scope.launch { progress.snapTo(0f) }
-                    }
-                    isPressing = false
-                }
-            )
-        }
-    } else {
-        Modifier
-    }
-
-    val remainingSeconds = ((1f - progress.value) * longPressDelay / 1000f)
-    val remainingText = String.format("\uE641 %.1fs", remainingSeconds).asIconText
-
-    val popupAlignment = when (tooltipAnchorPosition) {
-        TooltipAnchorPosition.Above -> Alignment.TopCenter
-        else -> Alignment.BottomCenter
-    }
-    val popupOffset = when (tooltipAnchorPosition) {
-        TooltipAnchorPosition.Above -> IntOffset(0, -8)
-        TooltipAnchorPosition.Below -> IntOffset(0, 40)
-        else -> IntOffset(0, 8)
-    }
-
     val drawButton = @Composable {
         Box(
             modifier = Modifier
                 .size(size.dp)
-                .graphicsLayer { clip = false }
-                .drawWithContent {
-                    if (useLongPress && progress.value > 0f) {
-                        val strokePx = ringStroke.toPx()
-                        val ringPaddingPx = ringPadding.toPx()
-                        val drawSize = this.size
-                        val minDim = minOf(drawSize.width, drawSize.height)
-                        val diameter = minDim + ringPaddingPx * 2 - strokePx
-                        val arcOffset = -ringPaddingPx + strokePx / 2
-                        drawArc(
-                            color = bgColor,
-                            startAngle = -90f,
-                            sweepAngle = progress.value.coerceIn(0f, 1f) * 360f,
-                            useCenter = false,
-                            topLeft = Offset(arcOffset, arcOffset),
-                            size = Size(diameter, diameter),
-                            style = Stroke(width = strokePx, cap = StrokeCap.Round)
-                        )
-                    }
-                    drawContent()
-                }
-                .then(pressModifier),
+                .graphicsLayer { clip = false },
             contentAlignment = Alignment.Center
         ) {
             content(Modifier.size(size.dp))
-
-            if (useLongPress && isPressing && progress.value > 0f) {
-                Popup(
-                    alignment = popupAlignment,
-                    offset = popupOffset,
-                    properties = PopupProperties(focusable = false)
-                ) {
-                    Surface(
-                        color = MaterialColor.GRAY_200.color,
-                        shape = RoundedCornerShape(4.dp),
-                        elevation = 2.dp
-                    ) {
-                        Text(
-                            text = remainingText,
-                            fontSize = TextUnit(12f, TextUnitType.Sp),
-                            color = Color.Black,
-                            modifier = Modifier.padding(horizontal = 2.dp)
-                        )
-                    }
-                }
-            }
         }
     }
 
     tooltip?.let { tip ->
         SimpleTooltip(tip, tooltipAnchorPosition) { drawButton() }
     } ?: drawButton()
-}
-@Composable
-fun SimpleTextButton(text:String, color: Color = MaterialTheme.colors.primary, onClick: () -> Unit){
-    TextButton(onClick,colors = ButtonDefaults.buttonColors(backgroundColor = color)){Text(text)}
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -435,15 +321,14 @@ fun CircleIconButton(
     tooltipAnchorPosition: TooltipAnchorPosition = TooltipAnchorPosition.Below,
     size: Int = 36,
     contentPadding: PaddingValues = ButtonDefaults.TextButtonContentPadding,
-    bgColor: Color = MaterialTheme.colors.primary,
+    bgColor: Color = M3MaterialTheme.colorScheme.primary,
     iconColor: Color = Color.White,
     enabled: Boolean = true,
-    longPressDelay: Long = 0L,
     showText: Boolean = true,
     onClick: () -> Unit
 ) {
     val inlineText = tooltip?.takeIf { it.isNotBlank() }
-    if (showText && longPressDelay <= 0L && inlineText != null) {
+    if (showText && inlineText != null) {
         BoxWithConstraints {
             val density = LocalDensity.current
             val textMeasurer = rememberTextMeasurer()
@@ -517,9 +402,9 @@ fun CircleIconButton(
                     }
                 }
             }
-            if(!showText){
+            if (!showText) {
                 SimpleTooltip(inlineText, tooltipAnchorPosition) { drawButton() }
-            }else{
+            } else {
                 drawButton()
             }
         }
@@ -529,44 +414,25 @@ fun CircleIconButton(
     IconButtonBase(
         tooltip = tooltip,
         tooltipAnchorPosition = tooltipAnchorPosition,
-        size = size,
-        bgColor = bgColor,
-        enabled = enabled,
-        longPressDelay = longPressDelay,
-        onClick = onClick
+        size = size
     ) { modifier ->
-        if (longPressDelay > 0L) {
-            Box(
-                modifier = modifier
-                    .background(if (enabled) bgColor else MaterialColor.GRAY_200.color, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                ScaledCircleIconText(
-                    icon = icon,
-                    size = size,
-                    contentPadding = PaddingValues(0.dp),
-                    color = iconColor
-                )
-            }
-        } else {
-            TextButton(
-                onClick = onClick,
-                shape = CircleShape,
-                modifier = modifier,
-                colors = ButtonDefaults.buttonColors(
-                    backgroundColor = bgColor,
-                    contentColor = iconColor
-                ),
+        TextButton(
+            onClick = onClick,
+            shape = CircleShape,
+            modifier = modifier,
+            colors = ButtonDefaults.buttonColors(
+                backgroundColor = bgColor,
+                contentColor = iconColor
+            ),
+            contentPadding = contentPadding,
+            enabled = enabled
+        ) {
+            ScaledCircleIconText(
+                icon = icon,
+                size = size,
                 contentPadding = contentPadding,
-                enabled = enabled
-            ) {
-                ScaledCircleIconText(
-                    icon = icon,
-                    size = size,
-                    contentPadding = contentPadding,
-                    color = iconColor
-                )
-            }
+                color = iconColor
+            )
         }
     }
 }
@@ -620,49 +486,83 @@ private fun ScaledCircleIconText(
 fun TitleRow(
     title: String,
     onBack: () -> Unit,
-    longPressToBack: Boolean = false,
     content: @Composable (RowScope.() -> Unit)
 ) {
     platformBackHandler {
         onBack.invoke()
     }
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val density = LocalDensity.current
-        val maxWidthPx = with(density) { maxWidth.toPx() }
-        var leftWidthPx by remember { mutableStateOf(0f) }
-        var rightWidthPx by remember { mutableStateOf(0f) }
-        val spacingPx = with(density) { 12.dp.toPx() }
+    FlowRowV(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        FlowRowV {
+            CircleIconButton(
+                icon = "\uF060",
+                tooltip = "返回",
+                size = 32,
+                showText = false
+            ) { onBack.invoke() }
 
-            FlowRowV (
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                FlowRowV {
-                    CircleIconButton(
-                        icon = "\uF060",
-                        tooltip = if (longPressToBack) "长按返回" else "返回",
-                        size = 32,
-                        longPressDelay = if (longPressToBack) 3000L else 0L,
-                        showText = false
-                    ) { onBack.invoke() }
-
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = title,
-                        style = MaterialTheme.typography.h6
-                    )
-                }
-                FlowRowV {
-                    content()
-                }
-            }
-
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.h6
+            )
+        }
+        FlowRowV {
+            content()
+        }
     }
+
+
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TitleRow2(
+    title: String,
+    onBack: () -> Unit,
+    content: @Composable (RowScope.() -> Unit)
+) {
+    platformBackHandler {
+        onBack.invoke()
+    }
+    FlowRowV(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        FlowRowV {
+            CircleIconButton(
+                icon = "\uF060",
+                tooltip = "返回",
+                size = 32,
+                showText = false
+            ) { onBack.invoke() }
+            Space8w()
+            Text(
+                text = title,
+                style = MaterialTheme.typography.h6
+            )
+        }
+        FlowRowV(horizontalArrangement = space8, verticalArrangement = space8) {
+            content()
+        }
+    }
+
+
 }
 
 @Composable
 fun BoxScope.BottomSnakebar(state: SnackbarHostState) {
     SnackbarHost(
+        hostState = state,
+        modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+    )
+}
+
+@Composable
+fun BoxScope.BottomSnakebarM3(state: androidx.compose.material3.SnackbarHostState) {
+    androidx.compose.material3.SnackbarHost(
         hostState = state,
         modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
     )
@@ -712,12 +612,11 @@ fun ImageIconButton(
     contentPadding: PaddingValues = ButtonDefaults.TextButtonContentPadding,
     bgColor: Color = Color.White,
     enabled: Boolean = true,
-    longPressDelay: Long = 0L,
     showText: Boolean = true,
     onClick: () -> Unit = {}
 ) {
     val inlineText = tooltip?.takeIf { it.isNotBlank() }
-    if (showText && longPressDelay <= 0L && inlineText != null) {
+    if (showText && inlineText != null) {
         BoxWithConstraints {
             val density = LocalDensity.current
             val textMeasurer = rememberTextMeasurer()

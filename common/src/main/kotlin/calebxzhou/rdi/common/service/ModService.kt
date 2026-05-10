@@ -14,7 +14,9 @@ import net.peanuuutz.tomlkt.Toml
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.jar.JarFile
 import java.util.jar.JarInputStream
 import kotlin.io.path.exists
@@ -533,9 +535,19 @@ object ModService {
     }
 
     fun isDownloadedModFileValid(mod: Mod): Boolean {
-        val targetPath = mod.targetPath
-        if (!targetPath.exists()) return false
+        val validPath = findValidDownloadedModPath(mod) ?: return false
+        if (validPath != mod.targetPath) {
+            copyExistingModFile(validPath, mod.targetPath)
+        }
+        return true
+    }
 
+    private fun findValidDownloadedModPath(mod: Mod): Path? =
+        mod.downloadedFileCandidates().firstOrNull { path ->
+            path.exists() && isDownloadedModFileValid(mod, path)
+        }
+
+    private fun isDownloadedModFileValid(mod: Mod, targetPath: Path): Boolean {
         val expectedHash = mod.hash.trim().lowercase()
         return runCatching {
             when (mod.platform.lowercase()) {
@@ -548,6 +560,17 @@ object ModService {
                 else -> true
             }
         }.getOrDefault(false)
+    }
+
+    private fun Mod.downloadedFileCandidates(): List<Path> =
+        candidateFiles
+            .map(File::toPath)
+            .distinctBy { it.toAbsolutePath().normalize() }
+
+    private fun copyExistingModFile(source: Path, target: Path) {
+        if (source.toAbsolutePath().normalize() == target.toAbsolutePath().normalize()) return
+        target.parent?.let { Files.createDirectories(it) }
+        Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING)
     }
 
     fun downloadCFModsTask2(mods: List<Mod>): Task2 {
@@ -649,12 +672,13 @@ object ModService {
         val targetPath = mod.targetPath
         val expectedFingerprint = fileInfo.fileFingerprint
         // Check if file already exists with expected hash/fingerprint.
-        if (targetPath.exists()) {
-            val alreadyOk = targetPath.murmur2 == expectedFingerprint
-            if (alreadyOk) {
-                lgr.info { "Mod file already exists and hash matches: $targetPath" }
-                return Result.success(targetPath)
-            }
+        val existingPath = mod.downloadedFileCandidates().firstOrNull { path ->
+            path.exists() && path.murmur2 == expectedFingerprint
+        }
+        if (existingPath != null) {
+            copyExistingModFile(existingPath, targetPath)
+            lgr.info { "Mod file already exists and hash matches: $existingPath" }
+            return Result.success(targetPath)
         }
 
         val officialUrls = (mod.downloadUrls + fileInfo.realDownloadUrl)
@@ -701,20 +725,21 @@ object ModService {
         val targetPath = mod.targetPath
 
         // Check if file already exists with correct hash
-        if (targetPath.exists()) {
-            // For MR mods, we use the hash from the mod object
-            val expectedHash = mod.hash
-            if (expectedHash.isNotBlank()) {
-                val actualHash = targetPath.sha1
-                if (actualHash == expectedHash) {
-                    lgr.debug { "Mod file already exists and hash matches: $targetPath" }
-                    return Result.success(targetPath)
-                }
+        val expectedHash = mod.hash.trim().lowercase()
+        val existingPath = if (expectedHash.isNotBlank()) {
+            mod.downloadedFileCandidates().firstOrNull { path ->
+                path.exists() && path.sha1 == expectedHash
             }
+        } else {
+            null
+        }
+        if (existingPath != null) {
+            copyExistingModFile(existingPath, targetPath)
+            lgr.debug { "Mod file already exists and hash matches: $existingPath" }
+            return Result.success(targetPath)
         }
 
         val urls = mod.downloadUrls
-        val expectedHash = mod.hash
         val officialUrls = urls
             .map(String::trim)
             .filter(String::isNotBlank)

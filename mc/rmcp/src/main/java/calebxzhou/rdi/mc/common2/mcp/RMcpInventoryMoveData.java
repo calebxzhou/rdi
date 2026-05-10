@@ -1,7 +1,6 @@
 package calebxzhou.rdi.mc.common2.mcp;
 
 public record RMcpInventoryMoveData(
-        String format,
         String from,
         String to,
         int count,

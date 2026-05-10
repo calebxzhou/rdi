@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.encodeBase64
+import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.ensureGtnhRuntime
@@ -43,6 +44,7 @@ import calebxzhou.rdi.client.ui.McPlayStore
 import calebxzhou.rdi.client.ui.Space8h
 import calebxzhou.rdi.client.ui.Space8w
 import calebxzhou.rdi.client.ui.TitleRow
+import calebxzhou.rdi.client.ui.TitleRow2
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Task2Progress
@@ -155,27 +157,23 @@ fun McPlayScreen(
     val selectedSession = McPlayStore.selectedSession()
 
     MainColumn {
-        TitleRow("MC控制台", onBack) {
+        TitleRow2("MC控制台", onBack) {
             selectedSession?.let { session ->
-                CircleIconButton(
-                    icon = "\uE0CA",
-                    tooltip = "AI陪玩",
-                    bgColor = MaterialColor.PURPLE_700.color
-                ) {
-                    onOpenAiChat(session.args.mcpPort, session.args.versionDir)
+                if(Const.AI_TEST){
+                    CircleIconButton(
+                        icon = "\uE0CA",
+                        tooltip = "AI陪玩",
+                        bgColor = MaterialColor.PURPLE_700.color
+                    ) {
+                        onOpenAiChat(session.args.mcpPort, session.args.versionDir)
+                    }
                 }
-                Space8w()
                 CircleIconButton("\uEAD2", "重启MC") {
                     session.requestStop()
                     startSession(session.args, allowDuplicateVersion = true)
                 }
-                Space8w()
-                CircleIconButton("\uF04D", "停止MC", bgColor = MaterialColor.ORANGE_900.color) {
-                    stopSession(session)
-                }
-                Space8w()
-                CircleIconButton("\uF05E", "强制结束MC", bgColor = MaterialColor.RED_900.color) {
-                    stopSession(session, force = true)
+                CircleIconButton("\uF04D", "终止MC", bgColor = MaterialColor.ORANGE_900.color) {
+                    stopSession(session,force = true)
                 }
             }
         }

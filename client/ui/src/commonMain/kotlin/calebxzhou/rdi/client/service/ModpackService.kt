@@ -152,7 +152,7 @@ object ModpackService {
                     ?: throw RequestError("未找到对应版本信息，无法删除关联Mod")
             } else null
             val currentModFileNames = currentVersion?.mods
-                ?.map { it.fileName }
+                ?.flatMap { it.fileNames }
                 ?.toSet()
                 .orEmpty()
             val removableModFileNames = if (deleteIncludedMods && currentModFileNames.isNotEmpty()) {
@@ -308,7 +308,7 @@ object ModpackService {
                 runCatching {
                     server.makeRequest<Modpack.Version>("modpack/${other.vo.id}/version/${other.verName}").data
                         ?.mods
-                        ?.map { it.fileName }
+                        ?.flatMap { it.fileNames }
                         ?.toSet()
                         .orEmpty()
                 }.getOrElse {
@@ -366,18 +366,20 @@ object ModpackService {
         val copyModsTask = Task2.Leaf("复制mod文件") { ctx ->
             val modsDir = versionDir.resolve("mods").apply { mkdirs() }
             val modFiles = installableMods.map { mod ->
-                val file = ClientDirs.dlModsDir.resolve(mod.fileName)
-                if (!file.exists()) {
-                    throw IllegalStateException("缺少Mod文件: ${file.absolutePath}")
-                }
+                val file = mod.candidateFiles.firstOrNull(File::exists)
+                    ?: throw IllegalStateException("缺少Mod文件: ${mod.targetFile.absolutePath}")
                 mod to file
             }
             modFiles.forEachIndexed { index, (mod, modFile) ->
-                val targetFileName = embeddedModOriginalFileNames[mod.fileName]
-                    ?.substringAfterLast('/')
-                    ?.substringAfterLast('\\')
-                    ?.takeIf { it.isNotBlank() }
-                    ?: modFile.name
+                val targetFileName = if (mod.fileName != mod.legacyFileName) {
+                    mod.fileName
+                } else {
+                    embeddedModOriginalFileNames[mod.fileName]
+                        ?.substringAfterLast('/')
+                        ?.substringAfterLast('\\')
+                        ?.takeIf { it.isNotBlank() }
+                        ?: modFile.name
+                }
                 val target = modsDir.resolve(targetFileName)
                 linkOrCopyMod(modFile, target)
                 val fraction = (index + 1).toFloat() / modFiles.size.coerceAtLeast(1)

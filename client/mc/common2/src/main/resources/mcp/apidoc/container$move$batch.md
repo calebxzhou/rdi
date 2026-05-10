@@ -49,32 +49,19 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "container-move-batch-v1",
-    "dryRun": false,
-    "stopOnError": false,
-    "requestedMoves": 2,
-    "succeededMoves": 2,
-    "failedMoves": 0,
-    "totalMovedCount": 80,
-    "results": [
+    "action": "container-move",
+    "failedMoves": [
       {
-        "index": 0,
-        "code": "ok",
-        "requestedCount": 16,
-        "movedCount": 16,
-        "movedItem": {},
-        "from": {},
-        "to": {},
-        "fromContainer": {},
-        "toContainer": {}
+        "index": 1,
+        "code": "target_full"
       }
     ]
   }
 }
 ```
 
-Inspect every `results[].code`. The top-level `code=ok` means the batch request was accepted, not that every move succeeded.
+Inspect `failedMoves`. If it is empty, every accepted move succeeded. The top-level `code=ok` means the batch request was accepted.
 
-Call `GET /container` for source and target containers before moving. Use exact source slots from the source response. Prefer `to.slot=null` unless a machine requires a specific target slot.
+Call `GET /container` for source and target containers before moving. Use exact source slots from the source response. Prefer `to.slot=null` unless a machine requires a specific target slot. Re-read `/container` after the batch only when you need updated slot state.
 
 Use this API only for container-to-container movement. If the source is the current player's inventory and the destination is a known block position, use `POST /container/put` or `POST /container/put/batch`. If the source is a known block container and the target is the player's inventory, use `POST /container/take` or `POST /container/take/batch`.

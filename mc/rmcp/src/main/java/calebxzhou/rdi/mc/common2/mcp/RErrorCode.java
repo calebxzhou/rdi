@@ -9,6 +9,7 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode METHOD_NOT_ALLOWED = code("method_not_allowed", "the endpoint does not support this HTTP method. Read APIs use GET; action APIs use POST.");
     public static final RErrorCode NOT_FOUND = code("not_found", "endpoint path is unknown. Read / for available APIs.");
     public static final RErrorCode INTERNAL_ERROR = code("internal_error", "the API failed internally.");
+    public static final RErrorCode MOD_CLASS_NOT_FOUND = code("mod_class_not_found", "mod version not match or not installed");
     public static final RErrorCode BAD_REQUEST = code("bad_request", "request query/body is missing, malformed, or has invalid JSON.");
     public static final RErrorCode BAD_ACTION = code("bad_action", "the server MCP bridge does not support the requested action.");
     public static final RErrorCode ACTION_FAILED = code("action_failed", "Minecraft action execution failed after the request was accepted.");
@@ -20,6 +21,10 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode BAD_BUILDING_SCHEMATIC = code("bad_building_schematic", "the requested building schematic could not be parsed.");
     public static final RErrorCode BAD_MOD_ID = code("bad_mod_id", "/mods id query parameter is present but empty or invalid.");
     public static final RErrorCode NO_MOD = code("no_mod", "no running mod has the requested mod id.");
+    public static final RErrorCode QUEST_DATA_NOT_LOADED = code("quest_data_not_loaded", "FTB Quests data has not been received from the server yet.");
+    public static final RErrorCode MISSING_QUEST_CHAPTER_ID = code("missing_quest_chapter_id", "/quest/chapter/{id} did not include a chapter id.");
+    public static final RErrorCode BAD_QUEST_CHAPTER_ID = code("bad_quest_chapter_id", "/quest/chapter/{id} included an invalid FTB Quests chapter hex id.");
+    public static final RErrorCode NO_QUEST_CHAPTER = code("no_quest_chapter", "no FTB Quests chapter has the requested id.");
 
     public static final RErrorCode MISSING_APIDOC = code("missing_apidoc", "/apidoc/{file} did not include a file segment.");
     public static final RErrorCode BAD_APIDOC = code("bad_apidoc", "/apidoc/{file} included an invalid file segment.");
@@ -37,15 +42,16 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode DIM_NOT_LOADED = code("dim_not_loaded", "the requested dimension is not the client's current loaded dimension.");
     public static final RErrorCode BUSY_CONTAINER_OPEN = code("busy_container_open", "another inventory/container screen is open, so inventory action is not safe.");
     public static final RErrorCode CARRIED_ITEM_NOT_EMPTY = code("carried_item_not_empty", "the cursor is holding an item stack, so inventory action is not safe.");
-    public static final RErrorCode MISSING_INGREDIENTS = code("missing_ingredients", "the selected source slots do not contain enough ingredients.");
+    public static final RErrorCode MISSING_INGREDIENTS = code("missing_ingredients", "the player's inventory or selected source slots do not contain enough required items.");
     public static final RErrorCode RESULT_FULL = code("result_full", "the crafted result or remaining container items cannot fit into the requested output slot/player inventory.");
     public static final RErrorCode CRAFT_FAILED = code("craft_failed", "the craft action failed internally.");
     public static final RErrorCode CRAFT_TIMEOUT = code("craft_timeout", "the craft action did not finish in time.");
     public static final RErrorCode TOO_FAR = code("too_far", "the requested target is outside the allowed interaction range.");
     public static final RErrorCode NO_ITEM_HANDLER = code("no_item_handler", "the target block does not expose an item container or machine inventory.");
     public static final RErrorCode TARGET_NOT_AIR = code("target_not_air", "/place target position is already occupied.");
-    public static final RErrorCode NO_PLACE_ITEM = code("no_place_item", "the player's main hand item is not a block item that can be placed.");
+    public static final RErrorCode NO_PLACE_ITEM = code("no_place_item", "the selected placement item is not a block item that can be placed.");
     public static final RErrorCode NO_PLACE_FACE = code("no_place_face", "/place could not build a valid placement hit face.");
+    public static final RErrorCode BAD_BLOCK_STATE = code("bad_block_state", "/place state contains an unknown, unsupported, unsafe, or invalid block state property/value.");
     public static final RErrorCode PLACE_FAILED = code("place_failed", "Minecraft placement logic refused the action.");
     public static final RErrorCode BREAK_FAILED = code("break_failed", "Minecraft block breaking logic refused the action.");
     public static final RErrorCode MOVE_TARGET_BLOCKED = code("move_target_blocked", "/move could not find a nearby safe standable target with empty feet/head space and a solid non-hazard floor.");
@@ -55,7 +61,7 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode MISSING_POS = code("missing_pos", "required pos or x/y/z query parameter is absent or blank.");
     public static final RErrorCode BAD_POS = code("bad_pos", "pos is not dim,x,y,z, dimension is empty, coordinates are not integers, or x/y/z query values are invalid.");
     public static final RErrorCode BAD_POSITIONS = code("bad_positions", "a batch block request body is missing, empty, malformed, or has no positions.");
-    public static final RErrorCode BAD_BOX = code("bad_box", "a box block action body is missing, malformed, or does not include both from and to.");
+    public static final RErrorCode BAD_BOX = code("bad_box", "a box block action body is missing, malformed, or does not include the required position fields.");
     public static final RErrorCode BAD_BLOCK_IDS = code("bad_block_ids", "/blocks/find ids is missing, empty, has more than 16 entries, includes a malformed ID, or includes an ID that is not a loaded block.");
     public static final RErrorCode MISSING_BLOCK_ID = code("missing_block_id", "neither blockId nor pos was provided for a block-based query.");
     public static final RErrorCode BAD_BLOCK_ID = code("bad_block_id", "blockId is not a valid loaded block ID.");
@@ -92,6 +98,10 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode MISSING_KEY = code("missing_key", "required key query parameter is absent or blank.");
     public static final RErrorCode NO_BLOCK = code("no_block", "player is not looking at a block, or /break target position is air.");
     public static final RErrorCode NO_BLOCK_ENTITY = code("no_block_entity", "no loaded block entity exists at the requested position.");
+    public static final RErrorCode NOT_SIGN = code("not_sign", "the target block entity is not a sign.");
+    public static final RErrorCode SIGN_WAXED = code("sign_waxed", "the target sign is waxed and cannot be edited.");
+    public static final RErrorCode BAD_SIGN_SIDE = code("bad_sign_side", "sign side is not valid for the endpoint; write accepts front, back, or auto, and read accepts front, back, or both.");
+    public static final RErrorCode BAD_SIGN_TEXT = code("bad_sign_text", "sign text is missing, empty, or has more than 4 lines.");
     public static final RErrorCode CHUNK_NOT_LOADED = code("chunk_not_loaded", "the requested chunk is not loaded by the client/server.");
     public static final RErrorCode SECTION_OUT_OF_RANGE = code("section_out_of_range", "section y is outside the current world's build height.");
     public static final RErrorCode NO_ENTITY = code("no_entity", "no target or loaded entity is available for the request.");
@@ -104,12 +114,12 @@ public record RErrorCode(String id, String info) {
     public static final Map<String, RErrorCode> MAP = mapOf(List.of(
             METHOD_NOT_ALLOWED, NOT_FOUND, INTERNAL_ERROR, BAD_REQUEST, BAD_ACTION, ACTION_FAILED, PROMPTS_NOT_FOUND, BUILDINGS_NOT_FOUND,
             BAD_BUILDING_ID, BAD_BUILDING_LAYER, UNKNOWN_BUILDING, BAD_BUILDING_SCHEMATIC,
-            BAD_MOD_ID, NO_MOD,
+            BAD_MOD_ID, NO_MOD, QUEST_DATA_NOT_LOADED, MISSING_QUEST_CHAPTER_ID, BAD_QUEST_CHAPTER_ID, NO_QUEST_CHAPTER,
             MISSING_APIDOC, BAD_APIDOC, UNKNOWN_APIDOC, MISSING_ERRCODE, BAD_ERRCODE, UNKNOWN_ERRCODE,
             SCREENSHOT_FAILED, SCREENSHOT_TIMEOUT, SERVER_MCP_UNAVAILABLE, SERVER_TIMEOUT,
             NO_PLAYER, DIM_NOT_LOADED, BUSY_CONTAINER_OPEN, CARRIED_ITEM_NOT_EMPTY,
             MISSING_INGREDIENTS, RESULT_FULL, CRAFT_FAILED, CRAFT_TIMEOUT,
-            TOO_FAR, NO_ITEM_HANDLER, TARGET_NOT_AIR, NO_PLACE_ITEM, NO_PLACE_FACE, PLACE_FAILED, BREAK_FAILED, MOVE_TARGET_BLOCKED,
+            TOO_FAR, NO_ITEM_HANDLER, TARGET_NOT_AIR, NO_PLACE_ITEM, NO_PLACE_FACE, BAD_BLOCK_STATE, PLACE_FAILED, BREAK_FAILED, MOVE_TARGET_BLOCKED,
             PROTECTED, TOO_MANY_BLOCKS, MISSING_POS, BAD_POS, BAD_POSITIONS, BAD_BOX, BAD_BLOCK_IDS, MISSING_BLOCK_ID,
             BAD_BLOCK_ID, MISSING_UUID, BAD_UUID, MISSING_ITEM_ID, MISSING_CHUNK_X, MISSING_CHUNK_Z,
             MISSING_IDS, BAD_IDS,
@@ -117,6 +127,7 @@ public record RErrorCode(String id, String info) {
             BAD_RADIUS, BAD_BLOCKMAP_RADIUS, BAD_AXIS, BAD_TERRAIN_LENGTH, BAD_VERTICAL_RADIUS, BAD_LIMIT, BAD_SLOT, BAD_SIDE, SAME_SLOT, UNSUPPORTED_MERGE_RISK, BAD_COUNT,
             EMPTY_SOURCE, INCOMPATIBLE_TARGET, TARGET_FULL, BAD_SHAPE, NO_MATCHING_RECIPE,
             MISSING_TEXT, MISSING_KEY, NO_BLOCK, NO_BLOCK_ENTITY, CHUNK_NOT_LOADED, SECTION_OUT_OF_RANGE,
+            NOT_SIGN, SIGN_WAXED, BAD_SIGN_SIDE, BAD_SIGN_TEXT,
             NO_ENTITY, NOT_ITEM_ENTITY, MOVING_ITEM_ENTITY, INVENTORY_FULL, NO_PLAYER_ENTITY, NO_LANGKEY
     ));
 

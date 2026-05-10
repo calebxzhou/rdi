@@ -16,6 +16,29 @@ version = mod_version
 repositories {
     mavenLocal()
     mavenCentral()
+    //CurseForge
+    exclusiveContent {
+        forRepository {
+            maven {
+                url "https://cursemaven.com"
+            }
+        }
+        filter {
+            includeGroup "curse.maven"
+        }
+    }
+    //Modrinth
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
 }
 
 base {
@@ -160,6 +183,25 @@ dependencies {
     shaded('io.fusionauth:java-http:1.4.0') {
         transitive = false
     }
+
+    //>>>Modrinth Mods<<<
+    [ 'architectury-api:13.0.8+neoforge',
+
+      'sodium:mc1.21.1-0.6.13-neoforge',
+            'dynamic-fps:T238FZpQ',
+    ].each { dep ->
+        implementation "maven.modrinth:$dep"
+    }
+    //>>>CurseForge Mods<<<
+    [
+            "ftb-library-forge-404465:7746959",
+            "ftb-quests-forge-289412:7878289",
+            "ftb-teams-forge-404468:7878281",
+    ].each { dep ->
+        implementation "curse.maven:$dep-deobf"
+    }
+
+
 }
 
 publishing {

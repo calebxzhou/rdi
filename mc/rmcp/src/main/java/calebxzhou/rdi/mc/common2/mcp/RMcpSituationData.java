@@ -3,7 +3,6 @@ package calebxzhou.rdi.mc.common2.mcp;
 import java.util.List;
 
 public record RMcpSituationData(
-        String format,
         RMcpPlayerData player,
         Environment environment,
         Inventory inventory,

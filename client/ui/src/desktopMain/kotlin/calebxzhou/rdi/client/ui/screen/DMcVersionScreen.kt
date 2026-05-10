@@ -176,8 +176,8 @@ actual suspend fun exportRdiModpack(
             onProgress("导出整合包 ${processed}/${total}")
 
             version.mods.forEach { mod ->
-                val modFile = DL_MOD_DIR.resolve(mod.fileName)
-                if (!modFile.exists()) {
+                val modFile = mod.candidateFiles.firstOrNull { it.exists() }
+                if (modFile == null) {
                     missingMods += mod.fileName
                     return@forEach
                 }

@@ -16,13 +16,20 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHotbarSelectData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceBoxRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceDiscreteRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlacePaletteRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpRespawnData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextReadData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextRequest;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
+import calebxzhou.rdi.mc.server.RMarkdownComponent211;
 import calebxzhou.rdi.mc.server.mcp.RMcpServerDataCodec211;
 import com.google.gson.Gson;
 import net.minecraft.core.BlockPos;
@@ -30,6 +37,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.protocol.game.ClientboundSetCarriedItemPacket;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.stats.Stats;
 import net.minecraft.core.component.DataComponents;
@@ -48,7 +57,12 @@ import net.minecraft.world.item.crafting.CraftingInput;
 import net.minecraft.world.item.crafting.CraftingRecipe;
 import net.minecraft.world.item.crafting.RecipeHolder;
 import net.minecraft.world.item.crafting.RecipeType;
+import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.StairBlock;
+import net.minecraft.world.level.block.TrapDoorBlock;
+import net.minecraft.world.level.block.entity.SignBlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.Property;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.capabilities.Capabilities;
@@ -69,29 +83,12 @@ import java.util.UUID;
 @EventBusSubscriber(modid = "rdi")
 public final class RMcpServerNetwork {
     private static final Gson GSON = new Gson();
-    private static final String BLOCK_ACTION_FORMAT = "block-action-v1";
-    private static final String BLOCK_BATCH_ACTION_FORMAT = "block-batch-action-v1";
     private static final int BLOCK_BATCH_LIMIT = 512;
-    private static final String CRAFT_FORMAT = "craft-v2";
-    private static final String INVENTORY_FORMAT = "inventory-v1";
-    private static final String HOTBAR_SELECT_FORMAT = "hotbar-select-v1";
-    private static final String MENU_FORMAT = "menu-v1";
-    private static final String MENU_DROP_FORMAT = "menu-drop-v1";
-    private static final String CONTAINER_FORMAT = "container-v1";
-    private static final String CONTAINER_MOVE_FORMAT = "container-move-v1";
-    private static final String CONTAINER_MOVE_BATCH_FORMAT = "container-move-batch-v1";
-    private static final String CONTAINER_PUT_FORMAT = "container-put-v1";
-    private static final String CONTAINER_PUT_BATCH_FORMAT = "container-put-batch-v1";
-    private static final String CONTAINER_TAKE_FORMAT = "container-take-v1";
-    private static final String CONTAINER_TAKE_BATCH_FORMAT = "container-take-batch-v1";
     private static final int CONTAINER_BATCH_LIMIT = 64;
-    private static final String PLAYER_MOVE_FORMAT = "player-move-v1";
-    private static final String RESPAWN_FORMAT = "respawn-v1";
     private static final double PLAYER_MOVE_MAX_DISTANCE = 128.0D;
     private static final int PLAYER_MOVE_SAFE_SEARCH_RADIUS = 4;
     private static final int PLAYER_MOVE_SLOW_FALLING_TICKS = 60;
     private static final double BLOCK_ACTION_MAX_DISTANCE_SQR = 32.0D * 32.0D;
-    private static final String ITEM_PICKUP_FORMAT = "item-pickup-v1";
     private static final int ITEM_PICKUP_LIMIT = 2048;
     private static final double ITEM_PICKUP_STILL_MOTION_SQR = 1.0;
 
@@ -131,6 +128,8 @@ public final class RMcpServerNetwork {
         try {
             switch (payload.action()) {
                 case "blockentity" -> handleBlockEntity(payload, context, player);
+                case "sign-text-get" -> handleGetSignText(payload, context, player);
+                case "sign-text" -> handleSignText(payload, context, player);
                 case "harvest-tool" -> handleHarvestTool(payload, context, player);
                 case "craft" -> handleCraft(payload, context, player);
                 case "container" -> handleContainer(payload, context, player);
@@ -146,6 +145,8 @@ public final class RMcpServerNetwork {
                 case "place-block" -> handlePlaceBlock(payload, context, player);
                 case "break-block" -> handleBreakBlock(payload, context, player);
                 case "place-block-batch" -> handlePlaceBlockBatch(payload, context, player);
+                case "place-block-discrete" -> handlePlaceBlockDiscrete(payload, context, player);
+                case "place-block-palette" -> handlePlaceBlockPalette(payload, context, player);
                 case "break-block-batch" -> handleBreakBlockBatch(payload, context, player);
                 case "place-block-box" -> handlePlaceBlockBox(payload, context, player);
                 case "break-block-box" -> handleBreakBlockBox(payload, context, player);
@@ -178,6 +179,121 @@ public final class RMcpServerNetwork {
         }
         var data = RMcpServerDataCodec211.blockEntityData(dim, blockEntity, level.registryAccess());
         replyOk(context, payload, data);
+    }
+
+    private static void handleSignText(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpSignTextRequest.class);
+        if (request == null || request.pos() == null || request.text() == null || request.text().isBlank()) {
+            replyError(context, payload, RErrorCode.BAD_SIGN_TEXT);
+            return;
+        }
+        var rawLines = request.text().replace("\r", "").split("\n", -1);
+        if (rawLines.length > 4) {
+            replyError(context, payload, RErrorCode.BAD_SIGN_TEXT);
+            return;
+        }
+
+        var level = player.serverLevel();
+        var pos = new BlockPos(request.pos().x(), request.pos().y(), request.pos().z());
+        if (!level.isLoaded(pos)) {
+            replyError(context, payload, RErrorCode.CHUNK_NOT_LOADED);
+            return;
+        }
+        if (player.distanceToSqr(Vec3.atCenterOf(pos)) > BLOCK_ACTION_MAX_DISTANCE_SQR) {
+            replyError(context, payload, RErrorCode.TOO_FAR);
+            return;
+        }
+        if (!(level.getBlockEntity(pos) instanceof SignBlockEntity sign)) {
+            replyError(context, payload, level.getBlockEntity(pos) == null ? RErrorCode.NO_BLOCK_ENTITY : RErrorCode.NOT_SIGN);
+            return;
+        }
+        if (sign.isWaxed()) {
+            replyError(context, payload, RErrorCode.SIGN_WAXED);
+            return;
+        }
+
+        var side = request.side() == null || request.side().isBlank() ? "front" : request.side().trim().toLowerCase(java.util.Locale.ROOT);
+        boolean front;
+        if ("front".equals(side)) {
+            front = true;
+        } else if ("back".equals(side)) {
+            front = false;
+        } else if ("auto".equals(side)) {
+            front = sign.isFacingFrontText(player);
+            side = front ? "front" : "back";
+        } else {
+            replyError(context, payload, RErrorCode.BAD_SIGN_SIDE);
+            return;
+        }
+
+        var components = RMarkdownComponent211.parseSignLines(request.text());
+        var plainLines = new ArrayList<String>(4);
+        var text = sign.getText(front);
+        for (int i = 0; i < 4; i++) {
+            Component line = i < components.size() ? components.get(i) : Component.empty();
+            text = text.setMessage(i, line);
+            plainLines.add(line.getString());
+        }
+        if (!request.dryRun()) {
+            sign.setText(text, front);
+        }
+
+        replyOk(context, payload, new RMcpSignTextData(
+                request.dryRun(),
+                new RMcpBlockPosData(pos.getX(), pos.getY(), pos.getZ()),
+                side,
+                !request.dryRun(),
+                plainLines
+        ));
+    }
+
+    private static void handleGetSignText(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), SignTextGetRequest.class);
+        if (request == null) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        var side = request.side() == null || request.side().isBlank() ? "both" : request.side().trim().toLowerCase(java.util.Locale.ROOT);
+        if (!"front".equals(side) && !"back".equals(side) && !"both".equals(side)) {
+            replyError(context, payload, RErrorCode.BAD_SIGN_SIDE);
+            return;
+        }
+
+        var level = player.serverLevel();
+        var pos = new BlockPos(request.x(), request.y(), request.z());
+        if (!level.isLoaded(pos)) {
+            replyError(context, payload, RErrorCode.CHUNK_NOT_LOADED);
+            return;
+        }
+        if (!(level.getBlockEntity(pos) instanceof SignBlockEntity sign)) {
+            replyError(context, payload, level.getBlockEntity(pos) == null ? RErrorCode.NO_BLOCK_ENTITY : RErrorCode.NOT_SIGN);
+            return;
+        }
+
+        replyOk(context, payload, new RMcpSignTextReadData(
+                new RMcpBlockPosData(pos.getX(), pos.getY(), pos.getZ()),
+                sign.isWaxed(),
+                "back".equals(side) ? null : signTextSideData(sign.getFrontText()),
+                "front".equals(side) ? null : signTextSideData(sign.getBackText())
+        ));
+    }
+
+    private static RMcpSignTextReadData.Side signTextSideData(net.minecraft.world.level.block.entity.SignText text) {
+        var lines = new ArrayList<String>(4);
+        boolean hasText = false;
+        for (var component : text.getMessages(false)) {
+            var line = component.getString();
+            lines.add(line);
+            if (!line.isBlank()) {
+                hasText = true;
+            }
+        }
+        return new RMcpSignTextReadData.Side(
+                text.getColor().getName(),
+                text.hasGlowingText(),
+                lines,
+                hasText
+        );
     }
 
     private static void handleContainer(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
@@ -253,7 +369,6 @@ public final class RMcpServerNetwork {
         var droppedCount = request.dryRun() ? 0 : request.count();
         var changed = droppedCount > 0 || beforeSlot.count() != afterSlot.count() || !java.util.Objects.equals(beforeSlot.snbt(), afterSlot.snbt());
         replyOk(context, payload, new RMcpMenuDropData(
-                MENU_DROP_FORMAT,
                 request.dryRun(),
                 slotIndex,
                 request.count(),
@@ -295,7 +410,6 @@ public final class RMcpServerNetwork {
 
         int afterSlot = request.dryRun() ? slot : inventory.selected;
         replyOk(context, payload, new RMcpHotbarSelectData(
-                HOTBAR_SELECT_FORMAT,
                 request.dryRun(),
                 slot,
                 beforeSlot,
@@ -314,15 +428,12 @@ public final class RMcpServerNetwork {
             return;
         }
         replyOk(context, payload, new RMcpContainerMoveData(
-                CONTAINER_MOVE_FORMAT,
                 request.dryRun(),
                 request.count(),
                 result.movedCount(),
                 result.movedItem(),
                 result.from(),
-                result.to(),
-                result.fromContainer(),
-                result.toContainer()
+                result.to()
         ));
     }
 
@@ -336,10 +447,7 @@ public final class RMcpServerNetwork {
             replyError(context, payload, RErrorCode.BAD_LIMIT);
             return;
         }
-        var results = new ArrayList<RMcpContainerMoveBatchData.Result>();
-        int succeeded = 0;
-        int failed = 0;
-        int totalMoved = 0;
+        var failedMoves = new ArrayList<RMcpContainerMoveBatchData.FailedMove>();
         for (int i = 0; i < request.moves().size(); i++) {
             var move = request.moves().get(i);
             var stepRequest = move == null
@@ -351,36 +459,16 @@ public final class RMcpServerNetwork {
                     request.dryRun()
             );
             var step = runContainerMoveStep(player, stepRequest, request.dryRun());
-            if ("ok".equals(step.code())) {
-                succeeded++;
-                totalMoved += step.movedCount();
-            } else {
-                failed++;
-            }
-            results.add(new RMcpContainerMoveBatchData.Result(
-                    i,
-                    step.code(),
-                    step.requestedCount(),
-                    step.movedCount(),
-                    step.movedItem(),
-                    step.from(),
-                    step.to(),
-                    step.fromContainer(),
-                    step.toContainer()
-            ));
-            if (!"ok".equals(step.code()) && request.stopOnError()) {
-                break;
+            if (!"ok".equals(step.code())) {
+                failedMoves.add(new RMcpContainerMoveBatchData.FailedMove(i, step.code()));
+                if (request.stopOnError()) {
+                    break;
+                }
             }
         }
         replyOk(context, payload, new RMcpContainerMoveBatchData(
-                CONTAINER_MOVE_BATCH_FORMAT,
-                request.dryRun(),
-                request.stopOnError(),
-                request.moves().size(),
-                succeeded,
-                failed,
-                totalMoved,
-                results
+                "container-move",
+                failedMoves
         ));
     }
 
@@ -446,9 +534,7 @@ public final class RMcpServerNetwork {
                 plan.movedCount(),
                 slotData(-1, movedStack, movedStack.getMaxStackSize(), true, from.level().registryAccess()),
                 endpointData(from, fromSlot),
-                endpointData(to, toSlot),
-                containerData(from),
-                containerData(to)
+                endpointData(to, toSlot)
         );
     }
 
@@ -460,17 +546,12 @@ public final class RMcpServerNetwork {
             return;
         }
         replyOk(context, payload, new RMcpContainerPutData(
-                CONTAINER_PUT_FORMAT,
                 request.dryRun(),
                 step.fromInventorySlot(),
                 step.requestedCount(),
                 step.movedCount(),
                 step.movedItem(),
-                step.beforeInventorySlot(),
-                step.afterInventorySlot(),
-                step.to(),
-                step.inventory(),
-                step.container()
+                step.to()
         ));
     }
 
@@ -484,10 +565,7 @@ public final class RMcpServerNetwork {
             replyError(context, payload, RErrorCode.BAD_LIMIT);
             return;
         }
-        var results = new ArrayList<RMcpContainerPutBatchData.Result>();
-        int succeeded = 0;
-        int failed = 0;
-        int totalMoved = 0;
+        var failedMoves = new ArrayList<RMcpContainerPutBatchData.FailedMove>();
         for (int i = 0; i < request.moves().size(); i++) {
             var move = request.moves().get(i);
             var stepRequest = move == null
@@ -499,38 +577,16 @@ public final class RMcpServerNetwork {
                     request.dryRun()
             );
             var step = runContainerPutStep(player, stepRequest, request.dryRun());
-            if ("ok".equals(step.code())) {
-                succeeded++;
-                totalMoved += step.movedCount();
-            } else {
-                failed++;
-            }
-            results.add(new RMcpContainerPutBatchData.Result(
-                    i,
-                    step.code(),
-                    step.fromInventorySlot(),
-                    step.requestedCount(),
-                    step.movedCount(),
-                    step.movedItem(),
-                    step.beforeInventorySlot(),
-                    step.afterInventorySlot(),
-                    step.to(),
-                    step.inventory(),
-                    step.container()
-            ));
-            if (!"ok".equals(step.code()) && request.stopOnError()) {
-                break;
+            if (!"ok".equals(step.code())) {
+                failedMoves.add(new RMcpContainerPutBatchData.FailedMove(i, step.code()));
+                if (request.stopOnError()) {
+                    break;
+                }
             }
         }
         replyOk(context, payload, new RMcpContainerPutBatchData(
-                CONTAINER_PUT_BATCH_FORMAT,
-                request.dryRun(),
-                request.stopOnError(),
-                request.moves().size(),
-                succeeded,
-                failed,
-                totalMoved,
-                results
+                "container-put",
+                failedMoves
         ));
     }
 
@@ -575,7 +631,6 @@ public final class RMcpServerNetwork {
         }
 
         var registryAccess = player.serverLevel().registryAccess();
-        var beforeInventorySlot = inventorySlotData(inventory, fromSlot, registryAccess);
         var requestedStack = sourceStack.copyWithCount(request.count());
         var plan = insertionPlan(to.handler(), toSlot, requestedStack, null);
         if (plan.movedCount() <= 0) {
@@ -615,11 +670,7 @@ public final class RMcpServerNetwork {
                 request.count(),
                 movedCount,
                 slotData(-1, movedStack, movedStack.getMaxStackSize(), true, registryAccess),
-                beforeInventorySlot,
-                inventorySlotData(inventory, fromSlot, registryAccess),
-                endpointData(to, toSlot),
-                inventoryData(player),
-                containerData(to)
+                endpointData(to, toSlot)
         );
     }
 
@@ -631,18 +682,13 @@ public final class RMcpServerNetwork {
             return;
         }
         replyOk(context, payload, new RMcpContainerTakeData(
-                CONTAINER_TAKE_FORMAT,
                 request.dryRun(),
                 step.requestedCount(),
                 step.movedCount(),
                 step.movedItem(),
                 step.from(),
                 step.toInventorySlot(),
-                step.targetInventorySlots(),
-                step.beforeToInventorySlot(),
-                step.afterToInventorySlot(),
-                step.inventory(),
-                step.container()
+                step.targetInventorySlots()
         ));
     }
 
@@ -656,10 +702,7 @@ public final class RMcpServerNetwork {
             replyError(context, payload, RErrorCode.BAD_LIMIT);
             return;
         }
-        var results = new ArrayList<RMcpContainerTakeBatchData.Result>();
-        int succeeded = 0;
-        int failed = 0;
-        int totalMoved = 0;
+        var failedMoves = new ArrayList<RMcpContainerTakeBatchData.FailedMove>();
         for (int i = 0; i < request.moves().size(); i++) {
             var move = request.moves().get(i);
             var stepRequest = move == null
@@ -671,39 +714,16 @@ public final class RMcpServerNetwork {
                     request.dryRun()
             );
             var step = runContainerTakeStep(player, stepRequest, request.dryRun());
-            if ("ok".equals(step.code())) {
-                succeeded++;
-                totalMoved += step.movedCount();
-            } else {
-                failed++;
-            }
-            results.add(new RMcpContainerTakeBatchData.Result(
-                    i,
-                    step.code(),
-                    step.requestedCount(),
-                    step.movedCount(),
-                    step.movedItem(),
-                    step.from(),
-                    step.toInventorySlot(),
-                    step.targetInventorySlots(),
-                    step.beforeToInventorySlot(),
-                    step.afterToInventorySlot(),
-                    step.inventory(),
-                    step.container()
-            ));
-            if (!"ok".equals(step.code()) && request.stopOnError()) {
-                break;
+            if (!"ok".equals(step.code())) {
+                failedMoves.add(new RMcpContainerTakeBatchData.FailedMove(i, step.code()));
+                if (request.stopOnError()) {
+                    break;
+                }
             }
         }
         replyOk(context, payload, new RMcpContainerTakeBatchData(
-                CONTAINER_TAKE_BATCH_FORMAT,
-                request.dryRun(),
-                request.stopOnError(),
-                request.moves().size(),
-                succeeded,
-                failed,
-                totalMoved,
-                results
+                "container-take",
+                failedMoves
         ));
     }
 
@@ -749,7 +769,6 @@ public final class RMcpServerNetwork {
         }
 
         var registryAccess = player.serverLevel().registryAccess();
-        var beforeToInventorySlot = toInventorySlot == null ? null : inventorySlotData(inventory, toInventorySlot, registryAccess);
         int movedCount = plan.movedCount();
         if (!dryRun) {
             var actualExtracted = from.handler().extractItem(fromSlot, plan.movedCount(), false);
@@ -771,11 +790,7 @@ public final class RMcpServerNetwork {
                 slotData(-1, movedStack, movedStack.getMaxStackSize(), true, registryAccess),
                 endpointData(from, fromSlot),
                 toInventorySlot,
-                plan.inserts().stream().map(InsertStep::slot).toList(),
-                beforeToInventorySlot,
-                toInventorySlot == null ? null : inventorySlotData(inventory, toInventorySlot, registryAccess),
-                inventoryData(player),
-                containerData(from)
+                plan.inserts().stream().map(InsertStep::slot).toList()
         );
     }
 
@@ -821,7 +836,6 @@ public final class RMcpServerNetwork {
             applyCraftPlan(player, plan);
         }
         var data = new RMcpCraftData(
-                CRAFT_FORMAT,
                 plan.recipeId(),
                 plan.resultId(),
                 plan.requestedCount(),
@@ -890,6 +904,63 @@ public final class RMcpServerNetwork {
         replyOk(context, payload, data);
     }
 
+    private static void handlePlaceBlockDiscrete(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpPlaceDiscreteRequest.class);
+        if (request == null || request.targets() == null || request.targets().isEmpty()) {
+            replyError(context, payload, RErrorCode.BAD_POSITIONS);
+            return;
+        }
+        var block = resolvePlaceBlock(request.blockId());
+        if (block == null) {
+            replyError(context, payload, RErrorCode.BAD_BLOCK_ID);
+            return;
+        }
+        if (request.targets().size() > BLOCK_BATCH_LIMIT) {
+            replyError(context, payload, RErrorCode.TOO_MANY_BLOCKS);
+            return;
+        }
+        if (countPlaceItems(player, block) < request.targets().size()) {
+            replyError(context, payload, RErrorCode.MISSING_INGREDIENTS);
+            return;
+        }
+        var data = runPlaceDiscreteAction(player, request, block);
+        replyOk(context, payload, data);
+    }
+
+    private static void handlePlaceBlockPalette(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpPlacePaletteRequest.class);
+        if (request == null || request.palette() == null || request.palette().isEmpty()) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (request.targets() == null || request.targets().isEmpty()) {
+            replyError(context, payload, RErrorCode.BAD_POSITIONS);
+            return;
+        }
+        if (request.targets().size() > BLOCK_BATCH_LIMIT) {
+            replyError(context, payload, RErrorCode.TOO_MANY_BLOCKS);
+            return;
+        }
+        var palette = resolvePlacePalette(request.palette());
+        if (palette == null) {
+            replyError(context, payload, RErrorCode.BAD_BLOCK_ID);
+            return;
+        }
+        var required = requiredPaletteBlocks(request, palette);
+        if (required == null) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        for (var entry : required.entrySet()) {
+            if (countPlaceItems(player, entry.getKey()) < entry.getValue()) {
+                replyError(context, payload, RErrorCode.MISSING_INGREDIENTS);
+                return;
+            }
+        }
+        var data = runPlacePaletteAction(player, request, palette);
+        replyOk(context, payload, data);
+    }
+
     private static void handleBreakBlockBatch(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
         var request = GSON.fromJson(payload.json(), BlockBatchActionRequest.class);
         if (request == null || request.positions() == null || request.positions().isEmpty()) {
@@ -905,16 +976,26 @@ public final class RMcpServerNetwork {
     }
 
     private static void handlePlaceBlockBox(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
-        var request = GSON.fromJson(payload.json(), BlockBoxActionRequest.class);
-        if (request == null || request.from() == null || request.to() == null) {
+        var request = GSON.fromJson(payload.json(), RMcpPlaceBoxRequest.class);
+        if (request == null || request.startPos() == null || request.endOffset() == null) {
             replyError(context, payload, RErrorCode.BAD_BOX);
             return;
         }
-        if (boxBlockCount(request.from(), request.to()) > BLOCK_BATCH_LIMIT) {
+        var block = resolvePlaceBlock(request.blockId());
+        if (block == null) {
+            replyError(context, payload, RErrorCode.BAD_BLOCK_ID);
+            return;
+        }
+        if (offsetBoxBlockCount(request.endOffset()) > BLOCK_BATCH_LIMIT) {
             replyError(context, payload, RErrorCode.TOO_MANY_BLOCKS);
             return;
         }
-        var data = runBlockBatchAction(player, "place", expandBox(request.from(), request.to()), true);
+        var positions = expandOffsetBox(request.startPos(), request.endOffset());
+        if (countPlaceItems(player, block) < positions.size()) {
+            replyError(context, payload, RErrorCode.MISSING_INGREDIENTS);
+            return;
+        }
+        var data = runPlaceBoxAction(player, request, positions, block);
         replyOk(context, payload, data);
     }
 
@@ -954,7 +1035,7 @@ public final class RMcpServerNetwork {
         player.teleportTo(moveTarget.x(), moveTarget.y(), moveTarget.z());
         player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, PLAYER_MOVE_SLOW_FALLING_TICKS, 0, false, true, true));
         var to = posData(player);
-        replyOk(context, payload, new RMcpPlayerMoveData(PLAYER_MOVE_FORMAT, !samePosition(from, to), from, to, distance, player.onGround()));
+        replyOk(context, payload, new RMcpPlayerMoveData(!samePosition(from, to), from, to, distance, player.onGround()));
     }
 
     private static void handleRespawn(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
@@ -963,7 +1044,6 @@ public final class RMcpServerNetwork {
         boolean wasDead = beforeHealth <= 0.0F || player.isDeadOrDying();
         if (!wasDead) {
             replyOk(context, payload, new RMcpRespawnData(
-                    RESPAWN_FORMAT,
                     false,
                     false,
                     player.server.isHardcore(),
@@ -982,7 +1062,6 @@ public final class RMcpServerNetwork {
             respawned.level().getGameRules().getRule(GameRules.RULE_SPECTATORSGENERATECHUNKS).set(false, player.server);
         }
         replyOk(context, payload, new RMcpRespawnData(
-                RESPAWN_FORMAT,
                 true,
                 true,
                 player.server.isHardcore(),
@@ -1030,7 +1109,6 @@ public final class RMcpServerNetwork {
             results.add(result);
         }
         replyOk(context, payload, new RMcpItemPickupData(
-                ITEM_PICKUP_FORMAT,
                 ids.size(),
                 pickedCount,
                 failedCount,
@@ -1125,12 +1203,7 @@ public final class RMcpServerNetwork {
     }
 
     private static RMcpBlockBatchActionData runBlockBatchAction(ServerPlayer player, String action, List<RMcpBlockPosData> positions, boolean place) {
-        var level = player.serverLevel();
-        var registryAccess = level.registryAccess();
-        var mainHandBefore = mainHandData(player, registryAccess);
-        var results = new ArrayList<RMcpBlockBatchActionData.Result>();
-        int changedCount = 0;
-        int failedCount = 0;
+        var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
         for (var posData : positions) {
             BlockActionStep step;
             if (posData == null) {
@@ -1139,25 +1212,87 @@ public final class RMcpServerNetwork {
                 var pos = blockPos(posData);
                 step = place ? placeBlockAt(player, pos, null) : breakBlockAt(player, pos);
             }
-            if (step.changed()) {
-                changedCount++;
+            if (!"ok".equals(step.code())) {
+                failedBlocks.add(step.failedBlock());
+            }
+        }
+        return new RMcpBlockBatchActionData(action, failedBlocks);
+    }
+
+    private static RMcpBlockBatchActionData runPlaceBoxAction(ServerPlayer player, RMcpPlaceBoxRequest request, List<RMcpBlockPosData> positions, Block block) {
+        var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
+        for (var posData : positions) {
+            BlockActionStep step;
+            if (posData == null) {
+                step = new BlockActionStep(null, RErrorCode.BAD_POS.id(), false, null, null);
+            } else {
+                step = placeBlockFromInventoryAt(
+                        player,
+                        blockPos(posData),
+                        block,
+                        request.state(),
+                        request.dryRun()
+                );
             }
             if (!"ok".equals(step.code())) {
-                failedCount++;
+                failedBlocks.add(step.failedBlock());
             }
-            results.add(step.batchResult());
+            if (!"ok".equals(step.code())) {
+                break;
+            }
         }
-        return new RMcpBlockBatchActionData(
-                BLOCK_BATCH_ACTION_FORMAT,
-                action,
-                positions.size(),
-                changedCount,
-                failedCount,
-                results,
-                mainHandBefore,
-                mainHandData(player, registryAccess),
-                inventoryData(player)
-        );
+        return new RMcpBlockBatchActionData("place", failedBlocks);
+    }
+
+    private static RMcpBlockBatchActionData runPlaceDiscreteAction(ServerPlayer player, RMcpPlaceDiscreteRequest request, Block block) {
+        var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
+        for (var target : request.targets()) {
+            BlockActionStep step;
+            if (target == null || target.pos() == null) {
+                step = new BlockActionStep(null, RErrorCode.BAD_POS.id(), false, null, null);
+            } else {
+                step = placeBlockFromInventoryAt(
+                        player,
+                        blockPos(target.pos()),
+                        block,
+                        target.state(),
+                        request.dryRun()
+                );
+            }
+            if (!"ok".equals(step.code())) {
+                failedBlocks.add(step.failedBlock());
+                break;
+            }
+        }
+        return new RMcpBlockBatchActionData("place", failedBlocks);
+    }
+
+    private static RMcpBlockBatchActionData runPlacePaletteAction(ServerPlayer player, RMcpPlacePaletteRequest request, Map<String, PlacePaletteEntry> palette) {
+        var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
+        for (var target : request.targets()) {
+            BlockActionStep step;
+            if (target == null || target.pos() == null || target.key() == null || target.key().isBlank()) {
+                step = new BlockActionStep(target == null ? null : target.pos(), RErrorCode.BAD_POS.id(), false, null, null);
+            } else {
+                var entry = palette.get(target.key());
+                if (entry == null) {
+                    step = new BlockActionStep(target.pos(), RErrorCode.BAD_REQUEST.id(), false, null, null);
+                } else {
+                    step = placeBlockFromInventoryAt(
+                            player,
+                            blockPos(target.pos()),
+                            entry.block(),
+                            entry.state(),
+                            request.dryRun()
+                    );
+                }
+            }
+            if (!"ok".equals(step.code())) {
+                failedBlocks.add(step.failedBlock());
+                break;
+            }
+        }
+        return new RMcpBlockBatchActionData("place", failedBlocks);
     }
 
     private static BlockActionStep placeBlockAt(ServerPlayer player, BlockPos pos, Direction face) {
@@ -1187,6 +1322,161 @@ public final class RMcpServerNetwork {
         return new BlockActionStep(blockPosData(pos), "ok", !beforeBlockId.equals(afterBlockId), beforeBlockId, afterBlockId);
     }
 
+    private static BlockActionStep placeBlockFromInventoryAt(ServerPlayer player, BlockPos pos, Block block, Map<String, String> stateOverrides, boolean dryRun) {
+        var level = player.serverLevel();
+        var check = checkBlockActionTarget(player, pos);
+        if (!"ok".equals(check)) {
+            return BlockActionStep.error(pos, check);
+        }
+        var beforeState = level.getBlockState(pos);
+        var beforeBlockId = blockId(beforeState);
+        if (!beforeState.isAir()) {
+            return new BlockActionStep(blockPosData(pos), RErrorCode.TARGET_NOT_AIR.id(), false, beforeBlockId, beforeBlockId);
+        }
+        var stack = findPlaceStack(player, block);
+        if (stack == null || !(stack.getItem() instanceof BlockItem blockItem)) {
+            return new BlockActionStep(blockPosData(pos), RErrorCode.MISSING_INGREDIENTS.id(), false, beforeBlockId, beforeBlockId);
+        }
+        var hitResult = placeHitResult(player, pos, null);
+        if (!level.mayInteract(player, hitResult.getBlockPos())) {
+            return new BlockActionStep(blockPosData(pos), RErrorCode.PROTECTED.id(), false, beforeBlockId, beforeBlockId);
+        }
+        var placeContext = new BlockPlaceContext(player, InteractionHand.MAIN_HAND, stack, hitResult);
+        var plannedState = blockItem.getBlock().getStateForPlacement(placeContext);
+        if (plannedState == null) {
+            return new BlockActionStep(blockPosData(pos), RErrorCode.PLACE_FAILED.id(), false, beforeBlockId, beforeBlockId);
+        }
+        var plannedOverride = applyWhitelistedPlaceState(plannedState, stateOverrides);
+        if (!"ok".equals(plannedOverride.code())) {
+            return new BlockActionStep(blockPosData(pos), plannedOverride.code(), false, beforeBlockId, beforeBlockId);
+        }
+        if (dryRun) {
+            var plannedBlockId = blockId(plannedOverride.state());
+            return new BlockActionStep(blockPosData(pos), "ok", !beforeBlockId.equals(plannedBlockId), beforeBlockId, plannedBlockId);
+        }
+
+        var result = blockItem.place(placeContext);
+        var placedState = level.getBlockState(pos);
+        var afterBlockId = blockId(placedState);
+        if (!result.consumesAction() || placedState.isAir()) {
+            return new BlockActionStep(blockPosData(pos), RErrorCode.PLACE_FAILED.id(), false, beforeBlockId, afterBlockId);
+        }
+        var placedOverride = applyWhitelistedPlaceState(placedState, stateOverrides);
+        if (!"ok".equals(placedOverride.code())) {
+            return new BlockActionStep(blockPosData(pos), placedOverride.code(), false, beforeBlockId, afterBlockId);
+        }
+        if (placedOverride.state() != placedState) {
+            level.setBlock(pos, placedOverride.state(), 3);
+            afterBlockId = blockId(level.getBlockState(pos));
+        }
+        player.getInventory().setChanged();
+        player.inventoryMenu.broadcastChanges();
+        player.containerMenu.broadcastChanges();
+        return new BlockActionStep(blockPosData(pos), "ok", !beforeBlockId.equals(afterBlockId), beforeBlockId, afterBlockId);
+    }
+
+    private static Block resolvePlaceBlock(String blockId) {
+        if (blockId == null || blockId.isBlank()) {
+            return null;
+        }
+        var id = ResourceLocation.tryParse(blockId.trim());
+        if (id == null || !BuiltInRegistries.BLOCK.containsKey(id)) {
+            return null;
+        }
+        return BuiltInRegistries.BLOCK.get(id);
+    }
+
+    private static Map<String, PlacePaletteEntry> resolvePlacePalette(Map<String, RMcpPlacePaletteRequest.Entry> requestPalette) {
+        var resolved = new LinkedHashMap<String, PlacePaletteEntry>();
+        for (var entry : requestPalette.entrySet()) {
+            var key = entry.getKey();
+            var value = entry.getValue();
+            if (key == null || key.isBlank() || value == null) {
+                return null;
+            }
+            var block = resolvePlaceBlock(value.blockId());
+            if (block == null) {
+                return null;
+            }
+            resolved.put(key, new PlacePaletteEntry(block, value.state()));
+        }
+        return resolved;
+    }
+
+    private static Map<Block, Integer> requiredPaletteBlocks(RMcpPlacePaletteRequest request, Map<String, PlacePaletteEntry> palette) {
+        var required = new LinkedHashMap<Block, Integer>();
+        for (var target : request.targets()) {
+            if (target == null || target.pos() == null || target.key() == null || target.key().isBlank()) {
+                return null;
+            }
+            var entry = palette.get(target.key());
+            if (entry == null) {
+                return null;
+            }
+            required.merge(entry.block(), 1, Integer::sum);
+        }
+        return required;
+    }
+
+    private static int countPlaceItems(ServerPlayer player, Block block) {
+        int count = 0;
+        var items = player.getInventory().items;
+        for (var stack : items) {
+            if (stack == null || stack.isEmpty() || !(stack.getItem() instanceof BlockItem blockItem) || blockItem.getBlock() != block) {
+                continue;
+            }
+            count += stack.getCount();
+        }
+        return count;
+    }
+
+    private static ItemStack findPlaceStack(ServerPlayer player, Block block) {
+        var items = player.getInventory().items;
+        for (var stack : items) {
+            if (stack == null || stack.isEmpty() || !(stack.getItem() instanceof BlockItem blockItem) || blockItem.getBlock() != block) {
+                continue;
+            }
+            return stack;
+        }
+        return null;
+    }
+
+    private static PlaceStateOverride applyWhitelistedPlaceState(BlockState state, Map<String, String> overrides) {
+        if (overrides == null || overrides.isEmpty()) {
+            return new PlaceStateOverride("ok", state);
+        }
+        var next = state;
+        for (var entry : overrides.entrySet()) {
+            var name = entry.getKey();
+            var value = entry.getValue();
+            if (name == null || value == null || !isWhitelistedPlaceState(next, name)) {
+                return new PlaceStateOverride(RErrorCode.BAD_BLOCK_STATE.id(), state);
+            }
+            var property = next.getBlock().getStateDefinition().getProperty(name);
+            if (property == null) {
+                return new PlaceStateOverride(RErrorCode.BAD_BLOCK_STATE.id(), state);
+            }
+            var changed = setPropertyValue(next, property, value);
+            if (changed == null) {
+                return new PlaceStateOverride(RErrorCode.BAD_BLOCK_STATE.id(), state);
+            }
+            next = changed;
+        }
+        return new PlaceStateOverride("ok", next);
+    }
+
+    private static boolean isWhitelistedPlaceState(BlockState state, String propertyName) {
+        return switch (propertyName) {
+            case "axis", "facing", "open", "rotation" -> true;
+            case "half" -> state.getBlock() instanceof StairBlock || state.getBlock() instanceof TrapDoorBlock;
+            default -> false;
+        };
+    }
+
+    private static <T extends Comparable<T>> BlockState setPropertyValue(BlockState state, Property<T> property, String rawValue) {
+        return property.getValue(rawValue).map(value -> state.setValue(property, value)).orElse(null);
+    }
+
     private static BlockActionStep breakBlockAt(ServerPlayer player, BlockPos pos) {
         var level = player.serverLevel();
         var check = checkBlockActionTarget(player, pos);
@@ -1210,7 +1500,6 @@ public final class RMcpServerNetwork {
 
     private static RMcpBlockActionData blockActionData(String action, BlockActionStep step, RMcpInventoryData.Item mainHandBefore, ServerPlayer player, HolderLookup.Provider registryAccess) {
         return new RMcpBlockActionData(
-                BLOCK_ACTION_FORMAT,
                 action,
                 step.changed(),
                 step.pos(),
@@ -1240,10 +1529,24 @@ public final class RMcpServerNetwork {
         return positions;
     }
 
+    private static ArrayList<RMcpBlockPosData> expandOffsetBox(RMcpBlockPosData startPos, RMcpBlockPosData endOffset) {
+        return expandBox(startPos, new RMcpBlockPosData(
+                startPos.x() + endOffset.x(),
+                startPos.y() + endOffset.y(),
+                startPos.z() + endOffset.z()
+        ));
+    }
+
     private static long boxBlockCount(RMcpBlockPosData from, RMcpBlockPosData to) {
         return (long) (Math.abs(from.x() - to.x()) + 1)
                 * (Math.abs(from.y() - to.y()) + 1)
                 * (Math.abs(from.z() - to.z()) + 1);
+    }
+
+    private static long offsetBoxBlockCount(RMcpBlockPosData endOffset) {
+        return (long) (Math.abs(endOffset.x()) + 1)
+                * (Math.abs(endOffset.y()) + 1)
+                * (Math.abs(endOffset.z()) + 1);
     }
 
     private static BlockPos blockPos(RMcpBlockPosData pos) {
@@ -1517,7 +1820,6 @@ public final class RMcpServerNetwork {
             }
         }
         return new RMcpContainerData(
-                CONTAINER_FORMAT,
                 container.level().dimension().location().toString(),
                 new RMcpBlockPosData(container.pos().getX(), container.pos().getY(), container.pos().getZ()),
                 sideName(container.side()),
@@ -1534,7 +1836,6 @@ public final class RMcpServerNetwork {
             slots.add(menuSlotData(player, slot, registryAccess));
         }
         return new RMcpMenuData(
-                MENU_FORMAT,
                 player.serverLevel().dimension().location().toString(),
                 menu.containerId,
                 menu.getClass().getName(),
@@ -1703,7 +2004,6 @@ public final class RMcpServerNetwork {
         var inventory = player.getInventory();
         var registryAccess = player.serverLevel().registryAccess();
         return new RMcpInventoryData(
-                INVENTORY_FORMAT,
                 player.serverLevel().dimension().location().toString(),
                 inventory.selected,
                 compactItem("hotbar", inventory.selected, inventory.selected, inventory.getSelected(), registryAccess),
@@ -1952,6 +2252,9 @@ public final class RMcpServerNetwork {
     private record BlockEntityRequest(String dim, int x, int y, int z) {
     }
 
+    private record SignTextGetRequest(int x, int y, int z, String side) {
+    }
+
     private record HarvestToolRequest(String blockId, String dim, Integer x, Integer y, Integer z) {
     }
 
@@ -1992,9 +2295,15 @@ public final class RMcpServerNetwork {
             return new BlockActionStep(blockPosData(pos), code, false, null, null);
         }
 
-        private RMcpBlockBatchActionData.Result batchResult() {
-            return new RMcpBlockBatchActionData.Result(pos, code, changed, beforeBlockId, afterBlockId);
+        private RMcpBlockBatchActionData.FailedBlock failedBlock() {
+            return new RMcpBlockBatchActionData.FailedBlock(pos, code);
         }
+    }
+
+    private record PlaceStateOverride(String code, BlockState state) {
+    }
+
+    private record PlacePaletteEntry(Block block, Map<String, String> state) {
     }
 
     private record ContainerRequest(String pos, String side) {
@@ -2024,12 +2333,10 @@ public final class RMcpServerNetwork {
             int movedCount,
             RMcpContainerData.Slot movedItem,
             RMcpContainerMoveData.Endpoint from,
-            RMcpContainerMoveData.Endpoint to,
-            RMcpContainerData fromContainer,
-            RMcpContainerData toContainer
+            RMcpContainerMoveData.Endpoint to
     ) {
         private static ContainerMoveStepResult error(String code, int requestedCount) {
-            return new ContainerMoveStepResult(code, requestedCount, 0, null, null, null, null, null);
+            return new ContainerMoveStepResult(code, requestedCount, 0, null, null, null);
         }
 
         private static ContainerMoveStepResult error(String code, int requestedCount, ContainerResolve from, int fromSlot, ContainerResolve to, Integer toSlot) {
@@ -2039,9 +2346,7 @@ public final class RMcpServerNetwork {
                     0,
                     null,
                     endpointData(from, fromSlot),
-                    endpointData(to, toSlot),
-                    containerData(from),
-                    containerData(to)
+                    endpointData(to, toSlot)
             );
         }
     }
@@ -2052,11 +2357,7 @@ public final class RMcpServerNetwork {
             int requestedCount,
             int movedCount,
             RMcpContainerData.Slot movedItem,
-            RMcpInventoryData.Item beforeInventorySlot,
-            RMcpInventoryData.Item afterInventorySlot,
-            RMcpContainerMoveData.Endpoint to,
-            RMcpInventoryData inventory,
-            RMcpContainerData container
+            RMcpContainerMoveData.Endpoint to
     ) {
         private static ContainerPutStepResult error(String code, ContainerPutRequest request) {
             return new ContainerPutStepResult(
@@ -2064,10 +2365,6 @@ public final class RMcpServerNetwork {
                     request == null || request.fromInventorySlot() == null ? -1 : request.fromInventorySlot(),
                     request == null ? 0 : request.count(),
                     0,
-                    null,
-                    null,
-                    null,
-                    null,
                     null,
                     null
             );
@@ -2081,11 +2378,7 @@ public final class RMcpServerNetwork {
             RMcpContainerData.Slot movedItem,
             RMcpContainerMoveData.Endpoint from,
             Integer toInventorySlot,
-            List<Integer> targetInventorySlots,
-            RMcpInventoryData.Item beforeToInventorySlot,
-            RMcpInventoryData.Item afterToInventorySlot,
-            RMcpInventoryData inventory,
-            RMcpContainerData container
+            List<Integer> targetInventorySlots
     ) {
         private static ContainerTakeStepResult error(String code, ContainerTakeRequest request) {
             return new ContainerTakeStepResult(
@@ -2095,11 +2388,7 @@ public final class RMcpServerNetwork {
                     null,
                     null,
                     request == null ? null : request.toInventorySlot(),
-                    List.of(),
-                    null,
-                    null,
-                    null,
-                    null
+                    List.of()
             );
         }
     }

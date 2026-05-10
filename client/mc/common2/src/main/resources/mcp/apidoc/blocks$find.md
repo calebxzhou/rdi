@@ -64,7 +64,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "blocks-find-v1",
     "dim": "minecraft:overworld",
     "center": {
       "block": {"x": 10, "y": 64, "z": -20},

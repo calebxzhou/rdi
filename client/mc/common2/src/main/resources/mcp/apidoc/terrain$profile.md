@@ -25,7 +25,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "terrain-profile-v1",
     "dim": "minecraft:overworld",
     "axis": "x",
     "center": {"x": 10, "y": 64, "z": -20},

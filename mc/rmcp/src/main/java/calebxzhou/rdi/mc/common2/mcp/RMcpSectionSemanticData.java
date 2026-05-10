@@ -4,7 +4,6 @@ import java.util.List;
 import java.util.Map;
 
 public record RMcpSectionSemanticData(
-        String format,
         String dim,
         ChunkPos chunk,
         int sectionY,

@@ -10,7 +10,6 @@ Returns:
 {
   "code": "ok",
   "data": {
-    "format": "situation-v1",
     "player": {},
     "environment": {
       "dim": "minecraft:overworld",

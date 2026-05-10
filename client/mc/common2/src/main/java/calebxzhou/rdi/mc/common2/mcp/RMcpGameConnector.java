@@ -16,6 +16,12 @@ public interface RMcpGameConnector {
 
     RMcpModData modData(String id);
 
+    RQuestChapterList questChapterList();
+
+    RQuestChapter questChapter(String id);
+
+    RReachableQuestList reachableQuests();
+
     RMcpPosData posData();
 
     RMcpInventoryData inventoryData();
@@ -42,6 +48,10 @@ public interface RMcpGameConnector {
 
     RMcpBlockEntityData blockEntityData(String dim, int x, int y, int z);
 
+    RMcpSignTextReadData signTextData(int x, int y, int z, String side);
+
+    RMcpSignTextData setSignText(RMcpSignTextRequest request);
+
     RMcpHarvestToolData harvestToolData(String blockId, String dim, Integer x, Integer y, Integer z);
 
     RMcpContainerData containerData(String pos, String side);
@@ -64,9 +74,13 @@ public interface RMcpGameConnector {
 
     RMcpBlockBatchActionData placeBlocks(List<RMcpBlockPosData> positions);
 
+    RMcpBlockBatchActionData placeBlocksDiscrete(RMcpPlaceDiscreteRequest request);
+
+    RMcpBlockBatchActionData placeBlocksPalette(RMcpPlacePaletteRequest request);
+
     RMcpBlockBatchActionData breakBlocks(List<RMcpBlockPosData> positions);
 
-    RMcpBlockBatchActionData placeBlockBox(RMcpBlockPosData from, RMcpBlockPosData to);
+    RMcpBlockBatchActionData placeBlockBox(RMcpPlaceBoxRequest request);
 
     RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to);
 

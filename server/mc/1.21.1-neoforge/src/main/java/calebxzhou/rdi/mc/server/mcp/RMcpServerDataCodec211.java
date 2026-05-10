@@ -25,7 +25,6 @@ import java.util.List;
 import java.util.Map;
 
 public final class RMcpServerDataCodec211 {
-    private static final String HARVEST_TOOL_FORMAT = "harvest-tool-v1";
     private static final int DROP_SAMPLES = 16;
 
     private RMcpServerDataCodec211() {
@@ -76,7 +75,6 @@ public final class RMcpServerDataCodec211 {
         }
 
         return new RMcpHarvestToolData(
-                HARVEST_TOOL_FORMAT,
                 stateSource,
                 new RMcpHarvestToolData.Block(
                         resolvedBlockId,

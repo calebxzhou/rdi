@@ -23,7 +23,6 @@ Returns `RMcpBlockStateBatchData`:
 {
   "code": "ok",
   "data": {
-    "format": "blockstate-batch-v1",
     "dim": "minecraft:overworld",
     "requestedCount": 2,
     "blocks": [
