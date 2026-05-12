@@ -25,6 +25,9 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode MISSING_QUEST_CHAPTER_ID = code("missing_quest_chapter_id", "/quest/chapter/{id} did not include a chapter id.");
     public static final RErrorCode BAD_QUEST_CHAPTER_ID = code("bad_quest_chapter_id", "/quest/chapter/{id} included an invalid FTB Quests chapter hex id.");
     public static final RErrorCode NO_QUEST_CHAPTER = code("no_quest_chapter", "no FTB Quests chapter has the requested id.");
+    public static final RErrorCode MISSING_QUEST_ID = code("missing_quest_id", "/quest/detail/{id} did not include a quest id.");
+    public static final RErrorCode BAD_QUEST_ID = code("bad_quest_id", "/quest/detail/{id} included an invalid FTB Quests quest hex id.");
+    public static final RErrorCode NO_QUEST = code("no_quest", "no FTB Quests quest has the requested id.");
 
     public static final RErrorCode MISSING_APIDOC = code("missing_apidoc", "/apidoc/{file} did not include a file segment.");
     public static final RErrorCode BAD_APIDOC = code("bad_apidoc", "/apidoc/{file} included an invalid file segment.");
@@ -51,6 +54,8 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode TARGET_NOT_AIR = code("target_not_air", "/place target position is already occupied.");
     public static final RErrorCode NO_PLACE_ITEM = code("no_place_item", "the selected placement item is not a block item that can be placed.");
     public static final RErrorCode NO_PLACE_FACE = code("no_place_face", "/place could not build a valid placement hit face.");
+    public static final RErrorCode NO_USABLE_ITEM = code("no_usable_item", "the requested item is absent, empty, not in the requested slot, or not usable from the requested hand.");
+    public static final RErrorCode ITEM_USE_FAILED = code("item_use_failed", "Minecraft right-click item-on-block logic refused the action.");
     public static final RErrorCode BAD_BLOCK_STATE = code("bad_block_state", "/place state contains an unknown, unsupported, unsafe, or invalid block state property/value.");
     public static final RErrorCode PLACE_FAILED = code("place_failed", "Minecraft placement logic refused the action.");
     public static final RErrorCode BREAK_FAILED = code("break_failed", "Minecraft block breaking logic refused the action.");
@@ -70,6 +75,7 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode MISSING_IDS = code("missing_ids", "ids is missing or empty.");
     public static final RErrorCode BAD_IDS = code("bad_ids", "ids must be UUID strings and include at most 2048 entries.");
     public static final RErrorCode MISSING_ITEM_ID = code("missing_item_id", "required itemId query parameter is absent or blank.");
+    public static final RErrorCode BAD_ITEM_ID = code("bad_item_id", "itemId is not a valid loaded item ID.");
     public static final RErrorCode MISSING_CHUNK_X = code("missing_chunk_x", "required chunk x query parameter is absent or blank.");
     public static final RErrorCode MISSING_CHUNK_Z = code("missing_chunk_z", "required chunk z query parameter is absent or blank.");
     public static final RErrorCode MISSING_SECTION_Y = code("missing_section_y", "required section y query parameter is absent or blank.");
@@ -115,13 +121,14 @@ public record RErrorCode(String id, String info) {
             METHOD_NOT_ALLOWED, NOT_FOUND, INTERNAL_ERROR, BAD_REQUEST, BAD_ACTION, ACTION_FAILED, PROMPTS_NOT_FOUND, BUILDINGS_NOT_FOUND,
             BAD_BUILDING_ID, BAD_BUILDING_LAYER, UNKNOWN_BUILDING, BAD_BUILDING_SCHEMATIC,
             BAD_MOD_ID, NO_MOD, QUEST_DATA_NOT_LOADED, MISSING_QUEST_CHAPTER_ID, BAD_QUEST_CHAPTER_ID, NO_QUEST_CHAPTER,
+            MISSING_QUEST_ID, BAD_QUEST_ID, NO_QUEST,
             MISSING_APIDOC, BAD_APIDOC, UNKNOWN_APIDOC, MISSING_ERRCODE, BAD_ERRCODE, UNKNOWN_ERRCODE,
             SCREENSHOT_FAILED, SCREENSHOT_TIMEOUT, SERVER_MCP_UNAVAILABLE, SERVER_TIMEOUT,
             NO_PLAYER, DIM_NOT_LOADED, BUSY_CONTAINER_OPEN, CARRIED_ITEM_NOT_EMPTY,
             MISSING_INGREDIENTS, RESULT_FULL, CRAFT_FAILED, CRAFT_TIMEOUT,
-            TOO_FAR, NO_ITEM_HANDLER, TARGET_NOT_AIR, NO_PLACE_ITEM, NO_PLACE_FACE, BAD_BLOCK_STATE, PLACE_FAILED, BREAK_FAILED, MOVE_TARGET_BLOCKED,
+            TOO_FAR, NO_ITEM_HANDLER, TARGET_NOT_AIR, NO_PLACE_ITEM, NO_PLACE_FACE, NO_USABLE_ITEM, ITEM_USE_FAILED, BAD_BLOCK_STATE, PLACE_FAILED, BREAK_FAILED, MOVE_TARGET_BLOCKED,
             PROTECTED, TOO_MANY_BLOCKS, MISSING_POS, BAD_POS, BAD_POSITIONS, BAD_BOX, BAD_BLOCK_IDS, MISSING_BLOCK_ID,
-            BAD_BLOCK_ID, MISSING_UUID, BAD_UUID, MISSING_ITEM_ID, MISSING_CHUNK_X, MISSING_CHUNK_Z,
+            BAD_BLOCK_ID, MISSING_UUID, BAD_UUID, MISSING_ITEM_ID, BAD_ITEM_ID, MISSING_CHUNK_X, MISSING_CHUNK_Z,
             MISSING_IDS, BAD_IDS,
             MISSING_SECTION_Y, BAD_CHUNK_X, BAD_CHUNK_Z, BAD_SECTION_Y, BAD_CHUNK_RADIUS, BAD_SECTION_RADIUS,
             BAD_RADIUS, BAD_BLOCKMAP_RADIUS, BAD_AXIS, BAD_TERRAIN_LENGTH, BAD_VERTICAL_RADIUS, BAD_LIMIT, BAD_SLOT, BAD_SIDE, SAME_SLOT, UNSUPPORTED_MERGE_RISK, BAD_COUNT,

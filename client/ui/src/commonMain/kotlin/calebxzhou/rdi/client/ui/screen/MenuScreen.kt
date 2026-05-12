@@ -27,6 +27,7 @@ import calebxzhou.rdi.common.util.periodOfDay
 import org.bson.types.ObjectId
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
+import kotlin.system.exitProcess
 
 /**
  * calebxzhou @ 2026-02-25 17:51
@@ -318,19 +319,19 @@ private fun MenuAccountSummary(
 
     if (showJava25WarnDialog) {
         AlertDialog(
-            onDismissRequest = { showJava25WarnDialog = false },
+            onDismissRequest = { showJava25WarnDialog = true },
             title = { Text("需要更新Java和启动脚本") },
             text = {
                 Text(
-                    "请在${remainingDays}天内进行以下操作：\n" +
+                    "请立刻进行以下操作：\n" +
                         "1.安装Java25（群文件有）\n" +
-                        "2.更换新的启动脚本 并删除重新创建RDI桌面快捷方式\n\n" +
-                        "超过时限后客户端将永远无法启动，详见群文档H2章节。"
+                        "2.更换新的启动脚本(双击启动.ps1) 并删除+重新创建RDI桌面快捷方式\n\n" +
+                        "详见群文档H2章节。"
                 )
             },
             confirmButton = {
-                TextButton(onClick = { showJava25WarnDialog = false }) {
-                    Text("我知道了")
+                TextButton(onClick = { exitProcess(0) }) {
+                    Text("现在去安装")
                 }
             }
         )

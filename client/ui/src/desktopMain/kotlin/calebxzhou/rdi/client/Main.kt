@@ -11,6 +11,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.decodeToImageBitmap
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -99,7 +103,10 @@ fun main() {
             },
             title = "RDI ${Const.VERSION_NUMBER}",
             icon = windowIcon,
-            state = windowState
+            state = windowState,
+            onPreviewKeyEvent = { event ->
+                event.type == KeyEventType.KeyDown && event.key == Key.Escape
+            }
         ) {
             MaterialTheme(typography = AppTypography) {
                 val initScreenName = System.getProperty("rdi.init.screen")?.trim()

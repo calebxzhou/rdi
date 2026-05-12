@@ -23,9 +23,9 @@ enum class McVersion(
         mapOf(
             ModLoader.neoforge to ModLoader.Version(
                 ModLoader.neoforge,
-                "neoforge-21.1.222",
-                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.222/neoforge-21.1.222-installer.jar",
-                "37bdbc0c40427b8ee59e649c4f05855523b41274"
+                "neoforge-21.1.228",
+                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.228/neoforge-21.1.228-installer.jar",
+                "1c96a584cdbbc00e99f905099352ac87c4d40926"
             )
         )
     ),
@@ -36,9 +36,9 @@ enum class McVersion(
         mapOf(
             ModLoader.forge to ModLoader.Version(
                 ModLoader.forge,
-                "1.20.1-forge-47.4.18",
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.4.18/forge-1.20.1-47.4.18-installer.jar",
-                "f415f6645fc2c28b7fde826def84e93c9375de0d"
+                "1.20.1-forge-47.4.20",
+                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.20.1-47.4.20/forge-1.20.1-47.4.20-installer.jar",
+                "237c5a17d941bfe793ff5780a4f330914d2c9f57"
             )
         )
     ),
@@ -88,13 +88,12 @@ enum class McVersion(
     V122(
         "1.12.2",
         "assets/icons/terracotta.png", 25,25,
-        //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
         mapOf(
             ModLoader.cleanroom to ModLoader.Version(
                 ModLoader.cleanroom,
-                "cleanroom-0.5.6-alpha",
-                "https://repo.cleanroommc.com/releases/com/cleanroommc/cleanroom/0.5.6-alpha/cleanroom-0.5.6-alpha-installer.jar",
-                "167dff16a41a845690f338f6cbe50e3cb0bf7cf4"
+                "cleanroom-0.5.11-alpha",
+                "https://repo.cleanroommc.com/releases/com/cleanroommc/cleanroom/0.5.11-alpha/cleanroom-0.5.11-alpha-installer.jar",
+                "d4c23d77d222e7896d6a8f6a266544119ee3e90b"
             )
         ),enabled = true
     ),

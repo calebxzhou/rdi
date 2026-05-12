@@ -3,16 +3,18 @@ import org.jetbrains.kotlin.gradle.internal.builtins.StandardNames.FqNames.targe
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-val ktorVersion = "3.3.3"
+val ktorVersion = "3.4.2"
 
 plugins {
-    kotlin("jvm") version "2.2.21"
+    kotlin("jvm") version "2.3.20"
+    kotlin("plugin.serialization") version "2.3.20" apply false
     id("com.gradleup.shadow") version "9.2.0"
 }
 
 group = "calebxzhou.rdi"
 
 repositories {
+    mavenLocal()
     mavenCentral()
 }
 
@@ -27,9 +29,9 @@ dependencies {
     implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
 
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-    implementation("ch.qos.logback:logback-classic:1.5.18")
+    implementation("ch.qos.logback:logback-classic:1.5.32")
     implementation("io.github.oshai:kotlin-logging-jvm:7.0.13")
-    implementation("io.netty:netty-all:4.2.5.Final")
+    implementation("io.netty:netty-all:4.2.13.Final")
 }
 
 tasks.named<Jar>("jar") {

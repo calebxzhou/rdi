@@ -39,6 +39,10 @@ repositories {
             includeGroup "maven.modrinth"
         }
     }
+    maven {
+        name = "Jared"
+        url = "https://maven.blamejared.com"
+    }
 }
 
 base {
@@ -61,6 +65,7 @@ jar {
     dependsOn project(":c-mc-common2").tasks.named("classes")
     from(project(":c-mc-common").sourceSets.main.output.classesDirs)
     from(project(":c-mc-common2").sourceSets.main.output.classesDirs)
+    from(project(":c-mc-common2").sourceSets.main.output.resourcesDir)
     from({
         configurations.shaded.collect { it.isDirectory() ? it : zipTree(it) }
     }) {
@@ -170,6 +175,7 @@ sourceSets.named('main') {
     // Make common assets visible in IDE dev runs (textures, lang, etc.)
     // without merging common Java packages into this module.
     resources.srcDir project(':c-mc-common').file('src/main/resources')
+    resources.srcDir project(':c-mc-common2').file('src/main/resources')
 }
 
 neoForge.ideSyncTask(tasks.named('generateModMetadata'))
@@ -180,6 +186,7 @@ dependencies {
     implementation project(':c-mc-common2')
     additionalRuntimeClasspath project(':c-mc-common2')
     additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
+    compileOnly "mezz.jei:jei-1.21.1-neoforge-api:19.21.2.313"
     shaded('io.fusionauth:java-http:1.4.0') {
         transitive = false
     }

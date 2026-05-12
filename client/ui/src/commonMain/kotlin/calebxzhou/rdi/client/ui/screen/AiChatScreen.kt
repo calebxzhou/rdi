@@ -74,6 +74,7 @@ import calebxzhou.rdi.client.ui.comp.PlatformVerticalScrollbar
 import calebxzhou.rdi.client.ui.copyToClipboard
 import calebxzhou.rdi.client.ui.loadResourceStream
 import calebxzhou.rdi.common.DEBUG
+import calebxzhou.rdi.common.DIR
 import calebxzhou.rdi.common.service.OpenaiChatEvent
 import calebxzhou.rdi.common.service.OpenaiChatMessage
 import calebxzhou.rdi.common.service.OpenaiService
@@ -95,6 +96,7 @@ private data class AiChatBubble(
     val contextCompressed: Boolean = false,
     val reasoningContent: String = "",
     val expandedReasoningIndexes: Set<Int> = emptySet(),
+    val expandedToolIndexes: Set<Int> = emptySet(),
     val reasoningSegments: List<AiReasoningSegment> = emptyList(),
     val toolStatuses: List<AiToolStatus> = emptyList(),
     val promptTokens: Int? = null,
@@ -117,7 +119,12 @@ private data class AiReasoningSegment(
 private data class AiToolStatus(
     val action: String,
     val target: String,
-    val contentOffset: Int = -1
+    val contentOffset: Int = -1,
+    val method: String = "",
+    val path: String = "",
+    val payload: String = "",
+    val response: String = "",
+    val status: Int? = null
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -137,6 +144,7 @@ fun AiChatScreen(
     var sending by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var responseJob by remember { mutableStateOf<Job?>(null) }
+    var activeResponseStartedAt by remember { mutableStateOf<Long?>(null) }
     var saveJob by remember { mutableStateOf<Job?>(null) }
     var activeRecordId by remember { mutableStateOf(chatId) }
     var activeCreatedAt by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -269,8 +277,73 @@ fun AiChatScreen(
         }
     }
 
+    fun saveCurrentChatImmediately(reportFailure: Boolean = true) {
+        if (messages.isEmpty()) return
+        val id = ensureActiveRecordId()
+        AiChatHistoryService.saveRecord(buildCurrentRecord(id, System.currentTimeMillis()))
+            .onFailure {
+                if (reportFailure) {
+                    errorMessage = "保存聊天记录失败: ${it.message ?: "未知错误"}"
+                } else {
+                    it.printStackTrace()
+                }
+            }
+    }
+
+    fun rememberInterruptedAssistantResponse(assistantIndex: Int, expectedStartedAtMillis: Long? = null): Boolean {
+        val current = messages.getOrNull(assistantIndex) ?: return false
+        if (current.role != "assistant" || current.contextMessageCount > 0) return false
+        if (expectedStartedAtMillis != null && current.startedAtMillis != expectedStartedAtMillis) return false
+        if (current.content.isBlank() && current.toolStatuses.isEmpty()) return false
+        contextMessages += current.toInterruptedContextMessage()
+        messages[assistantIndex] = current.copy(
+            contextMessageCount = 1,
+            contextCompressed = true,
+            finishedAtMillis = current.finishedAtMillis ?: System.currentTimeMillis()
+        )
+        return true
+    }
+
+    fun interruptActiveAssistantResponse(): Boolean {
+        val assistantIndex = messages.indexOfLast { message ->
+            message.role == "assistant" &&
+                    message.contextMessageCount == 0 &&
+                    message.finishedAtMillis == null
+        }
+        return assistantIndex >= 0 && rememberInterruptedAssistantResponse(assistantIndex)
+    }
+
+    fun discardEmptyActiveAssistantResponse(): Boolean {
+        val assistantIndex = messages.indexOfLast { message ->
+            message.role == "assistant" &&
+                    message.contextMessageCount == 0 &&
+                    message.finishedAtMillis == null
+        }
+        val current = messages.getOrNull(assistantIndex) ?: return false
+        if (current.content.isNotBlank() || current.toolStatuses.isNotEmpty()) return false
+        messages.removeAt(assistantIndex)
+        return true
+    }
+
+    fun settleActiveAssistantResponse(): Boolean {
+        return interruptActiveAssistantResponse() || discardEmptyActiveAssistantResponse()
+    }
+
     fun loadChatRecord(record: AiChatRecord) {
+        if (messages.isNotEmpty()) {
+            settleActiveAssistantResponse()
+            responseJob?.cancel()
+            activeResponseStartedAt = null
+            saveJob?.cancel()
+            saveCurrentChatImmediately()
+            if (record.id == activeRecordId) {
+                sending = false
+                errorMessage = null
+                return
+            }
+        }
         responseJob?.cancel()
+        activeResponseStartedAt = null
         saveJob?.cancel()
         sending = false
         errorMessage = null
@@ -308,20 +381,29 @@ fun AiChatScreen(
         }
     }
 
-    fun rememberInterruptedAssistantResponse(assistantIndex: Int) {
-        val current = messages.getOrNull(assistantIndex) ?: return
-        if (current.role != "assistant" || current.contextMessageCount > 0 || current.content.isBlank()) return
-        contextMessages += current.toInterruptedContextMessage()
-        messages[assistantIndex] = current.copy(
-            contextMessageCount = 1,
-            contextCompressed = true
-        )
+    fun discardCurrentChat() {
+        responseJob?.cancel()
+        activeResponseStartedAt = null
+        responseJob = null
+        saveJob?.cancel()
+        saveJob = null
+        sending = false
+        errorMessage = null
+        activeRecordId = null
+        activeCreatedAt = System.currentTimeMillis()
+        effectiveMcpPort = mcpPort
+        effectiveVersionDir = versionDir
+        messages.clear()
+        contextMessages.clear()
+        contextWasCompressed = false
     }
 
     fun startAssistantResponse(assistantIndex: Int, requestMessages: List<OpenaiChatMessage>) {
         sending = true
+        val responseStartedAt = System.currentTimeMillis()
+        activeResponseStartedAt = responseStartedAt
         messages[assistantIndex] = messages[assistantIndex].copy(
-            startedAtMillis = System.currentTimeMillis(),
+            startedAtMillis = responseStartedAt,
             finishedAtMillis = null,
             promptTokens = null,
             completionTokens = null,
@@ -330,7 +412,9 @@ fun AiChatScreen(
             contextCompressed = false,
             reasoningContent = "",
             expandedReasoningIndexes = emptySet(),
+            expandedToolIndexes = emptySet(),
             reasoningSegments = emptyList(),
+            toolStatuses = emptyList(),
             reasoningFinishedAtMillis = null,
             receivedChars = 0
         )
@@ -346,6 +430,7 @@ fun AiChatScreen(
                     versionDir = effectiveVersionDir
                 ).collect { event ->
                     val current = messages.getOrNull(assistantIndex) ?: return@collect
+                    if (current.startedAtMillis != responseStartedAt || activeResponseStartedAt != responseStartedAt) return@collect
                     when (event) {
                         is OpenaiChatEvent.Delta -> {
                             val reasoningFinishedAt = current.reasoningFinishedAtMillis
@@ -383,8 +468,14 @@ fun AiChatScreen(
 
                         is OpenaiChatEvent.ToolAccess -> {
                             messages[assistantIndex] = current.copy(
-                                toolStatuses = (current.toolStatuses +
-                                        AiToolStatus(event.action, event.target, current.content.length)).distinct()
+                                toolStatuses = current.toolStatuses +
+                                        AiToolStatus(event.action, event.target, current.content.length)
+                            )
+                        }
+
+                        is OpenaiChatEvent.ToolResult -> {
+                            messages[assistantIndex] = current.copy(
+                                toolStatuses = current.toolStatuses.withToolResult(event, current.content.length)
                             )
                         }
 
@@ -413,27 +504,40 @@ fun AiChatScreen(
                     saveCurrentChat()
                 }
             } catch (_: CancellationException) {
-                rememberInterruptedAssistantResponse(assistantIndex)
+                rememberInterruptedAssistantResponse(assistantIndex, responseStartedAt)
             } catch (err: Throwable) {
                 failed = true
-                errorMessage = err.message ?: "AI聊天失败"
-                if (assistantIndex in messages.indices) {
-                    messages.removeAt(assistantIndex)
+                if (activeResponseStartedAt == responseStartedAt) {
+                    errorMessage = err.message ?: "AI聊天失败"
+                    if (assistantIndex in messages.indices && messages[assistantIndex].startedAtMillis == responseStartedAt) {
+                        messages.removeAt(assistantIndex)
+                    }
                 }
             }
-            if (!failed && assistantIndex in messages.indices) {
+            val stillActiveResponse = activeResponseStartedAt == responseStartedAt
+            if (!failed && stillActiveResponse && assistantIndex in messages.indices && messages[assistantIndex].startedAtMillis == responseStartedAt) {
                 messages[assistantIndex] = messages[assistantIndex].copy(
                     finishedAtMillis = System.currentTimeMillis()
                 )
             }
-            sending = false
-            responseJob = null
-            saveCurrentChat(debounce = false)
+            if (stillActiveResponse) {
+                sending = false
+                responseJob = null
+                activeResponseStartedAt = null
+                saveCurrentChat(debounce = false)
+            }
         }
     }
 
     fun stopAssistantResponse() {
+        val changed = settleActiveAssistantResponse()
         responseJob?.cancel()
+        activeResponseStartedAt = null
+        sending = false
+        responseJob = null
+        if (changed) {
+            saveCurrentChat(debounce = false)
+        }
     }
 
     fun regenerateAssistant(assistantIndex: Int) {
@@ -495,12 +599,12 @@ fun AiChatScreen(
 
     DisposableEffect(Unit) {
         onDispose {
+            settleActiveAssistantResponse()
             responseJob?.cancel()
+            activeResponseStartedAt = null
             saveJob?.cancel()
             if (messages.isNotEmpty()) {
-                val id = ensureActiveRecordId()
-                AiChatHistoryService.saveRecord(buildCurrentRecord(id, System.currentTimeMillis()))
-                    .onFailure { it.printStackTrace() }
+                saveCurrentChatImmediately(reportFailure = false)
             }
         }
     }
@@ -542,7 +646,7 @@ fun AiChatScreen(
                     withContext(Dispatchers.IO) {
                         AiChatHistoryService.deleteRecord(summary.id)
                     }.onSuccess {
-                        if (summary.id == activeRecordId) activeRecordId = null
+                        if (summary.id == activeRecordId) discardCurrentChat()
                         refreshHistoryRecords()
                     }.onFailure {
                         errorMessage = "删除聊天记录失败: ${it.message ?: "未知错误"}"
@@ -618,6 +722,17 @@ fun AiChatScreen(
                                     active = sending && index == messages.lastIndex,
                                     onCopy = { copyToClipboard(messages[index].content) },
                                     onRegenerate = { regenerateAssistant(index) },
+                                    onToggleTool = { toolIndex ->
+                                        val message = messages[index]
+                                        val expanded = message.expandedToolIndexes
+                                        messages[index] = message.copy(
+                                            expandedToolIndexes = if (toolIndex in expanded) {
+                                                expanded - toolIndex
+                                            } else {
+                                                expanded + toolIndex
+                                            }
+                                        )
+                                    },
                                     onToggleReasoning = { reasoningIndex ->
                                         val message = messages[index]
                                         val expanded = message.expandedReasoningIndexes
@@ -878,6 +993,7 @@ private fun AiChatBubbleView(
     active: Boolean,
     onCopy: () -> Unit,
     onRegenerate: () -> Unit,
+    onToggleTool: (Int) -> Unit,
     onToggleReasoning: (Int) -> Unit
 ) {
     val isUser = message.role == "user"
@@ -913,6 +1029,7 @@ private fun AiChatBubbleView(
                     AiAssistantContentWithTools(
                         message = message,
                         active = active,
+                        onToggleTool = onToggleTool,
                         onToggleReasoning = onToggleReasoning
                     )
                 }
@@ -937,6 +1054,7 @@ private fun AiChatBubbleView(
 private fun AiAssistantContentWithTools(
     message: AiChatBubble,
     active: Boolean,
+    onToggleTool: (Int) -> Unit,
     onToggleReasoning: (Int) -> Unit
 ) {
     val content = message.content
@@ -946,7 +1064,10 @@ private fun AiAssistantContentWithTools(
             (segment.contentOffset.takeIf { offset -> offset >= 0 } ?: content.length).coerceIn(0, content.length)
         }
     val statusesByOffset = message.toolStatuses
-        .groupBy { (it.contentOffset.takeIf { offset -> offset >= 0 } ?: content.length).coerceIn(0, content.length) }
+        .withIndex()
+        .groupBy { (_, status) ->
+            (status.contentOffset.takeIf { offset -> offset >= 0 } ?: content.length).coerceIn(0, content.length)
+        }
     val offsets = (reasoningSegmentsByOffset.keys + statusesByOffset.keys)
         .toSortedSet()
     if (content.isBlank() && offsets.isEmpty()) {
@@ -970,7 +1091,12 @@ private fun AiAssistantContentWithTools(
         }
         val statuses = statusesByOffset[offset]
         if (!statuses.isNullOrEmpty()) {
-            AiToolStatusRows(statuses, active)
+            AiToolStatusRows(
+                statuses = statuses,
+                active = active,
+                expandedToolIndexes = message.expandedToolIndexes,
+                onToggleTool = onToggleTool
+            )
             Spacer(modifier = Modifier.height(6.dp))
         }
         start = offset
@@ -982,29 +1108,78 @@ private fun AiAssistantContentWithTools(
 
 @Composable
 private fun AiToolStatusRows(
-    statuses: List<AiToolStatus>,
-    active: Boolean
+    statuses: List<IndexedValue<AiToolStatus>>,
+    active: Boolean,
+    expandedToolIndexes: Set<Int>,
+    onToggleTool: (Int) -> Unit
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        statuses.forEach { status ->
-            val target = if (
-                !DEBUG &&
-                (status.target.contains("localhost") ||
-                        status.target.contains("127.0.0.1") ||
-                        status.target.contains("[::1]"))
-            ) "R-MCP" else status.target
+        statuses.forEach { indexedStatus ->
+            val status = indexedStatus.value
+            val expanded = indexedStatus.index in expandedToolIndexes
+            AiToolStatusCard(
+                status = status,
+                active = active,
+                expanded = expanded,
+                onToggle = { onToggleTool(indexedStatus.index) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun AiToolStatusCard(
+    status: AiToolStatus,
+    active: Boolean,
+    expanded: Boolean,
+    onToggle: () -> Unit
+) {
+    val hasDetail = status.method.isNotBlank() && status.path.isNotBlank()
+    val target = if (hasDetail) "R-MCP" else status.visibleTarget()
+    val statusPrefix = if (active && !hasDetail) "正在${status.action}" else "已${status.action}"
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(MaterialColor.BLUE_50.color, RoundedCornerShape(8.dp))
+            .padding(10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = hasDetail, onClick = onToggle),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Text(
-                text = "${if (active) "正在${status.action}" else "已${status.action}"}: $target",
+                text = "$statusPrefix: $target",
                 color = MaterialColor.BLUE_700.color,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialColor.BLUE_50.color, RoundedCornerShape(8.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f),
                 softWrap = true
             )
+            if (hasDetail) {
+                Text(
+                    text = (if (expanded) "\uF077" else "\uF078").asIconText,
+                    color = MaterialColor.BLUE_700.color
+                )
+            }
+        }
+        if (expanded && hasDetail) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.White, RoundedCornerShape(6.dp))
+                    .padding(10.dp)
+            ) {
+                Text(
+                    text = status.detailText(),
+                    color = MaterialColor.GRAY_900.color,
+                    style = MaterialTheme3.typography.bodyMedium.withUiFontFamily()
+                )
+            }
         }
     }
 }
@@ -1153,6 +1328,56 @@ private fun AiReasoningSegment.reasoningSeconds(): Double {
     return ((endedAt - startedAt).coerceAtLeast(0L) / 1000.0)
 }
 
+private fun List<AiToolStatus>.withToolResult(event: OpenaiChatEvent.ToolResult, contentOffset: Int): List<AiToolStatus> {
+    val detail = event.detail
+    val updatedStatus = AiToolStatus(
+        action = event.action,
+        target = event.target,
+        contentOffset = contentOffset,
+        method = detail.method,
+        path = detail.path,
+        payload = detail.payload,
+        response = detail.response,
+        status = detail.status
+    )
+    val statusIndex = indexOfLast {
+        it.action == event.action &&
+            it.target == event.target &&
+            it.method.isBlank() &&
+            it.path.isBlank()
+    }
+    if (statusIndex < 0) return this + updatedStatus
+    return toMutableList().apply {
+        this[statusIndex] = this[statusIndex].copy(
+            method = detail.method,
+            path = detail.path,
+            payload = detail.payload,
+            response = detail.response,
+            status = detail.status
+        )
+    }
+}
+
+private fun AiToolStatus.visibleTarget(): String {
+    return if (
+        !DEBUG &&
+        (target.contains("localhost") ||
+                target.contains("127.0.0.1") ||
+                target.contains("[::1]"))
+    ) "R-MCP" else target
+}
+
+private fun AiToolStatus.detailText(): String = buildString {
+    append(method.uppercase())
+    append(" ")
+    appendLine(path)
+    appendLine("payload:")
+    appendLine(payload.ifBlank { "(empty)" })
+    appendLine()
+    appendLine("response:")
+    append(response.ifBlank { "(empty)" })
+}
+
 private fun AiChatBubble.timelineReasoningSegments(): List<AiReasoningSegment> {
     return reasoningSegments.takeIf { it.isNotEmpty() }
         ?: reasoningContent.takeIf(String::isNotBlank)?.let {
@@ -1177,6 +1402,8 @@ private fun buildAiSystemPrompt(
     appendLine()
     appendLine("Current RDI runtime context:")
     appendLine("- DEBUG=$DEBUG")
+    appendLine("- The current RDI directory is: ${DIR.absolutePath}")
+    appendLine("- Local file and Java bytecode tools may inspect files inside this RDI directory. Prefer local_text_search before local_text_read; read only the needed line range.")
     if (mcpPort != null) {
         appendLine("- The current RMCP connection number/port is $mcpPort. Use localhost:$mcpPort for RMCP tool calls and do not ask the user for the port.")
     } else {
@@ -1185,7 +1412,7 @@ private fun buildAiSystemPrompt(
     val normalizedVersionDir = versionDir?.trim().takeIf { !it.isNullOrBlank() }
     if (normalizedVersionDir != null) {
         appendLine("- The current modpack versionDir is: $normalizedVersionDir")
-        appendLine("- Use local file and Java bytecode tools to inspect mods, configs, scripts, logs, and dependencies inside this versionDir when gameplay analysis needs local pack data.")
+        appendLine("- Use versionDir as the first place to inspect when gameplay analysis needs current pack data, but RDI directory access is not limited to versionDir.")
     } else {
         appendLine("- No versionDir was provided. Do not assume a local modpack directory.")
     }
@@ -1255,7 +1482,18 @@ private fun AiChatBubble.toSavedMessage(): AiChatSavedMessage {
                     it.finishedAtMillis
                 )
             },
-        toolStatuses = toolStatuses.map { AiChatSavedToolStatus(it.action, it.target, it.contentOffset) },
+        toolStatuses = toolStatuses.map {
+            AiChatSavedToolStatus(
+                action = it.action,
+                target = it.target,
+                contentOffset = it.contentOffset,
+                method = it.method,
+                path = it.path,
+                payload = it.payload,
+                response = it.response,
+                status = it.status
+            )
+        },
         promptTokens = promptTokens,
         completionTokens = completionTokens,
         billablePromptTokens = billablePromptTokens,
@@ -1284,7 +1522,18 @@ private fun AiChatSavedMessage.toBubble(): AiChatBubble {
         reasoningContent = reasoningContent,
         expandedReasoningIndexes = if (reasoningExpanded) restoredReasoningSegments.indices.toSet() else emptySet(),
         reasoningSegments = restoredReasoningSegments,
-        toolStatuses = toolStatuses.map { AiToolStatus(it.action, it.target, it.contentOffset) },
+        toolStatuses = toolStatuses.map {
+            AiToolStatus(
+                action = it.action,
+                target = it.target,
+                contentOffset = it.contentOffset,
+                method = it.method,
+                path = it.path,
+                payload = it.payload,
+                response = it.response,
+                status = it.status
+            )
+        },
         promptTokens = promptTokens,
         completionTokens = completionTokens,
         billablePromptTokens = billablePromptTokens,

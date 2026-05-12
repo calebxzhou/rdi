@@ -3,7 +3,6 @@ package calebxzhou.rdi.client.service
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.client.model.firstLoaderDir
-import calebxzhou.rdi.client.model.loaderManifest
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.Mod
@@ -20,7 +19,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import java.io.FileNotFoundException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.zip.ZipFile
@@ -139,7 +137,7 @@ class ModpackTester(
                         uiScope.launch {
                             appendLog(line)
                             if (line.contains("Error: could not open")) {
-                                appendLog("${loadedModpack.mcVersion.mcVer}-${loadedModpack.modloader.name}文件不完整，请前往mc资源界面重新下载")
+                                appendLog("${loadedModpack.mcVersion.mcVer}-${loadedModpack.modloader.name}缺少测试服务端文件，请在界面上方下载")
                             }
                             val matched = passRegex.find(line)
                             if (matched != null) {
@@ -1205,12 +1203,6 @@ private fun createClientTestBaseDir(loadedModpack: LoadedLocalModpack): File {
         skipModsDirectories = true
     )
     ModpackService.writeOptions(versionDir, loadedModpack.mcVersion)
-    try {
-        versionDir.resolve("$versionId.json")
-            .writeText(loadedModpack.mcVersion.loaderManifest.copy(id = versionId).json)
-    } catch (e: FileNotFoundException) {
-        throw IllegalStateException("没有找到${loadedModpack.mcVersion.mcVer}版本的${loadedModpack.modloader.name}，请先安装")
-    }
     return versionDir
 }
 
@@ -1227,6 +1219,7 @@ private fun prepareClientTestRunContent(
         modsDir.deleteRecursivelyNoSymlink()
     }
     modsDir.mkdirs()
+    stageSourceModDirectories(modsDir, sourceDir)
     stageSourceModFiles(modsDir, sourceDir, mods, emptySet()) {
         it.side != Mod.Side.SERVER && it.side != Mod.Side.UNKNOWN
     }
@@ -1298,6 +1291,24 @@ private fun stageSourceModFiles(
                 if (matchedMod != null && !includeMod(matchedMod)) return@forEach
                 val targetName = matchedMod?.fileName ?: source.name
                 linkOrCopyFile(source, modsDir.resolve(targetName))
+            }
+    }
+}
+
+private fun stageSourceModDirectories(
+    modsDir: File,
+    sourceDir: File
+) {
+    listOf(
+        sourceDir.resolve("mods"),
+        sourceDir.resolve("overrides").resolve("mods")
+    ).forEach { sourceModsDir ->
+        if (!sourceModsDir.exists() || !sourceModsDir.isDirectory) return@forEach
+        sourceModsDir.listFiles()
+            ?.asSequence()
+            ?.filter { it.isDirectory }
+            ?.forEach { source ->
+                copyFileOrDirectory(source, modsDir.resolve(source.name))
             }
     }
 }

@@ -16,9 +16,12 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHotbarSelectData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceBoxRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceDiscreteRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlacePaletteRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceRingRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpRespawnData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextReadData;
@@ -26,6 +29,8 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextRequest;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemDropData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemDropRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
@@ -44,6 +49,7 @@ import net.minecraft.stats.Stats;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.level.GameRules;
@@ -51,6 +57,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.inventory.ClickType;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.context.BlockPlaceContext;
 import net.minecraft.world.item.crafting.CraftingInput;
@@ -91,6 +98,7 @@ public final class RMcpServerNetwork {
     private static final double BLOCK_ACTION_MAX_DISTANCE_SQR = 32.0D * 32.0D;
     private static final int ITEM_PICKUP_LIMIT = 2048;
     private static final double ITEM_PICKUP_STILL_MOTION_SQR = 1.0;
+    private static final double ITEM_DROP_MAX_DISTANCE_SQR = 64.0D * 64.0D;
 
     private RMcpServerNetwork() {
     }
@@ -144,15 +152,18 @@ public final class RMcpServerNetwork {
                 case "container-take-batch" -> handleContainerTakeBatch(payload, context, player);
                 case "place-block" -> handlePlaceBlock(payload, context, player);
                 case "break-block" -> handleBreakBlock(payload, context, player);
+                case "item-use-on-block" -> handleItemUseOnBlock(payload, context, player);
                 case "place-block-batch" -> handlePlaceBlockBatch(payload, context, player);
                 case "place-block-discrete" -> handlePlaceBlockDiscrete(payload, context, player);
                 case "place-block-palette" -> handlePlaceBlockPalette(payload, context, player);
                 case "break-block-batch" -> handleBreakBlockBatch(payload, context, player);
                 case "place-block-box" -> handlePlaceBlockBox(payload, context, player);
+                case "place-block-ring" -> handlePlaceBlockRing(payload, context, player);
                 case "break-block-box" -> handleBreakBlockBox(payload, context, player);
                 case "move-player" -> handleMovePlayer(payload, context, player);
                 case "respawn" -> handleRespawn(payload, context, player);
                 case "pickup-item-entity" -> handlePickupItemEntity(payload, context, player);
+                case "drop-inventory-item" -> handleDropInventoryItem(payload, context, player);
                 default -> replyError(context, payload, RErrorCode.BAD_ACTION);
             }
         } catch (Exception e) {
@@ -890,6 +901,83 @@ public final class RMcpServerNetwork {
         replyOk(context, payload, data);
     }
 
+    private static void handleItemUseOnBlock(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpItemUseOnBlockRequest.class);
+        if (request == null) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        var parsedPos = parsePos(request.pos());
+        if (parsedPos == null) {
+            replyError(context, payload, RErrorCode.BAD_POS);
+            return;
+        }
+        var level = player.serverLevel();
+        var dim = level.dimension().location().toString();
+        if (!dim.equals(parsedPos.dim())) {
+            replyError(context, payload, RErrorCode.DIM_NOT_LOADED);
+            return;
+        }
+        var face = parseSide(request.face());
+        if (face == SideParse.BAD) {
+            replyError(context, payload, RErrorCode.BAD_SIDE);
+            return;
+        }
+        var hand = parseHand(request.hand());
+        if (hand == null) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        int times = request.times() == null ? 1 : request.times();
+        if (times < 1 || times > 64) {
+            replyError(context, payload, RErrorCode.BAD_COUNT);
+            return;
+        }
+        if (request.fromInventorySlot() != null && (request.fromInventorySlot() < 0 || request.fromInventorySlot() >= player.getInventory().items.size())) {
+            replyError(context, payload, RErrorCode.BAD_SLOT);
+            return;
+        }
+        var item = resolveUseItem(request.itemId());
+        if (item == UseItemResolve.BAD) {
+            replyError(context, payload, RErrorCode.BAD_ITEM_ID);
+            return;
+        }
+
+        var result = useItemOnBlock(
+                player,
+                new BlockPos(parsedPos.x(), parsedPos.y(), parsedPos.z()),
+                face.direction() == null ? Direction.UP : face.direction(),
+                item.item(),
+                request.fromInventorySlot(),
+                hand,
+                times,
+                request.dryRun()
+        );
+        if (!"ok".equals(result.code())) {
+            replyError(context, payload, result.code());
+            return;
+        }
+        replyOk(context, payload, new RMcpItemUseOnBlockData(
+                "item_use_on_block",
+                request.dryRun(),
+                result.pos(),
+                sideName(face.direction() == null ? Direction.UP : face.direction()),
+                request.itemId(),
+                result.sourceSlot(),
+                hand == InteractionHand.OFF_HAND ? "offhand" : "mainhand",
+                times,
+                result.performedTimes(),
+                result.changedBlock(),
+                result.beforeBlockId(),
+                result.afterBlockId(),
+                result.beforeBlockState(),
+                result.afterBlockState(),
+                result.itemBefore(),
+                result.itemAfter(),
+                inventoryData(player)
+        ));
+    }
+
     private static void handlePlaceBlockBatch(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
         var request = GSON.fromJson(payload.json(), BlockBatchActionRequest.class);
         if (request == null || request.positions() == null || request.positions().isEmpty()) {
@@ -999,6 +1087,30 @@ public final class RMcpServerNetwork {
         replyOk(context, payload, data);
     }
 
+    private static void handlePlaceBlockRing(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpPlaceRingRequest.class);
+        if (request == null || request.startPos() == null || request.endOffset() == null) {
+            replyError(context, payload, RErrorCode.BAD_BOX);
+            return;
+        }
+        var block = resolvePlaceBlock(request.blockId());
+        if (block == null) {
+            replyError(context, payload, RErrorCode.BAD_BLOCK_ID);
+            return;
+        }
+        if (offsetRingBlockCount(request.endOffset()) > BLOCK_BATCH_LIMIT) {
+            replyError(context, payload, RErrorCode.TOO_MANY_BLOCKS);
+            return;
+        }
+        var positions = expandOffsetRing(request.startPos(), request.endOffset());
+        if (countPlaceItems(player, block) < positions.size()) {
+            replyError(context, payload, RErrorCode.MISSING_INGREDIENTS);
+            return;
+        }
+        var data = runPlaceTargetsAction(player, positions, block, request.state(), request.dryRun());
+        replyOk(context, payload, data);
+    }
+
     private static void handleBreakBlockBox(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
         var request = GSON.fromJson(payload.json(), BlockBoxActionRequest.class);
         if (request == null || request.from() == null || request.to() == null) {
@@ -1069,6 +1181,99 @@ public final class RMcpServerNetwork {
                 respawned.getHealth(),
                 before,
                 posData(respawned)
+        ));
+    }
+
+    private static void handleDropInventoryItem(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpItemDropRequest.class);
+        if (request == null || request.from() == null || request.from().isBlank()
+                || request.count() == null || request.count() <= 0 || request.pos() == null) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        var pos = request.pos();
+        if (pos.x() == null || pos.y() == null || pos.z() == null
+                || !Double.isFinite(pos.x()) || !Double.isFinite(pos.y()) || !Double.isFinite(pos.z())) {
+            replyError(context, payload, RErrorCode.BAD_POS);
+            return;
+        }
+        int pickupDelay = request.pickupDelay() == null ? 20 : request.pickupDelay();
+        if (pickupDelay < 0 || pickupDelay > 32767) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        var level = player.serverLevel();
+        var dim = pos.dim() == null || pos.dim().isBlank() ? level.dimension().location().toString() : pos.dim().trim();
+        if (!level.dimension().location().toString().equals(dim)) {
+            replyError(context, payload, RErrorCode.DIM_NOT_LOADED);
+            return;
+        }
+        var targetBlock = BlockPos.containing(pos.x(), pos.y(), pos.z());
+        if (!level.isInWorldBounds(targetBlock)) {
+            replyError(context, payload, RErrorCode.BAD_POS);
+            return;
+        }
+        if (!level.isLoaded(targetBlock)) {
+            replyError(context, payload, RErrorCode.CHUNK_NOT_LOADED);
+            return;
+        }
+        if (player.position().distanceToSqr(pos.x(), pos.y(), pos.z()) > ITEM_DROP_MAX_DISTANCE_SQR) {
+            replyError(context, payload, RErrorCode.TOO_FAR);
+            return;
+        }
+        if (!level.mayInteract(player, targetBlock)) {
+            replyError(context, payload, RErrorCode.PROTECTED);
+            return;
+        }
+        InventorySlotRef slot;
+        try {
+            slot = parsePlayerInventorySlot(request.from());
+        } catch (Exception e) {
+            replyError(context, payload, RErrorCode.BAD_SLOT);
+            return;
+        }
+        var registryAccess = level.registryAccess();
+        var beforeItem = itemAtInventorySlot(player, slot, registryAccess);
+        var stack = stackAtInventorySlot(player, slot);
+        if (stack.isEmpty()) {
+            replyError(context, payload, RErrorCode.EMPTY_SOURCE);
+            return;
+        }
+        if (request.count() > stack.getCount()) {
+            replyError(context, payload, RErrorCode.BAD_COUNT);
+            return;
+        }
+        RMcpItemDropData.DroppedEntity droppedEntity = null;
+        if (!request.dryRun()) {
+            var droppedStack = stack.copy();
+            droppedStack.setCount(request.count());
+            stack.shrink(request.count());
+            if (stack.isEmpty()) {
+                slot.stacks(player).set(slot.index(), ItemStack.EMPTY);
+            }
+            var entity = new ItemEntity(level, pos.x(), pos.y(), pos.z(), droppedStack, 0.0D, 0.0D, 0.0D);
+            entity.setPickUpDelay(pickupDelay);
+            entity.setThrower(player);
+            level.addFreshEntity(entity);
+            player.awardStat(Stats.ITEM_DROPPED.get(droppedStack.getItem()), droppedStack.getCount());
+            player.awardStat(Stats.DROP);
+            player.getInventory().setChanged();
+            player.inventoryMenu.broadcastChanges();
+            player.containerMenu.broadcastChanges();
+            droppedEntity = droppedEntityData(entity, registryAccess);
+        }
+        var afterItem = itemAtInventorySlot(player, slot, registryAccess);
+        replyOk(context, payload, new RMcpItemDropData(
+                "ok",
+                slot.canonical(),
+                request.dryRun(),
+                !request.dryRun(),
+                request.count(),
+                request.dryRun() ? 0 : request.count(),
+                beforeItem,
+                afterItem,
+                droppedEntity,
+                inventoryData(player)
         ));
     }
 
@@ -1202,6 +1407,24 @@ public final class RMcpServerNetwork {
         return new RMcpItemPickupData.Result(id, code, picked, pickedCount, beforeItem, remainingItem, motionSqr, distance);
     }
 
+    private static RMcpItemDropData.DroppedEntity droppedEntityData(ItemEntity entity, HolderLookup.Provider registryAccess) {
+        var stack = entity.getItem();
+        return new RMcpItemDropData.DroppedEntity(
+                entity.getUUID().toString(),
+                itemId(stack),
+                stack.getCount(),
+                itemSnbt(stack, registryAccess),
+                new RMcpPosData(
+                        entity.level().dimension().location().toString(),
+                        entity.getX(),
+                        entity.getY(),
+                        entity.getZ(),
+                        entity.getYRot(),
+                        entity.getXRot()
+                )
+        );
+    }
+
     private static RMcpBlockBatchActionData runBlockBatchAction(ServerPlayer player, String action, List<RMcpBlockPosData> positions, boolean place) {
         var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
         for (var posData : positions) {
@@ -1220,6 +1443,10 @@ public final class RMcpServerNetwork {
     }
 
     private static RMcpBlockBatchActionData runPlaceBoxAction(ServerPlayer player, RMcpPlaceBoxRequest request, List<RMcpBlockPosData> positions, Block block) {
+        return runPlaceTargetsAction(player, positions, block, request.state(), request.dryRun());
+    }
+
+    private static RMcpBlockBatchActionData runPlaceTargetsAction(ServerPlayer player, List<RMcpBlockPosData> positions, Block block, Map<String, String> state, boolean dryRun) {
         var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
         for (var posData : positions) {
             BlockActionStep step;
@@ -1230,8 +1457,8 @@ public final class RMcpServerNetwork {
                         player,
                         blockPos(posData),
                         block,
-                        request.state(),
-                        request.dryRun()
+                        state,
+                        dryRun
                 );
             }
             if (!"ok".equals(step.code())) {
@@ -1498,6 +1725,161 @@ public final class RMcpServerNetwork {
         return new BlockActionStep(blockPosData(pos), "ok", true, beforeBlockId, afterBlockId);
     }
 
+    private static ItemUseStep useItemOnBlock(ServerPlayer player, BlockPos pos, Direction face, Item item, Integer sourceSlot, InteractionHand hand, int times, boolean dryRun) {
+        var level = player.serverLevel();
+        var registryAccess = level.registryAccess();
+        var check = checkBlockActionTarget(player, pos);
+        if (!"ok".equals(check)) {
+            return ItemUseStep.error(pos, check);
+        }
+        var beforeState = level.getBlockState(pos);
+        var beforeBlockId = blockId(beforeState);
+        var beforeBlockState = blockStateString(beforeState);
+        var source = resolveItemUseSource(player, item, sourceSlot, hand);
+        if (!"ok".equals(source.code())) {
+            return ItemUseStep.error(pos, source.code(), source.slot(), beforeBlockId, beforeBlockId, beforeBlockState, beforeBlockState);
+        }
+        var itemBefore = itemUseStackData(player, source.hand(), source.slot(), registryAccess);
+        if (itemBefore == null) {
+            return ItemUseStep.error(pos, RErrorCode.NO_USABLE_ITEM.id(), source.slot(), beforeBlockId, beforeBlockId, beforeBlockState, beforeBlockState);
+        }
+        if (dryRun) {
+            return new ItemUseStep(blockPosData(pos), "ok", source.slot(), 0, false, beforeBlockId, beforeBlockId, beforeBlockState, beforeBlockState, itemBefore, itemBefore);
+        }
+
+        var performed = runItemUseWithSource(player, pos, face, source, times);
+        var afterState = level.getBlockState(pos);
+        var afterBlockId = blockId(afterState);
+        var afterBlockState = blockStateString(afterState);
+        var itemAfter = itemUseStackData(player, source.hand(), source.slot(), registryAccess);
+        if (performed == 0) {
+            return new ItemUseStep(blockPosData(pos), RErrorCode.ITEM_USE_FAILED.id(), source.slot(), 0, false, beforeBlockId, afterBlockId, beforeBlockState, afterBlockState, itemBefore, itemAfter);
+        }
+        player.getInventory().setChanged();
+        player.resetLastActionTime();
+        player.connection.send(new ClientboundSetCarriedItemPacket(player.getInventory().selected));
+        player.inventoryMenu.broadcastChanges();
+        player.containerMenu.broadcastChanges();
+        return new ItemUseStep(blockPosData(pos), "ok", source.slot(), performed, !beforeBlockState.equals(afterBlockState), beforeBlockId, afterBlockId, beforeBlockState, afterBlockState, itemBefore, itemAfter);
+    }
+
+    private static int runItemUseWithSource(ServerPlayer player, BlockPos pos, Direction face, ItemUseSource source, int times) {
+        var inventory = player.getInventory();
+        if (source.slot() == null) {
+            return runItemUseLoop(player, pos, face, source.hand(), times);
+        }
+        if (source.hand() == InteractionHand.MAIN_HAND) {
+            int previousSelected = inventory.selected;
+            if (source.slot() < 9) {
+                inventory.selected = source.slot();
+                try {
+                    return runItemUseLoop(player, pos, face, InteractionHand.MAIN_HAND, times);
+                } finally {
+                    inventory.selected = previousSelected;
+                }
+            }
+            var selectedStack = inventory.items.get(previousSelected).copy();
+            var sourceStack = inventory.items.get(source.slot());
+            inventory.items.set(source.slot(), selectedStack);
+            inventory.items.set(previousSelected, sourceStack);
+            boolean restored = false;
+            try {
+                var performed = runItemUseLoop(player, pos, face, InteractionHand.MAIN_HAND, times);
+                inventory.items.set(source.slot(), inventory.items.get(previousSelected).copy());
+                inventory.items.set(previousSelected, selectedStack);
+                restored = true;
+                return performed;
+            } finally {
+                if (!restored) {
+                    inventory.items.set(source.slot(), inventory.items.get(previousSelected).copy());
+                    inventory.items.set(previousSelected, selectedStack);
+                }
+            }
+        }
+
+        var offhandStack = inventory.offhand.get(0).copy();
+        var sourceStack = inventory.items.get(source.slot());
+        inventory.items.set(source.slot(), offhandStack);
+        inventory.offhand.set(0, sourceStack);
+        boolean restored = false;
+        try {
+            var performed = runItemUseLoop(player, pos, face, InteractionHand.OFF_HAND, times);
+            inventory.items.set(source.slot(), inventory.offhand.get(0).copy());
+            inventory.offhand.set(0, offhandStack);
+            restored = true;
+            return performed;
+        } finally {
+            if (!restored) {
+                inventory.items.set(source.slot(), inventory.offhand.get(0).copy());
+                inventory.offhand.set(0, offhandStack);
+            }
+        }
+    }
+
+    private static int runItemUseLoop(ServerPlayer player, BlockPos pos, Direction face, InteractionHand hand, int times) {
+        var level = player.serverLevel();
+        var hitResult = new BlockHitResult(Vec3.atCenterOf(pos), face, pos, false);
+        int performed = 0;
+        for (int i = 0; i < times; i++) {
+            var stack = player.getItemInHand(hand);
+            if (stack.isEmpty()) {
+                break;
+            }
+            InteractionResult result = player.gameMode.useItemOn(player, level, stack, hand, hitResult);
+            if (!result.consumesAction()) {
+                break;
+            }
+            performed++;
+        }
+        return performed;
+    }
+
+    private static ItemUseSource resolveItemUseSource(ServerPlayer player, Item item, Integer sourceSlot, InteractionHand hand) {
+        var inventory = player.getInventory();
+        if (sourceSlot != null) {
+            var stack = inventory.items.get(sourceSlot);
+            if (stack.isEmpty() || (item != null && stack.getItem() != item)) {
+                return ItemUseSource.error(RErrorCode.NO_USABLE_ITEM);
+            }
+            return new ItemUseSource("ok", hand, sourceSlot);
+        }
+        var handStack = player.getItemInHand(hand);
+        if (!handStack.isEmpty() && (item == null || handStack.getItem() == item)) {
+            return new ItemUseSource("ok", hand, null);
+        }
+        if (item == null) {
+            return ItemUseSource.error(RErrorCode.NO_USABLE_ITEM);
+        }
+        for (int slot = 0; slot < inventory.items.size(); slot++) {
+            var stack = inventory.items.get(slot);
+            if (!stack.isEmpty() && stack.getItem() == item) {
+                return new ItemUseSource("ok", hand, slot);
+            }
+        }
+        return ItemUseSource.error(RErrorCode.NO_USABLE_ITEM);
+    }
+
+    private static RMcpInventoryData.Item itemUseStackData(ServerPlayer player, InteractionHand hand, Integer slot, HolderLookup.Provider registryAccess) {
+        if (slot != null) {
+            return inventorySlotData(player.getInventory(), slot, registryAccess);
+        }
+        if (hand == InteractionHand.OFF_HAND) {
+            return compactItem("offhand", 0, null, player.getOffhandItem(), registryAccess);
+        }
+        return mainHandData(player, registryAccess);
+    }
+
+    private static UseItemResolve resolveUseItem(String itemId) {
+        if (itemId == null || itemId.isBlank()) {
+            return new UseItemResolve(null, false);
+        }
+        var id = ResourceLocation.tryParse(itemId.trim());
+        if (id == null || !BuiltInRegistries.ITEM.containsKey(id)) {
+            return UseItemResolve.BAD;
+        }
+        return new UseItemResolve(BuiltInRegistries.ITEM.get(id), false);
+    }
+
     private static RMcpBlockActionData blockActionData(String action, BlockActionStep step, RMcpInventoryData.Item mainHandBefore, ServerPlayer player, HolderLookup.Provider registryAccess) {
         return new RMcpBlockActionData(
                 action,
@@ -1537,6 +1919,45 @@ public final class RMcpServerNetwork {
         ));
     }
 
+    private static ArrayList<RMcpBlockPosData> expandOffsetRing(RMcpBlockPosData startPos, RMcpBlockPosData endOffset) {
+        return expandRing(startPos, new RMcpBlockPosData(
+                startPos.x() + endOffset.x(),
+                startPos.y() + endOffset.y(),
+                startPos.z() + endOffset.z()
+        ));
+    }
+
+    private static ArrayList<RMcpBlockPosData> expandRing(RMcpBlockPosData from, RMcpBlockPosData to) {
+        var positions = new ArrayList<RMcpBlockPosData>();
+        int minX = Math.min(from.x(), to.x());
+        int minY = Math.min(from.y(), to.y());
+        int minZ = Math.min(from.z(), to.z());
+        int maxX = Math.max(from.x(), to.x());
+        int maxY = Math.max(from.y(), to.y());
+        int maxZ = Math.max(from.z(), to.z());
+        for (int y = minY; y <= maxY; y++) {
+            for (int z = minZ; z <= maxZ; z++) {
+                for (int x = minX; x <= maxX; x++) {
+                    if (isRingBoundary(x, y, z, minX, maxX, minY, maxY, minZ, maxZ)) {
+                        positions.add(new RMcpBlockPosData(x, y, z));
+                    }
+                }
+            }
+        }
+        return positions;
+    }
+
+    private static boolean isRingBoundary(int x, int y, int z, int minX, int maxX, int minY, int maxY, int minZ, int maxZ) {
+        int axes = (minX == maxX ? 0 : 1) + (minY == maxY ? 0 : 1) + (minZ == maxZ ? 0 : 1);
+        if (axes <= 1) {
+            return true;
+        }
+        int boundaryAxes = (minX != maxX && (x == minX || x == maxX) ? 1 : 0)
+                + (minY != maxY && (y == minY || y == maxY) ? 1 : 0)
+                + (minZ != maxZ && (z == minZ || z == maxZ) ? 1 : 0);
+        return boundaryAxes >= axes - 1;
+    }
+
     private static long boxBlockCount(RMcpBlockPosData from, RMcpBlockPosData to) {
         return (long) (Math.abs(from.x() - to.x()) + 1)
                 * (Math.abs(from.y() - to.y()) + 1)
@@ -1547,6 +1968,33 @@ public final class RMcpServerNetwork {
         return (long) (Math.abs(endOffset.x()) + 1)
                 * (Math.abs(endOffset.y()) + 1)
                 * (Math.abs(endOffset.z()) + 1);
+    }
+
+    private static long offsetRingBlockCount(RMcpBlockPosData endOffset) {
+        int sizeX = Math.abs(endOffset.x()) + 1;
+        int sizeY = Math.abs(endOffset.y()) + 1;
+        int sizeZ = Math.abs(endOffset.z()) + 1;
+        int axes = (sizeX > 1 ? 1 : 0) + (sizeY > 1 ? 1 : 0) + (sizeZ > 1 ? 1 : 0);
+        if (axes == 0) {
+            return 1;
+        }
+        if (axes == 1) {
+            return Math.max(sizeX, Math.max(sizeY, sizeZ));
+        }
+        if (axes == 2) {
+            var a = new ArrayList<Integer>();
+            if (sizeX > 1) {
+                a.add(sizeX);
+            }
+            if (sizeY > 1) {
+                a.add(sizeY);
+            }
+            if (sizeZ > 1) {
+                a.add(sizeZ);
+            }
+            return 2L * a.get(0) + 2L * a.get(1) - 4L;
+        }
+        return 4L * sizeX + 4L * sizeY + 4L * sizeZ - 16L;
     }
 
     private static BlockPos blockPos(RMcpBlockPosData pos) {
@@ -2044,6 +2492,63 @@ public final class RMcpServerNetwork {
         return compactItem(slot < 9 ? "hotbar" : "inventory", slot, slot < 9 ? slot : null, inventory.items.get(slot), registryAccess);
     }
 
+    private static InventorySlotRef parsePlayerInventorySlot(String text) {
+        var parts = text == null ? new String[0] : text.trim().toLowerCase().split(":", 2);
+        if (parts.length != 2 || parts[0].isBlank()) {
+            throw new IllegalArgumentException("bad slot");
+        }
+        int slot = Integer.parseInt(parts[1].trim());
+        return switch (parts[0].trim()) {
+            case "inventory" -> inventorySlot(slot);
+            case "hotbar" -> {
+                if (slot < 0 || slot > 8) {
+                    throw new IllegalArgumentException("bad hotbar slot");
+                }
+                yield inventorySlot(slot);
+            }
+            case "main" -> {
+                if (slot < 0 || slot > 26) {
+                    throw new IllegalArgumentException("bad main slot");
+                }
+                yield inventorySlot(slot + 9);
+            }
+            case "armor" -> armorSlot(slot);
+            case "offhand" -> offhandSlot(slot);
+            default -> throw new IllegalArgumentException("bad slot section");
+        };
+    }
+
+    private static InventorySlotRef inventorySlot(int slot) {
+        if (slot < 0 || slot > 35) {
+            throw new IllegalArgumentException("bad inventory slot");
+        }
+        return new InventorySlotRef("inventory", slot, "inventory:" + slot);
+    }
+
+    private static InventorySlotRef armorSlot(int slot) {
+        if (slot < 0 || slot > 3) {
+            throw new IllegalArgumentException("bad armor slot");
+        }
+        return new InventorySlotRef("armor", slot, "armor:" + slot);
+    }
+
+    private static InventorySlotRef offhandSlot(int slot) {
+        if (slot != 0) {
+            throw new IllegalArgumentException("bad offhand slot");
+        }
+        return new InventorySlotRef("offhand", 0, "offhand:0");
+    }
+
+    private static RMcpInventoryData.Item itemAtInventorySlot(ServerPlayer player, InventorySlotRef slot, HolderLookup.Provider registryAccess) {
+        var stack = stackAtInventorySlot(player, slot);
+        var section = "inventory".equals(slot.section()) && slot.index() < 9 ? "hotbar" : slot.section();
+        return compactItem(section, slot.index(), "hotbar".equals(section) ? slot.index() : null, stack, registryAccess);
+    }
+
+    private static ItemStack stackAtInventorySlot(ServerPlayer player, InventorySlotRef slot) {
+        return slot.stacks(player).get(slot.index());
+    }
+
     private static RMcpInventoryData.Summary inventorySummary(List<ItemStack> stacks) {
         var counts = new LinkedHashMap<String, Integer>();
         int occupiedSlots = 0;
@@ -2104,6 +2609,13 @@ public final class RMcpServerNetwork {
 
     private static String blockId(BlockState state) {
         return BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+    }
+
+    private static String blockStateString(BlockState state) {
+        var id = blockId(state);
+        var raw = state.toString();
+        int propertyStart = raw.indexOf('[');
+        return propertyStart < 0 ? id : id + raw.substring(propertyStart);
     }
 
     private static RMcpInventoryData.Item mainHandData(ServerPlayer player, HolderLookup.Provider registryAccess) {
@@ -2230,6 +2742,20 @@ public final class RMcpServerNetwork {
         return direction == null ? SideParse.BAD : new SideParse(direction, false);
     }
 
+    private static InteractionHand parseHand(String text) {
+        if (text == null || text.isBlank()) {
+            return InteractionHand.MAIN_HAND;
+        }
+        var hand = text.trim();
+        if ("mainhand".equalsIgnoreCase(hand) || "main".equalsIgnoreCase(hand)) {
+            return InteractionHand.MAIN_HAND;
+        }
+        if ("offhand".equalsIgnoreCase(hand) || "off".equalsIgnoreCase(hand)) {
+            return InteractionHand.OFF_HAND;
+        }
+        return null;
+    }
+
     private static ParsedPos parsePos(String text) {
         if (text == null || text.isBlank()) {
             return null;
@@ -2300,6 +2826,38 @@ public final class RMcpServerNetwork {
         }
     }
 
+    private record ItemUseStep(
+            RMcpBlockPosData pos,
+            String code,
+            Integer sourceSlot,
+            int performedTimes,
+            boolean changedBlock,
+            String beforeBlockId,
+            String afterBlockId,
+            String beforeBlockState,
+            String afterBlockState,
+            RMcpInventoryData.Item itemBefore,
+            RMcpInventoryData.Item itemAfter
+    ) {
+        private static ItemUseStep error(BlockPos pos, String code) {
+            return error(pos, code, null, null, null, null, null);
+        }
+
+        private static ItemUseStep error(BlockPos pos, String code, Integer sourceSlot, String beforeBlockId, String afterBlockId, String beforeBlockState, String afterBlockState) {
+            return new ItemUseStep(blockPosData(pos), code, sourceSlot, 0, false, beforeBlockId, afterBlockId, beforeBlockState, afterBlockState, null, null);
+        }
+    }
+
+    private record ItemUseSource(String code, InteractionHand hand, Integer slot) {
+        private static ItemUseSource error(RErrorCode code) {
+            return new ItemUseSource(code.id(), null, null);
+        }
+    }
+
+    private record UseItemResolve(Item item, boolean bad) {
+        private static final UseItemResolve BAD = new UseItemResolve(null, true);
+    }
+
     private record PlaceStateOverride(String code, BlockState state) {
     }
 
@@ -2313,6 +2871,18 @@ public final class RMcpServerNetwork {
     }
 
     private record HotbarSelectRequest(Integer slot, boolean dryRun) {
+    }
+
+    private record InventorySlotRef(String section, int index, String canonical) {
+        private List<ItemStack> stacks(ServerPlayer player) {
+            var inventory = player.getInventory();
+            return switch (section) {
+                case "inventory" -> inventory.items;
+                case "armor" -> inventory.armor;
+                case "offhand" -> inventory.offhand;
+                default -> throw new IllegalArgumentException("bad slot section");
+            };
+        }
     }
 
     private record ContainerMoveRequest(ContainerEndpointRequest from, ContainerEndpointRequest to, int count, boolean dryRun) {

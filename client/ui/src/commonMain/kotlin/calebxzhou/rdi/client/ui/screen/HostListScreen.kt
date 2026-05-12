@@ -267,7 +267,7 @@ internal fun HostBrowserPane(
                                 }
 
                                 is StartPlayResult.NeedMc -> {
-                                    errorMessage = "未安装MC版本资源：${args.ver.mcVer}，请先下载"
+                                    errorMessage = "请前往更新MC${args.ver.mcVer}版本资源。"
                                     onOpenMcVersions.invoke(args.ver)
                                 }
                             }

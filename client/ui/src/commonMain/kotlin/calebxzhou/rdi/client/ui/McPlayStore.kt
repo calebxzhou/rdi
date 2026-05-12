@@ -105,6 +105,26 @@ object McPlayStore {
         return selected ?: sessions.lastOrNull()?.also { selectedSessionId = it.id }
     }
 
+    fun closeStoppedSession(sessionId: String): Boolean {
+        val index = sessions.indexOfFirst { it.id == sessionId }
+        if (index < 0) return false
+
+        val session = sessions[index]
+        if (session.preparing || session.isAlive()) return false
+
+        val nextSelectedId = when {
+            sessions.size <= 1 -> null
+            index < sessions.lastIndex -> sessions[index + 1].id
+            else -> sessions.getOrNull(index - 1)?.id
+        }
+        session.markExited(session.exitMessage)
+        sessions.removeAt(index)
+        if (selectedSessionId == sessionId || sessions.none { it.id == selectedSessionId }) {
+            selectedSessionId = nextSelectedId
+        }
+        return true
+    }
+
     fun hasAliveSessions(): Boolean = sessions.any { it.isAlive() || it.preparing }
 
     fun aliveCount(versionId: String): Int =

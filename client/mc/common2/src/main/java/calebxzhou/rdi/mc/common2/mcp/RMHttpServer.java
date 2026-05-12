@@ -52,9 +52,11 @@ public final class RMHttpServer {
                     get("/mods", RMHttpServer::handleMods),
                     get("/quest/chapter-list", RMHttpServer::handleQuestChapterList),
                     get("/quest/reachable", RMHttpServer::handleReachableQuests),
+                    getPrefix("/quest/detail/", RMHttpServer::handleQuestDetail),
                     getPrefix("/quest/chapter/", RMHttpServer::handleQuestChapter),
                     get("/pos", RMHttpServer::handlePos),
                     get("/inventory", RMHttpServer::handleInventory),
+                    get("/inventory/tag", RMHttpServer::handleInventoryTag),
                     get("/menu", RMHttpServer::handleMenu),
                     get("/situation", RMHttpServer::handleSituation),
                     get("/mainhand", RMHttpServer::handleMainHand),
@@ -81,6 +83,7 @@ public final class RMHttpServer {
                     get("/player", RMHttpServer::handlePlayer),
                     get("/langkey", RMHttpServer::handleLangKey),
                     get("/langkey-search", RMHttpServer::handleLangKeySearch),
+                    get("/item-search", RMHttpServer::handleItemSearch),
                     post("/inventory/swap", RMHttpServer::handleInventorySwap),
                     post("/inventory/move", RMHttpServer::handleInventoryMove),
                     post("/hotbar/select", RMHttpServer::handleHotbarSelect),
@@ -95,6 +98,8 @@ public final class RMHttpServer {
                     post("/move", RMHttpServer::handleMove),
                     post("/respawn", RMHttpServer::handleRespawn),
                     post("/entity/pickup-item", RMHttpServer::handleEntityPickupItem),
+                    post("/item/drop", RMHttpServer::handleItemDrop),
+                    post("/item/use-on-block", RMHttpServer::handleItemUseOnBlock),
                     post("/place", RMHttpServer::handlePlace),
                     post("/break", RMHttpServer::handleBreak),
                     post("/place/batch", RMHttpServer::handlePlaceBatch),
@@ -102,6 +107,7 @@ public final class RMHttpServer {
                     post("/place/palette", RMHttpServer::handlePlacePalette),
                     post("/break/batch", RMHttpServer::handleBreakBatch),
                     post("/place/box", RMHttpServer::handlePlaceBox),
+                    post("/place/ring", RMHttpServer::handlePlaceRing),
                     post("/break/box", RMHttpServer::handleBreakBox)
             );
         }
@@ -213,6 +219,24 @@ public final class RMHttpServer {
         var data = connector.reachableQuests();
         if (data == null) {
             throw new RMError(RErrorCode.QUEST_DATA_NOT_LOADED);
+        }
+        ok(response, data);
+    }
+
+    private static void handleQuestDetail(HTTPRequest request, HTTPResponse response) throws RMError {
+        var prefix = "/quest/detail/";
+        var path = request.getPath();
+        if (path.length() <= prefix.length()) {
+            throw new RMError(RErrorCode.MISSING_QUEST_ID);
+        }
+        var id = URLDecoder.decode(path.substring(prefix.length()), StandardCharsets.UTF_8).trim();
+        if (id.isEmpty() || id.contains("/") || id.contains("\\") || id.contains(" ") || id.contains("`")) {
+            throw new RMError(RErrorCode.BAD_QUEST_ID);
+        }
+        requirePlayerInWorld();
+        var data = connector.questDetail(id);
+        if (data == null) {
+            throw new RMError(RErrorCode.NO_QUEST);
         }
         ok(response, data);
     }
@@ -535,6 +559,62 @@ public final class RMHttpServer {
         ok(response, connector.pickupItemEntities(pickup.ids(), pickup.radius(), pickup.limit()));
     }
 
+    private static void handleItemDrop(HTTPRequest request, HTTPResponse response) throws RMError {
+        var drop = readItemDropRequest(request);
+        if (drop == null || drop.from() == null || drop.from().isBlank() || drop.count() == null || drop.count() <= 0 || drop.pos() == null) {
+            throw new RMError(RErrorCode.BAD_REQUEST);
+        }
+        var pos = drop.pos();
+        if (pos.x() == null || pos.y() == null || pos.z() == null
+                || !Double.isFinite(pos.x()) || !Double.isFinite(pos.y()) || !Double.isFinite(pos.z())) {
+            throw new RMError(RErrorCode.BAD_POS);
+        }
+        if (drop.pickupDelay() != null && (drop.pickupDelay() < 0 || drop.pickupDelay() > 32767)) {
+            throw new RMError(RErrorCode.BAD_REQUEST);
+        }
+        requirePlayerInWorld();
+        ok(response, connector.dropInventoryItem(new RMcpItemDropRequest(
+                drop.from().trim(),
+                drop.count(),
+                new RMcpItemDropRequest.Pos(pos.dim(), pos.x(), pos.y(), pos.z()),
+                drop.pickupDelay(),
+                drop.dryRun()
+        )));
+    }
+
+    private static RMcpItemDropRequest readItemDropRequest(HTTPRequest request) {
+        try {
+            RMcpItemDropRequest parsed = null;
+            if (request.hasBody()) {
+                var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+                if (!body.isBlank()) {
+                    parsed = GSON.fromJson(body, RMcpItemDropRequest.class);
+                }
+            }
+            var from = firstNonBlank(request.getURLParameter("from"), parsed == null ? null : parsed.from());
+            var count = readOptionalInteger(request.getURLParameter("count"), parsed == null ? null : parsed.count());
+            var pickupDelay = readOptionalInteger(request.getURLParameter("pickupDelay"), parsed == null ? null : parsed.pickupDelay());
+            var dryRunText = request.getURLParameter("dryRun");
+            var dryRun = dryRunText == null ? parsed != null && parsed.dryRun() : Boolean.parseBoolean(dryRunText);
+            var parsedPos = parsed == null ? null : parsed.pos();
+            var dim = firstNonBlank(request.getURLParameter("dim"), parsedPos == null ? null : parsedPos.dim());
+            var x = readOptionalDouble(request.getURLParameter("x"), parsedPos == null ? null : parsedPos.x());
+            var y = readOptionalDouble(request.getURLParameter("y"), parsedPos == null ? null : parsedPos.y());
+            var z = readOptionalDouble(request.getURLParameter("z"), parsedPos == null ? null : parsedPos.z());
+            return new RMcpItemDropRequest(from, count, new RMcpItemDropRequest.Pos(dim, x, y, z), pickupDelay, dryRun);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static Integer readOptionalInteger(String text, Integer fallback) {
+        return text == null || text.isBlank() ? fallback : Integer.parseInt(text.trim());
+    }
+
+    private static Double readOptionalDouble(String text, Double fallback) {
+        return text == null || text.isBlank() ? fallback : Double.parseDouble(text.trim());
+    }
+
     private static ItemPickupParams readItemPickupRequest(HTTPRequest request) {
         try {
             List<String> texts = null;
@@ -640,6 +720,62 @@ public final class RMHttpServer {
         }
         requirePlayerInWorld();
         ok(response, connector.breakBlock(pos.x(), pos.y(), pos.z()));
+    }
+
+    private static void handleItemUseOnBlock(HTTPRequest request, HTTPResponse response) throws RMError {
+        var use = readItemUseOnBlockRequest(request);
+        if (use == null || use.pos() == null || use.pos().isBlank()) {
+            throw new RMError(RErrorCode.BAD_POS);
+        }
+        if (use.times() == null || use.times() < 1 || use.times() > 64) {
+            throw new RMError(RErrorCode.BAD_COUNT);
+        }
+        if (use.fromInventorySlot() != null && (use.fromInventorySlot() < 0 || use.fromInventorySlot() > 35)) {
+            throw new RMError(RErrorCode.BAD_SLOT);
+        }
+        requirePlayerInWorld();
+        ok(response, connector.useItemOnBlock(use));
+    }
+
+    private static RMcpItemUseOnBlockRequest readItemUseOnBlockRequest(HTTPRequest request) {
+        try {
+            RMcpItemUseOnBlockRequest parsed = null;
+            if (request.hasBody()) {
+                var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+                if (!body.isBlank()) {
+                    parsed = GSON.fromJson(body, RMcpItemUseOnBlockRequest.class);
+                }
+            }
+            var pos = firstNonBlank(request.getURLParameter("pos"), parsed == null ? null : parsed.pos());
+            var face = firstNonBlank(request.getURLParameter("face"), parsed == null ? null : parsed.face());
+            var itemId = firstNonBlank(request.getURLParameter("itemId"), parsed == null ? null : parsed.itemId());
+            var hand = firstNonBlank(request.getURLParameter("hand"), parsed == null ? null : parsed.hand());
+            var slot = parsed == null ? null : parsed.fromInventorySlot();
+            var times = parsed == null ? null : parsed.times();
+            var dryRun = parsed != null && parsed.dryRun();
+            var slotText = request.getURLParameter("fromInventorySlot");
+            if (slotText != null && !slotText.isBlank()) {
+                slot = Integer.parseInt(slotText.trim());
+            }
+            var timesText = request.getURLParameter("times");
+            if (timesText != null && !timesText.isBlank()) {
+                times = Integer.parseInt(timesText.trim());
+            }
+            var dryRunText = request.getURLParameter("dryRun");
+            if (dryRunText != null && !dryRunText.isBlank()) {
+                dryRun = Boolean.parseBoolean(dryRunText.trim());
+            }
+            return new RMcpItemUseOnBlockRequest(pos, face, itemId, slot, hand, times == null ? 1 : times, dryRun);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first.trim();
+        }
+        return second == null ? null : second.trim();
     }
 
     private static BlockActionRequest readBlockActionRequest(HTTPRequest request) {
@@ -831,6 +967,33 @@ public final class RMHttpServer {
         }
     }
 
+    private static void handlePlaceRing(HTTPRequest request, HTTPResponse response) {
+        var ring = readPlaceRingRequest(request);
+        if (ring == null || ring.startPos() == null || ring.endOffset() == null) {
+            err400(response, RErrorCode.BAD_BOX);
+            return;
+        }
+        if (ring.blockId() == null || ring.blockId().isBlank()) {
+            err400(response, RErrorCode.BAD_BLOCK_ID);
+            return;
+        }
+        if (offsetRingBlockCount(ring.endOffset()) > BLOCK_BATCH_LIMIT) {
+            err400(response, RErrorCode.TOO_MANY_BLOCKS);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.placeBlockRing(ring));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
     private static RMcpPlaceBoxRequest readPlaceBoxRequest(HTTPRequest request) {
         try {
             if (!request.hasBody()) {
@@ -841,6 +1004,21 @@ public final class RMHttpServer {
                 return null;
             }
             return GSON.fromJson(body, RMcpPlaceBoxRequest.class);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static RMcpPlaceRingRequest readPlaceRingRequest(HTTPRequest request) {
+        try {
+            if (!request.hasBody()) {
+                return null;
+            }
+            var body = new String(request.getBodyBytes(), StandardCharsets.UTF_8);
+            if (body.isBlank()) {
+                return null;
+            }
+            return GSON.fromJson(body, RMcpPlaceRingRequest.class);
         } catch (Exception e) {
             return null;
         }
@@ -894,6 +1072,33 @@ public final class RMHttpServer {
         return (long) (Math.abs(endOffset.x()) + 1)
                 * (Math.abs(endOffset.y()) + 1)
                 * (Math.abs(endOffset.z()) + 1);
+    }
+
+    private static long offsetRingBlockCount(RMcpBlockPosData endOffset) {
+        int sizeX = Math.abs(endOffset.x()) + 1;
+        int sizeY = Math.abs(endOffset.y()) + 1;
+        int sizeZ = Math.abs(endOffset.z()) + 1;
+        int axes = (sizeX > 1 ? 1 : 0) + (sizeY > 1 ? 1 : 0) + (sizeZ > 1 ? 1 : 0);
+        if (axes == 0) {
+            return 1;
+        }
+        if (axes == 1) {
+            return Math.max(sizeX, Math.max(sizeY, sizeZ));
+        }
+        if (axes == 2) {
+            var a = new ArrayList<Integer>();
+            if (sizeX > 1) {
+                a.add(sizeX);
+            }
+            if (sizeY > 1) {
+                a.add(sizeY);
+            }
+            if (sizeZ > 1) {
+                a.add(sizeZ);
+            }
+            return 2L * a.get(0) + 2L * a.get(1) - 4L;
+        }
+        return 4L * sizeX + 4L * sizeY + 4L * sizeZ - 16L;
     }
 
     private static void handleContainer(HTTPRequest request, HTTPResponse response) {
@@ -1322,6 +1527,41 @@ public final class RMHttpServer {
                 return;
             }
             ok(response, recipes);
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleInventoryTag(HTTPRequest request, HTTPResponse response) {
+        var tag = request.getURLParameter("tag");
+        if (tag == null || tag.isBlank()) {
+            err400(response, RErrorCode.MISSING_ITEM_ID);
+            return;
+        }
+        var scope = request.getURLParameter("scope");
+        if (scope == null || scope.isBlank()) {
+            scope = "all";
+        }
+        int limit;
+        try {
+            var limitText = request.getURLParameter("limit");
+            limit = (limitText == null || limitText.isBlank()) ? 64 : Integer.parseInt(limitText.trim());
+        } catch (Exception e) {
+            err400(response, RErrorCode.BAD_SLOT);
+            return;
+        }
+        if (limit < 1 || limit > 512) {
+            err400(response, RErrorCode.BAD_SLOT);
+            return;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return;
+            }
+            ok(response, connector.inventoryTagMatchData(tag.trim(), scope.trim(), limit));
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
         }
@@ -2170,6 +2410,33 @@ public final class RMHttpServer {
         }
         try {
             ok(response, connector.langKeyIndex().search(text));
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleItemSearch(HTTPRequest request, HTTPResponse response) {
+        var text = request.getURLParameter("text");
+        if (text == null || text.isBlank()) {
+            err400(response, RErrorCode.MISSING_TEXT);
+            return;
+        }
+        int limit = 10;
+        var limitText = request.getURLParameter("limit");
+        if (limitText != null && !limitText.isBlank()) {
+            try {
+                limit = Integer.parseInt(limitText.trim());
+            } catch (NumberFormatException e) {
+                err400(response, RErrorCode.BAD_LIMIT);
+                return;
+            }
+        }
+        if (limit < 1 || limit > 50) {
+            err400(response, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        try {
+            ok(response, connector.itemSearchData(text.trim(), request.getURLParameter("modId"), limit));
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
         }

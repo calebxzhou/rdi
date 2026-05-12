@@ -88,13 +88,16 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import org.bson.types.ObjectId
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun RemoteModInfoScreen(
     mod: RemoteModCardVo,
     onBack: () -> Unit,
-    onOpenDependencyMod: (RemoteModCardVo) -> Unit = {}
+    onOpenDependencyMod: (RemoteModCardVo) -> Unit = {},
+    targetHostId: ObjectId? = null,
+    targetHostMcVer: McVersion? = null
 ) {
     var project by remember { mutableStateOf<ModrinthProjectInfoVo?>(null) }
     var loading by remember { mutableStateOf(true) }
@@ -154,6 +157,7 @@ fun RemoteModInfoScreen(
     val activeTabIndex = selectedTab.takeIf { it in tabs.indices } ?: 0
     val activeTab = tabs[activeTabIndex]
     val versions = project?.versions.orEmpty()
+    val lockedGameVersion = targetHostMcVer?.mcVer
     val supportedGameVersions = remember(versions) {
         McVersion.entries.filter { mcVersion ->
             if (!mcVersion.enabled) return@filter false
@@ -165,6 +169,11 @@ fun RemoteModInfoScreen(
                     }
             )
         }
+    }
+    val visibleGameVersions = remember(supportedGameVersions, lockedGameVersion) {
+        lockedGameVersion?.let { locked ->
+            supportedGameVersions.filter { it.mcVer == locked }
+        } ?: supportedGameVersions
     }
     fun projectLoadersForGameVersion(gameVersion: String?): List<String> =
         versions
@@ -190,8 +199,8 @@ fun RemoteModInfoScreen(
 
     var selectedGameVersion by rememberSaveable(project?.projectId) { mutableStateOf<String?>(null) }
     var selectedLoader by rememberSaveable(project?.projectId) { mutableStateOf<ModLoader?>(null) }
-    val availableLoaders = remember(versions, selectedGameVersion, supportedGameVersions) {
-        val mcVersion = supportedGameVersions.firstOrNull { it.mcVer == selectedGameVersion }
+    val availableLoaders = remember(versions, selectedGameVersion, visibleGameVersions) {
+        val mcVersion = visibleGameVersions.firstOrNull { it.mcVer == selectedGameVersion }
         val projectLoaders = projectLoadersForGameVersion(selectedGameVersion)
         mcVersion?.supportedRdiRemoteModLoaders().orEmpty()
             .filter { loader ->
@@ -200,11 +209,12 @@ fun RemoteModInfoScreen(
             }
     }
 
-    LaunchedEffect(project?.projectId, supportedGameVersions) {
-        selectedGameVersion = selectedGameVersion
-            ?.takeIf { selected -> supportedGameVersions.any { it.mcVer == selected } }
-            ?: supportedGameVersions.firstOrNull { it == McVersion.V211 }?.mcVer
-            ?: supportedGameVersions.firstOrNull()?.mcVer
+    LaunchedEffect(project?.projectId, visibleGameVersions, lockedGameVersion) {
+        selectedGameVersion = lockedGameVersion
+            ?.takeIf { locked -> visibleGameVersions.any { it.mcVer == locked } }
+            ?: selectedGameVersion?.takeIf { selected -> visibleGameVersions.any { it.mcVer == selected } }
+            ?: visibleGameVersions.firstOrNull { it == McVersion.V211 }?.mcVer
+            ?: visibleGameVersions.firstOrNull()?.mcVer
     }
     LaunchedEffect(availableLoaders) {
         selectedLoader = selectedLoader
@@ -224,12 +234,16 @@ fun RemoteModInfoScreen(
                 if (activeTab == RemoteModInfoTab.Download && supportedGameVersions.isNotEmpty()) {
                     selectedGameVersion?.let { gameVersion ->
                         Space8w()
-                        RemoteModTitleFilterChip(
-                            label = "MC",
-                            text = gameVersion,
-                            options = supportedGameVersions.map { it.mcVer },
-                            onSelect = { selectedGameVersion = it }
-                        )
+                        if (lockedGameVersion != null) {
+                            Text("MC$gameVersion", color = MaterialColor.GRAY_700.color)
+                        } else {
+                            RemoteModTitleFilterChip(
+                                label = "MC",
+                                text = gameVersion,
+                                options = visibleGameVersions.map { it.mcVer },
+                                onSelect = { selectedGameVersion = it }
+                            )
+                        }
                     }
                     selectedLoader?.let { loader ->
                         Space8w()
@@ -287,7 +301,7 @@ fun RemoteModInfoScreen(
                 )
                 activeTab == RemoteModInfoTab.Description || activeTab == RemoteModInfoTab.Mcmod ->
                     RemoteModWebInfoTab(activeTab, project, mod, mcmodUrl)
-                else -> RemoteModVersionsTab(project)
+                else -> RemoteModVersionsTab(project, lockedGameVersion)
             }
         }
         BottomSnakebar(snackbarHostState)
@@ -299,7 +313,9 @@ fun RemoteModInfoScreen(
             project = loadedProject,
             version = version,
             onTaskSubmitted = { okMessage = it },
-            onDismiss = { downloadVersion = null }
+            onDismiss = { downloadVersion = null },
+            targetHostId = targetHostId,
+            targetHostMcVer = targetHostMcVer
         )
     }
 }
@@ -425,11 +441,17 @@ private fun RemoteModCardVo.defaultSourceUrl(): String? =
     }
 
 @Composable
-private fun RemoteModVersionsTab(project: ModrinthProjectInfoVo?) {
-    val versions = project?.versions.orEmpty()
+private fun RemoteModVersionsTab(project: ModrinthProjectInfoVo?, lockedGameVersion: String?) {
+    val allVersions = project?.versions.orEmpty()
+    val versions = remember(allVersions, lockedGameVersion) {
+        lockedGameVersion?.let { locked ->
+            allVersions.filter { locked in it.gameVersions }
+        } ?: allVersions
+    }
     when {
         project == null -> Text("正在载入版本...", color = MaterialColor.GRAY_700.color)
-        versions.isEmpty() -> Text("暂无版本", color = MaterialColor.GRAY_700.color)
+        allVersions.isEmpty() -> Text("暂无版本", color = MaterialColor.GRAY_700.color)
+        versions.isEmpty() -> Text("当前房间MC版本没有可用版本", color = MaterialColor.GRAY_700.color)
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -703,9 +725,13 @@ private fun RemoteModDownloadTargetDialog(
     project: ModrinthProjectInfoVo,
     version: ModrinthProjectVersionVo,
     onTaskSubmitted: (String) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    targetHostId: ObjectId? = null,
+    targetHostMcVer: McVersion? = null
 ) {
-    var step by remember { mutableStateOf(RemoteModDownloadStep.Target) }
+    var step by remember(targetHostId) {
+        mutableStateOf(if (targetHostId == null) RemoteModDownloadStep.Target else RemoteModDownloadStep.FixedHost)
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -737,6 +763,30 @@ private fun RemoteModDownloadTargetDialog(
                     onTaskSubmitted = onTaskSubmitted,
                     onDismiss = onDismiss
                 )
+
+                RemoteModDownloadStep.FixedHost -> {
+                    val fixedTargetHostId = targetHostId
+                    if (fixedTargetHostId == null) {
+                        Column(
+                            modifier = Modifier.padding(18.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text("当前房间信息已失效", color = MaterialTheme.colors.error)
+                            TextButton(onClick = onDismiss) {
+                                Text("关闭")
+                            }
+                        }
+                    } else {
+                        RemoteModFixedHostTargetPane(
+                            project = project,
+                            version = version,
+                            targetHostId = fixedTargetHostId,
+                            targetHostMcVer = targetHostMcVer,
+                            onTaskSubmitted = onTaskSubmitted,
+                            onDismiss = onDismiss
+                        )
+                    }
+                }
             }
         }
     }
@@ -745,13 +795,81 @@ private fun RemoteModDownloadTargetDialog(
 private enum class RemoteModDownloadStep {
     Target,
     Host,
-    Local
+    Local,
+    FixedHost
 }
 
 private data class RemoteModHostTarget(
     val brief: Host.BriefVo,
     val detail: Host.DetailVo
 )
+
+@Composable
+private fun RemoteModFixedHostTargetPane(
+    project: ModrinthProjectInfoVo,
+    version: ModrinthProjectVersionVo,
+    targetHostId: ObjectId,
+    targetHostMcVer: McVersion?,
+    onTaskSubmitted: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var submitting by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    Column(
+        modifier = Modifier.padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "添加到当前房间",
+            color = MaterialColor.GRAY_900.color,
+            style = MaterialTheme.typography.subtitle1,
+            fontWeight = FontWeight.Bold
+        )
+        Text("会添加为当前房间的附加Mod。", color = MaterialColor.GRAY_700.color)
+        errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            TextButton(onClick = onDismiss, enabled = !submitting) {
+                Text("取消")
+            }
+            TextButton(
+                enabled = !submitting,
+                onClick = {
+                    submitting = true
+                    errorMessage = null
+                    scope.launch {
+                        runCatching {
+                            if (targetHostMcVer != null && targetHostMcVer.mcVer !in version.gameVersions) {
+                                error("房间MC${targetHostMcVer.mcVer}与当前Mod版本不匹配，当前Mod版本支持${version.supportedMcVersionText()}")
+                            }
+                            val mod = RemoteModDownloadService.toMod(project, version)
+                            val response = server.makeRequest<Unit>(
+                                path = "host/$targetHostId/mods/extra",
+                                method = HttpMethod.Post
+                            ) {
+                                contentType(ContentType.Application.Json)
+                                setBody(serdesJson.encodeToString(listOf(mod)))
+                            }
+                            if (!response.ok) error(response.msg)
+                        }.onSuccess {
+                            onTaskSubmitted("已提交房间附加Mod添加任务，请在邮件中查看进度")
+                            onDismiss()
+                        }.onFailure {
+                            errorMessage = it.message ?: "提交房间附加Mod失败"
+                        }
+                        submitting = false
+                    }
+                }
+            ) {
+                Text(if (submitting) "提交中..." else "开始下载")
+            }
+        }
+    }
+}
 
 @Composable
 private fun RemoteModDownloadTargetChoice(

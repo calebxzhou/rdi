@@ -34,7 +34,11 @@ private suspend fun validateModpackIconUrl(iconUrl: String?): Result<Unit> {
         "modrinth.com",
         "xyeidc.com",
         "bbsmc.net",
-        "mcmod.cn"
+        "mcmod.cn",
+        "candycake.cloud",
+        //b站
+        "hdslb.com",
+        "bilibili.com"
     )
     val allowed = allowedHosts.any { domain ->
         host == domain || host.endsWith(".$domain")

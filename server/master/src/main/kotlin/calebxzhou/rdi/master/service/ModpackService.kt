@@ -14,6 +14,7 @@ import calebxzhou.rdi.common.archive.detectArchiveFormat
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
+import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.runInline
 import calebxzhou.rdi.common.service.validate
@@ -450,11 +451,10 @@ object ModpackService {
         mutator(updatedMods)
         updatedMods.sortBy { it.slug.lowercase() }
         val updatedVersion = version.copy(
-            mods = updatedMods,
+            mods = ModpackModProcessor.processMods(updatedMods),
             time = System.currentTimeMillis(),
             status = Modpack.Status.WAIT
         )
-        updatedVersion.processMods(modpack)
         updatedVersion.mods.sortBy { it.slug.lowercase() }
         dbcl.updateOne(
             eq(Modpack::_id.name, modpack._id),
@@ -868,12 +868,12 @@ object ModpackService {
             name = verName,
             changelog = "新上传",
             status = Modpack.Status.WAIT,
-            mods = mods,
+            mods = ModpackModProcessor.processMods(mods),
             time = System.currentTimeMillis()
         )
         try {
             moveUploadedArchiveToVersion(uploadFile, version)
-            version.processMods(modpack)
+            version.mods.sortBy { it.slug.lowercase() }
         } catch (error: Throwable) {
             cleanupUploadedVersionArtifacts(version)
             throw error
@@ -1013,7 +1013,10 @@ object ModpackService {
                         val msg = "重新处理版本Mod信息"
                         updateMailProgress(msg)
                         ctx.emit(LoadProgress.Phase(msg))
-                        version.processMods(modpack)
+                        val processedMods = ModpackModProcessor.processMods(version.mods)
+                        version.mods.clear()
+                        version.mods += processedMods
+                        version.mods.sortBy { it.slug.lowercase() }
                         dbcl.updateOne(
                             eq(Modpack::_id.name, modpack._id),
                             Updates.set(
@@ -1297,46 +1300,6 @@ object ModpackService {
             }
         }.getOrNull()
     }
-
-    fun Modpack.Version.processMods(modpack: Modpack) {
-        //移除备份有关的
-        mods.removeIf { it.slug.contains("backup") }
-        //移除powerful-dummy 不兼容
-        mods.removeIf { it.slug == "powerful-dummy" }
-        mods.removeIf { it.slug==("spark") }
-        //国内用不了
-        mods.removeIf { it.slug == "essential-mod" }
-        //重度机械症c6c compatibility
-        //不给这个mod服务端装上去会class not found
-        mods.find { it.slug == "loot-beams-refork" }?.side = Mod.Side.BOTH
-        //仅客户端
-        mods.find { it.slug == "status-effect-bars-reforged" }?.side = Mod.Side.CLIENT
-        mods.find { it.slug == "mafglib" }?.side = Mod.Side.CLIENT
-        mods.find { it.slug == "flighthud-reborn" }?.side = Mod.Side.CLIENT
-        //这个粒子mod要求服务端装 不然找不到粒子
-        mods.find { it.slug == "particular-reforged" }?.side = Mod.Side.BOTH
-        //没有的话整理背包会卡服
-        mods.find { it.slug == "inventory-profiles-next" }?.side = Mod.Side.BOTH
-        mods.find { it.slug == "inventory-tweaks-refoxed" }?.side = Mod.Side.BOTH
-        //服务端不需要这个汉化 下载太慢
-        mods.find { it.slug == "i18nupdatemod" }?.side = Mod.Side.CLIENT
-        //gto/gtl
-        mods.find { it.slug == "just-enough-resources-jer" }?.side = Mod.Side.BOTH
-        //愚者 modrinth说是client-only 实际 some mods deps on it 导致服务端不启动
-        mods.find { it.slug == "radiant-gear" }?.side = Mod.Side.BOTH
-        //会自动还原服务端配置
-        //已实现 如果这个mod存在，并且包里有default-server.properties，覆盖对应选项到server.properties模板（5.10以后）
-        mods.removeIf { it.slug == "default-server-properties" }
-        //客户端才用
-        mods.find { it.slug == "modern-ui" }?.side = Mod.Side.CLIENT
-        mods.find { it.slug == "controllable" }?.side = Mod.Side.CLIENT
-        //1.18.2跑不起来
-        mods.removeIf { it.slug == "skybox-loader-forge" }
-        //玻璃纹理需要
-        //todo 如果both side mod deps on client side lib 那么设定lib's side=BOTH
-        mods.find { it.slug == "fusion-connected-textures" }?.side = Mod.Side.BOTH
-    }
-
     suspend fun Modpack.buildVersion(version: Modpack.Version, onProgress: (String) -> Unit) {
         if (!version.fullPackFile.exists()) {
             throw RequestError("版本压缩文件不存在 请重新上传")

@@ -11,7 +11,6 @@ import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.toolchain.JavaLanguageVersion
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 plugins {
 	kotlin("jvm")
 	kotlin("plugin.serialization")

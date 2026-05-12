@@ -5,7 +5,6 @@ import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.CONF
 import calebxzhou.rdi.client.model.firstLoaderDir
-import calebxzhou.rdi.client.model.loaderManifest
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.server
@@ -27,7 +26,6 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.io.files.FileNotFoundException
 import org.bson.types.ObjectId
 import java.io.File
 import java.nio.file.Files
@@ -391,12 +389,6 @@ object ModpackService {
 
         val writeOptionsTask = Task2.Leaf("写入配置文件") { ctx ->
             writeOptions(versionDir, mcVersion)
-            try {
-                versionDir.resolve(versionDir.name + ".json")
-                    .writeText(mcVersion.loaderManifest.copy(id = versionDir.name).json)
-            } catch (e: FileNotFoundException) {
-                throw RequestError("没有找到${mcVersion.mcVer}版本的${modLoader.name}，请先安装")
-            }
             ctx.emit(Task2Progress("写入完成", 1f))
         }
         return listOf(prepareVersionDirTask, extractTask, patchFancyMenuTask, copyModsTask, writeOptionsTask)
@@ -537,7 +529,7 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             mcVer = modpack.mcVer,
             versionId = versionId,
             playArg = playArg,
-            mcpPort = port,
+            mcpPort = port-10000,
             versionDir = verDir.absolutePath,
             activeBaseMods = activeBaseMods,
             disabledBaseMods = disabledMods,

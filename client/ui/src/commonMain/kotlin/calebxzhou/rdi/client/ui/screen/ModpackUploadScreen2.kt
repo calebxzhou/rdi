@@ -21,6 +21,7 @@ import calebxzhou.rdi.client.service.CLIENT_TEST_SUCCESS_MARKER
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ClientModpackTester
 import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.LoadedLocalModpack
 import calebxzhou.rdi.client.service.LoadedServerPackResult
 import calebxzhou.rdi.client.service.ModpackTester
@@ -46,6 +47,7 @@ import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Task2Status
 import calebxzhou.rdi.common.model.isPlatformCf
+import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.lgr
 import kotlinx.coroutines.Dispatchers
@@ -54,6 +56,11 @@ import kotlinx.coroutines.withContext
 import java.util.jar.JarFile
 
 private enum class UploadMode { CREATE, UPDATE }
+
+private data class PendingMissingModDownload(
+    val usage: String,
+    val mods: List<Mod>
+)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -89,6 +96,7 @@ fun ModpackUploadScreen2(
     var uploadedModpacksLoaded by remember { mutableStateOf(false) }
     var selectedUpdateTarget by remember { mutableStateOf<Modpack.BriefVo?>(null) }
     var showUploadModeDialog by remember { mutableStateOf(false) }
+    var pendingMissingModDownload by remember { mutableStateOf<PendingMissingModDownload?>(null) }
     val taskEntries by ClientTaskManager.entries.collectAsState()
     val downloadTaskEntry = remember(taskEntries, downloadTaskRunId) {
         downloadTaskRunId?.let { runId -> taskEntries.firstOrNull { it.runId == runId } }
@@ -100,10 +108,12 @@ fun ModpackUploadScreen2(
     val serverTestPassSeconds = serverTester?.passSeconds?.collectAsState()
     val serverTestConsoleState = remember { ConsoleState(4000) }
     val allowUploadWithoutTests = DEBUG || IGNORE_MODPACK_TEST
-    val canSubmitUpload = !loading &&
+    val canSubmitUpload = IGNORE_MODPACK_TEST || (
+            !loading &&
+            downloadTaskRunId == null &&
             serverTester?.isRunning() == false &&
             clientTester?.isRunning() == false &&
-            (uploadMode == UploadMode.CREATE || selectedUpdateTarget != null)
+            (uploadMode == UploadMode.CREATE || selectedUpdateTarget != null))
     val canSelectServerPack = editMode &&
             !loading &&
             downloadTaskRunId == null &&
@@ -226,17 +236,15 @@ fun ModpackUploadScreen2(
         when (downloadTaskEntry?.status) {
             Task2Status.DONE -> {
                 downloadTaskRunId = null
-                enterEditMode()
             }
 
             Task2Status.FAILED -> {
-                errorText = downloadTaskEntry?.snapshot?.errorMessage ?: "下载Mod失败"
+                errorText = downloadTaskEntry?.snapshot?.errorMessage ?: "下载任务失败"
                 downloadTaskRunId = null
             }
 
             Task2Status.CANCELLED -> {
                 downloadTaskRunId = null
-                handleBack()
             }
 
             else -> Unit
@@ -273,9 +281,39 @@ fun ModpackUploadScreen2(
     fun modsNeedDownload(source: List<Mod>): List<Mod> =
         source.filterNot(ModService::isDownloadedModFileValid)
 
+    fun submitMissingModDownload(missingMods: List<Mod>) {
+        if (missingMods.isEmpty()) return
+        if (downloadTaskRunId != null) {
+            errorText = "已有下载任务正在运行"
+            return
+        }
+        downloadTaskRunId = ClientTaskManager.submit(ModService.downloadModsTask2(missingMods))
+    }
+
+    fun requireModsDownloadedFor(usage: String, onReady: () -> Unit) {
+        scope.launch {
+            val missingMods = runCatching {
+                withContext(Dispatchers.IO) { modsNeedDownload(mods) }
+            }.getOrElse { error ->
+                lgr.error { error }
+                errorText = error.message ?: "检查缺失Mod失败"
+                return@launch
+            }
+            if (missingMods.isEmpty()) {
+                onReady()
+            } else {
+                pendingMissingModDownload = PendingMissingModDownload(usage, missingMods)
+            }
+        }
+    }
+
     fun applyServerPack(serverPack: LoadedServerPackResult) {
-        mods = mergeClientAndServerMods(mods, serverPack.mods)
-        loadedModpack = loadedModpack?.copy(serverExtraFiles = serverPack.serverExtraFiles)
+        val processedMods = ModpackModProcessor.processMods(mergeClientAndServerMods(mods, serverPack.mods))
+        mods = processedMods
+        loadedModpack = loadedModpack?.copy(
+            mods = processedMods,
+            serverExtraFiles = serverPack.serverExtraFiles
+        )
         serverPackName = buildString {
             append("已选择服务端(")
             append(serverPack.mods.size)
@@ -334,32 +372,6 @@ fun ModpackUploadScreen2(
         }
     }
 
-    fun continueAfterSidesReady() {
-        scope.launch {
-            loading = true
-            progressText = "检查缺失Mod中..."
-            progressFraction = null
-            val invalidMods = runCatching {
-                withContext(Dispatchers.IO) {
-                    modsNeedDownload(mods)
-                }
-            }.getOrElse { error ->
-                finishLoading()
-                lgr.error { error }
-                errorText = error.message ?: "检查整合包Mod失败"
-                return@launch
-            }
-            finishLoading()
-            if (invalidMods.isNotEmpty()) {
-                downloadTaskRunId = ClientTaskManager.submit(
-                    ModService.downloadModsTask2(invalidMods)
-                )
-            } else {
-                enterEditMode()
-            }
-        }
-    }
-
     fun buildUploadPayloadOrNull(): UploadPayload? {
         val current = loadedModpack ?: run {
             errorText = "请先选择整合包文件"
@@ -400,7 +412,7 @@ fun ModpackUploadScreen2(
         return current.copy(
             packName = if (uploadMode == UploadMode.UPDATE) selectedUpdateTarget?.name ?: name else name,
             packVersion = version,
-            mods = mods
+            mods = ModpackModProcessor.processMods(mods)
         ).toUploadPayload()
     }
 
@@ -455,8 +467,8 @@ fun ModpackUploadScreen2(
                 return@launch
             }
 
-            val defaultedMods = defaultCurseForgeUnknownMods(loadResult.mods)
-            loadedModpack = loadResult.copy(mods = defaultedMods)
+            val processedMods = ModpackModProcessor.processMods(defaultCurseForgeUnknownMods(loadResult.mods))
+            loadedModpack = loadResult.copy(mods = processedMods)
             modpackName = loadResult.packName
             versionName = normalizeVersionNameInput(loadResult.packVersion)
             iconUrl = ""
@@ -465,31 +477,18 @@ fun ModpackUploadScreen2(
             selectedCategories = emptyList()
             mcVersionText = loadResult.mcVersion.mcVer
             modloaderText = loadResult.modloader.name
-            mods = defaultedMods
+            mods = processedMods
             serverPackName = null
             uploadMode = UploadMode.CREATE
             selectedUpdateTarget = null
             selectedTab = 0
-            continueAfterSidesReady()
+            finishLoading()
+            enterEditMode()
         }
     }
 
     fun selectServerPack() {
         scope.launch {
-            val missingClientMods = runCatching {
-                withContext(Dispatchers.IO) { modsNeedDownload(mods) }
-            }.getOrElse { error ->
-                lgr.error { error }
-                errorText = error.message ?: "检查客户端Mod失败"
-                return@launch
-            }
-            if (missingClientMods.isNotEmpty()) {
-                downloadTaskRunId = ClientTaskManager.submit(
-                    ModService.downloadModsTask2(missingClientMods)
-                )
-                errorText = "已先开始下载客户端Mod，下载完成后再点标题栏的“选择服务端”"
-                return@launch
-            }
             val file = pickLocalDirectory("选择服务端安装目录") ?: return@launch
             errorText = null
             loading = true
@@ -507,8 +506,34 @@ fun ModpackUploadScreen2(
             }
             applyServerPack(serverPack)
             finishLoading()
-            continueAfterSidesReady()
+            enterEditMode()
         }
+    }
+
+    fun startDownloadTestServerTask() {
+        val current = loadedModpack ?: run {
+            errorText = "请先选择整合包文件"
+            return
+        }
+        if (downloadTaskRunId != null) {
+            errorText = "已有下载任务正在运行"
+            return
+        }
+        downloadTaskRunId = ClientTaskManager.submit(
+            GameService.downloadTestServerTask2(current.mcVersion, current.modloader)
+        )
+    }
+
+    fun startServerTestAfterModsReady() {
+        val currentTester = serverTester ?: return
+        serverTestConsoleState.clear()
+        currentTester.startWithAutoFix(
+            uiScope = scope,
+            getMods = { mods },
+            setMods = { updatedMods -> mods = updatedMods },
+            onError = { msg -> msg?.let { errorText = it } },
+            appendLog = { line -> serverTestConsoleState.append(line) }
+        )
     }
 
     fun startServerTest() {
@@ -522,14 +547,9 @@ fun ModpackUploadScreen2(
         } else if (currentTester.isRunning()) {
             errorText = "测试服务器已经在运行中"
         } else {
-            serverTestConsoleState.clear()
-            currentTester.startWithAutoFix(
-                uiScope = scope,
-                getMods = { mods },
-                setMods = { updatedMods -> mods = updatedMods },
-                onError = { msg -> msg?.let { errorText = it } },
-                appendLog = { line -> serverTestConsoleState.append(line) }
-            )
+            requireModsDownloadedFor("服务端测试") {
+                startServerTestAfterModsReady()
+            }
         }
     }
 
@@ -537,6 +557,17 @@ fun ModpackUploadScreen2(
         serverTester?.stop(
             uiScope = scope,
             appendLog = { line -> serverTestConsoleState.append(line) }
+        )
+    }
+
+    fun startClientTestAfterModsReady() {
+        val currentTester = clientTester ?: return
+        clientTestConsoleState.clear()
+        currentTester.start(
+            uiScope = scope,
+            getMods = { mods },
+            onError = { msg -> msg?.let { errorText = it } },
+            appendLog = { line -> clientTestConsoleState.append(line) }
         )
     }
 
@@ -551,13 +582,9 @@ fun ModpackUploadScreen2(
         } else if (currentTester.isRunning()) {
             errorText = "测试客户端已经在运行中"
         } else {
-            clientTestConsoleState.clear()
-            currentTester.start(
-                uiScope = scope,
-                getMods = { mods },
-                onError = { msg -> msg?.let { errorText = it } },
-                appendLog = { line -> clientTestConsoleState.append(line) }
-            )
+            requireModsDownloadedFor("客户端测试") {
+                startClientTestAfterModsReady()
+            }
         }
     }
 
@@ -594,6 +621,13 @@ fun ModpackUploadScreen2(
                         Space8w()
                         Text(it)
                     }
+                    Space8w()
+                    CircleIconButton(
+                        "\uF019",
+                        "下载测试服务端",
+                        enabled = isDesktop && loadedModpack != null && downloadTaskRunId == null,
+                        onClick = ::startDownloadTestServerTask
+                    )
                     Space8w()
                     CircleIconButton(
                         "\uF058",
@@ -842,6 +876,18 @@ fun ModpackUploadScreen2(
             Task2DetailDialog(
                 entry = entry,
                 onClose = {}
+            )
+        }
+
+        pendingMissingModDownload?.let { pending ->
+            ConfirmDialog(
+                title = "下载缺失Mod",
+                message = "${pending.usage}需要先下载缺失Mod${pending.mods.size}个。下载完成后再启动${pending.usage}。",
+                onConfirm = {
+                    submitMissingModDownload(pending.mods)
+                    pendingMissingModDownload = null
+                },
+                onDismiss = { pendingMissingModDownload = null }
             )
         }
 

@@ -1,16 +1,21 @@
 package calebxzhou.rdi.client.proxy
 
+import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
 import io.netty.channel.ChannelFutureListener
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInboundHandlerAdapter
 
-class LocalMcProxyBackendHandler(
+class LocalMcProxyBackendHandler (
     private val frontendChannel: Channel,
-    private val reportLog: (String) -> Unit
+    private val reportLog: (String) -> Unit,
+    private val metrics: LocalMcProxyMetricsSession? = null
 ) : ChannelInboundHandlerAdapter() {
     override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
+        if (metrics != null && msg is ByteBuf) {
+            metrics.record("s2c", msg)
+        }
         frontendChannel.writeAndFlush(msg).addListener { future ->
             if (!future.isSuccess) {
                 reportLog(

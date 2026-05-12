@@ -160,7 +160,7 @@ internal fun GameService.startDesktopInDir(
     val loaderManifest = if (gtnhExtensionRoot != null) {
         buildGtnhLoaderManifest(gtnhExtensionRoot, versionId)
     } else {
-        resolveLocalLoaderManifest(versionDir, versionId) ?: mcVer.loaderManifest
+        mcVer.loaderManifest.copy(id = versionId)
     }
     val manifest = mcVer.manifest
     val nativesDir = if (isGtnhJava25Launch) {
@@ -197,10 +197,18 @@ internal fun GameService.startDesktopInDir(
     val hasClasspathDeclaration = !isGtnhJava25Launch && resolvedJvmArgs.any {
         it == "-cp" || it == "-classpath" || it.contains("\${classpath}")
     }
+    val jvmVersionName = if (loaderManifest.isBootstrapModuleLaunch()) {
+        loaderManifest.jar
+            ?.takeIf(String::isNotBlank)
+            ?: loaderManifest.inheritsFrom?.takeIf(String::isNotBlank)
+            ?: manifest.id
+    } else {
+        versionId
+    }
     val processedJvmArgs = buildList {
         var skipNextClasspathValue = false
         resolvedJvmArgs.forEach { rawArg ->
-            val arg = rawArg.replaceLaunchTokens(nativesDir, versionDir, versionId, classpath)
+            val arg = rawArg.replaceLaunchTokens(nativesDir, versionDir, jvmVersionName, classpath)
             if (isGtnhJava25Launch) {
                 if (skipNextClasspathValue) {
                     skipNextClasspathValue = false
@@ -436,15 +444,15 @@ private fun buildGtnhLoaderManifest(extensionRoot: File, versionId: String): Moj
     val launchArgsPatch = extensionRoot.resolve("patches/me.eigenraven.lwjgl3ify.launchargs.json")
         .let { serdesJson.decodeFromString<GtnhPrismPatch>(it.readText()) }
     val minecraftArguments = (listOf(
-        "--username", "\${auth_player_name}",
-        "--version", "\${version_name}",
-        "--gameDir", "\${game_directory}",
-        "--assetsDir", "\${assets_root}",
-        "--assetIndex", "\${assets_index_name}",
-        "--uuid", "\${auth_uuid}",
-        "--accessToken", "\${auth_access_token}",
-        "--userProperties", "\${user_properties}",
-        "--userType", "\${user_type}",
+        "--username", $$"${auth_player_name}",
+        "--version", $$"${version_name}",
+        "--gameDir", $$"${game_directory}",
+        "--assetsDir", $$"${assets_root}",
+        "--assetIndex", $$"${assets_index_name}",
+        "--uuid", $$"${auth_uuid}",
+        "--accessToken", $$"${auth_access_token}",
+        "--userProperties", $$"${user_properties}",
+        "--userType", $$"${user_type}",
     ) + forgeTweakers).joinToString(" ")
     return MojangVersionManifest(
         id = versionId,
@@ -767,14 +775,6 @@ private fun writeGtnhServerJava9Args(file: File, extensionRoot: File) {
         classpath = "",
     )
     file.writeText(args.joinToString(System.lineSeparator()))
-}
-
-private fun resolveLocalLoaderManifest(versionDir: File, versionId: String): MojangVersionManifest? {
-    val localManifest = versionDir.resolve("${versionId}.json")
-    if (!localManifest.isFile) return null
-    return runCatching {
-        serdesJson.decodeFromString<MojangVersionManifest>(localManifest.readText())
-    }.getOrNull()
 }
 
 private fun linkServerRuntimeFile(link: File, source: File) {

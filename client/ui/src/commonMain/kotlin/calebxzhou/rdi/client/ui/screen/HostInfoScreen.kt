@@ -35,6 +35,7 @@ import calebxzhou.mykotutils.std.millisToHumanDateTime
 import calebxzhou.mykotutils.std.secondsToHumanDateTime
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.auth.updateLastPlayHost
+import calebxzhou.rdi.client.model.RemoteModCardVo
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
@@ -140,6 +141,8 @@ fun HostInfoScreen(
     var extraModGithubReleases by remember { mutableStateOf<List<GithubRelease>>(emptyList()) }
     var selectedGithubAsset by remember { mutableStateOf<GithubReleaseAsset?>(null) }
     var extraModSide by remember { mutableStateOf(Mod.Side.BOTH) }
+    var showRemoteModOverlay by remember { mutableStateOf(false) }
+    var remoteModOverlayStack by remember { mutableStateOf<List<RemoteModCardVo>>(emptyList()) }
     var privateThingsSubTab by remember { mutableStateOf(0) }
     var selectedExtraModKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var disabledMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
@@ -613,7 +616,7 @@ fun HostInfoScreen(
                 }
 
                 is StartPlayResult.NeedMc -> {
-                    errorMessage = "未安装MC版本资源：${args.ver.mcVer}，请先下载"
+                    errorMessage = "请更新MC${args.ver.mcVer}版本资源"
                     onOpenMcVersions?.invoke(args.ver)
                 }
             }
@@ -993,7 +996,8 @@ fun HostInfoScreen(
                                                 removeExtraModConfirm = selectedExtraMods.firstOrNull()
                                             },
                                             onOpenResourceMods = {
-                                                onOpenResourceMods(host.modpack.mcVer)
+                                                remoteModOverlayStack = emptyList()
+                                                showRemoteModOverlay = true
                                             },
                                             onAddExtraModAdvanced = {
                                                 resetAddExtraModAdvancedDialog()
@@ -1382,6 +1386,76 @@ fun HostInfoScreen(
                 }
             }
         )
+    }
+
+    if (showRemoteModOverlay && host != null) {
+        Dialog(
+            onDismissRequest = {
+                remoteModOverlayStack = emptyList()
+                showRemoteModOverlay = false
+            },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.8f)
+                    .fillMaxHeight(0.8f),
+                shape = RoundedCornerShape(20.dp),
+                color = Color.White
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "附加Mod",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = "MC${host.modpack.mcVer.mcVer}",
+                            color = MaterialColor.GRAY_700.color
+                        )
+                        CircleIconButton(
+                            icon = "\uF00D",
+                            tooltip = "关闭",
+                            showText = false,
+                            bgColor = MaterialColor.GRAY_200.color,
+                            iconColor = MaterialColor.GRAY_900.color
+                        ) {
+                            remoteModOverlayStack = emptyList()
+                            showRemoteModOverlay = false
+                        }
+                    }
+                    val currentRemoteMod = remoteModOverlayStack.lastOrNull()
+                    if (currentRemoteMod == null) {
+                        RemoteModScreen(
+                            requiredMcVer = host.modpack.mcVer,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            onOpenMod = { remoteModOverlayStack = remoteModOverlayStack + it }
+                        )
+                    } else {
+                        RemoteModInfoScreen(
+                            mod = currentRemoteMod,
+                            onBack = { remoteModOverlayStack = remoteModOverlayStack.dropLast(1) },
+                            onOpenDependencyMod = { remoteModOverlayStack = remoteModOverlayStack + it },
+                            targetHostId = hostId,
+                            targetHostMcVer = host.modpack.mcVer
+                        )
+                    }
+                }
+            }
+        }
     }
 
     if (showAddExtraModAdvancedDialog) {

@@ -6,9 +6,11 @@ import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
 import io.netty.channel.ChannelFutureListener
 import io.netty.channel.ChannelHandlerContext
+import io.netty.channel.ChannelInitializer
 import io.netty.channel.ChannelInboundHandlerAdapter
 import io.netty.channel.ChannelOption
 import io.netty.channel.EventLoopGroup
+import io.netty.channel.socket.SocketChannel
 import io.netty.channel.socket.nio.NioSocketChannel
 import io.netty.util.ReferenceCountUtil
 
@@ -20,14 +22,18 @@ internal class LocalMcProxyFrontendHandler(
     private var backendChannel: Channel? = null
     private val pendingBuffer = mutableListOf<Any>()
     private var firstMinecraftFrameHandled = false
+    private val metrics = if (LocalMcProxyMetricsConfig.enabled) LocalMcProxyMetricsSession.create() else null
 
     override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
         if (!firstMinecraftFrameHandled) {
             firstMinecraftFrameHandled = true
             val endpoint = resolveEndpoint()
             connectToBackend(ctx, endpoint)
+            recordMetrics("c2s", msg)
             forwardToBackend(ctx, msg)
-            ctx.pipeline().remove(MinecraftFrameDecoder::class.java)
+            if (metrics == null) {
+                ctx.pipeline().remove(MinecraftFrameDecoder::class.java)
+            }
             if(DEBUG)
             {
                 reportLog(
@@ -38,6 +44,7 @@ internal class LocalMcProxyFrontendHandler(
             }
             return
         }
+        recordMetrics("c2s", msg)
         forwardToBackend(ctx, msg)
     }
 
@@ -46,6 +53,7 @@ internal class LocalMcProxyFrontendHandler(
             closeOnFlush(backendChannel!!)
         }
         releasePendingBuffer()
+        metrics?.closeAndSave()?.let { reportLog("net metrics saved: ${it.absolutePath}") }
     }
 
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
@@ -68,7 +76,14 @@ internal class LocalMcProxyFrontendHandler(
             .option(ChannelOption.AUTO_READ, true)
             .option(ChannelOption.TCP_NODELAY, true)
             .option(ChannelOption.SO_KEEPALIVE, true)
-            .handler(LocalMcProxyBackendHandler(frontendChannel, reportLog))
+            .handler(object : ChannelInitializer<SocketChannel>() {
+                override fun initChannel(ch: SocketChannel) {
+                    if (metrics != null) {
+                        ch.pipeline().addLast(MinecraftFrameDecoder())
+                    }
+                    ch.pipeline().addLast(LocalMcProxyBackendHandler(frontendChannel, reportLog, metrics))
+                }
+            })
 
         val future = bootstrap.connect(endpoint.host, endpoint.port)
         backendChannel = future.channel()
@@ -145,6 +160,12 @@ internal class LocalMcProxyFrontendHandler(
     private fun releasePendingBuffer() {
         pendingBuffer.forEach(ReferenceCountUtil::release)
         pendingBuffer.clear()
+    }
+
+    private fun recordMetrics(direction: String, msg: Any) {
+        if (metrics != null && msg is io.netty.buffer.ByteBuf) {
+            metrics.record(direction, msg)
+        }
     }
 
     private fun closeOnFlush(ch: Channel) {

@@ -10,7 +10,7 @@ val zstdVer = "1.5.7-7"
 val desugarVersion = "2.1.5"
 val desktopJavaSdkVersion = 25
 val desktopJvmTarget = JvmTarget.JVM_21
-val version = "5.15.2"
+val version = "5.15.4"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
@@ -331,6 +331,7 @@ val hotRunBaseJvmArgs = listOf(
     "-Drdi.debug=true",
     "-Drdi.noHttps=true",
     "-Drdi.noUpdate=true",
+    "-Drdi.netMetrics=true",
     "-Drdi.account=eyJfaWQiOiI2OGIzMTRiYmFkYWY1MmRkYWI5NmI1ZWQiLCJuYW1lIjoiMTIzMTIzIiwicHdkIjoiMTIzQEBAIiwicXEiOiIxMjMxMjMifQ=="
 )
 

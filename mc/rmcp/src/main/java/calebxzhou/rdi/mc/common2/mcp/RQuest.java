@@ -11,6 +11,8 @@ public record RQuest(
         String subtitle,
         String chapterId,
         String chapterTitle,
+        String groupId,
+        String groupTitle,
         Position position,
         State state,
         Rules rules,

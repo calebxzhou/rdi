@@ -16,6 +16,7 @@ import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.service.CurseForgeService.loadInfoCurseForge
+import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.ModService.readModMeta
 import calebxzhou.rdi.common.service.ModrinthService
@@ -1364,6 +1365,7 @@ fun createUploadModpackTask2(
 ): Task2 {
     var uploadedModpackId: ObjectId? = updateModpackId
     var builtClientZip: File? = null
+    val processedMods = ModpackModProcessor.processMods(mods)
     val uploadTask = Task2.Leaf("上传整合包") { ctx ->
         var errorMessage: String? = null
         var doneSummary: String? = null
@@ -1383,7 +1385,7 @@ fun createUploadModpackTask2(
                 uploadNewVersion(
                     modpackId = updateModpackId,
                     versionName = versionName,
-                    mods = mods,
+                    mods = processedMods,
                     uploadZip = uploadZip,
                     totalBytes = totalBytes,
                     startTime = startTime,
@@ -1401,7 +1403,7 @@ fun createUploadModpackTask2(
                     versionName = versionName,
                     mcVersion = payload.mcVersion,
                     modloader = payload.modloader,
-                    mods = mods,
+                    mods = processedMods,
                     categories = categories,
                     iconUrl = iconUrl,
                     sourceUrl = sourceUrl,
@@ -1433,6 +1435,19 @@ fun createUploadModpackTask2(
             throw e
         }
     }
+    val downloadMissingModsTask = Task2.Leaf("下载剩余客户端Mod") { ctx ->
+        val missingMods = withContext(Dispatchers.IO) {
+            processedMods
+                .filter(::isUploadClientInstallableMod)
+                .filterNot(ModService::isDownloadedModFileValid)
+        }
+        if (missingMods.isEmpty()) {
+            ctx.emit(Task2Progress("客户端Mod已齐全", 1f))
+        } else {
+            ctx.emit(Task2Progress("开始下载剩余客户端Mod，共${missingMods.size}个", 0f))
+            ModService.downloadModsTask2(missingMods).runInline(ctx)
+        }
+    }
     val installTask = Task2.Leaf("本地安装整合包") { ctx ->
         val modpackId = uploadedModpackId ?: throw ModpackError("上传后未找到整合包")
         val uploadZip = builtClientZip ?: throw ModpackError("本地客户端包不存在")
@@ -1442,7 +1457,7 @@ fun createUploadModpackTask2(
                 modLoader = payload.modloader,
                 modpackId = modpackId,
                 verName = versionName,
-                mods = mods,
+                mods = processedMods,
                 clientPackFile = uploadZip,
                 modpackName = modpackName,
                 embeddedModOriginalFileNames = payload.embeddedModOriginalFileNames
@@ -1454,9 +1469,12 @@ fun createUploadModpackTask2(
     }
     return Task2.Sequence(
         title = "上传并安装整合包 $modpackName $versionName",
-        children = listOf(uploadTask, installTask)
+        children = listOf(uploadTask, downloadMissingModsTask, installTask)
     )
 }
+
+private fun isUploadClientInstallableMod(mod: Mod): Boolean =
+    mod.side != Mod.Side.SERVER && mod.side != Mod.Side.UNKNOWN
 
 fun modpackUploadTaskKey(
     updateModpackId: ObjectId?,

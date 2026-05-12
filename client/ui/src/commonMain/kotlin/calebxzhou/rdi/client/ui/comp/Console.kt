@@ -5,7 +5,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.Text
+import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -20,6 +20,8 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.CodeFontFamily
 import calebxzhou.rdi.client.ui.AlertErr
@@ -132,14 +134,17 @@ fun Console(
                         modifier = Modifier
                             .fillMaxSize()
                             .padding(end = 12.dp) // Make room for scrollbar
-                            .background(Color(0xFF191a1c)),
-                        contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp)
+                            .background(Color.White),
+                        contentPadding = PaddingValues(vertical = 0.dp, horizontal = 4.dp)
                     ) {
                         items(state.lines.size) { index ->
                             Text(
                                 text = formatLine(state.lines[index]),
+                                modifier = Modifier.padding(vertical = 0.dp),
                                 fontFamily = CodeFontFamily,
-                                color = Color.White
+                                color = Color.Black,
+                                fontSize = TextUnit(9f, TextUnitType.Sp),
+                                lineHeight = TextUnit(10f, TextUnitType.Sp),
                             )
                         }
                     }
@@ -152,7 +157,7 @@ fun Console(
                     .align(Alignment.CenterEnd)
                     .fillMaxHeight()
                     .width(14.dp)
-                    .background(Color(0xFF000000))
+                    .background(Color(0xFFE5E5E5))
             ) {
                 PlatformVerticalScrollbar(
                     listState = listState,
@@ -253,27 +258,43 @@ private suspend fun exportLogsToZip(lines: List<String>): Result<java.io.File> =
     }
 }
 
-private val timePrefixRegex = Regex("""^\[\d{2}:\d{2}:\d{2}\]""")
-private val goldColor = Color(0xFFFFD700)
-private val normalColor = Color(0xFFbcbec4)
-private val warningColor = Color(0xFFe0bb64)
-private val errorColor = Color(0xFFf75664)
+private val timePrefixRegex = Regex("""^\[[^\]]*\]""")
+private val levelSectionRegex = Regex("""^\s*\[[^\]]*/(INFO|WARN|WARNING|ERROR|SEVERE|FATAL)\]""", RegexOption.IGNORE_CASE)
+private val timeColor = Color(0xFF0D47A1)
+private val infoColor = Color(0xFF1B5E20)
+private val goldColor = Color(0xFF8A6A00)
+private val normalColor = Color(0xFF202124)
+private val warningColor = Color(0xFF9A6700)
+private val errorColor = Color(0xFFC62828)
 
 private fun formatLine(line: String): AnnotatedString {
     val trimmed = line.trimEnd('\r')
-    val isTimestamped = timePrefixRegex.containsMatchIn(trimmed)
     return buildAnnotatedString {
-        if (isTimestamped) {
-            val closeIdx = trimmed.indexOf(']')
-            if (closeIdx > 0) {
-                val prefix = trimmed.substring(0, closeIdx + 1)
-                val rest = trimmed.substring(closeIdx + 1)
-                withStyle(SpanStyle(color = goldColor)) { append(prefix) }
-                withStyle(SpanStyle(color = pickColor(rest))) { append(rest) }
-                return@buildAnnotatedString
+        val timeMatch = timePrefixRegex.find(trimmed)
+        if (timeMatch != null && timeMatch.range.first == 0) {
+            withStyle(SpanStyle(color = timeColor)) { append(timeMatch.value) }
+            val afterTime = trimmed.substring(timeMatch.range.last + 1)
+            val levelMatch = levelSectionRegex.find(afterTime)
+            if (levelMatch != null && levelMatch.range.first == 0) {
+                val levelSection = levelMatch.value
+                withStyle(SpanStyle(color = pickLevelColor(levelMatch.groupValues[1]))) { append(levelSection) }
+                withStyle(SpanStyle(color = pickColor(afterTime.substring(levelMatch.range.last + 1)))) {
+                    append(afterTime.substring(levelMatch.range.last + 1))
+                }
+            } else {
+                withStyle(SpanStyle(color = pickColor(afterTime))) { append(afterTime) }
             }
+            return@buildAnnotatedString
         }
         withStyle(SpanStyle(color = pickColor(trimmed))) { append(trimmed) }
+    }
+}
+
+private fun pickLevelColor(level: String): Color {
+    return when {
+        level.equals("INFO", true) -> infoColor
+        level.equals("WARN", true) || level.equals("WARNING", true) -> goldColor
+        else -> errorColor
     }
 }
 

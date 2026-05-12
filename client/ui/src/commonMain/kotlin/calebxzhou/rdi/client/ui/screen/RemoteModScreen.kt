@@ -89,7 +89,18 @@ fun RemoteModScreen(
     var selectedSourceFilter by rememberSaveable { mutableStateOf(RemoteModSourceFilter.ALL) }
     var compactFilterPanelExpanded by rememberSaveable { mutableStateOf(false) }
 
+    val lockedMcVer = requiredMcVer
     val loaderOptions = remember(selectedMcVer) { selectedMcVer.supportedRemoteModLoaders() }
+
+    LaunchedEffect(lockedMcVer) {
+        lockedMcVer?.let { version ->
+            selectedMcVer = version
+            val nextLoaderOptions = version.supportedRemoteModLoaders()
+            if (selectedLoader !in nextLoaderOptions) {
+                selectedLoader = version.defaultRemoteModLoader()
+            }
+        }
+    }
 
     suspend fun loadMods(reset: Boolean) {
         val offset = if (reset) 0 else mods.size
@@ -222,17 +233,19 @@ fun RemoteModScreen(
                 )
             }
             RemoteModFilterSection("MC版本") {
-                val versions = McVersion.entries.filter { it.enabled }
+                val versions = lockedMcVer?.let(::listOf) ?: McVersion.entries.filter { it.enabled }
                 RemoteModFilterGrid(
                     items = versions.map { version ->
                         RemoteModFilterChipItem(
                             text = version.mcVer,
                             selected = selectedMcVer == version,
                             onClick = {
-                                selectedMcVer = version
-                                val nextLoaderOptions = version.supportedRemoteModLoaders()
-                                if (selectedLoader !in nextLoaderOptions) {
-                                    selectedLoader = version.defaultRemoteModLoader()
+                                if (lockedMcVer == null) {
+                                    selectedMcVer = version
+                                    val nextLoaderOptions = version.supportedRemoteModLoaders()
+                                    if (selectedLoader !in nextLoaderOptions) {
+                                        selectedLoader = version.defaultRemoteModLoader()
+                                    }
                                 }
                             }
                         )

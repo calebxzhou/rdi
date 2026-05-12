@@ -1,7 +1,5 @@
 package calebxzhou.rdi.mc.common2.mcp;
 
-import calebxzhou.rdi.mc.common2.rcmd.client.RcmdRecipeView;
-
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -22,9 +20,13 @@ public interface RMcpGameConnector {
 
     RReachableQuestList reachableQuests();
 
+    RQuest questDetail(String id);
+
     RMcpPosData posData();
 
     RMcpInventoryData inventoryData();
+
+    RMcpInventoryTagMatchData inventoryTagMatchData(String tag, String scope, int limit);
 
     RMcpHotbarSelectData selectHotbarSlot(int slot, boolean dryRun);
 
@@ -72,6 +74,8 @@ public interface RMcpGameConnector {
 
     RMcpBlockActionData breakBlock(int x, int y, int z);
 
+    RMcpItemUseOnBlockData useItemOnBlock(RMcpItemUseOnBlockRequest request);
+
     RMcpBlockBatchActionData placeBlocks(List<RMcpBlockPosData> positions);
 
     RMcpBlockBatchActionData placeBlocksDiscrete(RMcpPlaceDiscreteRequest request);
@@ -82,6 +86,8 @@ public interface RMcpGameConnector {
 
     RMcpBlockBatchActionData placeBlockBox(RMcpPlaceBoxRequest request);
 
+    RMcpBlockBatchActionData placeBlockRing(RMcpPlaceRingRequest request);
+
     RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to);
 
     RMcpPlayerMoveData movePlayer(double x, double y, double z);
@@ -89,6 +95,8 @@ public interface RMcpGameConnector {
     RMcpRespawnData respawnPlayer();
 
     RMcpItemPickupData pickupItemEntities(List<UUID> ids, double radius, int limit);
+
+    RMcpItemDropData dropInventoryItem(RMcpItemDropRequest request);
 
     RMcpChunkSemanticData chunkData(int chunkX, int chunkZ);
 
@@ -112,13 +120,15 @@ public interface RMcpGameConnector {
 
     RMcpLangKeyIndex langKeyIndex();
 
+    RMcpItemSearchData itemSearchData(String text, String modId, int limit);
+
     RMcpPlayerData playerData(UUID uuid);
 
     RMcpPlayerDetailData playerDetailData(UUID uuid);
 
     Map<String, Object> mainHandItemData();
 
-    List<RcmdRecipeView> recipeData(String itemId);
+    List<RMcpRecipeData> recipeData(String itemId);
 
     CompletableFuture<byte[]> screenshotPngData();
 }

@@ -845,9 +845,6 @@ object GameService {
                 Task2.Leaf("解析安装器") { ctx ->
                     parseInstallerTask2(holder, ctx)
                 },
-                Task2.Leaf("下载${loader}服务端") { ctx ->
-                    downloadServerTask2(holder, ctx)
-                },
                 Task2.Leaf("下载$loader 依赖") { ctx ->
                     downloadLibrariesTask2(holder.loaderLibraries, ctx, holder.installer)
                 },
@@ -857,10 +854,28 @@ object GameService {
                 Task2.Leaf("运行安装器") { ctx ->
                     runInstallerBootstrapperTask2(holder, ctx)
                 },
+            ),
+        )
+    }
+
+    fun downloadTestServerTask2(version: McVersion, loader: ModLoader): Task2 {
+        val holder = LoaderInstallHolder(version = version, loader = loader)
+        return Task2.Sequence(
+            title = "下载测试服务端 ${version.mcVer} $loader",
+            children = listOf(
+                Task2.Leaf("下载$loader 安装器") { ctx ->
+                    prepareInstallerTask2(holder, ctx)
+                },
+                Task2.Leaf("解析安装器") { ctx ->
+                    parseInstallerTask2(holder, ctx)
+                },
+                Task2.Leaf("下载${loader}服务端") { ctx ->
+                    downloadServerTask2(holder, ctx)
+                },
                 Task2.Leaf("运行安装器服务端") { ctx ->
                     runServerInstallerBootstrapperTask2(holder, ctx)
                 }
-            ),
+            )
         )
     }
 

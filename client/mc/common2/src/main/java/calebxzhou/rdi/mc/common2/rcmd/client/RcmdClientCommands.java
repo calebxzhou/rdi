@@ -197,6 +197,33 @@ public final class RcmdClientCommands {
         if (ingredient.isEmpty()) {
             return new JsonArray();
         }
+        if (ingredient.tags() != null && !ingredient.tags().isEmpty()) {
+            var json = new JsonObject();
+            var tags = new JsonArray();
+            for (var tag : ingredient.tags()) {
+                var tagJson = new JsonObject();
+                tagJson.addProperty("id", tag.id());
+                tagJson.addProperty("c", tag.count());
+                tagJson.addProperty("n", tag.candidateCount());
+                if (tag.examples() != null && !tag.examples().isEmpty()) {
+                    var examples = new JsonArray();
+                    for (var example : tag.examples()) {
+                        examples.add(context.itemRef(example));
+                    }
+                    tagJson.add("examples", examples);
+                }
+                tags.add(tagJson);
+            }
+            json.add("tags", tags);
+            if (ingredient.items() != null && !ingredient.items().isEmpty()) {
+                var items = new JsonArray();
+                for (var itemStack : ingredient.items()) {
+                    items.add(context.itemRef(itemStack));
+                }
+                json.add("items", items);
+            }
+            return json;
+        }
         if (ingredient.items().size() == 1) {
             return new JsonPrimitive(context.itemRef(ingredient.items().get(0)));
         }

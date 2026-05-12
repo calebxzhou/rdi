@@ -28,30 +28,6 @@ import calebxzhou.rdi.common.model.Task2
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun McVersionScreen(
-    onBack: () -> Unit,
-    requiredMcVer: McVersion? = null,
-    onOpenTaskList: ((String) -> Unit)? = null
-) {
-    var titleActions by remember { mutableStateOf<ResourceScreenTitleActions?>(null) }
-
-    MainBox {
-        MainColumn {
-            TitleRow("Minecraft版本", onBack) {
-                titleActions?.invoke(this)
-            }
-            Space8h()
-            McVersionPane(
-                requiredMcVer = requiredMcVer,
-                onOpenTaskList = onOpenTaskList,
-                onTitleActionsChange = { titleActions = it }
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
 fun McVersionPane(
     requiredMcVer: McVersion? = null,
     onOpenTaskList: ((String) -> Unit)? = null,
@@ -138,7 +114,7 @@ fun McVersionPane(
         }
         if (requiredMcVer != null) {
             Text(
-                text = "请先下载所需版本：${requiredMcVer.mcVer}",
+                text = "MC${requiredMcVer.mcVer}版本资源需要更新。请点击下载",
                 color = MaterialTheme.colors.error
             )
             Spacer(modifier = Modifier.height(6.dp))
@@ -242,19 +218,19 @@ private fun McVersionActionRow(
         )
         RowV(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = space8
         ) {
             if (isDesktop) {
                 CircleIconButton(
                     icon = "\uF019",
-                    tooltip = "下载全部",
+                    tooltip = "更新全部",
                     enabled = enabled
                 ) {
                     selected?.let(onDownloadAll)
                 }
                 CircleIconButton(
                     icon = "\uDB80\uDF73",
-                    tooltip = "下载音频",
+                    tooltip = "更新音频",
                     bgColor = MaterialColor.BLUE_700.color,
                     enabled = enabled
                 ) {
@@ -271,7 +247,7 @@ private fun McVersionActionRow(
                     selected.loaderVersions.forEach { (loader, _) ->
                         CircleIconButton(
                             icon = "\uEEFF",
-                            tooltip = "安装最新${loader.name.lowercase()}",
+                            tooltip = "更新${loader.name.lowercase()}",
                             bgColor = MaterialColor.TEAL_900.color,
                             enabled = enabled
                         ) {

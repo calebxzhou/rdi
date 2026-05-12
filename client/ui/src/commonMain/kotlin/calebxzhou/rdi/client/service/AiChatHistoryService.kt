@@ -59,7 +59,12 @@ data class AiChatSavedReasoningSegment(
 data class AiChatSavedToolStatus(
     val action: String,
     val target: String,
-    val contentOffset: Int = -1
+    val contentOffset: Int = -1,
+    val method: String = "",
+    val path: String = "",
+    val payload: String = "",
+    val response: String = "",
+    val status: Int? = null
 )
 
 data class AiChatRecordSummary(

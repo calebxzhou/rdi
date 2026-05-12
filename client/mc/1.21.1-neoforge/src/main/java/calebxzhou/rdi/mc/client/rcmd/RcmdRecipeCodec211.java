@@ -17,6 +17,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 
 public final class RcmdRecipeCodec211 {
+    private static final int MAX_DIRECT_ITEMS = 4;
+    private static final int MAX_TAG_EXAMPLES = 3;
+
     private RcmdRecipeCodec211() {
     }
 
@@ -108,7 +111,7 @@ public final class RcmdRecipeCodec211 {
                     continue;
                 }
                 var ingredientView = ingredientView(ingredient);
-                var signature = ingredientView.items().toString();
+                var signature = ingredientView.items() + ":" + ingredientView.tags();
                 var symbol = signatureToSymbol.computeIfAbsent(signature, unused -> symbolFor(signatureToSymbol.size()));
                 key.putIfAbsent(symbol, ingredientView);
                 row.append(symbol);
@@ -149,10 +152,37 @@ public final class RcmdRecipeCodec211 {
 
     private static RcmdIngredientView ingredientView(Ingredient ingredient) {
         var items = new ArrayList<RcmdItemStackView>();
-        for (var itemStack : ingredient.getItems()) {
-            items.add(itemStackView(itemStack));
+        var tags = new ArrayList<RcmdIngredientView.ItemTag>();
+        if (!ingredient.isCustom()) {
+            for (var value : ingredient.getValues()) {
+                if (value instanceof Ingredient.TagValue tagValue) {
+                    tags.add(itemTag(tagValue.tag()));
+                } else if (value instanceof Ingredient.ItemValue itemValue) {
+                    items.add(itemStackView(itemValue.item()));
+                }
+            }
         }
-        return new RcmdIngredientView(List.copyOf(items));
+        if (tags.isEmpty() && items.isEmpty()) {
+            for (var itemStack : ingredient.getItems()) {
+                if (items.size() >= MAX_DIRECT_ITEMS) {
+                    break;
+                }
+                items.add(itemStackView(itemStack));
+            }
+        }
+        return new RcmdIngredientView(List.copyOf(items), List.copyOf(tags));
+    }
+
+    private static RcmdIngredientView.ItemTag itemTag(net.minecraft.tags.TagKey<net.minecraft.world.item.Item> tag) {
+        var examples = new ArrayList<RcmdItemStackView>();
+        int candidateCount = 0;
+        for (var holder : BuiltInRegistries.ITEM.getTagOrEmpty(tag)) {
+            candidateCount++;
+            if (examples.size() < MAX_TAG_EXAMPLES) {
+                examples.add(itemStackView(new ItemStack(holder)));
+            }
+        }
+        return new RcmdIngredientView.ItemTag(tag.location().toString(), 1, candidateCount, List.copyOf(examples));
     }
 
     private static RcmdItemStackView itemStackView(ItemStack itemStack) {

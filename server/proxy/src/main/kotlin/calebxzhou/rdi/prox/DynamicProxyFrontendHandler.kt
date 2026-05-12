@@ -172,9 +172,9 @@ class DynamicProxyFrontendHandler(
                 if (status != HostStatus.PLAYABLE) {
                     disconnectPlayerWithReason(
                         ctx.channel(), when (status) {
-                            HostStatus.STOPPED -> "地图未启动，请先启动地图"
-                            HostStatus.STARTED -> "地图尚未准备好，请稍等一会"
-                            else -> "无法连接地图，请稍后再试"
+                            HostStatus.STOPPED -> "请前往房间后台，点击启动按钮"
+                            HostStatus.STARTED -> "房间启动中，请稍等"
+                            else -> "无法连接房间，请稍后再试"
                         }
                     )
                     return
@@ -182,6 +182,7 @@ class DynamicProxyFrontendHandler(
                 lgr.info { "Connecting to backend 127.0.0.1:$port " }
                 currentBackendHost = "127.0.0.1"
                 currentBackendPort = port
+                installBandwidthLimiter(ctx, port)
                 connectToBackend(ctx)
 
                 // Forward the handshake packet
@@ -200,6 +201,17 @@ class DynamicProxyFrontendHandler(
             lgr.info { "Expected Handshake (0x00) but got $packetId, closing" }
             ctx.channel().close()
         }
+    }
+
+    private fun installBandwidthLimiter(ctx: ChannelHandlerContext, port: Int) {
+        val limiterName = "host-bandwidth-limiter-$port"
+        if (ctx.pipeline().get(limiterName) != null) return
+        ctx.pipeline().addBefore(
+            ctx.name(),
+            limiterName,
+            ProxyBandwidthLimiter.forHostPort(port)
+        )
+        lgr.info { "Installed bandwidth limiter for host port $port: 10Mbps tx/rx" }
     }
 
 

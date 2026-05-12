@@ -1,6 +1,7 @@
 package calebxzhou.rdi.mc.client;
 
 import calebxzhou.rdi.mc.client.mcp.RMcpMcDataCodec211;
+import calebxzhou.rdi.mc.client.compat.jei.RJeiRecipeSource;
 import calebxzhou.rdi.mc.client.network.RMcpClientBridge;
 import calebxzhou.rdi.mc.client.rcmd.RcmdClientCommands;
 import calebxzhou.rdi.mc.client.rcmd.RcmdRecipeCodec211;
@@ -36,9 +37,15 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpHarvestToolData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHotbarSelectData;
 import calebxzhou.rdi.mc.common2.mcp.RMHttpServer;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryTagMatchData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryMoveData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpInventorySwapData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemDropData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemDropRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemSearchData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpLangKeyIndex;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
@@ -51,8 +58,10 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceBoxRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceDiscreteRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlacePaletteRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceRingRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpRespawnData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpRecipeData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSectionSemanticData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextReadData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextData;
@@ -62,9 +71,11 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpStaringBlockData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpTerrainProfileData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpTestData;
 import calebxzhou.rdi.mc.common2.mcp.RReachableQuestList;
+import calebxzhou.rdi.mc.common2.mcp.RQuest;
 import calebxzhou.rdi.mc.common2.mcp.RQuestChapter;
 import calebxzhou.rdi.mc.common2.mcp.RQuestChapterList;
 import calebxzhou.rdi.mc.common.RDI;
+import calebxzhou.rdi.mc.common2.rcmd.client.RcmdIngredientView;
 import calebxzhou.rdi.mc.common2.rcmd.client.RcmdRecipeView;
 import com.google.common.net.HostAndPort;
 import com.mojang.authlib.GameProfile;
@@ -72,11 +83,6 @@ import com.mojang.authlib.properties.Property;
 import com.mojang.blaze3d.pipeline.RenderCall;
 import com.mojang.blaze3d.systems.RenderSystem;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import dev.ftb.mods.ftbquests.client.ClientQuestFile;
-import dev.ftb.mods.ftbquests.quest.Chapter;
-import dev.ftb.mods.ftbquests.quest.Quest;
-import dev.ftb.mods.ftbquests.quest.QuestObjectBase;
-import dev.ftb.mods.ftbquests.quest.TeamData;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
@@ -96,6 +102,7 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.SectionPos;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.network.chat.Component;
+import net.minecraft.tags.TagKey;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.MobCategory;
@@ -105,6 +112,7 @@ import net.minecraft.world.entity.monster.Monster;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.item.BlockItem;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.inventory.ClickType;
 import net.minecraft.world.level.LightLayer;
@@ -145,7 +153,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import static calebxzhou.rdi.mc.common.RDI.*;
-
+//todo recipe response should use tag  #minecraft:logs instead of all things
 /**
  * calebxzhou @ 2026-01-10 22:33
  */
@@ -160,10 +168,11 @@ public class RDIMain {
         return thread;
     });
     private static volatile LangKeyIndexCache langKeyIndex;
+    private static volatile ItemSearchIndexCache itemSearchIndex;
 
     public RDIMain() {
         try {
-            RMHttpServer.start(HOST_PORT,new RMcpGameConnector() {
+            RMHttpServer.start(HOST_PORT-10000,new RMcpGameConnector() {
                 @Override
                 public boolean playerInWorld() {
                     var minecraft = Minecraft.getInstance();
@@ -201,6 +210,11 @@ public class RDIMain {
                 }
 
                 @Override
+                public RQuest questDetail(String id) {
+                    return RDIMain.questDetail(id);
+                }
+
+                @Override
                 public RMcpPosData posData() {
                     var player = Minecraft.getInstance().player;
                     if (player == null) {
@@ -213,6 +227,11 @@ public class RDIMain {
                 @Override
                 public RMcpInventoryData inventoryData() {
                     return RDIMain.inventoryData(Minecraft.getInstance());
+                }
+
+                @Override
+                public RMcpInventoryTagMatchData inventoryTagMatchData(String tag, String scope, int limit) {
+                    return RDIMain.inventoryTagMatchData(Minecraft.getInstance(), tag, scope, limit);
                 }
 
                 @Override
@@ -287,20 +306,23 @@ public class RDIMain {
                 }
 
                 @Override
-                public List<RcmdRecipeView> recipeData(String itemId) {
+                public List<RMcpRecipeData> recipeData(String itemId) {
                     var minecraft = Minecraft.getInstance();
                     if (minecraft.level == null) {
                         return null;
                     }
                     var registries = minecraft.level.registryAccess();
-                    var recipes = new ArrayList<RcmdRecipeView>();
+                    var recipes = new ArrayList<RMcpRecipeData>();
                     for (var holder : minecraft.level.getRecipeManager().getOrderedRecipes()) {
                         var recipe = holder.value();
                         var result = recipe.getResultItem(registries);
                         if (result.isEmpty() || !itemId.equals(RcmdRecipeCodec211.itemId(result))) {
                             continue;
                         }
-                        recipes.add(RcmdRecipeCodec211.recipeView(holder.id().toString(), recipe, result));
+                        recipes.add(minecraftRecipeData(RcmdRecipeCodec211.recipeView(holder.id().toString(), recipe, result)));
+                    }
+                    if (ModList.get().isLoaded("jei")) {
+                        recipes.addAll(RJeiRecipeSource.queryByOutputItem(itemId));
                     }
                     return List.copyOf(recipes);
                 }
@@ -441,6 +463,11 @@ public class RDIMain {
                 }
 
                 @Override
+                public RMcpItemUseOnBlockData useItemOnBlock(RMcpItemUseOnBlockRequest request) {
+                    return RMcpClientBridge.requestItemUseOnBlock(request);
+                }
+
+                @Override
                 public RMcpBlockBatchActionData placeBlocks(List<RMcpBlockPosData> positions) {
                     return RMcpClientBridge.requestPlaceBlocks(positions);
                 }
@@ -466,6 +493,11 @@ public class RDIMain {
                 }
 
                 @Override
+                public RMcpBlockBatchActionData placeBlockRing(RMcpPlaceRingRequest request) {
+                    return RMcpClientBridge.requestPlaceBlockRing(request);
+                }
+
+                @Override
                 public RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to) {
                     return RMcpClientBridge.requestBreakBlockBox(from, to);
                 }
@@ -483,6 +515,11 @@ public class RDIMain {
                 @Override
                 public RMcpItemPickupData pickupItemEntities(List<UUID> ids, double radius, int limit) {
                     return RMcpClientBridge.requestPickupItemEntities(ids, radius, limit);
+                }
+
+                @Override
+                public RMcpItemDropData dropInventoryItem(RMcpItemDropRequest request) {
+                    return RMcpClientBridge.requestDropInventoryItem(request);
                 }
 
                 @Override
@@ -583,6 +620,11 @@ public class RDIMain {
                 }
 
                 @Override
+                public RMcpItemSearchData itemSearchData(String text, String modId, int limit) {
+                    return RDIMain.itemSearchData(Minecraft.getInstance(), text, modId, limit);
+                }
+
+                @Override
                 public RMcpPlayerData playerData(UUID uuid) {
                     var minecraft = Minecraft.getInstance();
                     var player = findPlayer(minecraft, uuid);
@@ -609,6 +651,7 @@ public class RDIMain {
                     );
                 }
             });
+            LGR.info("RDI MCP START OK");
         } catch (Exception e) {
             LGR.error("RDI MCP HTTP server启动失败", e);
         }
@@ -646,148 +689,94 @@ public class RDIMain {
     }
 
     private static RQuestChapterList questChapterList() {
-        if (!ClientQuestFile.exists()) {
-            return null;
-        }
-        var file = ClientQuestFile.INSTANCE;
-        var data = file.selfTeamData;
-        var chapters = file.getAllChapters().stream()
-                .map(chapter -> questChapterData(chapter, data))
-                .toList();
-        var visible = (int) chapters.stream().filter(RQuestChapterList.Chapter::visible).count();
-        return new RQuestChapterList(chapters.size(), visible, chapters);
-    }
-
-    private static RQuestChapterList.Chapter questChapterData(Chapter chapter, TeamData data) {
-        var quests = chapter.getQuests();
-        var visibleQuestCount = 0;
-        var startableQuestCount = 0;
-        var completedQuestCount = 0;
-        for (var quest : quests) {
-            var visible = quest.isVisible(data);
-            var completed = data.isCompleted(quest);
-            if (visible) {
-                visibleQuestCount++;
-            }
-            if (completed) {
-                completedQuestCount++;
-            }
-            if (!completed && visible && data.canStartTasks(quest)) {
-                startableQuestCount++;
-            }
-        }
-        var group = chapter.getGroup();
-        return new RQuestChapterList.Chapter(
-                chapter.getCodeString(),
-                chapter.getTitle().getString(),
-                group.getCodeString(),
-                group.getTitle().getString(),
-                chapter.isVisible(data),
-                data.isStarted(chapter),
-                data.isCompleted(chapter),
-                data.getRelativeProgress(chapter),
-                quests.size(),
-                visibleQuestCount,
-                startableQuestCount,
-                completedQuestCount
-        );
+        return ftbQuestsLoaded() ? FtbQuestsMcpBridge.questChapterList() : null;
     }
 
     private static RQuestChapter questChapter(String id) {
-        if (!ClientQuestFile.exists()) {
-            throw new RMcpEndpointException(RErrorCode.QUEST_DATA_NOT_LOADED);
-        }
-        var chapterId = QuestObjectBase.parseHexId(id)
-                .orElseThrow(() -> new RMcpEndpointException(RErrorCode.BAD_QUEST_CHAPTER_ID));
-        var file = ClientQuestFile.INSTANCE;
-        var chapter = file.getChapter(chapterId);
-        if (chapter == null) {
-            return null;
-        }
-        var data = file.selfTeamData;
-        var quests = chapter.getQuests().stream()
-                .map(quest -> questBriefData(quest, data))
-                .toList();
-        var group = chapter.getGroup();
-        return new RQuestChapter(
-                chapter.getCodeString(),
-                chapter.getTitle().getString(),
-                group.getCodeString(),
-                group.getTitle().getString(),
-                chapter.isVisible(data),
-                data.isStarted(chapter),
-                data.isCompleted(chapter),
-                data.getRelativeProgress(chapter),
-                quests.size(),
-                quests
-        );
+        return ftbQuestsLoaded() ? FtbQuestsMcpBridge.questChapter(id) : null;
     }
 
     private static RReachableQuestList reachableQuests() {
-        if (!ClientQuestFile.exists()) {
-            return null;
-        }
-        var file = ClientQuestFile.INSTANCE;
-        var data = file.selfTeamData;
-        var quests = new ArrayList<RReachableQuestList.Quest>();
-        for (var chapter : file.getAllChapters()) {
-            var group = chapter.getGroup();
-            for (var quest : chapter.getQuests()) {
-                var visible = quest.isVisible(data);
-                var completed = data.isCompleted(quest);
-                if (completed || !visible || !data.canStartTasks(quest)) {
-                    continue;
-                }
-                var dependencyIds = quest.streamDependencies()
-                        .map((questObj) -> QuestObjectBase.getCodeString(questObj))
-                        .toList();
-                quests.add(new RReachableQuestList.Quest(
-                        quest.getCodeString(),
-                        quest.getTitle().getString(),
-                        quest.getRawSubtitle(),
-                        chapter.getCodeString(),
-                        chapter.getTitle().getString(),
-                        group.getCodeString(),
-                        group.getTitle().getString(),
-                        quest.getX(),
-                        quest.getY(),
-                        visible,
-                        data.isStarted(quest),
-                        completed,
-                        true,
-                        data.getRelativeProgress(quest),
-                        quest.getTasks().size(),
-                        quest.getRewards().size(),
-                        dependencyIds.size(),
-                        dependencyIds
-                ));
-            }
-        }
-        return new RReachableQuestList(quests.size(), quests);
+        return ftbQuestsLoaded() ? FtbQuestsMcpBridge.reachableQuests() : null;
     }
 
-    private static RQuestChapter.Quest questBriefData(Quest quest, TeamData data) {
-        var visible = quest.isVisible(data);
-        var completed = data.isCompleted(quest);
-        var dependencyIds = quest.streamDependencies()
-                .map((questObj) -> QuestObjectBase.getCodeString(questObj))
-                .toList();
-        return new RQuestChapter.Quest(
-                quest.getCodeString(),
-                quest.getTitle().getString(),
-                quest.getRawSubtitle(),
-                quest.getX(),
-                quest.getY(),
-                visible,
-                data.isStarted(quest),
-                completed,
-                !completed && visible && data.canStartTasks(quest),
-                data.getRelativeProgress(quest),
-                quest.getTasks().size(),
-                quest.getRewards().size(),
-                dependencyIds.size(),
-                dependencyIds
+    private static RQuest questDetail(String id) {
+        return ftbQuestsLoaded() ? FtbQuestsMcpBridge.questDetail(id) : null;
+    }
+
+    private static RMcpRecipeData minecraftRecipeData(RcmdRecipeView recipe) {
+        var inputs = new ArrayList<RMcpRecipeData.IngredientSlot>();
+        if (recipe.ingredients() != null) {
+            for (var ingredient : recipe.ingredients()) {
+                inputs.add(recipeIngredientSlot("input", ingredient));
+            }
+        }
+        if (recipe.key() != null) {
+            for (var ingredient : recipe.key().values()) {
+                inputs.add(recipeIngredientSlot("input", ingredient));
+            }
+        }
+        var outputs = List.of(new RMcpRecipeData.IngredientSlot(
+                "output",
+                List.of(recipeItem(recipe.result())),
+                List.of(),
+                List.of()
+        ));
+        var extra = new LinkedHashMap<String, Object>();
+        if (recipe.pattern() != null) {
+            extra.put("pattern", recipe.pattern());
+        }
+        if (recipe.key() != null && !recipe.key().isEmpty()) {
+            var key = new LinkedHashMap<String, Object>();
+            for (var entry : recipe.key().entrySet()) {
+                key.put(entry.getKey(), recipeIngredientSlot("input", entry.getValue()));
+            }
+            extra.put("key", Map.copyOf(key));
+        }
+        if (recipe.experience() != null) {
+            extra.put("experience", recipe.experience());
+        }
+        if (recipe.cookingTime() != null) {
+            extra.put("cookingTime", recipe.cookingTime());
+        }
+        return new RMcpRecipeData(
+                recipe.id(),
+                "minecraft",
+                recipe.type(),
+                recipe.category(),
+                null,
+                null,
+                List.copyOf(inputs),
+                outputs,
+                List.of(),
+                List.of(),
+                Map.copyOf(extra)
         );
+    }
+
+    private static RMcpRecipeData.IngredientSlot recipeIngredientSlot(String role, RcmdIngredientView ingredient) {
+        var items = ingredient.items() == null
+                ? List.<RMcpRecipeData.Item>of()
+                : ingredient.items().stream().map(RDIMain::recipeItem).toList();
+        var tags = ingredient.tags() == null
+                ? List.<RMcpRecipeData.ItemTag>of()
+                : ingredient.tags().stream().map(RDIMain::recipeItemTag).toList();
+        return new RMcpRecipeData.IngredientSlot(role, items, List.of(), tags);
+    }
+
+    private static RMcpRecipeData.ItemTag recipeItemTag(calebxzhou.rdi.mc.common2.rcmd.client.RcmdIngredientView.ItemTag tag) {
+        var examples = tag.examples() == null
+                ? List.<RMcpRecipeData.Item>of()
+                : tag.examples().stream().map(RDIMain::recipeItem).toList();
+        return new RMcpRecipeData.ItemTag(tag.id(), tag.count(), tag.candidateCount(), examples, "recipe");
+    }
+
+    private static RMcpRecipeData.Item recipeItem(calebxzhou.rdi.mc.common2.rcmd.client.RcmdItemStackView item) {
+        return new RMcpRecipeData.Item(item.id(), item.langKey(), item.count(), null);
+    }
+
+    private static boolean ftbQuestsLoaded() {
+        return ModList.get().isLoaded("ftbquests");
     }
 
     public static Button JOIN_BUTTON = Button.builder(Component.literal("进入地图 · " + HOST_NAME),(btn)->{
@@ -1208,6 +1197,143 @@ public class RDIMain {
                 stack.getCount(),
                 stack.saveOptional(registryAccess).toString()
         );
+    }
+
+    private static RMcpInventoryTagMatchData inventoryTagMatchData(Minecraft minecraft, String tagText, String scopeText, int limit) {
+        var level = minecraft.level;
+        var player = minecraft.player;
+        if (level == null || player == null) {
+            return null;
+        }
+        var tag = itemTagKey(tagText);
+        var scope = normalizeInventoryTagScope(scopeText);
+        var registryAccess = level.registryAccess();
+        var matches = new ArrayList<RMcpInventoryTagMatchData.Match>();
+        int totalCount = 0;
+        var inventory = player.getInventory();
+
+        if (tagScopeIncludes(scope, "hotbar")) {
+            totalCount += addInventoryTagMatches(player, matches, tag, "hotbar", inventory.items, 0, 9, registryAccess, limit);
+        }
+        if (tagScopeIncludes(scope, "main")) {
+            totalCount += addInventoryTagMatches(player, matches, tag, "main", inventory.items, 9, inventory.items.size(), registryAccess, limit);
+        }
+        if (tagScopeIncludes(scope, "armor")) {
+            totalCount += addInventoryTagMatches(player, matches, tag, "armor", inventory.armor, 0, inventory.armor.size(), registryAccess, limit);
+        }
+        if (tagScopeIncludes(scope, "offhand")) {
+            totalCount += addInventoryTagMatches(player, matches, tag, "offhand", inventory.offhand, 0, inventory.offhand.size(), registryAccess, limit);
+        }
+        if (tagScopeIncludes(scope, "container") && player.containerMenu != player.inventoryMenu) {
+            totalCount += addContainerTagMatches(player, matches, tag, registryAccess, limit);
+        }
+
+        return new RMcpInventoryTagMatchData(
+                tag.location().toString(),
+                scope,
+                player.containerMenu != player.inventoryMenu,
+                totalCount,
+                matches.size(),
+                List.copyOf(matches)
+        );
+    }
+
+    private static TagKey<Item> itemTagKey(String tagText) {
+        var text = tagText == null ? "" : tagText.trim();
+        if (text.startsWith("#")) {
+            text = text.substring(1);
+        }
+        var id = ResourceLocation.tryParse(text);
+        if (id == null) {
+            throw new RMcpEndpointException(RErrorCode.BAD_ITEM_ID);
+        }
+        return TagKey.create(BuiltInRegistries.ITEM.key(), id);
+    }
+
+    private static String normalizeInventoryTagScope(String scopeText) {
+        var scope = scopeText == null || scopeText.isBlank() ? "all" : scopeText.trim().toLowerCase(Locale.ROOT);
+        return switch (scope) {
+            case "all", "player", "hotbar", "main", "inventory", "armor", "offhand", "container" -> scope;
+            default -> throw new RMcpEndpointException(RErrorCode.BAD_SLOT);
+        };
+    }
+
+    private static boolean tagScopeIncludes(String scope, String area) {
+        if ("all".equals(scope)) {
+            return true;
+        }
+        if ("player".equals(scope)) {
+            return !"container".equals(area);
+        }
+        return scope.equals(area) || ("inventory".equals(scope) && ("hotbar".equals(area) || "main".equals(area)));
+    }
+
+    private static int addInventoryTagMatches(Player player, List<RMcpInventoryTagMatchData.Match> matches, TagKey<Item> tag, String area, List<ItemStack> stacks, int from, int to, HolderLookup.Provider registryAccess, int limit) {
+        int totalCount = 0;
+        for (int slot = from; slot < to; slot++) {
+            var stack = stacks.get(slot);
+            if (!stack.isEmpty() && stack.is(tag)) {
+                totalCount += stack.getCount();
+                if (matches.size() < limit) {
+                    matches.add(new RMcpInventoryTagMatchData.Match(
+                            "player",
+                            area,
+                            slot,
+                            menuSlotForPlayerInventoryArea(player, area, slot),
+                            compactItem(inventoryItemSection(area), slot, "hotbar".equals(area) ? slot : null, stack, registryAccess)
+                    ));
+                }
+            }
+        }
+        return totalCount;
+    }
+
+    private static String inventoryItemSection(String area) {
+        return "main".equals(area) ? "inventory" : area;
+    }
+
+    private static Integer menuSlotForPlayerInventoryArea(Player player, String area, int slot) {
+        var inventory = player.getInventory();
+        var inventorySlot = switch (area) {
+            case "hotbar", "main" -> slot;
+            case "armor" -> 36 + slot;
+            case "offhand" -> 40;
+            default -> -1;
+        };
+        if (inventorySlot < 0) {
+            return null;
+        }
+        for (int menuSlot = 0; menuSlot < player.containerMenu.slots.size(); menuSlot++) {
+            var current = player.containerMenu.slots.get(menuSlot);
+            if (current.container == inventory && current.getSlotIndex() == inventorySlot) {
+                return menuSlot;
+            }
+        }
+        return null;
+    }
+
+    private static int addContainerTagMatches(Player player, List<RMcpInventoryTagMatchData.Match> matches, TagKey<Item> tag, HolderLookup.Provider registryAccess, int limit) {
+        int totalCount = 0;
+        for (int menuSlot = 0; menuSlot < player.containerMenu.slots.size(); menuSlot++) {
+            var slot = player.containerMenu.slots.get(menuSlot);
+            if (slot.container == player.getInventory()) {
+                continue;
+            }
+            var stack = slot.getItem();
+            if (!stack.isEmpty() && stack.is(tag)) {
+                totalCount += stack.getCount();
+                if (matches.size() < limit) {
+                    matches.add(new RMcpInventoryTagMatchData.Match(
+                            "container",
+                            "container",
+                            slot.getSlotIndex(),
+                            menuSlot,
+                            compactItem("container", slot.getSlotIndex(), null, stack, registryAccess)
+                    ));
+                }
+            }
+        }
+        return totalCount;
     }
 
     private static InventorySlotRef parseInventorySlot(String text) {
@@ -2601,7 +2727,249 @@ public class RDIMain {
         }
     }
 
+    private static RMcpItemSearchData itemSearchData(Minecraft minecraft, String text, String modId, int limit) {
+        var index = itemSearchIndex(minecraft);
+        return index.search(text, modId, limit);
+    }
+
+    private static ItemSearchIndex itemSearchIndex(Minecraft minecraft) {
+        var resourceManager = minecraft.getResourceManager();
+        var cache = itemSearchIndex;
+        if (cache != null && cache.resourceManager() == resourceManager) {
+            return cache.index();
+        }
+        synchronized (RDIMain.class) {
+            cache = itemSearchIndex;
+            if (cache != null && cache.resourceManager() == resourceManager) {
+                return cache.index();
+            }
+            var english = ClientLanguage.loadFrom(resourceManager, List.of("en_us"), false).getLanguageData();
+            var chinese = ClientLanguage.loadFrom(resourceManager, List.of("zh_cn"), false).getLanguageData();
+            var entries = new ArrayList<ItemSearchEntry>();
+            for (var item : BuiltInRegistries.ITEM) {
+                var id = BuiltInRegistries.ITEM.getKey(item);
+                if (id == null || "minecraft:air".equals(id.toString())) {
+                    continue;
+                }
+                var stack = new ItemStack(item);
+                var langkey = item.getDescriptionId(stack);
+                var namespace = id.getNamespace();
+                var modName = ModList.get().getModContainerById(namespace)
+                        .map(container -> container.getModInfo().getDisplayName())
+                        .orElse(namespace);
+                var englishName = english.getOrDefault(langkey, "");
+                var chineseName = chinese.getOrDefault(langkey, "");
+                entries.add(new ItemSearchEntry(
+                        id.toString(),
+                        namespace,
+                        langkey,
+                        englishName,
+                        chineseName,
+                        namespace,
+                        modName,
+                        normalizeSearchText(id.toString()),
+                        normalizeSearchText(id.getPath()),
+                        normalizeSearchText(langkey),
+                        normalizeSearchText(englishName),
+                        normalizeSearchText(chineseName),
+                        normalizeSearchText(modName)
+                ));
+            }
+            var index = new ItemSearchIndex(List.copyOf(entries));
+            itemSearchIndex = new ItemSearchIndexCache(resourceManager, index);
+            return index;
+        }
+    }
+
+    private static String normalizeSearchText(String text) {
+        if (text == null) {
+            return "";
+        }
+        var builder = new StringBuilder();
+        var lower = text.trim().toLowerCase(Locale.ROOT);
+        for (int offset = 0; offset < lower.length(); ) {
+            int codePoint = lower.codePointAt(offset);
+            if (Character.isLetterOrDigit(codePoint) || codePoint == '_' || codePoint == ':' || codePoint == '.') {
+                builder.appendCodePoint(codePoint);
+            }
+            offset += Character.charCount(codePoint);
+        }
+        return builder.toString();
+    }
+
+    private static double fuzzySearchScore(String query, String candidate) {
+        if (query.isEmpty() || candidate.isEmpty()) {
+            return 0.0D;
+        }
+        int matched = 0;
+        int candidateIndex = 0;
+        for (int i = 0; i < query.length(); i++) {
+            var ch = query.charAt(i);
+            while (candidateIndex < candidate.length() && candidate.charAt(candidateIndex) != ch) {
+                candidateIndex++;
+            }
+            if (candidateIndex >= candidate.length()) {
+                continue;
+            }
+            matched++;
+            candidateIndex++;
+        }
+        var containsQuery = candidate.contains(query);
+        if (matched < 2 && !containsQuery) {
+            return 0.0D;
+        }
+        double score = (double) matched / candidate.length();
+        if (containsQuery) {
+            score += 1.0D;
+        }
+        if (candidate.startsWith(query)) {
+            score += 0.25D;
+        }
+        if (candidate.equals(query)) {
+            score += 0.5D;
+        }
+        return score;
+    }
+
     private record LangKeyIndexCache(Object resourceManager, RMcpLangKeyIndex index) {
+    }
+
+    private record ItemSearchIndexCache(Object resourceManager, ItemSearchIndex index) {
+    }
+
+    private record ItemSearchEntry(
+            String itemId,
+            String namespace,
+            String langkey,
+            String englishName,
+            String chineseName,
+            String modId,
+            String modName,
+            String normalizedItemId,
+            String normalizedPath,
+            String normalizedLangkey,
+            String normalizedEnglishName,
+            String normalizedChineseName,
+            String normalizedModName
+    ) {
+    }
+
+    private record ItemSearchCandidate(ItemSearchEntry entry, double score, String match) {
+    }
+
+    private static final class ItemSearchIndex {
+        private final List<ItemSearchEntry> entries;
+
+        private ItemSearchIndex(List<ItemSearchEntry> entries) {
+            this.entries = entries;
+        }
+
+        private RMcpItemSearchData search(String text, String modId, int limit) {
+            var query = normalizeSearchText(text);
+            var normalizedModId = normalizeSearchText(modId);
+            if (query.isEmpty()) {
+                return new RMcpItemSearchData(text, modId, limit, List.of());
+            }
+            var candidates = new ArrayList<ItemSearchCandidate>();
+            for (var entry : entries) {
+                var candidate = score(entry, query, normalizedModId);
+                if (candidate.score() > 0.0D) {
+                    candidates.add(candidate);
+                }
+            }
+            candidates.sort(
+                    Comparator.comparingDouble(ItemSearchCandidate::score).reversed()
+                            .thenComparing(candidate -> candidate.entry().namespace().equals("minecraft") ? 1 : 0)
+                            .thenComparing(candidate -> candidate.entry().itemId())
+            );
+            var results = new ArrayList<RMcpItemSearchData.Result>();
+            for (var candidate : candidates) {
+                if (results.size() >= limit) {
+                    break;
+                }
+                var entry = candidate.entry();
+                results.add(new RMcpItemSearchData.Result(
+                        entry.itemId(),
+                        entry.namespace(),
+                        entry.langkey(),
+                        entry.englishName(),
+                        entry.chineseName(),
+                        entry.modId(),
+                        entry.modName(),
+                        candidate.score(),
+                        candidate.match()
+                ));
+            }
+            return new RMcpItemSearchData(text, normalizedModId.isEmpty() ? null : modId, limit, List.copyOf(results));
+        }
+
+        private static ItemSearchCandidate score(ItemSearchEntry entry, String query, String modId) {
+            double bestScore = 0.0D;
+            String match = null;
+            var scored = scoreField(query, entry.normalizedChineseName(), "chinese");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = scoreField(query, entry.normalizedEnglishName(), "english");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = scoreField(query, entry.normalizedItemId(), "item_id");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = scoreField(query, entry.normalizedPath(), "path");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = scoreField(query, entry.normalizedLangkey(), "langkey");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = scoreField(query, entry.normalizedModName(), "mod_name");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            if (bestScore <= 0.0D) {
+                return new ItemSearchCandidate(entry, 0.0D, "");
+            }
+            if (!modId.isEmpty()) {
+                if (entry.namespace().equals(modId)) {
+                    bestScore += 2.0D;
+                } else {
+                    bestScore -= 0.5D;
+                }
+            } else if (!entry.namespace().equals("minecraft")) {
+                bestScore += 0.05D;
+            }
+            return new ItemSearchCandidate(entry, bestScore, match);
+        }
+
+        private static ScoredMatch scoreField(String query, String candidate, String field) {
+            if (candidate.isEmpty()) {
+                return new ScoredMatch(0.0D, "");
+            }
+            if (candidate.equals(query)) {
+                return new ScoredMatch(4.0D, "exact_" + field);
+            }
+            if (candidate.startsWith(query)) {
+                return new ScoredMatch(3.0D, "prefix_" + field);
+            }
+            if (candidate.contains(query)) {
+                return new ScoredMatch(2.0D, "contains_" + field);
+            }
+            var fuzzy = fuzzySearchScore(query, candidate);
+            return fuzzy <= 0.0D ? new ScoredMatch(0.0D, "") : new ScoredMatch(fuzzy, "fuzzy_" + field);
+        }
+    }
+
+    private record ScoredMatch(double score, String match) {
     }
 
     private record InventorySlotRef(String section, int index, String canonical, int menuSlot) {

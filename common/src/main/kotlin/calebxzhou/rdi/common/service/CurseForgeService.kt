@@ -197,7 +197,6 @@ object CurseForgeService {
             .let { ids ->
                 if (ids.isEmpty()) emptyMap() else getMultipleProjects(ids).associateBy { it.id }
             }
-        val libraryModSlugs = arrayListOf<String>()
         return files.mapNotNull { curseFile ->
             val modInfo = modInfoMap[curseFile.projectId] ?: let {
                 lgr.warn { "mod ${curseFile.projectId}/${curseFile.fileId} 在mod info map没有信息" }
@@ -213,10 +212,6 @@ object CurseForgeService {
                 ?.let { sha1ToMrVersion[it] }
                 ?.let { mrProjectMap[it.projectId] }
             val side = mrProject?.run {
-                if(categories.contains("library")) {
-                    libraryModSlugs+=cfSlug
-                    return@run Mod.Side.BOTH
-                }
                 if (serverSide == "unsupported") {
                     return@run Mod.Side.CLIENT
                 }
@@ -235,8 +230,6 @@ object CurseForgeService {
                 vo = modInfo.toCardVo()
             }
         }.also { mod ->
-
-            lgr.info { "lib mod: ${libraryModSlugs.joinToString(",")}" }
             lgr.info { "server mod：${mod.filter { it.side == Mod.Side.SERVER }.map { it.slug }}" }
             lgr.info { "client mod：${mod.filter { it.side == Mod.Side.CLIENT }.map { it.slug }}" }
             lgr.info { "both  mod：${mod.filter { it.side == Mod.Side.BOTH }.map { it.slug }}" }

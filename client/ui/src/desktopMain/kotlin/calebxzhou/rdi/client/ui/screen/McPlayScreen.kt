@@ -2,7 +2,9 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -25,6 +27,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.encodeBase64
@@ -60,6 +69,7 @@ fun McPlayScreen(
 ) {
     val sessions = McPlayStore.sessions
     var duplicateLaunchArgs by remember { mutableStateOf<McPlayArgs?>(null) }
+    val screenFocusRequester = remember { FocusRequester() }
 
     fun markSessionExited(session: McGameSession, message: String? = null) {
         McPlayStore.markExited(session.id, message)
@@ -156,47 +166,63 @@ fun McPlayScreen(
 
     val selectedSession = McPlayStore.selectedSession()
 
-    MainColumn {
-        TitleRow2("MC控制台", onBack) {
-            selectedSession?.let { session ->
-                if(Const.AI_TEST){
-                    CircleIconButton(
-                        icon = "\uE0CA",
-                        tooltip = "AI陪玩",
-                        bgColor = MaterialColor.PURPLE_700.color
-                    ) {
-                        onOpenAiChat(session.args.mcpPort, session.args.versionDir)
-                    }
-                }
-                CircleIconButton("\uEAD2", "重启MC") {
-                    session.requestStop()
-                    startSession(session.args, allowDuplicateVersion = true)
-                }
-                CircleIconButton("\uF04D", "终止MC", bgColor = MaterialColor.ORANGE_900.color) {
-                    stopSession(session,force = true)
-                }
+    LaunchedEffect(Unit) {
+        screenFocusRequester.requestFocus()
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .focusRequester(screenFocusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                event.type == KeyEventType.KeyDown &&
+                    event.key == Key.Delete &&
+                    selectedSession?.let { McPlayStore.closeStoppedSession(it.id) } == true
             }
-        }
-        Space8h()
-        if (sessions.isEmpty()) {
-            Text("没有可显示的游戏", color = MaterialColor.GRAY_700.color)
-        } else {
-            FlowRow(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                sessions.forEach { session ->
-                    McSessionChip(
-                        session = session,
-                        selected = session.id == selectedSession?.id,
-                        onClick = { McPlayStore.selectedSessionId = session.id }
-                    )
+    ) {
+        MainColumn {
+            TitleRow2("MC控制台", onBack) {
+                selectedSession?.let { session ->
+                    //if(Const.AI_TEST){
+                        CircleIconButton(
+                            icon = "\uE0CA",
+                            tooltip = "AI陪玩",
+                            bgColor = MaterialColor.PURPLE_700.color
+                        ) {
+                            onOpenAiChat(session.args.mcpPort, session.args.versionDir)
+                        }
+                    //}
+                    CircleIconButton("\uEAD2", "重启MC") {
+                        session.requestStop()
+                        startSession(session.args, allowDuplicateVersion = true)
+                    }
+                    CircleIconButton("\uF04D", "终止MC", bgColor = MaterialColor.ORANGE_900.color) {
+                        stopSession(session,force = true)
+                    }
                 }
             }
             Space8h()
-            selectedSession?.let { session ->
-                Console(session.consoleState, modifier = Modifier.fillMaxSize())
+            if (sessions.isEmpty()) {
+                Text("没有可显示的游戏", color = MaterialColor.GRAY_700.color)
+            } else {
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    sessions.forEach { session ->
+                        McSessionChip(
+                            session = session,
+                            selected = session.id == selectedSession?.id,
+                            onClick = { McPlayStore.selectedSessionId = session.id }
+                        )
+                    }
+                }
+                Space8h()
+                selectedSession?.let { session ->
+                    Console(session.consoleState, modifier = Modifier.fillMaxSize())
+                }
             }
         }
     }

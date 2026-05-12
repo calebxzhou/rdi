@@ -19,13 +19,18 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpEndpointException;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHarvestToolData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHotbarSelectData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemDropData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemDropRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceDiscreteRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceBoxRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlacePaletteRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceRingRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpRespawnData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextReadData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextData;
@@ -144,6 +149,10 @@ public final class RMcpClientBridge {
         return requestServer("break-block", new BlockActionRequest(x, y, z, null), RMcpBlockActionData.class);
     }
 
+    public static RMcpItemUseOnBlockData requestItemUseOnBlock(RMcpItemUseOnBlockRequest request) {
+        return requestServer("item-use-on-block", request, RMcpItemUseOnBlockData.class);
+    }
+
     public static RMcpBlockBatchActionData requestPlaceBlocks(List<RMcpBlockPosData> positions) {
         return requestServer("place-block-batch", new BlockBatchActionRequest(positions), RMcpBlockBatchActionData.class);
     }
@@ -164,6 +173,10 @@ public final class RMcpClientBridge {
         return requestServer("place-block-box", request, RMcpBlockBatchActionData.class);
     }
 
+    public static RMcpBlockBatchActionData requestPlaceBlockRing(RMcpPlaceRingRequest request) {
+        return requestServer("place-block-ring", request, RMcpBlockBatchActionData.class);
+    }
+
     public static RMcpBlockBatchActionData requestBreakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to) {
         return requestServer("break-block-box", new BlockBoxActionRequest(from, to), RMcpBlockBatchActionData.class);
     }
@@ -178,6 +191,10 @@ public final class RMcpClientBridge {
 
     public static RMcpItemPickupData requestPickupItemEntities(List<UUID> ids, double radius, int limit) {
         return requestServer("pickup-item-entity", new ItemPickupRequest(ids.stream().map(UUID::toString).toList(), radius, limit), RMcpItemPickupData.class);
+    }
+
+    public static RMcpItemDropData requestDropInventoryItem(RMcpItemDropRequest request) {
+        return requestServer("drop-inventory-item", request, RMcpItemDropData.class);
     }
 
     private static <T> T requestServer(String action, Object request, Class<T> responseClass) {
