@@ -109,7 +109,7 @@ fun WardrobeScreen(
 
     MainBox {
         MainColumn{
-            TitleRow("衣柜", onBack = onBack){
+            TitleRow2("衣柜", onBack){
                 val interactionSource = remember { MutableInteractionSource() }
                 BasicTextField(
                     value = keyword,

@@ -6,14 +6,7 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.Button
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedButton
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -22,8 +15,14 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.ui.CircleIconButton
+import calebxzhou.rdi.client.ui.RColumn
+import calebxzhou.rdi.client.ui.RRow
+import calebxzhou.rdi.client.ui.RowV
 import calebxzhou.rdi.client.ui.copyToClipboard
+import calebxzhou.rdi.client.ui.space8
 import calebxzhou.rdi.common.exception.RequestError
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.Dispatchers
@@ -33,6 +32,7 @@ import org.bson.types.ObjectId
 
 fun newOperationMailTitle(): String = "rdi-opr-${ObjectId()}"
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MailOperationGuideDialog(
     operationName: String,
@@ -41,63 +41,48 @@ fun MailOperationGuideDialog(
     encryptedContent: String,
     onDismiss: () -> Unit
 ) {
-    var copiedName by remember { mutableStateOf<String?>(null) }
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colors.surface,
+            color = MaterialTheme.colorScheme.surface,
             modifier = Modifier.padding(16.dp).widthIn(max = 600.dp)
         ) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
-            ) {
+            RColumn{
                 Text(
-                    "${operationName}流程",
-                    style = MaterialTheme.typography.h6
+                    "请登录QQ邮箱，发邮件",
+                    style = MaterialTheme.typography.titleLarge
                 )
-                Text(
-                    """登录QQ邮箱，向rdibot@qq.com发送邮件
-标题 $mailTitle
-内容 $encryptedContent
-发件人选择${qq}@qq.com（不要选abc@qq.com这种字母邮箱地址）
-发送后等60秒，可在本页查询${operationName}进度""",
-                    style = MaterialTheme.typography.body2
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
-                ) {
-                    MailCopyButton("收件人", "rdibot@qq.com", copiedName) { copiedName = it }
-                    MailCopyButton("标题", mailTitle, copiedName) { copiedName = it }
-                    MailCopyButton("内容", encryptedContent, copiedName) { copiedName = it }
-                    OutlinedButton(
-                        onClick = onDismiss,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("关闭")
-                    }
+                RRow {
+                    MailCopyButton("rdibot@qq.com")
+                    Text("收件人 rdibot@qq.com")
+                }
+                RRow {
+                    MailCopyButton(mailTitle)
+                    Text("标题")
+                    Text(mailTitle, fontSize = 16.sp)
+                }
+                RRow {
+                    MailCopyButton(encryptedContent)
+                    Text("内容")
+                    Text(encryptedContent, fontSize = 8.sp)
+                }
+                Text("发件人 ${qq}@qq.com 请勿选择abcdefg@qq.com等字母邮箱地址")
+                Text("发送后等60~120秒，可在本页查询${operationName}进度")
+                CircleIconButton("\uF00D","关闭"){
+                    onDismiss()
                 }
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RowScope.MailCopyButton(
-    name: String,
-    value: String,
-    copiedName: String?,
-    onCopied: (String) -> Unit
+    value: String
 ) {
-    Button(
-        onClick = {
-            copyToClipboard(value)
-            onCopied(name)
-        },
-        modifier = Modifier.weight(1f)
-    ) {
-        Text(if (copiedName == name) "已复制$name" else "复制$name")
+    CircleIconButton("\uF0C5","复制",size = 24, showText = false){
+        copyToClipboard(value)
     }
 }
 
@@ -137,7 +122,7 @@ fun ReceiptQueryDialogs(
                         modifier = Modifier.fillMaxWidth()
                     )
                     receiptQueryError?.let {
-                        Text(it, color = MaterialTheme.colors.error)
+                        Text(it, color = MaterialTheme.colorScheme.error)
                     }
                 }
             },

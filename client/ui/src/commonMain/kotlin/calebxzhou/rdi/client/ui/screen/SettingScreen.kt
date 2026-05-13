@@ -7,8 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.*
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,15 +15,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import calebxzhou.mykotutils.std.javaExePath
 import calebxzhou.rdi.client.AiConfig
+import calebxzhou.rdi.client.AiPriceCurrency
 import calebxzhou.rdi.client.AiProvider
 import calebxzhou.rdi.client.AiProviderProfile
 import calebxzhou.rdi.client.AiReasoningEffort
 import calebxzhou.rdi.client.AppConfig
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.loggedAccount
-import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
@@ -32,10 +32,9 @@ import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.SettingsService
 import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.ui.*
-import calebxzhou.rdi.client.ui.comp.PasswordField
+import calebxzhou.rdi.client.ui.comp.RPasswordField
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.MsaAccountInfo
-import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.util.getDateTimeNow
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
@@ -52,7 +51,7 @@ fun SettingScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    val scaffoldState = rememberScaffoldState()
+    val snackbarHostState = remember { SnackbarHostState() }
     var category by remember { mutableStateOf(SettingCategory.Account) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -238,7 +237,7 @@ fun SettingScreen(
                         ).onSuccess {
                             errorMessage = null
                             saving = false
-                            scaffoldState.snackbarHostState.showSnackbar("设置已保存")
+                            snackbarHostState.showSnackbar("设置已保存")
                         }.onFailure {
                             errorMessage = "保存失败: ${it.message}"
                         }
@@ -325,10 +324,10 @@ fun SettingScreen(
                                                 scope.launch {
                                                     NodeRefreshCoordinator.refreshFromPrimary("manual-setting")
                                                         .onSuccess {
-                                                            scaffoldState.snackbarHostState.showSnackbar("已切换到${it.nodeName}")
+                                                            snackbarHostState.showSnackbar("已切换到${it.nodeName}")
                                                         }
                                                         .onFailure {
-                                                            scaffoldState.snackbarHostState.showSnackbar(
+                                                            snackbarHostState.showSnackbar(
                                                                 it.message ?: "节点刷新失败"
                                                             )
                                                         }
@@ -342,10 +341,10 @@ fun SettingScreen(
                                                 scope.launch {
                                                     NodeRefreshCoordinator.refreshGameBackup("manual-setting")
                                                         .onSuccess {
-                                                            scaffoldState.snackbarHostState.showSnackbar("已临时切换到${it.nodeName}")
+                                                            snackbarHostState.showSnackbar("已临时切换到${it.nodeName}")
                                                         }
                                                         .onFailure {
-                                                            scaffoldState.snackbarHostState.showSnackbar(
+                                                            snackbarHostState.showSnackbar(
                                                                 it.message ?: "备用节点刷新失败"
                                                             )
                                                         }
@@ -363,7 +362,6 @@ fun SettingScreen(
                                         selectedProfileId = selectedAiProfileId,
                                         activeProfileId = activeAiProfileId,
                                         profile = currentAiProfile,
-                                        showApiKey = showAiApiKey,
                                         fetchedModels = fetchedAiModels,
                                         refreshingModels = refreshingAiModels,
                                         modelRefreshError = aiModelRefreshError,
@@ -447,7 +445,32 @@ fun SettingScreen(
                                                 updateSelectedAiProfile { profile -> profile.copy(contextLimitTokens = limit) }
                                             }
                                         },
-                                        onToggleApiKey = { showAiApiKey = !showAiApiKey },
+                                        onPriceCurrencyChange = { currency ->
+                                            updateSelectedAiProfile { profile ->
+                                                profile.copy(tokenPrice = profile.tokenPrice.copy(currency = currency))
+                                            }
+                                        },
+                                        onInputCacheMiss1MPriceChange = { text ->
+                                            parseAiPriceInput(text)?.let { price ->
+                                                updateSelectedAiProfile { profile ->
+                                                    profile.copy(tokenPrice = profile.tokenPrice.copy(inputCacheMiss1M = price))
+                                                }
+                                            }
+                                        },
+                                        onInputCacheHit1MPriceChange = { text ->
+                                            parseAiPriceInput(text)?.let { price ->
+                                                updateSelectedAiProfile { profile ->
+                                                    profile.copy(tokenPrice = profile.tokenPrice.copy(inputCacheHit1M = price))
+                                                }
+                                            }
+                                        },
+                                        onOutput1MPriceChange = { text ->
+                                            parseAiPriceInput(text)?.let { price ->
+                                                updateSelectedAiProfile { profile ->
+                                                    profile.copy(tokenPrice = profile.tokenPrice.copy(output1M = price))
+                                                }
+                                            }
+                                        },
                                         onRefreshModels = {
                                             if (!refreshingAiModels) {
                                                 val refreshProfile = selectedAiProfile()
@@ -507,7 +530,7 @@ fun SettingScreen(
                             errorMessage?.let {
                                 Text(
                                     it,
-                                    color = MaterialTheme.colors.error,
+                                    color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.padding(top = 8.dp)
                                 )
                             }
@@ -517,14 +540,17 @@ fun SettingScreen(
                 }
             }
         }
-        BottomSnakebar(scaffoldState.snackbarHostState)
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
+        )
         if (showChangeProfile) {
             ChangeProfileDialog(
                 onDismiss = { showChangeProfile = false },
                 onSuccess = {
                     showChangeProfile = false
                     scope.launch {
-                        scaffoldState.snackbarHostState.showSnackbar("修改成功")
+                        snackbarHostState.showSnackbar("修改成功")
                     }
                 }
             )
@@ -535,7 +561,7 @@ fun SettingScreen(
 
 private enum class SettingCategory(val icon: String, val label: String) {
     Account("\uEB99", "账号"),
-    Java("\uE738", "Java"),
+    Java("\uEDAF", "Java"),
     Network("\uEF09", "网络"),
     AI("\uDB84\uDECA", "AI");
 
@@ -553,46 +579,47 @@ private fun SettingNav(
     onSelect: (SettingCategory) -> Unit,
     compact: Boolean = false
 ) {
-    Column(
+    NavigationRail(
         modifier = Modifier
-            .width(if (compact) 64.dp else 160.dp)
-            .fillMaxHeight()
-            .padding(top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
+            .width(if (compact) 96.dp else 112.dp)
+            .fillMaxHeight(),
+        containerColor = Color.Transparent
     ) {
+        Spacer(modifier = Modifier.height(8.dp))
         SettingCategory.entries.filter { it.visible }.forEach { category ->
-            val isSelected = category == selected
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { onSelect(category) }
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .width(4.dp)
-                        .height(20.dp)
-                        .background(if (isSelected) MaterialTheme.colors.primary else Color.Transparent)
-                )
-                Space8w()
-                Text(
-                    text = category.icon.asIconText,
-                    color = if (isSelected) MaterialTheme.colors.primary else Color.Unspecified,
-                    style = when (category) {
-                        SettingCategory.Java -> MaterialTheme.typography.h5
-                        else -> MaterialTheme.typography.subtitle1
-                    }
-                )
-                if (!compact) {
-                    Space8w()
+            NavigationRailItem(
+                selected = category == selected,
+                onClick = { onSelect(category) },
+                icon = {
+                    SettingNavIcon(category.icon)
+                },
+                label = {
                     Text(
                         text = category.label,
-                        color = if (isSelected) MaterialTheme.colors.primary else Color.Unspecified,
+                        style = MaterialTheme.typography.labelMedium
                     )
-                }
-            }
+                },
+                alwaysShowLabel = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            )
         }
+    }
+}
+
+@Composable
+private fun SettingNavIcon(icon: String) {
+    Box(
+        modifier = Modifier.size(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = icon.asIconText,
+            fontSize = 24.sp,
+            lineHeight = 24.sp,
+            maxLines = 1
+        )
     }
 }
 
@@ -602,48 +629,29 @@ private fun AccountSettings(
     onChangeProfile: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
-    var invitedPlayers by remember { mutableStateOf<List<RAccount.Dto>>(emptyList()) }
-    var loading by remember { mutableStateOf(false) }
-    var showInviteDialog by remember { mutableStateOf(false) }
     var startMsBind by remember { mutableStateOf(false) }
     var pendingBind by remember { mutableStateOf(false) }
     var msaInfo by remember { mutableStateOf<MsaAccountInfo?>(null) }
     var msaDeviceCode by remember { mutableStateOf<MsaDeviceCode?>(null) }
     var errMsg by remember { mutableStateOf<String?>(null) }
-    // Load invited players on first composition
-    LaunchedEffect(Unit) {
-        loading = true
-        scope.rdiRequest<List<RAccount.Dto>>(
-            "player/invite",
-            onDone = { loading = false },
-            onErr = {
-                // Silently fail, just show empty list
-            }
-        ) {
-            it.data?.let { invitedPlayers = it }
-        }
-    }
+    var msAccountBound by remember { mutableStateOf(loggedAccount.hasMsid) }
+
     fun clearMsaState() {
         startMsBind = false
         msaInfo = null
         msaDeviceCode = null
     }
-    Column(modifier = Modifier.fillMaxWidth()) {
-        RowV {
-            Text("账号信息", style = MaterialTheme.typography.h6)
-            Space8w()
+    RColumn {
+        RRow {
+            Text("QQ：${loggedAccount.qq}")
+            Text("昵称：${loggedAccount.name}")
             CircleIconButton("\uE690", "修改个人信息") {
                 onChangeProfile()
             }
-            Space8w()
             errMsg?.let { ErrorText(it) }
         }
-        Space8h()
-        Text("QQ：${loggedAccount.qq}")
-        Text("昵称：${loggedAccount.name}")
-        Space8h()
-        Space8h()
-        if (startMsBind) {
+
+        if (!msAccountBound && startMsBind) {
             Text("即将登录微软账号，点击复制浏览器中打开链接，请在5分钟内登录")
             Text("不要切换到其他页面！", fontWeight = FontWeight.Bold)
             Text("登录完成后稍等10秒，会自动读取账号信息以进行下一步")
@@ -651,7 +659,7 @@ private fun AccountSettings(
         msaDeviceCode?.let { msaDeviceCode ->
             Text(
                 text = msaDeviceCode.directVerificationUri,
-                color = MaterialTheme.colors.primary,
+                color = MaterialTheme.colorScheme.primary,
                 style = LocalTextStyle.current.copy(textDecoration = TextDecoration.Underline),
                 modifier = Modifier
                     .clickable {
@@ -661,7 +669,9 @@ private fun AccountSettings(
         }
 
         Space8h()
-        if (!startMsBind) {
+        if (msAccountBound) {
+            Text("已绑定微软MC正版号")
+        } else if (!startMsBind) {
             RowV {
                 Text("绑定微软MC正版号，可获得更丰富的RDI体验 👉")
                 Space8w()
@@ -685,14 +695,12 @@ private fun AccountSettings(
                     }
                 }
             }
-        } else {
-            Text("已绑定微软MC正版号")
         }
 
         msaInfo?.let { info ->
             Text("读取信息成功！昵称：${info.name} MSID: ${info.uuid}")
             RowV {
-                Text("绑定后将不能修改，如果确定账号信息正确，")
+                Text("绑定后将不能修改，如果确定账号信息正确，点击OK按钮。")
                 Space8w()
                 CircleIconButton(
                     "\uDB82\uDE50",
@@ -700,38 +708,28 @@ private fun AccountSettings(
                     bgColor = MaterialColor.GREEN_900.color,
                     enabled = !pendingBind
                 ) {
+                    pendingBind = true
                     scope.rdiRequestU("player/bind-ms", body = info.json, onDone = {
                         clearMsaState()
                         pendingBind = false
                     }, onErr = {
                         errMsg = "绑定失败：${it.message}，请重试"
-                    }) {
-                        val jwt = loggedAccount.jwt
-                        loggedAccount = loggedAccount.copy(msid = info.uuid).also { it.jwt = jwt }
-                    }
+                    }, onOk = {
+                        msAccountBound = true
+                        scope.launch(Dispatchers.IO) {
+                            runCatching {
+                                loggedAccount = PlayerService.login(loggedAccount._id.toHexString(), loggedAccount.pwd).getOrThrow()
+                            }.getOrElse {
+                                errMsg = "重新登录失败：${it.message}"
+                            }
+                        }
+                    })
                 }
             }
         }
 
     }
 
-    if (showInviteDialog) {
-        InvitePlayerDialog(
-            onDismiss = { showInviteDialog = false },
-            onSuccess = {
-                showInviteDialog = false
-                // Refresh invited players list
-                loading = true
-                scope.rdiRequest<List<RAccount.Dto>>(
-                    "player/invite",
-                    onDone = { loading = false },
-                    onErr = {}
-                ) {
-                    it.data?.let { invitedPlayers = it }
-                }
-            }
-        )
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -750,88 +748,51 @@ private fun JavaSettings(
     onJre8Change: (String) -> Unit,
     onPickJre8: () -> Unit
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text("内存信息 总可用 ${totalMemoryMb}MB")
-        Space8h()
-        Row(modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(end = 16.dp)) {
-                OutlinedTextField(
-                    label = { Text("限制MC可用内存 (MB，0 或空为不限制)") },
-                    value = maxMemoryText,
-                    onValueChange = onMaxMemoryChange,
-                    singleLine = true,
-                    modifier = Modifier.width(260.dp)
-                )
-            }
-            // HwSpec memory display is desktop-only and handled by SettingsService
+    RColumn {
+        RRow {
+            Text("总内存 ${totalMemoryMb}MB")
+            RTextField("限制MC内存",maxMemoryText, modifier = Modifier.width(140.dp)){onMaxMemoryChange(it)}
+            Text("MB")
         }
-        Space8h()
         Text("当前Java：${javaExePath}")
-        Space8h()
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                label = { Text("Java25主程序路径") },
+        RRow{
+            RTextField(
+                label = "Java25主程序路径",
                 value = jre25Path,
                 onValueChange = onJre25Change,
-                singleLine = true,
                 modifier = Modifier.weight(1f)
             )
             CircleIconButton(
                 icon = "\uE8B6",
                 tooltip = "选择Java25",
-                bgColor = MaterialColor.BLUE_800.color,
-                size = 36,
-                showText = false
             ) {
                 onPickJre25()
             }
         }
-        Space8h()
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                label = { Text("Java21主程序路径（可选）") },
+        RRow {
+            RTextField(
+                label = "Java21主程序路径（可选）",
                 value = jre21Path,
                 onValueChange = onJre21Change,
-                singleLine = true,
                 modifier = Modifier.weight(1f)
             )
             CircleIconButton(
                 icon = "\uE8B6",
-                tooltip = "选择Java21",
-                bgColor = MaterialColor.BLUE_800.color,
-                size = 36,
-                showText = false
+                tooltip = "选择Java21"
             ) {
                 onPickJre21()
             }
         }
-        Space8h()
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            OutlinedTextField(
-                label = { Text("Java8主程序路径（可选）") },
+        RRow{
+            RTextField(
+                label = "Java8主程序路径（可选）",
                 value = jre8Path,
                 onValueChange = onJre8Change,
-                singleLine = true,
                 modifier = Modifier.weight(1f)
             )
             CircleIconButton(
                 icon = "\uE8B6",
-                tooltip = "选择Java8",
-                bgColor = MaterialColor.BLUE_800.color,
-                size = 36,
-                showText = false
+                tooltip = "选择Java8"
             ) {
                 onPickJre8()
             }
@@ -846,7 +807,6 @@ private fun AiSettings(
     selectedProfileId: String,
     activeProfileId: String,
     profile: AiProviderProfile,
-    showApiKey: Boolean,
     fetchedModels: List<String>,
     refreshingModels: Boolean,
     modelRefreshError: String?,
@@ -863,7 +823,10 @@ private fun AiSettings(
     onModelChange: (String) -> Unit,
     onReasoningEffortChange: (AiReasoningEffort) -> Unit,
     onContextLimitChange: (String) -> Unit,
-    onToggleApiKey: () -> Unit,
+    onPriceCurrencyChange: (AiPriceCurrency) -> Unit,
+    onInputCacheMiss1MPriceChange: (String) -> Unit,
+    onInputCacheHit1MPriceChange: (String) -> Unit,
+    onOutput1MPriceChange: (String) -> Unit,
     onRefreshModels: () -> Unit
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
@@ -874,156 +837,133 @@ private fun AiSettings(
             .filter(String::isNotBlank)
             .distinct()
     }
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text("AI设置", style = MaterialTheme.typography.h6)
+    RColumn{
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            profiles.forEach { item ->
-                val selected = item.id == selectedProfileId
-                val active = item.id == activeProfileId
-                Text(
-                    text = "${if (active) "\uF00C ".asIconText else ""}${item.name.ifBlank { item.provider.displayName }}",
-                    color = if (selected) Color.White else MaterialColor.GRAY_900.color,
-                    modifier = Modifier
-                        .background(
-                            if (selected) MaterialTheme.colors.primary else MaterialColor.GRAY_200.color,
-                            RoundedCornerShape(8.dp)
+            Text("AI供应商", style = MaterialTheme.typography.titleLarge)
+            Box(
+                modifier = Modifier.weight(1f),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    profiles.forEach { item ->
+                        val selected = item.id == selectedProfileId
+                        val active = item.id == activeProfileId
+                        Text(
+                            text = "${if (active) "\uF00C 使用中·".asIconText else ""}${item.name.ifBlank { item.provider.displayName }}",
+                            color = if (selected) Color.White else MaterialColor.GRAY_900.color,
+                            modifier = Modifier
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.primary else MaterialColor.GRAY_200.color,
+                                    RoundedCornerShape(baseShapeRadius.dp)
+                                )
+                                .clickable { onSelectProfile(item.id) }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
                         )
-                        .clickable { onSelectProfile(item.id) }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                )
+                    }
+                    CircleIconButton(
+                        icon = "\uF067",
+                        tooltip = "新增",
+                        bgColor = MaterialColor.BLUE_800.color,
+                        onClick = onAddProfile
+                    )
+                    CircleIconButton(
+                        icon = "\uF1F8",
+                        tooltip = "删除",
+                        bgColor = MaterialColor.RED_700.color,
+                        enabled = profiles.size > 1,
+                        onClick = onDeleteProfile
+                    )
+                    CircleIconButton(
+                        icon = "\uF00C",
+                        tooltip = "使用",
+                        bgColor = MaterialColor.GREEN_900.color,
+                        enabled = profile.id != activeProfileId,
+                        onClick = onSetActiveProfile
+                    )
+                }
             }
-            CircleIconButton(
-                icon = "\uF067",
-                tooltip = "新增AI配置",
-                bgColor = MaterialColor.BLUE_800.color,
-                size = 34,
-                showText = false,
-                onClick = onAddProfile
-            )
-            CircleIconButton(
-                icon = "\uF1F8",
-                tooltip = "删除AI配置",
-                bgColor = MaterialColor.RED_700.color,
-                size = 34,
-                showText = false,
-                enabled = profiles.size > 1,
-                onClick = onDeleteProfile
-            )
-            CircleIconButton(
-                icon = "\uF00C",
-                tooltip = "使用此AI配置",
-                bgColor = MaterialColor.GREEN_900.color,
-                size = 34,
-                showText = false,
-                enabled = profile.id != activeProfileId,
-                onClick = onSetActiveProfile
-            )
         }
-        OutlinedTextField(
-            label = { Text("配置名称") },
-            value = profile.name,
-            onValueChange = onProfileNameChange,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
+
+        RRow {
+            Text("API类别")
             AiProvider.entries.forEach { provider ->
                 RadioButton(
                     selected = profile.provider == provider,
                     onClick = { onProviderChange(provider) }
                 )
                 Text(provider.displayName)
-                Space8w()
             }
 
         }
-        OutlinedTextField(
-            label = { Text("API Base URL") },
-            value = profile.baseUrl,
-            onValueChange = onBaseUrlChange,
-            singleLine = true,
-            enabled = profile.provider != AiProvider.DEEPSEEK,
-            modifier = Modifier.fillMaxWidth()
-        )
-        PasswordField(
-            value = profile.apiKey,
-            onValueChange = onApiKeyChange,
-            label = "API Key",
-            showPassword = showApiKey,
-            onToggleVisibility = onToggleApiKey,
-            onEnter = {}
-        )
-        OutlinedTextField(
-            label = { Text("上下文上限Tokens") },
-            value = profile.contextLimitTokens.toString(),
-            onValueChange = onContextLimitChange,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
-        )
-        Text(
-            text = "范围64000-1000000",
-            color = MaterialColor.GRAY_700.color,
-            style = MaterialTheme.typography.body2
-        )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Text("推理强度")
-            Box {
-                Text(
-                    text = "${profile.reasoningEffort.displayName} \uE70D".asIconText,
-                    color = MaterialColor.GRAY_900.color,
-                    modifier = Modifier
-                        .background(MaterialColor.GRAY_200.color, RoundedCornerShape(8.dp))
-                        .clickable { reasoningMenuExpanded = true }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                )
-                DropdownMenu(
-                    expanded = reasoningMenuExpanded,
-                    onDismissRequest = { reasoningMenuExpanded = false }
-                ) {
-                    AiReasoningEffort.optionsFor(profile.provider).forEach { effort ->
-                        DropdownMenuItem(onClick = {
-                            onReasoningEffortChange(effort)
-                            reasoningMenuExpanded = false
-                        }) {
-                            Text(effort.displayName)
-                        }
-                    }
-                }
-            }
-            Text(
-                text = "Auto不发送参数",
-                color = MaterialColor.GRAY_700.color,
-                style = MaterialTheme.typography.body2
+        RRow {
+            RTextField(
+                label = "配置名称",
+                value = profile.name,
+                onValueChange = onProfileNameChange,
+                modifier = Modifier.width(120.dp)
+            )
+            RTextField(
+                label = "API Base URL",
+                value = profile.baseUrl,
+                onValueChange = onBaseUrlChange,
+                enabled = profile.provider != AiProvider.DEEPSEEK,
+                modifier = Modifier.width(360.dp)
+            )
+            RPasswordField(
+                value = profile.apiKey,
+                onValueChange = onApiKeyChange,
+                label = "API Key",
+                modifier = Modifier.width(360.dp)
+            )
+            RTextField(
+                label = "上下文长度",
+                value = profile.contextLimitTokens.toString(),
+                onValueChange = onContextLimitChange,
+                modifier = Modifier.width(120.dp)
             )
         }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-
-            OutlinedTextField(
-                label = { Text("模型") },
+        RRow {
+            Text("价格/1M tokens")
+            AiPriceCurrency.entries.forEach { currency ->
+                RadioButton(
+                    selected = profile.tokenPrice.currency == currency,
+                    onClick = { onPriceCurrencyChange(currency) }
+                )
+                Text(currency.mark)
+            }
+            AiPriceField(
+                label = "${profile.tokenPrice.currency.mark}输入未缓存",
+                value = profile.tokenPrice.inputCacheMiss1M,
+                onValueChange = onInputCacheMiss1MPriceChange
+            )
+            AiPriceField(
+                label = "${profile.tokenPrice.currency.mark}输入缓存",
+                value = profile.tokenPrice.inputCacheHit1M,
+                onValueChange = onInputCacheHit1MPriceChange
+            )
+            AiPriceField(
+                label = "${profile.tokenPrice.currency.mark}输出",
+                value = profile.tokenPrice.output1M,
+                onValueChange = onOutput1MPriceChange
+            )
+        }
+        RRow {
+            RTextField(
+                label = "模型",
                 value = profile.model,
                 onValueChange = onModelChange,
                 singleLine = true,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.width(240.dp),
                 trailingIcon = {
                     Text(
-                        text = "\uE70D".asIconText,
+                        text = "\uEB6E".asIconText,
                         modifier = Modifier
                             .padding(end = 8.dp)
                             .clickable(enabled = dropdownModels.isNotEmpty()) { modelMenuExpanded = true }
@@ -1035,12 +975,13 @@ private fun AiSettings(
                 onDismissRequest = { modelMenuExpanded = false }
             ) {
                 dropdownModels.forEach { candidate ->
-                    DropdownMenuItem(onClick = {
-                        onModelChange(candidate)
-                        modelMenuExpanded = false
-                    }) {
-                        Text(candidate)
-                    }
+                    DropdownMenuItem(
+                        text = { Text(candidate) },
+                        onClick = {
+                            onModelChange(candidate)
+                            modelMenuExpanded = false
+                        }
+                    )
                 }
             }
             CircleIconButton(
@@ -1058,31 +999,87 @@ private fun AiSettings(
                     onClick = { openUrl("https://platform.deepseek.com/top_up") }
                 )
             }
+        }
+       /* Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+
+            Box {
+                Text(
+                    text = "${profile.reasoningEffort.displayName} \uE70D".asIconText,
+                    color = MaterialColor.GRAY_900.color,
+                    modifier = Modifier
+                        .background(MaterialColor.GRAY_200.color, RoundedCornerShape(8.dp))
+                        .clickable { reasoningMenuExpanded = true }
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                )
+
+            }
+        }*/
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+
+
 
         }
         modelRefreshError?.let { error ->
             Text(
                 text = error,
-                color = MaterialTheme.colors.error,
-                style = MaterialTheme.typography.body2
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodyMedium
             )
         }
         modelRefreshMessage?.let { message ->
             Text(
                 text = message,
                 color = MaterialColor.GRAY_800.color,
-                style = MaterialTheme.typography.body2
+                style = MaterialTheme.typography.bodyMedium
             )
         }
         balanceMessage?.let { message ->
             Text(
                 text = message,
                 color = MaterialColor.GRAY_800.color,
-                style = MaterialTheme.typography.body2
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }
 }
+
+@Composable
+private fun AiPriceField(
+    label: String,
+    value: Double,
+    onValueChange: (String) -> Unit
+) {
+    RTextField(
+        label = "$label/1M",
+        value = formatAiPrice(value),
+        onValueChange = onValueChange,
+        modifier = Modifier.width(140.dp)
+    )
+}
+
+private fun parseAiPriceInput(text: String): Double? {
+    val input = text.trim()
+    if (input.isEmpty()) return 0.0
+    return input.toDoubleOrNull()
+        ?.takeIf { !it.isNaN() && !it.isInfinite() && it >= 0.0 }
+}
+
+private fun formatAiPrice(value: Double): String =
+    if (value.isNaN() || value.isInfinite()) {
+        "0"
+    } else if (value % 1.0 == 0.0) {
+        value.toLong().toString()
+    } else {
+        value.toString()
+    }
 
 
 @Composable
@@ -1107,89 +1104,72 @@ private fun NetworkSettings(
     onAutoSwitchFastestNode: () -> Unit,
     onUseGameBackupNode: () -> Unit,
 ) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = preferMcMirror, onCheckedChange = onPreferMcMirrorChange)
-            Text("优先使用国内镜像下载MC资源")
+    RColumn {
+        RRow {
+            Text("使用BMCL-API国内镜像")
+            RSwitch(checked = preferMcMirror, onCheckedChange = onPreferMcMirrorChange)
+            Text("下载MC资源")
+            RSwitch(checked = preferModMirror, onCheckedChange = onPreferModMirrorChange)
+            Text("下载Mod")
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Checkbox(checked = preferModMirror, onCheckedChange = onPreferModMirrorChange)
-            Text("优先使用国内镜像下载Mod")
-        }
-        Space8h()
         AutoRouteStatus(
             switchingNode = switchingNode,
             onAutoSwitchFastestNode = onAutoSwitchFastestNode,
             onUseGameBackupNode = onUseGameBackupNode
         )
-
         // Proxy settings — desktop only
         if (isDesktop) {
-            Space8h()
-            Text("代理设置")
             val mode = when {
                 !proxyEnabled -> 0
                 proxySystem -> 1
                 else -> 2
             }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = mode == 0, onClick = {
-                        onProxyEnabledChange(false)
-                        onProxySystemChange(false)
-                    })
-                    Text("不使用代理")
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = mode == 1, onClick = {
-                        onProxyEnabledChange(true)
-                        onProxySystemChange(true)
-                    })
-                    Text("使用系统代理")
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(selected = mode == 2, onClick = {
-                        onProxyEnabledChange(true)
-                        onProxySystemChange(false)
-                    })
-                    Text("使用自定义代理")
-                }
+            RRow {
+                Text("代理")
+                RadioButton(selected = mode == 0, onClick = {
+                    onProxyEnabledChange(false)
+                    onProxySystemChange(false)
+                })
+                Text("无代理")
+                RadioButton(selected = mode == 1, onClick = {
+                    onProxyEnabledChange(true)
+                    onProxySystemChange(true)
+                })
+                Text("系统代理")
+                RadioButton(selected = mode == 2, onClick = {
+                    onProxyEnabledChange(true)
+                    onProxySystemChange(false)
+                })
+                Text("自定义代理")
             }
-
             if (mode == 2) {
-                Space8h()
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        label = { Text("代理主机") },
+                RRow {
+
+                    RTextField(
+                        "主机",
                         value = proxyHost,
                         onValueChange = onProxyHostChange,
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier.width(240.dp)
                     )
-                    OutlinedTextField(
-                        label = { Text("端口") },
+                    RTextField(
+                        "端口",
                         value = proxyPort,
                         onValueChange = onProxyPortChange,
-                        singleLine = true,
                         modifier = Modifier.width(120.dp)
                     )
+                    RTextField(
+                        label = "用户名（可选）",
+                        value = proxyUsr,
+                        onValueChange = onProxyUsrChange,
+                        modifier = Modifier.width(240.dp)
+                    )
+                    RTextField(
+                        label = "密码（可选）",
+                        value = proxyPwd,
+                        onValueChange = onProxyPwdChange,
+                        modifier = Modifier.width(240.dp)
+                    )
                 }
-                Space8h()
-                OutlinedTextField(
-                    label = { Text("用户名（可选）") },
-                    value = proxyUsr,
-                    onValueChange = onProxyUsrChange,
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Space8h()
-                OutlinedTextField(
-                    label = { Text("密码（可选）") },
-                    value = proxyPwd,
-                    onValueChange = onProxyPwdChange,
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
             }
         }
     }
@@ -1203,34 +1183,25 @@ private fun AutoRouteStatus(
     onUseGameBackupNode: () -> Unit
 ) {
     val routeState by RServer.routeState.collectAsState()
-    Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        Text(
-            text = "网络入口"
-        )
+    RRow {
         routeState.nodeName?.let {
-            Text("当前节点: $it")
+            Text("当前节点 $it")
         }
-        Text(if (routeState.useBackupNode) "当前使用加速入口" else "当前使用主入口")
-        FlowRowV {
-
-            CircleIconButton(
-                "\uDB80\uDC02",
-                if (switchingNode) "已切换节点" else "自动切换最快节点",
-                bgColor = MaterialColor.TEAL_900.color,
-                enabled = !switchingNode,
-                onClick = onAutoSwitchFastestNode
-            )
-            Space8w()
-            CircleIconButton(
-                "\uDB80\uDC02",
-                "临时使用备用节点",
-                bgColor = MaterialColor.BLUE_900.color,
-                enabled = !switchingNode,
-                onClick = onUseGameBackupNode
-            )
-        }
+        Text(if (routeState.useBackupNode) "加速入口" else "主入口")
+        CircleIconButton(
+            "\uDB80\uDC02",
+            if (switchingNode) "已切换节点" else "切换最快节点",
+            bgColor = MaterialColor.TEAL_900.color,
+            enabled = !switchingNode,
+            onClick = onAutoSwitchFastestNode
+        )
+        CircleIconButton(
+            "\uDB80\uDC02",
+            "临时备用节点",
+            bgColor = MaterialColor.BLUE_900.color,
+            enabled = !switchingNode,
+            onClick = onUseGameBackupNode
+        )
     }
 }
 
@@ -1239,7 +1210,6 @@ private fun ChangeProfileDialog(
     onDismiss: () -> Unit,
     onSuccess: () -> Unit
 ) {
-    var showPassword by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val account = loggedAccount
     var name by remember { mutableStateOf(account.name) }
@@ -1247,37 +1217,31 @@ private fun ChangeProfileDialog(
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf(false) }
 
-    androidx.compose.material.AlertDialog(
+    AlertDialog(
         onDismissRequest = { if (!submitting) onDismiss() },
         title = { Text("修改信息") },
         text = {
             Column {
-                OutlinedTextField(
+                RTextField(
                     value = name,
                     onValueChange = { name = it },
-                    label = { Text("昵称") },
-                    singleLine = true,
+                    label = "昵称",
                     enabled = !submitting,
-                    modifier = Modifier.fillMaxWidth()
                 )
-                PasswordField(
+                RPasswordField(
                     value = pwd,
                     onValueChange = { pwd = it },
                     label = "新密码 留空则不修改",
                     enabled = !submitting,
-                    showPassword = showPassword,
-                    onToggleVisibility = { showPassword = !showPassword },
-                    onEnter = {}
                 )
-                errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+                errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             }
         },
         confirmButton = {
             TextButton(
                 enabled = !submitting,
                 onClick = {
-                    val validation =
-                        calebxzhou.rdi.client.service.SettingsService.validateProfileChange(name, pwd, account.name)
+                    val validation = SettingsService.validateProfileChange(name, pwd, account.name)
                     if (!validation.success) {
                         errorMessage = validation.errorMessage
                         return@TextButton
@@ -1292,9 +1256,8 @@ private fun ChangeProfileDialog(
                     scope.launch {
                         runCatching {
                             server.makeRequest<Unit>("player/profile", HttpMethod.Put, params)
-                            if (pwd.isNotEmpty()) {
-                                loggedAccount = PlayerService.login(account._id.toHexString(), pwd).getOrThrow()
-                            }
+                            val loginPwd = pwd.takeIf(String::isNotEmpty) ?: account.pwd
+                            loggedAccount = PlayerService.login(account._id.toHexString(), loginPwd).getOrThrow()
                             playerInfoCache -= loggedAccount._id.toHexString()
                         }.getOrElse {
                             errorMessage = "修改失败: ${it.message}"
@@ -1321,74 +1284,3 @@ private fun ChangeProfileDialog(
     )
 }
 
-@Composable
-private fun InvitePlayerDialog(
-    onDismiss: () -> Unit,
-    onSuccess: () -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    var regCode by remember { mutableStateOf("") }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var submitting by remember { mutableStateOf(false) }
-
-    androidx.compose.material.AlertDialog(
-        onDismissRequest = { if (!submitting) onDismiss() },
-        title = { Text("邀请朋友注册") },
-        text = {
-            Column {
-                Text(
-                    "在下方粘贴朋友发给你的注册码。",
-                    style = MaterialTheme.typography.body2,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-                OutlinedTextField(
-                    value = regCode,
-                    onValueChange = { regCode = it },
-                    label = { Text("注册码") },
-                    placeholder = { Text("粘贴注册码...") },
-                    singleLine = false,
-                    maxLines = 5,
-                    enabled = !submitting,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                errorMessage?.let {
-                    Space8h()
-                    Text(it, color = MaterialTheme.colors.error)
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(
-                enabled = !submitting && regCode.isNotBlank(),
-                onClick = {
-                    if (regCode.isBlank()) {
-                        errorMessage = "请输入注册码"
-                        return@TextButton
-                    }
-
-                    submitting = true
-                    errorMessage = null
-                    scope.rdiRequestU(
-                        "player/invite",
-                        body = regCode,
-                        onDone = { submitting = false },
-                        onErr = { errorMessage = "邀请失败: ${it.message}" }
-                    ) {
-                        onSuccess()
-                    }
-                }
-            ) {
-                if (submitting) {
-                    CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                } else {
-                    Text("确定")
-                }
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = { if (!submitting) onDismiss() }) {
-                Text("取消")
-            }
-        }
-    )
-}

@@ -2,6 +2,7 @@
   "required": true,
   "minVersion": "0.8",
   "package": "calebxzhou.rdi.mc.server.mixin",
+  "plugin": "calebxzhou.rdi.mc.server.mixin.RdiMixinPlugin",
   "compatibilityLevel": "JAVA_21",
   "client": [],
   "injectors": {
@@ -9,6 +10,7 @@
   },
   "mixins": [
     "AServerEntity",
+    "mArsNouveauAlakarkinosRecipeSync",
     "mAllowChineseNameLogin",
     "mBoundTickingBlockEntityGuard",
     "mChatMsg",

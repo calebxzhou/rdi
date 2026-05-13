@@ -32,6 +32,7 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpInventoryData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemDropData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemDropRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpMenuCloseData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
 import calebxzhou.rdi.mc.server.RMarkdownComponent211;
@@ -142,6 +143,7 @@ public final class RMcpServerNetwork {
                 case "craft" -> handleCraft(payload, context, player);
                 case "container" -> handleContainer(payload, context, player);
                 case "menu" -> handleMenu(payload, context, player);
+                case "menu-close" -> handleMenuClose(payload, context, player);
                 case "menu-drop" -> handleMenuDrop(payload, context, player);
                 case "hotbar-select" -> handleHotbarSelect(payload, context, player);
                 case "container-move" -> handleContainerMove(payload, context, player);
@@ -329,6 +331,20 @@ public final class RMcpServerNetwork {
 
     private static void handleMenu(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
         replyOk(context, payload, menuData(player));
+    }
+
+    private static void handleMenuClose(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var before = menuData(player);
+        if (before.inventoryMenu()) {
+            replyOk(context, payload, new RMcpMenuCloseData(false, false, before, before));
+            return;
+        }
+        if (!player.containerMenu.getCarried().isEmpty()) {
+            replyError(context, payload, RErrorCode.CARRIED_ITEM_NOT_EMPTY);
+            return;
+        }
+        player.closeContainer();
+        replyOk(context, payload, new RMcpMenuCloseData(true, true, before, menuData(player)));
     }
 
     private static void handleMenuDrop(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
@@ -843,6 +859,7 @@ public final class RMcpServerNetwork {
             replyError(context, payload, plan.code());
             return;
         }
+        var before = inventoryData(player);
         if (!request.dryRun()) {
             applyCraftPlan(player, plan);
         }
@@ -852,8 +869,11 @@ public final class RMcpServerNetwork {
                 plan.requestedCount(),
                 request.dryRun() ? 0 : plan.craftedCount(),
                 request.dryRun(),
+                !request.dryRun() && plan.craftedCount() > 0,
                 request.outputSlot(),
-                inventoryData(player)
+                before,
+                inventoryData(player),
+                List.of()
         );
         replyOk(context, payload, data);
     }
@@ -1121,7 +1141,7 @@ public final class RMcpServerNetwork {
             replyError(context, payload, RErrorCode.TOO_MANY_BLOCKS);
             return;
         }
-        var data = runBlockBatchAction(player, "break", expandBox(request.from(), request.to()), false);
+        var data = runBlockBatchAction(player, "break", expandBox(request.from(), request.to()), false, request.dryRun());
         replyOk(context, payload, data);
     }
 
@@ -1426,20 +1446,27 @@ public final class RMcpServerNetwork {
     }
 
     private static RMcpBlockBatchActionData runBlockBatchAction(ServerPlayer player, String action, List<RMcpBlockPosData> positions, boolean place) {
+        return runBlockBatchAction(player, action, positions, place, false);
+    }
+
+    private static RMcpBlockBatchActionData runBlockBatchAction(ServerPlayer player, String action, List<RMcpBlockPosData> positions, boolean place, boolean dryRun) {
         var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
+        int accepted = 0;
         for (var posData : positions) {
             BlockActionStep step;
             if (posData == null) {
                 step = new BlockActionStep(null, RErrorCode.BAD_POS.id(), false, null, null);
             } else {
                 var pos = blockPos(posData);
-                step = place ? placeBlockAt(player, pos, null) : breakBlockAt(player, pos);
+                step = dryRun && !place ? breakBlockDryRun(player, pos) : place ? placeBlockAt(player, pos, null) : breakBlockAt(player, pos);
             }
             if (!"ok".equals(step.code())) {
                 failedBlocks.add(step.failedBlock());
+            } else {
+                accepted++;
             }
         }
-        return new RMcpBlockBatchActionData(action, failedBlocks);
+        return new RMcpBlockBatchActionData(action, dryRun, !dryRun && accepted > 0, failedBlocks, List.of());
     }
 
     private static RMcpBlockBatchActionData runPlaceBoxAction(ServerPlayer player, RMcpPlaceBoxRequest request, List<RMcpBlockPosData> positions, Block block) {
@@ -1448,6 +1475,7 @@ public final class RMcpServerNetwork {
 
     private static RMcpBlockBatchActionData runPlaceTargetsAction(ServerPlayer player, List<RMcpBlockPosData> positions, Block block, Map<String, String> state, boolean dryRun) {
         var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
+        int accepted = 0;
         for (var posData : positions) {
             BlockActionStep step;
             if (posData == null) {
@@ -1463,16 +1491,17 @@ public final class RMcpServerNetwork {
             }
             if (!"ok".equals(step.code())) {
                 failedBlocks.add(step.failedBlock());
-            }
-            if (!"ok".equals(step.code())) {
                 break;
+            } else {
+                accepted++;
             }
         }
-        return new RMcpBlockBatchActionData("place", failedBlocks);
+        return new RMcpBlockBatchActionData("place", dryRun, !dryRun && accepted > 0, failedBlocks, List.of());
     }
 
     private static RMcpBlockBatchActionData runPlaceDiscreteAction(ServerPlayer player, RMcpPlaceDiscreteRequest request, Block block) {
         var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
+        int accepted = 0;
         for (var target : request.targets()) {
             BlockActionStep step;
             if (target == null || target.pos() == null) {
@@ -1489,13 +1518,16 @@ public final class RMcpServerNetwork {
             if (!"ok".equals(step.code())) {
                 failedBlocks.add(step.failedBlock());
                 break;
+            } else {
+                accepted++;
             }
         }
-        return new RMcpBlockBatchActionData("place", failedBlocks);
+        return new RMcpBlockBatchActionData("place", request.dryRun(), !request.dryRun() && accepted > 0, failedBlocks, List.of());
     }
 
     private static RMcpBlockBatchActionData runPlacePaletteAction(ServerPlayer player, RMcpPlacePaletteRequest request, Map<String, PlacePaletteEntry> palette) {
         var failedBlocks = new ArrayList<RMcpBlockBatchActionData.FailedBlock>();
+        int accepted = 0;
         for (var target : request.targets()) {
             BlockActionStep step;
             if (target == null || target.pos() == null || target.key() == null || target.key().isBlank()) {
@@ -1517,9 +1549,11 @@ public final class RMcpServerNetwork {
             if (!"ok".equals(step.code())) {
                 failedBlocks.add(step.failedBlock());
                 break;
+            } else {
+                accepted++;
             }
         }
-        return new RMcpBlockBatchActionData("place", failedBlocks);
+        return new RMcpBlockBatchActionData("place", request.dryRun(), !request.dryRun() && accepted > 0, failedBlocks, List.of());
     }
 
     private static BlockActionStep placeBlockAt(ServerPlayer player, BlockPos pos, Direction face) {
@@ -1723,6 +1757,20 @@ public final class RMcpServerNetwork {
             return new BlockActionStep(blockPosData(pos), RErrorCode.BREAK_FAILED.id(), false, beforeBlockId, afterBlockId);
         }
         return new BlockActionStep(blockPosData(pos), "ok", true, beforeBlockId, afterBlockId);
+    }
+
+    private static BlockActionStep breakBlockDryRun(ServerPlayer player, BlockPos pos) {
+        var level = player.serverLevel();
+        var check = checkBlockActionTarget(player, pos);
+        if (!"ok".equals(check)) {
+            return BlockActionStep.error(pos, check);
+        }
+        var beforeState = level.getBlockState(pos);
+        var beforeBlockId = blockId(beforeState);
+        if (beforeState.isAir()) {
+            return new BlockActionStep(blockPosData(pos), RErrorCode.NO_BLOCK.id(), false, beforeBlockId, beforeBlockId);
+        }
+        return new BlockActionStep(blockPosData(pos), "ok", false, beforeBlockId, beforeBlockId);
     }
 
     private static ItemUseStep useItemOnBlock(ServerPlayer player, BlockPos pos, Direction face, Item item, Integer sourceSlot, InteractionHand hand, int times, boolean dryRun) {
@@ -2813,7 +2861,7 @@ public final class RMcpServerNetwork {
     private record BlockBatchActionRequest(List<RMcpBlockPosData> positions) {
     }
 
-    private record BlockBoxActionRequest(RMcpBlockPosData from, RMcpBlockPosData to) {
+    private record BlockBoxActionRequest(RMcpBlockPosData from, RMcpBlockPosData to, boolean dryRun) {
     }
 
     private record BlockActionStep(RMcpBlockPosData pos, String code, boolean changed, String beforeBlockId, String afterBlockId) {

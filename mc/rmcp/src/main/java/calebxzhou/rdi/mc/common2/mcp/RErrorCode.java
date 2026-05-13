@@ -76,6 +76,8 @@ public record RErrorCode(String id, String info) {
     public static final RErrorCode BAD_IDS = code("bad_ids", "ids must be UUID strings and include at most 2048 entries.");
     public static final RErrorCode MISSING_ITEM_ID = code("missing_item_id", "required itemId query parameter is absent or blank.");
     public static final RErrorCode BAD_ITEM_ID = code("bad_item_id", "itemId is not a valid loaded item ID.");
+    public static final RErrorCode MISSING_RECIPE_REF = code("missing_recipe_ref", "required recipe ref query parameter is absent or blank.");
+    public static final RErrorCode BAD_RECIPE_REF = code("bad_recipe_ref", "recipe ref is malformed or does not match a recipe for the requested itemId.");
     public static final RErrorCode MISSING_CHUNK_X = code("missing_chunk_x", "required chunk x query parameter is absent or blank.");
     public static final RErrorCode MISSING_CHUNK_Z = code("missing_chunk_z", "required chunk z query parameter is absent or blank.");
     public static final RErrorCode MISSING_SECTION_Y = code("missing_section_y", "required section y query parameter is absent or blank.");
@@ -128,7 +130,7 @@ public record RErrorCode(String id, String info) {
             MISSING_INGREDIENTS, RESULT_FULL, CRAFT_FAILED, CRAFT_TIMEOUT,
             TOO_FAR, NO_ITEM_HANDLER, TARGET_NOT_AIR, NO_PLACE_ITEM, NO_PLACE_FACE, NO_USABLE_ITEM, ITEM_USE_FAILED, BAD_BLOCK_STATE, PLACE_FAILED, BREAK_FAILED, MOVE_TARGET_BLOCKED,
             PROTECTED, TOO_MANY_BLOCKS, MISSING_POS, BAD_POS, BAD_POSITIONS, BAD_BOX, BAD_BLOCK_IDS, MISSING_BLOCK_ID,
-            BAD_BLOCK_ID, MISSING_UUID, BAD_UUID, MISSING_ITEM_ID, BAD_ITEM_ID, MISSING_CHUNK_X, MISSING_CHUNK_Z,
+            BAD_BLOCK_ID, MISSING_UUID, BAD_UUID, MISSING_ITEM_ID, BAD_ITEM_ID, MISSING_RECIPE_REF, BAD_RECIPE_REF, MISSING_CHUNK_X, MISSING_CHUNK_Z,
             MISSING_IDS, BAD_IDS,
             MISSING_SECTION_Y, BAD_CHUNK_X, BAD_CHUNK_Z, BAD_SECTION_Y, BAD_CHUNK_RADIUS, BAD_SECTION_RADIUS,
             BAD_RADIUS, BAD_BLOCKMAP_RADIUS, BAD_AXIS, BAD_TERRAIN_LENGTH, BAD_VERTICAL_RADIUS, BAD_LIMIT, BAD_SLOT, BAD_SIDE, SAME_SLOT, UNSUPPORTED_MERGE_RISK, BAD_COUNT,

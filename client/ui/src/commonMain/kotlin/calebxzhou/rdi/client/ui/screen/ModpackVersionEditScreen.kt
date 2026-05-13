@@ -6,6 +6,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -330,7 +332,7 @@ fun ModpackVersionEditScreen(
                 }
             }
         }
-        BottomSnakebar(snackbarHostState)
+        BottomSnakebarM3(snackbarHostState)
     }
 
     if (addDialogOpen) {

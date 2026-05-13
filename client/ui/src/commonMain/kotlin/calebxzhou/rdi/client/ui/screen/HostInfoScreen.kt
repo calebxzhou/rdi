@@ -8,13 +8,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material.OutlinedTextField
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.OutlinedTextField as M3OutlinedTextField
 import androidx.compose.material3.RadioButton as M3RadioButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -1524,7 +1522,7 @@ fun HostInfoScreen(
                         if (extraModPlatform == "github") {
                             if (extraModGithubReleases.isEmpty()) {
                                 item {
-                                    ManualExtraModTextField(
+                                    RThinTextField(
                                         state = extraModGithubRepoUrlState,
                                         enabled = !addExtraModLoading,
                                         label = "GitHub仓库链接"
@@ -1597,19 +1595,19 @@ fun HostInfoScreen(
                                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                                     verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
-                                    ManualExtraModTextField(
+                                    RThinTextField(
                                         state = extraModProjectIdState,
                                         enabled = !addExtraModLoading,
                                         label = "pj",
                                         modifier = Modifier.weight(1f).height(48.dp)
                                     )
-                                    ManualExtraModTextField(
+                                    RThinTextField(
                                         state = extraModSlugState,
                                         enabled = !addExtraModLoading,
                                         label = "slug",
                                         modifier = Modifier.weight(1f).height(48.dp)
                                     )
-                                    ManualExtraModTextField(
+                                    RThinTextField(
                                         state = extraModFileIdState,
                                         enabled = !addExtraModLoading,
                                         label = "file",
@@ -1620,14 +1618,14 @@ fun HostInfoScreen(
                         }
                         if (extraModPlatform != "github") {
                             item {
-                                ManualExtraModTextField(
+                                RThinTextField(
                                     state = extraModHashState,
                                     enabled = !addExtraModLoading,
                                     label = "hash"
                                 )
                             }
                             item {
-                                ManualExtraModTextField(
+                                RThinTextField(
                                     state = extraModDownloadUrlsState,
                                     enabled = !addExtraModLoading,
                                     label = "dl url",
@@ -2511,25 +2509,6 @@ private fun GithubReleaseAssetRow(
             Text("已选", color = MaterialColor.PURPLE_700.color)
         }
     }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ManualExtraModTextField(
-    state: TextFieldState,
-    enabled: Boolean,
-    label: String,
-    modifier: Modifier = Modifier.fillMaxWidth().height(48.dp),
-    lineLimits: TextFieldLineLimits = TextFieldLineLimits.SingleLine
-) {
-    M3OutlinedTextField(
-        state = state,
-        enabled = enabled,
-        lineLimits = lineLimits,
-        label = { Text(label, color = Color.Gray) },
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp),
-        modifier = modifier
-    )
 }
 
 private fun extraModKey(mod: Mod): String = "${mod.platform}:${mod.projectId}:${mod.fileId}"

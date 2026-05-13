@@ -30,6 +30,7 @@ import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.Space8w
 import calebxzhou.rdi.client.ui.TitleRow
+import calebxzhou.rdi.client.ui.TitleRow2
 import calebxzhou.rdi.client.ui.comp.CodeEditor
 import calebxzhou.rdi.client.ui.comp.PlatformVerticalScrollbar
 import calebxzhou.rdi.common.model.Host
@@ -201,7 +202,7 @@ fun HostConfigEditorOverlay(
                     .padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                TitleRow(
+                TitleRow2(
                     selectedPath ?: "", { onClose() },
                 ) {
                     Text(
@@ -220,7 +221,6 @@ fun HostConfigEditorOverlay(
                         style = MaterialTheme.typography.caption
                     )
 
-                    Space8w()
                     CircleIconButton(
                         icon = "\uDB81\uDC50",
                         tooltip = "还原",
@@ -229,7 +229,6 @@ fun HostConfigEditorOverlay(
                     ) {
                         onReload()
                     }
-                    Space8w()
                     CircleIconButton(
                         icon = "\uF0C7",
                         tooltip = "保存",

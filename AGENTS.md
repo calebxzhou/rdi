@@ -22,7 +22,8 @@ this project is minecraft multiplayer platform, player can upload modpacks to cr
 ## Build, Test, and Development Commands
 no need to execute gradle commands unless explictly declared
 no need execute javac i wanna execute it manually and tell you error
-no need execute git commands 
+no need static check
+no need care about CRLF/LF issue, but Dockerfile and *.sh files must be LF
 ## Coding Style & Naming Conventions
 - Kotlin, 4-space indentation, UTF-8.
 - Types/files: `PascalCase`; functions/vars: `camelCase`; constants: `UPPER_SNAKE_CASE`.

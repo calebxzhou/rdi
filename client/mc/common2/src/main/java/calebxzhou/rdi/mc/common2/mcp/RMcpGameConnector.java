@@ -32,6 +32,8 @@ public interface RMcpGameConnector {
 
     RMcpMenuData menuData();
 
+    RMcpMenuCloseData closeMenu();
+
     RMcpMenuDropData dropMenuItem(int slot, int count, boolean dryRun);
 
     RMcpInventorySwapData swapInventorySlots(String from, String to, boolean dryRun);
@@ -88,7 +90,7 @@ public interface RMcpGameConnector {
 
     RMcpBlockBatchActionData placeBlockRing(RMcpPlaceRingRequest request);
 
-    RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to);
+    RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to, boolean dryRun);
 
     RMcpPlayerMoveData movePlayer(double x, double y, double z);
 
@@ -110,7 +112,7 @@ public interface RMcpGameConnector {
 
     RMcpBlocksFindData blocksFindData(RMcpBlocksFindRequest request);
 
-    RMcpNearbyResourcesData nearbyResourcesData(String dim, int x, int y, int z, int chunkRadius, int sectionRadius);
+    RMcpNearbyResourcesData nearbyResourcesData(String dim, int x, int y, int z, int chunkRadius, int sectionRadius, List<String> categories, List<String> ids, int limit);
 
     RMcpNearbyEntitiesData nearbyEntitiesData(String dim, int x, int y, int z, double radius, List<String> categories, int limit);
 
@@ -121,6 +123,14 @@ public interface RMcpGameConnector {
     RMcpLangKeyIndex langKeyIndex();
 
     RMcpItemSearchData itemSearchData(String text, String modId, int limit);
+
+    RMcpResolveSearchData blockSearchData(String text, String modId, int limit);
+
+    RMcpResolveSearchData entityTypeSearchData(String text, String modId, int limit);
+
+    RMcpResolveSearchData fluidSearchData(String text, String modId, int limit);
+
+    RMcpResolveSearchData tagSearchData(String text, String modId, int limit);
 
     RMcpPlayerData playerData(UUID uuid);
 

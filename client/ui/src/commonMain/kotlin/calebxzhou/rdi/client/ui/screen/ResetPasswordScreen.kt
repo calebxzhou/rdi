@@ -14,18 +14,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.OutlinedButton
-import androidx.compose.material.OutlinedTextField
-import androidx.compose.material.Tab
-import androidx.compose.material.TabRow
-import androidx.compose.material.TabRowDefaults
-import androidx.compose.material.TabRowDefaults.tabIndicatorOffset
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,7 +34,7 @@ import calebxzhou.rdi.client.ui.AlertErr
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainBox
 import calebxzhou.rdi.client.ui.MaterialColor
-import calebxzhou.rdi.client.ui.TitleRow
+import calebxzhou.rdi.client.ui.TitleRow2
 import calebxzhou.rdi.client.ui.comp.PasswordField
 import calebxzhou.rdi.client.ui.openMsaVerificationUrl
 import calebxzhou.rdi.common.json
@@ -153,6 +145,7 @@ fun ResetPasswordScreen(
                 PaddingValues(24.dp)
             }
             val formWidthFraction = if (isPortrait) 0.92f else 0.42f
+            val fieldShape = RoundedCornerShape(if (isPortrait) 28.dp else 36.dp)
 
             Column(
                 modifier = Modifier
@@ -162,25 +155,25 @@ fun ResetPasswordScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                TitleRow("重置密码", onBack = onBack) {}
+                TitleRow2("重置密码", onBack = onBack)
                 Spacer(Modifier.height(8.dp))
                 Column(
                     modifier = Modifier
                         .fillMaxWidth(formWidthFraction)
-                        .widthIn(max = 520.dp),
+                        .widthIn(max = 760.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     Text(
                         "选择验证方式",
-                        style = MaterialTheme.typography.h6,
+                        style = MaterialTheme.typography.titleLarge,
                         fontWeight = FontWeight.Bold
                     )
                     TabRow(
                         selectedTabIndex = if (mode == ResetPasswordMode.MSA) 0 else 1,
-                        backgroundColor = Color.White,
+                        containerColor = Color.White,
                         contentColor = Color.Black,
                         indicator = { tabPositions ->
-                            TabRowDefaults.Indicator(
+                            TabRowDefaults.SecondaryIndicator(
                                 modifier = Modifier.tabIndicatorOffset(
                                     tabPositions[if (mode == ResetPasswordMode.MSA) 0 else 1]
                                 ),
@@ -218,6 +211,7 @@ fun ResetPasswordScreen(
                                 errorMessage = null
                             },
                             label = { Text("QQ号") },
+                            shape = fieldShape,
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
@@ -229,6 +223,7 @@ fun ResetPasswordScreen(
                             errorMessage = null
                         },
                         label = "新密码",
+                        shape = fieldShape,
                         showPassword = showPassword,
                         onToggleVisibility = { showPassword = !showPassword },
                         onEnter = {
@@ -242,6 +237,7 @@ fun ResetPasswordScreen(
                             errorMessage = null
                         },
                         label = "确认新密码",
+                        shape = fieldShape,
                         showPassword = showPassword2,
                         onToggleVisibility = { showPassword2 = !showPassword2 },
                         onEnter = {
@@ -266,7 +262,8 @@ fun ResetPasswordScreen(
                                     errorMessage = null
                                     showReceiptQueryDialog = true
                                 },
-                                enabled = !submitting
+                                enabled = !submitting,
+                                shape = fieldShape
                             ) {
                                 Text("查询进度")
                             }
@@ -313,6 +310,7 @@ fun ResetPasswordScreen(
                 },
                 title = { Text("密码重置完成") },
                 text = { Text("请使用新密码登录") },
+                containerColor = MaterialTheme.colorScheme.surface,
                 confirmButton = {
                     TextButton(
                         onClick = {

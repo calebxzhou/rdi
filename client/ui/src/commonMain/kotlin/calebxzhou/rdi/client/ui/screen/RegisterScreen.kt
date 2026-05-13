@@ -2,11 +2,11 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.*
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -16,11 +16,12 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.service.PlayerService
-import calebxzhou.rdi.client.ui.BottomSnakebar
+import calebxzhou.rdi.client.ui.BottomSnakebarM3
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainBox
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.TitleRow
+import calebxzhou.rdi.client.ui.TitleRow2
 import calebxzhou.rdi.client.ui.copyToClipboard
 import calebxzhou.rdi.client.ui.openMsaVerificationUrl
 import calebxzhou.rdi.client.ui.comp.PasswordField
@@ -41,8 +42,8 @@ import net.raphimc.minecraftauth.msa.model.MsaDeviceCode
 @Composable
 fun RegisterScreen(
     useMsa: Boolean = true,
-    onBack: (() -> Unit)? = null,
-    onRegisterSuccess: (() -> Unit)? = null
+    onBack: () -> Unit,
+    onRegisterSuccess: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -106,6 +107,7 @@ fun RegisterScreen(
             val rootSpacing = if (isPortrait) 12.dp else 16.dp
             val formSpacing = if (isPortrait) 10.dp else 12.dp
             val formWidthFraction = if (isPortrait) 0.92f else 0.4f
+            val fieldShape = RoundedCornerShape(24.dp)
 
             Column(
                 modifier = Modifier
@@ -114,11 +116,10 @@ fun RegisterScreen(
                     .padding(outerPadding),
                 verticalArrangement = Arrangement.spacedBy(rootSpacing),
             ) {
-                TitleRow(
+                TitleRow2(
                     title = "注册",
-                    onBack = { onBack?.invoke() }
-                ) {
-                }
+                    onBack
+                )
                 Column(
                     modifier = Modifier.fillMaxWidth(formWidthFraction).align(Alignment.CenterHorizontally),
                     verticalArrangement = Arrangement.spacedBy(formSpacing)
@@ -132,7 +133,7 @@ fun RegisterScreen(
                             msaDeviceCode?.let { msaDeviceCode ->
                                 Text(
                                     text = msaDeviceCode.directVerificationUri,
-                                    color = MaterialTheme.colors.primary,
+                                    color = MaterialTheme.colorScheme.primary,
                                     style = LocalTextStyle.current.copy(textDecoration = TextDecoration.Underline),
                                     modifier = Modifier
                                         .clickable {
@@ -153,6 +154,7 @@ fun RegisterScreen(
                             OutlinedTextField(
                                 value = name,
                                 onValueChange = { name = it },
+                                shape = fieldShape,
                                 label = { Text("昵称 支持中文") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
@@ -160,6 +162,7 @@ fun RegisterScreen(
                             OutlinedTextField(
                                 value = qq,
                                 onValueChange = { qq = it },
+                                shape = fieldShape,
                                 label = { Text("QQ号") },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
@@ -168,6 +171,7 @@ fun RegisterScreen(
                                 value = pwd,
                                 onValueChange = { pwd = it },
                                 label = "密码",
+                                shape = fieldShape,
                                 showPassword = showPassword,
                                 onToggleVisibility = { showPassword = !showPassword },
                                 onEnter = {}
@@ -176,6 +180,7 @@ fun RegisterScreen(
                                 value = pwd2,
                                 onValueChange = { pwd2 = it },
                                 label = "确认密码",
+                                shape = fieldShape,
                                 showPassword = showPassword2,
                                 onToggleVisibility = { showPassword2 = !showPassword2 },
                                 onEnter = {}
@@ -218,6 +223,7 @@ fun RegisterScreen(
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it },
+                            shape = fieldShape,
                             label = { Text("昵称 支持中文") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
@@ -225,6 +231,7 @@ fun RegisterScreen(
                         OutlinedTextField(
                             value = qq,
                             onValueChange = { qq = it },
+                            shape = fieldShape,
                             label = { Text("QQ号") },
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
@@ -233,6 +240,7 @@ fun RegisterScreen(
                             value = pwd,
                             onValueChange = { pwd = it },
                             label = "密码",
+                            shape = fieldShape,
                             showPassword = showPassword,
                             onToggleVisibility = { showPassword = !showPassword },
                             onEnter = {}
@@ -241,6 +249,7 @@ fun RegisterScreen(
                             value = pwd2,
                             onValueChange = { pwd2 = it },
                             label = "确认密码",
+                            shape = fieldShape,
                             showPassword = showPassword2,
                             onToggleVisibility = { showPassword2 = !showPassword2 },
                             onEnter = {}
@@ -274,11 +283,11 @@ fun RegisterScreen(
                             }
                         }
                     }
-                    errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+                    errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 }
             }
         }
-        BottomSnakebar(snackbarHostState)
+        BottomSnakebarM3(snackbarHostState)
 
         if (!useMsa) {
             Box(

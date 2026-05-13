@@ -5,10 +5,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
-import androidx.compose.material.SnackbarDuration
-import androidx.compose.material.SnackbarHostState
 import androidx.compose.material.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -24,7 +24,7 @@ import calebxzhou.rdi.client.model.BSSkin
 import calebxzhou.rdi.client.model.BSSkinData
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.service.SkinService
-import calebxzhou.rdi.client.ui.BottomSnakebar
+import calebxzhou.rdi.client.ui.BottomSnakebarM3
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainBox
 import calebxzhou.rdi.client.ui.MainColumn
@@ -150,7 +150,7 @@ fun SkinPreviewScreen(
                 }
             }
         }
-        BottomSnakebar(snackbarHostState)
+        BottomSnakebarM3(snackbarHostState)
     }
 }
 

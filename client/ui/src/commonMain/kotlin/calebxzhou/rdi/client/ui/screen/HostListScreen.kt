@@ -39,6 +39,7 @@ import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.TitleTabBar
 import calebxzhou.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.ui.TitleRow
+import calebxzhou.rdi.client.ui.TitleRow2
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
@@ -83,7 +84,7 @@ fun HostListScreen(
     var currentTab by remember(initialTab) { mutableStateOf(initialTab) }
 
     MainColumn {
-        TitleRow("房间", onBack = onBack) {
+        TitleRow2("房间", onBack = onBack) {
             TitleTabBar(
                 items = remember {
                     HostTab.entries.map { TitleTabItem(it, it.icon, it.label) }

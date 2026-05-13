@@ -106,7 +106,8 @@ data class AiProviderProfile(
     val apiKey: String = "",
     val model: String = "",
     val contextLimitTokens: Int = 1_000_000,
-    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.AUTO
+    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.AUTO,
+    val tokenPrice: AiTokenPrice = AiTokenPrice()
 ) {
     fun normalized(): AiProviderProfile =
         copy(
@@ -120,7 +121,29 @@ data class AiProviderProfile(
             apiKey = apiKey.trim(),
             model = model.trim(),
             contextLimitTokens = contextLimitTokens,
-            reasoningEffort = reasoningEffort.normalizedFor(provider)
+            reasoningEffort = reasoningEffort.normalizedFor(provider),
+            tokenPrice = tokenPrice.normalized()
+        )
+}
+
+@Serializable
+enum class AiPriceCurrency(val mark: String) {
+    USD("$"),
+    CNY("￥")
+}
+
+@Serializable
+data class AiTokenPrice(
+    val currency: AiPriceCurrency = AiPriceCurrency.USD,
+    val inputCacheMiss1M: Double = 0.0,
+    val inputCacheHit1M: Double = 0.0,
+    val output1M: Double = 0.0
+) {
+    fun normalized(): AiTokenPrice =
+        copy(
+            inputCacheMiss1M = inputCacheMiss1M.coerceAtLeast(0.0),
+            inputCacheHit1M = inputCacheHit1M.coerceAtLeast(0.0),
+            output1M = output1M.coerceAtLeast(0.0)
         )
 }
 

@@ -1,5 +1,7 @@
 ### `GET /entity?uuid=uuid`
 
+Default response is compact and omits raw SNBT. Use `GET /entity/detail?ref=uuid` for Markdown, or `GET /entity/detail.json?ref=uuid` for exact JSON/NBT. `.detail.md` is a compatibility alias for Markdown. Use `view=full` only for debugging or extraction.
+
 Use to fetch detailed data for a loaded entity by UUID.
 
 Returns:

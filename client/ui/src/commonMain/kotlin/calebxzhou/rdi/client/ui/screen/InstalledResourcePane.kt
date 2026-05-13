@@ -81,31 +81,6 @@ private val localConfigEditableExtensions = setOf(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun InstalledResourceScreen(
-    onBack: () -> Unit,
-    onOpenPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenMcVersionManage: (() -> Unit)? = null,
-    onOpenTaskList: ((String) -> Unit)? = null
-) {
-    var titleActions by remember { mutableStateOf<ResourceScreenTitleActions?>(null) }
-    MainBox {
-        MainColumn {
-            TitleRow("已安装资源", onBack) {
-                titleActions?.invoke(this)
-            }
-            Space8h()
-            InstalledResourcePane(
-                onOpenPlay = onOpenPlay,
-                onOpenMcVersionManage = onOpenMcVersionManage,
-                onOpenTaskList = onOpenTaskList,
-                onTitleActionsChange = { titleActions = it }
-            )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
 fun InstalledResourcePane(
     onOpenPlay: ((McPlayArgs) -> Unit)? = null,
     onOpenMcVersionManage: (() -> Unit)? = null,

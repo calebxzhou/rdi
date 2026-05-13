@@ -69,6 +69,7 @@ import calebxzhou.rdi.client.ui.MainColumn
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.Space8h
 import calebxzhou.rdi.client.ui.TitleRow
+import calebxzhou.rdi.client.ui.TitleRow2
 import calebxzhou.rdi.client.ui.asIconText
 import calebxzhou.rdi.client.ui.comp.PlatformVerticalScrollbar
 import calebxzhou.rdi.client.ui.copyToClipboard
@@ -658,11 +659,7 @@ fun AiChatScreen(
 
     MainBox {
         MainColumn {
-            TitleRow("AI陪玩 w/ R-MCP", onBack) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            TitleRow2("AI陪玩 w/ R-MCP", onBack) {
                     AiContextUsageProgress(
                         usedTokens = contextUsedTokens,
                         limitTokens = contextLimitTokens
@@ -671,12 +668,11 @@ fun AiChatScreen(
                         icon = "\uF1DA",
                         tooltip = "聊天记录",
                         bgColor = MaterialColor.PURPLE_700.color,
-                        showText = false
                     ) {
                         historyDialogOpen = true
                         refreshHistoryRecords()
                     }
-                }
+
             }
             Space8h()
             if (missingConfig) {

@@ -2,7 +2,9 @@
 
 Use to understand the structure, layout, and content of one loaded 16x16x16 chunk section. This is not a full deserializable blockstate snapshot. It is a lossy semantic view for LLM reasoning.
 
-Returns:
+Default response is compact and omits full layer grids. Each `layers[].ref` can be opened as Markdown with `GET /section/detail?x=...&y=...&z=...&ref=layer~Y`, or exact JSON with `GET /section/detail.json?...`. `GET /section/detail.md?...` is a compatibility alias for Markdown. Use `view=full` only for debugging or extraction.
+
+Compact returns:
 
 ```json
 {
@@ -50,7 +52,7 @@ Returns:
 }
 ```
 
-Layer grid rules:
+Detail layer grid rules:
 
 - `layers[].y` is local section Y `0..15`; world block Y is `blockY.min + layers[].y`.
 - Each grid line is local Z, and each character in the line is local X.

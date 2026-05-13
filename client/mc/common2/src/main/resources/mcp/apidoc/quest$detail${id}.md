@@ -1,5 +1,7 @@
 ### `GET /quest/detail/{id}`
 
+Default response is compact. It includes quest state, rules, task/reward summaries, and `detail` refs. Use `GET /quest/detail/detail?ref=id` for Markdown, or `GET /quest/detail/detail.json?ref=id` for the exact quest JSON. `.detail.md` is a compatibility alias for Markdown. Use `view=full` only for debugging or extraction.
+
 Returns full LLM-readable detail for one FTB Quests quest.
 
 Use quest ids from `GET /quest/reachable` or `GET /quest/chapter/{id}`.

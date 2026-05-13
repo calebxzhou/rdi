@@ -24,6 +24,7 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpItemDropRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemPickupData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockRequest;
+import calebxzhou.rdi.mc.common2.mcp.RMcpMenuCloseData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
@@ -80,6 +81,10 @@ public final class RMcpClientBridge {
 
     public static RMcpMenuData requestMenu() {
         return requestServer("menu", Map.of(), RMcpMenuData.class);
+    }
+
+    public static RMcpMenuCloseData requestMenuClose() {
+        return requestServer("menu-close", Map.of(), RMcpMenuCloseData.class);
     }
 
     public static RMcpMenuDropData requestMenuDrop(int slot, int count, boolean dryRun) {
@@ -177,8 +182,8 @@ public final class RMcpClientBridge {
         return requestServer("place-block-ring", request, RMcpBlockBatchActionData.class);
     }
 
-    public static RMcpBlockBatchActionData requestBreakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to) {
-        return requestServer("break-block-box", new BlockBoxActionRequest(from, to), RMcpBlockBatchActionData.class);
+    public static RMcpBlockBatchActionData requestBreakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to, boolean dryRun) {
+        return requestServer("break-block-box", new BlockBoxActionRequest(from, to, dryRun), RMcpBlockBatchActionData.class);
     }
 
     public static RMcpPlayerMoveData requestMovePlayer(double x, double y, double z) {
@@ -272,6 +277,6 @@ public final class RMcpClientBridge {
     private record BlockBatchActionRequest(List<RMcpBlockPosData> positions) {
     }
 
-    private record BlockBoxActionRequest(RMcpBlockPosData from, RMcpBlockPosData to) {
+    private record BlockBoxActionRequest(RMcpBlockPosData from, RMcpBlockPosData to, boolean dryRun) {
     }
 }

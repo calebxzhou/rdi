@@ -13,6 +13,7 @@ import io.fusionauth.http.server.HTTPServerConfiguration;
 
 import java.io.IOException;
 import java.net.URLDecoder;
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.net.InetAddress;
 import java.util.*;
@@ -24,6 +25,8 @@ public final class RMHttpServer {
     private static final int BLOCK_BATCH_LIMIT = 512;
     private static final int ITEM_PICKUP_LIMIT = 2048;
     private static final int CONTAINER_BATCH_LIMIT = 64;
+    private static final int NEARBY_RESOURCES_LIMIT = 256;
+    private static final List<String> NEARBY_RESOURCE_CATEGORIES = List.of("ore", "fluid", "water", "lava", "wood", "crop", "container", "block_entity", "spawner");
     private static final char[] BUILDING_SYMBOLS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!#$%&()*+,-/:;<=>?@[]^_{|}~".toCharArray();
     private static final Gson GSON = new GsonBuilder().create();
     private static HTTPServer server;
@@ -52,6 +55,9 @@ public final class RMHttpServer {
                     get("/mods", RMHttpServer::handleMods),
                     get("/quest/chapter-list", RMHttpServer::handleQuestChapterList),
                     get("/quest/reachable", RMHttpServer::handleReachableQuests),
+                    get("/quest/detail/detail", RMHttpServer::handleQuestDetailRefMarkdown),
+                    get("/quest/detail/detail.md", RMHttpServer::handleQuestDetailRefMarkdown),
+                    get("/quest/detail/detail.json", RMHttpServer::handleQuestDetailRef),
                     getPrefix("/quest/detail/", RMHttpServer::handleQuestDetail),
                     getPrefix("/quest/chapter/", RMHttpServer::handleQuestChapter),
                     get("/pos", RMHttpServer::handlePos),
@@ -62,6 +68,9 @@ public final class RMHttpServer {
                     get("/mainhand", RMHttpServer::handleMainHand),
                     get("/screenshot", RMHttpServer::handleScreenshot),
                     get("/recipe", RMHttpServer::handleRecipe),
+                    get("/recipe/detail", RMHttpServer::handleRecipeDetailMarkdown),
+                    get("/recipe/detail.md", RMHttpServer::handleRecipeDetailMarkdown),
+                    get("/recipe/detail.json", RMHttpServer::handleRecipeDetail),
                     get("/chunk", RMHttpServer::handleChunk),
                     get("/section", RMHttpServer::handleSection),
                     get("/blockmap/slice", RMHttpServer::handleBlockMapSlice),
@@ -69,24 +78,44 @@ public final class RMHttpServer {
                     get("/terrain/profile", RMHttpServer::handleTerrainProfile),
                     post("/blocks/find", RMHttpServer::handleBlocksFind),
                     get("/nearby-resources", RMHttpServer::handleNearbyResources),
+                    get("/nearby-resources/detail", RMHttpServer::handleNearbyResourcesDetailMarkdown),
+                    get("/nearby-resources/detail.md", RMHttpServer::handleNearbyResourcesDetailMarkdown),
+                    get("/nearby-resources/detail.json", RMHttpServer::handleNearbyResourcesDetail),
                     get("/nearby-entities", RMHttpServer::handleNearbyEntities),
                     get("/staring-block", RMHttpServer::handleStaringBlock),
                     get("/blockstate", RMHttpServer::handleBlockState),
                     post("/blockstate/batch", RMHttpServer::handleBlockStateBatch),
+                    get("/section/detail", RMHttpServer::handleSectionDetailMarkdown),
+                    get("/section/detail.md", RMHttpServer::handleSectionDetailMarkdown),
+                    get("/section/detail.json", RMHttpServer::handleSectionDetail),
                     get("/blockentity", RMHttpServer::handleBlockEntity),
+                    get("/blockentity/detail", RMHttpServer::handleBlockEntityDetailMarkdown),
+                    get("/blockentity/detail.md", RMHttpServer::handleBlockEntityDetailMarkdown),
+                    get("/blockentity/detail.json", RMHttpServer::handleBlockEntityDetail),
                     get("/sign/text", RMHttpServer::handleGetSignText),
                     post("/sign/text", RMHttpServer::handleSignText),
                     get("/container", RMHttpServer::handleContainer),
+                    get("/container/detail", RMHttpServer::handleContainerDetailMarkdown),
+                    get("/container/detail.md", RMHttpServer::handleContainerDetailMarkdown),
+                    get("/container/detail.json", RMHttpServer::handleContainerDetail),
                     get("/harvest-tool", RMHttpServer::handleHarvestTool),
                     get("/staring-entity", RMHttpServer::handleStaringEntity),
                     get("/entity", RMHttpServer::handleEntity),
+                    get("/entity/detail", RMHttpServer::handleEntityDetailMarkdown),
+                    get("/entity/detail.md", RMHttpServer::handleEntityDetailMarkdown),
+                    get("/entity/detail.json", RMHttpServer::handleEntityDetail),
                     get("/player", RMHttpServer::handlePlayer),
                     get("/langkey", RMHttpServer::handleLangKey),
                     get("/langkey-search", RMHttpServer::handleLangKeySearch),
                     get("/item-search", RMHttpServer::handleItemSearch),
+                    get("/block-search", RMHttpServer::handleBlockSearch),
+                    get("/entity-type-search", RMHttpServer::handleEntityTypeSearch),
+                    get("/fluid-search", RMHttpServer::handleFluidSearch),
+                    get("/tag-search", RMHttpServer::handleTagSearch),
                     post("/inventory/swap", RMHttpServer::handleInventorySwap),
                     post("/inventory/move", RMHttpServer::handleInventoryMove),
                     post("/hotbar/select", RMHttpServer::handleHotbarSelect),
+                    post("/menu/close", RMHttpServer::handleMenuClose),
                     post("/menu/drop", RMHttpServer::handleMenuDrop),
                     post("/craft", RMHttpServer::handleCraft),
                     post("/container/put", RMHttpServer::handleContainerPut),
@@ -135,12 +164,16 @@ public final class RMHttpServer {
             return;
         }
         connector = newConnector;
-        server = new HTTPServer()
-                .withConfiguration(new HTTPServerConfiguration()
-                        .withCompressByDefault(false)
-                        .withHandler(RMHttpServer::handle)
-                        .withListener(new HTTPListenerConfiguration(InetAddress.getLoopbackAddress(), port)))
-                .start();
+        try {
+            server = new HTTPServer()
+                    .withConfiguration(new HTTPServerConfiguration()
+                            .withCompressByDefault(false)
+                            .withHandler(RMHttpServer::handle)
+                            .withListener(new HTTPListenerConfiguration(InetAddress.getByName("127.0.0.1"), port)))
+                    .start();
+        } catch (UnknownHostException e) {
+            e.printStackTrace();
+        }
         Runtime.getRuntime().addShutdownHook(new Thread(RMHttpServer::stop, "rdi-mcp-http-stop"));
     }
 
@@ -238,7 +271,37 @@ public final class RMHttpServer {
         if (data == null) {
             throw new RMError(RErrorCode.NO_QUEST);
         }
-        ok(response, data);
+        if ("full".equalsIgnoreCase(request.getURLParameter("view"))) {
+            ok(response, data);
+            return;
+        }
+        ok(response, questSummaryData(data));
+    }
+
+    private static void handleQuestDetailRef(HTTPRequest request, HTTPResponse response) throws RMError {
+        var detail = questDetailRefData(request);
+        ok(response, detail);
+    }
+
+    private static void handleQuestDetailRefMarkdown(HTTPRequest request, HTTPResponse response) throws RMError {
+        var detail = questDetailRefData(request);
+        writeMarkdown(response, questDetailMarkdown(detail));
+    }
+
+    private static RQuest questDetailRefData(HTTPRequest request) throws RMError {
+        var id = request.getURLParameter("ref");
+        if (id == null || id.isBlank()) {
+            id = request.getURLParameter("id");
+        }
+        if (id == null || id.isBlank() || id.contains("/") || id.contains("\\") || id.contains(" ") || id.contains("`")) {
+            throw new RMError(RErrorCode.BAD_QUEST_ID);
+        }
+        requirePlayerInWorld();
+        var data = connector.questDetail(id.trim());
+        if (data == null) {
+            throw new RMError(RErrorCode.NO_QUEST);
+        }
+        return data;
     }
 
     private static void handleQuestChapter(HTTPRequest request, HTTPResponse response) throws RMError {
@@ -381,6 +444,11 @@ public final class RMHttpServer {
     private static void handleMenu(HTTPRequest request, HTTPResponse response) throws RMError {
         requirePlayerInWorld();
         ok(response, connector.menuData());
+    }
+
+    private static void handleMenuClose(HTTPRequest request, HTTPResponse response) throws RMError {
+        requirePlayerInWorld();
+        ok(response, connector.closeMenu());
     }
 
     private static void handleMenuDrop(HTTPRequest request, HTTPResponse response) throws RMError {
@@ -1039,7 +1107,7 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            ok(response, connector.breakBlockBox(box.from(), box.to()));
+            ok(response, connector.breakBlockBox(box.from(), box.to(), box.dryRun()));
         } catch (RMcpEndpointException e) {
             err400(response, e.code());
         } catch (Exception e) {
@@ -1112,11 +1180,61 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            ok(response, connector.containerData(pos.trim(), request.getURLParameter("side")));
+            var data = connector.containerData(pos.trim(), request.getURLParameter("side"));
+            if ("full".equalsIgnoreCase(request.getURLParameter("view"))) {
+                ok(response, data);
+                return;
+            }
+            ok(response, containerSummaryData(data));
         } catch (RMcpEndpointException e) {
             err400(response, e.code());
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleContainerDetail(HTTPRequest request, HTTPResponse response) {
+        var detail = containerDetailData(request, response);
+        if (detail != null) {
+            ok(response, detail);
+        }
+    }
+
+    private static void handleContainerDetailMarkdown(HTTPRequest request, HTTPResponse response) {
+        var detail = containerDetailData(request, response);
+        if (detail != null) {
+            writeMarkdown(response, containerDetailMarkdown(detail));
+        }
+    }
+
+    private static RMcpContainerData containerDetailData(HTTPRequest request, HTTPResponse response) {
+        var ref = request.getURLParameter("ref");
+        String pos;
+        String side;
+        if (ref == null || ref.isBlank()) {
+            pos = request.getURLParameter("pos");
+            side = request.getURLParameter("side");
+        } else {
+            var parts = ref.split("~", 2);
+            pos = parts[0];
+            side = parts.length > 1 && !parts[1].isBlank() ? parts[1] : null;
+        }
+        if (pos == null || pos.isBlank()) {
+            err400(response, RErrorCode.MISSING_POS);
+            return null;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return null;
+            }
+            return connector.containerData(pos.trim(), side);
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+            return null;
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+            return null;
         }
     }
 
@@ -1516,19 +1634,384 @@ public final class RMHttpServer {
             err400(response, RErrorCode.MISSING_ITEM_ID);
             return;
         }
+        var limit = readOptionalIntQuery(request, response, "limit", 16, 1, 50);
+        if (limit == null) {
+            return;
+        }
         try {
             if (!connector.playerInWorld()) {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            var recipes = connector.recipeData(itemId.trim());
+            itemId = itemId.trim();
+            var recipes = connector.recipeData(itemId);
             if (recipes == null) {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            ok(response, recipes);
+            if ("full".equalsIgnoreCase(request.getURLParameter("view"))) {
+                ok(response, recipes);
+                return;
+            }
+            var kind = request.getURLParameter("kind");
+            var includeHidden = "true".equalsIgnoreCase(request.getURLParameter("includeHidden"))
+                    || "all".equalsIgnoreCase(request.getURLParameter("include"));
+            ok(response, recipeSummaryData(itemId, recipes, limit, kind, includeHidden));
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleRecipeDetail(HTTPRequest request, HTTPResponse response) {
+        var detail = recipeDetailData(request, response);
+        if (detail != null) {
+            ok(response, detail);
+        }
+    }
+
+    private static void handleRecipeDetailMarkdown(HTTPRequest request, HTTPResponse response) {
+        var detail = recipeDetailData(request, response);
+        if (detail != null) {
+            writeMarkdown(response, recipeDetailMarkdown(detail));
+        }
+    }
+
+    private static RMcpRecipeDetailData recipeDetailData(HTTPRequest request, HTTPResponse response) {
+        var itemId = request.getURLParameter("itemId");
+        if (itemId == null || itemId.isBlank()) {
+            err400(response, RErrorCode.MISSING_ITEM_ID);
+            return null;
+        }
+        var ref = request.getURLParameter("ref");
+        if (ref == null || ref.isBlank()) {
+            err400(response, RErrorCode.MISSING_RECIPE_REF);
+            return null;
+        }
+        if (!isValidRecipeRef(ref)) {
+            err400(response, RErrorCode.BAD_RECIPE_REF);
+            return null;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return null;
+            }
+            itemId = itemId.trim();
+            var recipes = connector.recipeData(itemId);
+            if (recipes == null) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return null;
+            }
+            for (int i = 0; i < recipes.size(); i++) {
+                var recipe = recipes.get(i);
+                if (ref.equals(recipeRef(recipe, i))) {
+                    return new RMcpRecipeDetailData(itemId, ref, recipe);
+                }
+            }
+            err400(response, RErrorCode.BAD_RECIPE_REF);
+            return null;
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+            return null;
+        }
+    }
+
+    private static RMcpRecipeSummaryData recipeSummaryData(String itemId, List<RMcpRecipeData> recipes, int limit, String kindFilter, boolean includeHidden) {
+        var normalizedKindFilter = kindFilter == null || kindFilter.isBlank() ? null : kindFilter.trim().toLowerCase(Locale.ROOT);
+        var entries = new ArrayList<RMcpRecipeSummaryData.Entry>();
+        var seen = new HashSet<String>();
+        int hiddenCount = 0;
+        for (int i = 0; i < recipes.size(); i++) {
+            var recipe = recipes.get(i);
+            var kind = recipeKind(recipe);
+            if (normalizedKindFilter != null && !normalizedKindFilter.equals(kind)) {
+                hiddenCount++;
+                continue;
+            }
+            if (!includeHidden && hiddenRecipeKind(kind)) {
+                hiddenCount++;
+                continue;
+            }
+            var summaryKey = recipeSummaryKey(recipe, kind);
+            if (!seen.add(summaryKey)) {
+                hiddenCount++;
+                continue;
+            }
+            entries.add(recipeSummaryEntry(itemId, recipe, i, kind));
+            if (entries.size() >= limit) {
+                hiddenCount += recipes.size() - i - 1;
+                break;
+            }
+        }
+        if (entries.isEmpty() && !recipes.isEmpty() && !includeHidden && normalizedKindFilter == null) {
+            return recipeSummaryData(itemId, recipes, limit, null, true);
+        }
+        return new RMcpRecipeSummaryData(itemId, recipes.size(), entries.size(), hiddenCount, List.copyOf(entries));
+    }
+
+    private static RMcpRecipeSummaryData.Entry recipeSummaryEntry(String itemId, RMcpRecipeData recipe, int index, String kind) {
+        var ref = recipeRef(recipe, index);
+        return new RMcpRecipeSummaryData.Entry(
+                ref,
+                recipe.id(),
+                recipe.source(),
+                recipe.type(),
+                kind,
+                recipe.category(),
+                recipe.title(),
+                summaryItems(recipe.inputs()),
+                summaryFluids(recipe.inputs()),
+                summaryTags(recipe.inputs()),
+                summaryItems(recipe.outputs()),
+                summaryFluids(recipe.outputs()),
+                summaryItems(recipe.catalysts()),
+                "/recipe/detail?itemId=" + itemId + "&ref=" + ref,
+                "/recipe/detail.json?itemId=" + itemId + "&ref=" + ref
+        );
+    }
+
+    private static String recipeRef(RMcpRecipeData recipe, int index) {
+        return sanitizeRecipeRefPart(recipe.source())
+                + "~" + sanitizeRecipeRefPart(recipe.type())
+                + "~" + index
+                + "~" + recipeHash(recipeCanonical(recipe));
+    }
+
+    private static boolean isValidRecipeRef(String ref) {
+        for (int i = 0; i < ref.length(); i++) {
+            var ch = ref.charAt(i);
+            if (!((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' || ch == ',' || ch == '.' || ch == '~')) {
+                return false;
+            }
+        }
+        return ref.split("~", -1).length == 4;
+    }
+
+    private static String sanitizeRecipeRefPart(String text) {
+        if (text == null || text.isBlank()) {
+            return "none";
+        }
+        var normalized = text.trim().toLowerCase(Locale.ROOT);
+        var builder = new StringBuilder();
+        for (int i = 0; i < normalized.length(); i++) {
+            var ch = normalized.charAt(i);
+            if ((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '_' || ch == '-' || ch == ',' || ch == '.') {
+                builder.append(ch);
+            } else {
+                builder.append('_');
+            }
+        }
+        return builder.length() == 0 ? "none" : builder.toString();
+    }
+
+    private static String recipeHash(String canonical) {
+        var crc = new java.util.zip.CRC32();
+        crc.update(canonical.getBytes(StandardCharsets.UTF_8));
+        return String.format(Locale.ROOT, "%08x", crc.getValue());
+    }
+
+    private static String recipeCanonical(RMcpRecipeData recipe) {
+        return safe(recipe.source()) + "|"
+                + safe(recipe.type()) + "|"
+                + safe(recipe.id()) + "|"
+                + safe(recipe.category()) + "|"
+                + safe(recipe.title()) + "|"
+                + ingredientCanonical(recipe.inputs()) + "|"
+                + ingredientCanonical(recipe.outputs()) + "|"
+                + ingredientCanonical(recipe.catalysts()) + "|"
+                + ingredientCanonical(recipe.renderOnly()) + "|"
+                + GSON.toJson(recipe.extra());
+    }
+
+    private static String recipeSummaryKey(RMcpRecipeData recipe, String kind) {
+        return kind + "|"
+                + safe(recipe.id()) + "|"
+                + ingredientCanonical(recipe.inputs()) + "|"
+                + ingredientCanonical(recipe.outputs()) + "|"
+                + ingredientCanonical(recipe.catalysts());
+    }
+
+    private static String ingredientCanonical(List<RMcpRecipeData.IngredientSlot> slots) {
+        return summaryItems(slots) + "|" + summaryFluids(slots) + "|" + summaryTags(slots);
+    }
+
+    private static String recipeKind(RMcpRecipeData recipe) {
+        var type = safe(recipe.type()).toLowerCase(Locale.ROOT);
+        var category = safe(recipe.category()).toLowerCase(Locale.ROOT);
+        var title = safe(recipe.title()).toLowerCase(Locale.ROOT);
+        if (type.contains("loot") || category.contains("loot") || title.contains("loot") || category.contains("战利品") || title.contains("战利品") || category.contains("掉落") || title.contains("掉落")) {
+            return "loot";
+        }
+        if (type.contains("chipped") || type.contains("rechiseled") || type.contains("chiseling") || category.contains("chiseling") || title.contains("chiseling") || category.contains("雕刻") || title.contains("雕刻")) {
+            return "decorative";
+        }
+        if (type.contains("crafting") || type.contains("smelting") || type.contains("blasting") || type.contains("smoking") || type.contains("campfire")) {
+            return "crafting_or_smelting";
+        }
+        if (type.contains("stonecutting") || type.contains("cutting") || type.contains("sawing") || type.contains("compress") || type.contains("decompress")) {
+            return "conversion";
+        }
+        return "machine";
+    }
+
+    private static boolean hiddenRecipeKind(String kind) {
+        return "loot".equals(kind) || "decorative".equals(kind);
+    }
+
+    private static List<RMcpRecipeSummaryData.Item> summaryItems(List<RMcpRecipeData.IngredientSlot> slots) {
+        var map = new LinkedHashMap<String, RMcpRecipeSummaryData.Item>();
+        if (slots == null) {
+            return List.of();
+        }
+        for (var slot : slots) {
+            if (slot.items() == null) {
+                continue;
+            }
+            for (var item : slot.items()) {
+                if (item == null || item.id() == null || item.id().isBlank()) {
+                    continue;
+                }
+                var key = item.id() + "|" + safe(item.langKey());
+                var existing = map.get(key);
+                var count = Math.max(1, item.count());
+                map.put(key, new RMcpRecipeSummaryData.Item(
+                        item.id(),
+                        item.langKey(),
+                        existing == null ? count : existing.count() + count
+                ));
+            }
+        }
+        return List.copyOf(map.values());
+    }
+
+    private static List<RMcpRecipeSummaryData.Fluid> summaryFluids(List<RMcpRecipeData.IngredientSlot> slots) {
+        var map = new LinkedHashMap<String, RMcpRecipeSummaryData.Fluid>();
+        if (slots == null) {
+            return List.of();
+        }
+        for (var slot : slots) {
+            if (slot.fluids() == null) {
+                continue;
+            }
+            for (var fluid : slot.fluids()) {
+                if (fluid == null || fluid.id() == null || fluid.id().isBlank()) {
+                    continue;
+                }
+                var key = fluid.id() + "|" + safe(fluid.name());
+                var existing = map.get(key);
+                map.put(key, new RMcpRecipeSummaryData.Fluid(
+                        fluid.id(),
+                        fluid.name(),
+                        existing == null ? fluid.amount() : existing.amount() + fluid.amount()
+                ));
+            }
+        }
+        return List.copyOf(map.values());
+    }
+
+    private static List<RMcpRecipeSummaryData.Tag> summaryTags(List<RMcpRecipeData.IngredientSlot> slots) {
+        var map = new LinkedHashMap<String, RMcpRecipeSummaryData.Tag>();
+        if (slots == null) {
+            return List.of();
+        }
+        for (var slot : slots) {
+            if (slot.tags() == null) {
+                continue;
+            }
+            for (var tag : slot.tags()) {
+                if (tag == null || tag.id() == null || tag.id().isBlank()) {
+                    continue;
+                }
+                var existing = map.get(tag.id());
+                map.put(tag.id(), new RMcpRecipeSummaryData.Tag(
+                        tag.id(),
+                        existing == null ? tag.count() : existing.count() + tag.count(),
+                        Math.max(tag.candidateCount(), existing == null ? 0 : existing.candidateCount())
+                ));
+            }
+        }
+        return List.copyOf(map.values());
+    }
+
+    private static String recipeDetailMarkdown(RMcpRecipeDetailData detail) {
+        var recipe = detail.recipe();
+        var markdown = new StringBuilder();
+        markdown.append("# Recipe Detail\n\n");
+        markdown.append("- itemId: `").append(escapeMarkdownCode(detail.itemId())).append("`\n");
+        markdown.append("- ref: `").append(escapeMarkdownCode(detail.ref())).append("`\n");
+        markdown.append("- id: `").append(escapeMarkdownCode(recipe.id())).append("`\n");
+        markdown.append("- source: `").append(escapeMarkdownCode(recipe.source())).append("`\n");
+        markdown.append("- type: `").append(escapeMarkdownCode(recipe.type())).append("`\n");
+        markdown.append("- kind: `").append(recipeKind(recipe)).append("`\n");
+        markdown.append("- category: `").append(escapeMarkdownCode(recipe.category())).append("`\n");
+        markdown.append("- title: `").append(escapeMarkdownCode(recipe.title())).append("`\n");
+        appendSummarySection(markdown, "Inputs", recipe.inputs());
+        appendSummarySection(markdown, "Outputs", recipe.outputs());
+        appendSummarySection(markdown, "Catalysts", recipe.catalysts());
+        appendSummarySection(markdown, "Render Only", recipe.renderOnly());
+        if (recipe.extra() != null && !recipe.extra().isEmpty()) {
+            markdown.append("\n## Extra\n\n```json\n")
+                    .append(GSON.toJson(recipe.extra()))
+                    .append("\n```\n");
+        }
+        return markdown.toString();
+    }
+
+    private static void appendSummarySection(StringBuilder markdown, String title, List<RMcpRecipeData.IngredientSlot> slots) {
+        var items = summaryItems(slots);
+        var fluids = summaryFluids(slots);
+        var tags = summaryTags(slots);
+        if (items.isEmpty() && fluids.isEmpty() && tags.isEmpty()) {
+            return;
+        }
+        markdown.append("\n## ").append(title).append("\n\n");
+        for (var item : items) {
+            markdown.append("- item `").append(escapeMarkdownCode(item.id())).append("` x").append(item.count());
+            if (item.name() != null && !item.name().isBlank()) {
+                markdown.append(" (").append(escapeMarkdownText(item.name())).append(")");
+            }
+            markdown.append('\n');
+        }
+        for (var fluid : fluids) {
+            markdown.append("- fluid `").append(escapeMarkdownCode(fluid.id())).append("` ").append(fluid.amount()).append("mB");
+            if (fluid.name() != null && !fluid.name().isBlank()) {
+                markdown.append(" (").append(escapeMarkdownText(fluid.name())).append(")");
+            }
+            markdown.append('\n');
+        }
+        for (var tag : tags) {
+            markdown.append("- tag `").append(escapeMarkdownCode(tag.id())).append("` x").append(tag.count())
+                    .append(", candidates ").append(tag.candidateCount()).append('\n');
+        }
+    }
+
+    private static String escapeMarkdownCode(String text) {
+        return text == null ? "" : text.replace("`", "'");
+    }
+
+    private static String escapeMarkdownText(String text) {
+        return text == null ? "" : text.replace("\n", " ").replace("\r", " ");
+    }
+
+    private static String safe(String text) {
+        return text == null ? "" : text;
+    }
+
+    private static Integer readOptionalIntQuery(HTTPRequest request, HTTPResponse response, String name, int defaultValue, int min, int max) {
+        var text = request.getURLParameter(name);
+        if (text == null || text.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            var value = Integer.parseInt(text.trim());
+            if (value < min || value > max) {
+                err400(response, RErrorCode.BAD_LIMIT);
+                return null;
+            }
+            return value;
+        } catch (NumberFormatException e) {
+            err400(response, RErrorCode.BAD_LIMIT);
+            return null;
         }
     }
 
@@ -1607,11 +2090,79 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_PLAYER);
                 return;
             }
-            ok(response, connector.sectionData(chunkX, sectionY, chunkZ));
+            var section = connector.sectionData(chunkX, sectionY, chunkZ);
+            if ("full".equalsIgnoreCase(request.getURLParameter("view"))) {
+                ok(response, section);
+                return;
+            }
+            ok(response, sectionSummaryData(section));
         } catch (RMcpEndpointException e) {
             err400(response, e.code());
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleSectionDetail(HTTPRequest request, HTTPResponse response) {
+        var detail = sectionDetailData(request, response);
+        if (detail != null) {
+            ok(response, detail);
+        }
+    }
+
+    private static void handleSectionDetailMarkdown(HTTPRequest request, HTTPResponse response) {
+        var detail = sectionDetailData(request, response);
+        if (detail != null) {
+            writeMarkdown(response, sectionDetailMarkdown(detail));
+        }
+    }
+
+    private static Object sectionDetailData(HTTPRequest request, HTTPResponse response) {
+        var chunkX = readIntParam(request, response, "x", RErrorCode.MISSING_CHUNK_X, RErrorCode.BAD_CHUNK_X);
+        if (chunkX == null) {
+            return null;
+        }
+        var sectionY = readIntParam(request, response, "y", RErrorCode.MISSING_SECTION_Y, RErrorCode.BAD_SECTION_Y);
+        if (sectionY == null) {
+            return null;
+        }
+        var chunkZ = readIntParam(request, response, "z", RErrorCode.MISSING_CHUNK_Z, RErrorCode.BAD_CHUNK_Z);
+        if (chunkZ == null) {
+            return null;
+        }
+        var ref = request.getURLParameter("ref");
+        if (ref == null || ref.isBlank()) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return null;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return null;
+            }
+            var section = connector.sectionData(chunkX, sectionY, chunkZ);
+            if ("summary".equals(ref)) {
+                return section;
+            }
+            if (ref.startsWith("layer~")) {
+                var y = Integer.parseInt(ref.substring("layer~".length()));
+                for (var layer : section.layers()) {
+                    if (layer.y() == y) {
+                        return Map.of("ref", ref, "dim", section.dim(), "chunk", section.chunk(), "sectionY", section.sectionY(), "legend", section.legend(), "layer", layer);
+                    }
+                }
+            }
+            err400(response, RErrorCode.BAD_REQUEST);
+            return null;
+        } catch (NumberFormatException e) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return null;
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+            return null;
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+            return null;
         }
     }
 
@@ -1939,6 +2490,22 @@ public final class RMHttpServer {
             err400(response, RErrorCode.BAD_SECTION_RADIUS);
             return;
         }
+        var categories = readNearbyResourceCategories(request, response);
+        if (categories == null) {
+            return;
+        }
+        var ids = readNearbyResourceIds(request, response);
+        if (ids == null) {
+            return;
+        }
+        var limit = readOptionalIntParam(request, response, "limit", 64, RErrorCode.BAD_LIMIT);
+        if (limit == null) {
+            return;
+        }
+        if (limit < 1 || limit > NEARBY_RESOURCES_LIMIT) {
+            err400(response, RErrorCode.BAD_LIMIT);
+            return;
+        }
         try {
             if (!connector.playerInWorld()) {
                 err400(response, RErrorCode.NO_PLAYER);
@@ -1960,11 +2527,106 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.DIM_NOT_LOADED);
                 return;
             }
-            ok(response, connector.nearbyResourcesData(pos.dim(), pos.x(), pos.y(), pos.z(), chunkRadius, sectionRadius));
+            var data = connector.nearbyResourcesData(pos.dim(), pos.x(), pos.y(), pos.z(), chunkRadius, sectionRadius, categories, ids, limit);
+            if ("full".equalsIgnoreCase(request.getURLParameter("view"))) {
+                ok(response, data);
+                return;
+            }
+            ok(response, nearbyResourcesSummaryData(data));
         } catch (RMcpEndpointException e) {
             err400(response, e.code());
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleNearbyResourcesDetail(HTTPRequest request, HTTPResponse response) {
+        var detail = nearbyResourcesDetailData(request, response);
+        if (detail != null) {
+            ok(response, detail);
+        }
+    }
+
+    private static void handleNearbyResourcesDetailMarkdown(HTTPRequest request, HTTPResponse response) {
+        var detail = nearbyResourcesDetailData(request, response);
+        if (detail != null) {
+            writeMarkdown(response, nearbyResourcesDetailMarkdown(detail));
+        }
+    }
+
+    private static Object nearbyResourcesDetailData(HTTPRequest request, HTTPResponse response) {
+        var ref = request.getURLParameter("ref");
+        if (ref == null || ref.isBlank()) {
+            err400(response, RErrorCode.BAD_REQUEST);
+            return null;
+        }
+        var posText = request.getURLParameter("pos");
+        var pos = readOptionalPos(request, response);
+        if (posText != null && !posText.isBlank() && pos == null) {
+            return null;
+        }
+        var chunkRadius = readOptionalIntParam(request, response, "chunkRadius", 2, RErrorCode.BAD_CHUNK_RADIUS);
+        if (chunkRadius == null) {
+            return null;
+        }
+        var sectionRadius = readOptionalIntParam(request, response, "sectionRadius", 1, RErrorCode.BAD_SECTION_RADIUS);
+        if (sectionRadius == null) {
+            return null;
+        }
+        if (chunkRadius < 0 || chunkRadius > 4) {
+            err400(response, RErrorCode.BAD_CHUNK_RADIUS);
+            return null;
+        }
+        if (sectionRadius < 0 || sectionRadius > 4) {
+            err400(response, RErrorCode.BAD_SECTION_RADIUS);
+            return null;
+        }
+        var categories = readNearbyResourceCategories(request, response);
+        if (categories == null) {
+            return null;
+        }
+        var ids = readNearbyResourceIds(request, response);
+        if (ids == null) {
+            return null;
+        }
+        var limit = readOptionalIntParam(request, response, "limit", 64, RErrorCode.BAD_LIMIT);
+        if (limit == null) {
+            return null;
+        }
+        if (limit < 1 || limit > NEARBY_RESOURCES_LIMIT) {
+            err400(response, RErrorCode.BAD_LIMIT);
+            return null;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return null;
+            }
+            var playerPos = connector.posData();
+            if (playerPos == null) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return null;
+            }
+            if (pos == null) {
+                pos = new ParsedPos(playerPos.dim(), (int) Math.floor(playerPos.x()), (int) Math.floor(playerPos.y()), (int) Math.floor(playerPos.z()));
+            } else if (!playerPos.dim().equals(pos.dim())) {
+                err400(response, RErrorCode.DIM_NOT_LOADED);
+                return null;
+            }
+            var data = connector.nearbyResourcesData(pos.dim(), pos.x(), pos.y(), pos.z(), chunkRadius, sectionRadius, categories, ids, limit);
+            for (var resource : data.resources()) {
+                if (ref.equals(resource.id())) {
+                    return linkedMap("ref", ref, "dim", data.dim(), "center", data.center(), "range", data.range(), "filter", data.filter(), "scan", data.scan(), "resource", resource);
+                }
+            }
+            err400(response, RErrorCode.BAD_REQUEST);
+            return null;
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+            return null;
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+            return null;
         }
     }
 
@@ -2032,6 +2694,50 @@ public final class RMHttpServer {
             }
         }
         return categories.isEmpty() ? java.util.List.of("monster", "animal") : java.util.List.copyOf(categories);
+    }
+
+    private static List<String> readNearbyResourceCategories(HTTPRequest request, HTTPResponse response) {
+        var text = request.getURLParameter("category");
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        var categories = new ArrayList<String>();
+        for (var part : text.split(",")) {
+            var category = part.trim().toLowerCase(Locale.ROOT);
+            if (category.isEmpty()) {
+                continue;
+            }
+            if (!NEARBY_RESOURCE_CATEGORIES.contains(category)) {
+                err400(response, RErrorCode.BAD_REQUEST);
+                return null;
+            }
+            if (!categories.contains(category)) {
+                categories.add(category);
+            }
+        }
+        return List.copyOf(categories);
+    }
+
+    private static List<String> readNearbyResourceIds(HTTPRequest request, HTTPResponse response) {
+        var text = request.getURLParameter("ids");
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        var ids = new ArrayList<String>();
+        for (var part : text.split(",")) {
+            var id = part.trim();
+            if (id.isEmpty()) {
+                continue;
+            }
+            if (!isValidResourceId(id)) {
+                err400(response, RErrorCode.BAD_REQUEST);
+                return null;
+            }
+            if (!ids.contains(id)) {
+                ids.add(id);
+            }
+        }
+        return List.copyOf(ids);
     }
 
     private static void handleStaringBlock(HTTPRequest request, HTTPResponse response) {
@@ -2211,11 +2917,64 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_BLOCK_ENTITY);
                 return;
             }
-            ok(response, blockEntity);
+            if ("full".equalsIgnoreCase(request.getURLParameter("view"))) {
+                ok(response, blockEntity);
+                return;
+            }
+            ok(response, blockEntitySummaryData(blockEntity));
         } catch (RMcpEndpointException e) {
             err400(response, e.code());
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleBlockEntityDetail(HTTPRequest request, HTTPResponse response) {
+        var detail = blockEntityDetailData(request, response);
+        if (detail != null) {
+            ok(response, detail);
+        }
+    }
+
+    private static void handleBlockEntityDetailMarkdown(HTTPRequest request, HTTPResponse response) {
+        var detail = blockEntityDetailData(request, response);
+        if (detail != null) {
+            writeMarkdown(response, blockEntityDetailMarkdown(detail));
+        }
+    }
+
+    private static RMcpBlockEntityData blockEntityDetailData(HTTPRequest request, HTTPResponse response) {
+        var ref = request.getURLParameter("ref");
+        var pos = ref == null || ref.isBlank() ? readPos(request, response) : parseDetailPosRef(ref, response);
+        if (pos == null) {
+            return null;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return null;
+            }
+            var playerPos = connector.posData();
+            if (playerPos == null) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return null;
+            }
+            if (!playerPos.dim().equals(pos.dim())) {
+                err400(response, RErrorCode.DIM_NOT_LOADED);
+                return null;
+            }
+            var blockEntity = connector.blockEntityData(pos.dim(), pos.x(), pos.y(), pos.z());
+            if (blockEntity == null) {
+                err400(response, RErrorCode.NO_BLOCK_ENTITY);
+                return null;
+            }
+            return blockEntity;
+        } catch (RMcpEndpointException e) {
+            err400(response, e.code());
+            return null;
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+            return null;
         }
     }
 
@@ -2331,9 +3090,58 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_ENTITY);
                 return;
             }
-            ok(response, entity);
+            if ("full".equalsIgnoreCase(request.getURLParameter("view"))) {
+                ok(response, entity);
+                return;
+            }
+            ok(response, entityBriefSummaryData(entity));
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleEntityDetail(HTTPRequest request, HTTPResponse response) {
+        var detail = entityDetailData(request, response);
+        if (detail != null) {
+            ok(response, detail);
+        }
+    }
+
+    private static void handleEntityDetailMarkdown(HTTPRequest request, HTTPResponse response) {
+        var detail = entityDetailData(request, response);
+        if (detail != null) {
+            writeMarkdown(response, entityDetailMarkdown(detail));
+        }
+    }
+
+    private static RMcpEntityDetailData entityDetailData(HTTPRequest request, HTTPResponse response) {
+        var ref = request.getURLParameter("ref");
+        var uuidText = ref == null || ref.isBlank() ? request.getURLParameter("uuid") : ref;
+        if (uuidText == null || uuidText.isBlank()) {
+            err400(response, RErrorCode.MISSING_UUID);
+            return null;
+        }
+        UUID uuid;
+        try {
+            uuid = UUID.fromString(uuidText.trim());
+        } catch (IllegalArgumentException e) {
+            err400(response, RErrorCode.BAD_UUID);
+            return null;
+        }
+        try {
+            if (!connector.playerInWorld()) {
+                err400(response, RErrorCode.NO_PLAYER);
+                return null;
+            }
+            var entity = connector.entityData(uuid);
+            if (entity == null) {
+                err400(response, RErrorCode.NO_ENTITY);
+                return null;
+            }
+            return entity;
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+            return null;
         }
     }
 
@@ -2360,7 +3168,11 @@ public final class RMHttpServer {
                 err400(response, RErrorCode.NO_ENTITY);
                 return;
             }
-            ok(response, entity);
+            if ("full".equalsIgnoreCase(request.getURLParameter("view"))) {
+                ok(response, entity);
+                return;
+            }
+            ok(response, entitySummaryData(entity));
         } catch (Exception e) {
             err400(response, RErrorCode.INTERNAL_ERROR);
         }
@@ -2416,10 +3228,70 @@ public final class RMHttpServer {
     }
 
     private static void handleItemSearch(HTTPRequest request, HTTPResponse response) {
+        var search = readResolveSearchRequest(request, response);
+        if (search == null) {
+            return;
+        }
+        try {
+            ok(response, connector.itemSearchData(search.text(), search.modId(), search.limit()));
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleBlockSearch(HTTPRequest request, HTTPResponse response) {
+        var search = readResolveSearchRequest(request, response);
+        if (search == null) {
+            return;
+        }
+        try {
+            ok(response, connector.blockSearchData(search.text(), search.modId(), search.limit()));
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleEntityTypeSearch(HTTPRequest request, HTTPResponse response) {
+        var search = readResolveSearchRequest(request, response);
+        if (search == null) {
+            return;
+        }
+        try {
+            ok(response, connector.entityTypeSearchData(search.text(), search.modId(), search.limit()));
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleFluidSearch(HTTPRequest request, HTTPResponse response) {
+        var search = readResolveSearchRequest(request, response);
+        if (search == null) {
+            return;
+        }
+        try {
+            ok(response, connector.fluidSearchData(search.text(), search.modId(), search.limit()));
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static void handleTagSearch(HTTPRequest request, HTTPResponse response) {
+        var search = readResolveSearchRequest(request, response);
+        if (search == null) {
+            return;
+        }
+        try {
+            ok(response, connector.tagSearchData(search.text(), search.modId(), search.limit()));
+        } catch (Exception e) {
+            err400(response, RErrorCode.INTERNAL_ERROR);
+        }
+    }
+
+    private static ResolveSearchRequest readResolveSearchRequest(HTTPRequest request, HTTPResponse response) {
         var text = request.getURLParameter("text");
         if (text == null || text.isBlank()) {
             err400(response, RErrorCode.MISSING_TEXT);
-            return;
+            return null;
         }
         int limit = 10;
         var limitText = request.getURLParameter("limit");
@@ -2428,18 +3300,15 @@ public final class RMHttpServer {
                 limit = Integer.parseInt(limitText.trim());
             } catch (NumberFormatException e) {
                 err400(response, RErrorCode.BAD_LIMIT);
-                return;
+                return null;
             }
         }
         if (limit < 1 || limit > 50) {
             err400(response, RErrorCode.BAD_LIMIT);
-            return;
+            return null;
         }
-        try {
-            ok(response, connector.itemSearchData(text.trim(), request.getURLParameter("modId"), limit));
-        } catch (Exception e) {
-            err400(response, RErrorCode.INTERNAL_ERROR);
-        }
+        var modId = request.getURLParameter("modId");
+        return new ResolveSearchRequest(text.trim(), modId == null || modId.isBlank() ? null : modId.trim(), limit);
     }
 
     private static void handleLangKey(HTTPRequest request, HTTPResponse response) {
@@ -2583,6 +3452,249 @@ public final class RMHttpServer {
         writeJson(response, 200, RMcpResponse.ok(data));
     }
 
+    private static Map<String, Object> sectionSummaryData(RMcpSectionSemanticData section) {
+        var layers = section.layers().stream()
+                .map(layer -> linkedMap(
+                        "ref", "layer~" + layer.y(),
+                        "y", layer.y(),
+                        "topBlocks", layer.topBlocks(),
+                        "detail", "/section/detail?x=" + section.chunk().x() + "&y=" + section.sectionY() + "&z=" + section.chunk().z() + "&ref=layer~" + layer.y(),
+                        "detailJson", "/section/detail.json?x=" + section.chunk().x() + "&y=" + section.sectionY() + "&z=" + section.chunk().z() + "&ref=layer~" + layer.y()
+                ))
+                .toList();
+        return linkedMap(
+                "ref", "summary",
+                "dim", section.dim(),
+                "chunk", section.chunk(),
+                "sectionY", section.sectionY(),
+                "blockY", section.blockY(),
+                "summary", section.summary(),
+                "legend", section.legend(),
+                "features", section.features(),
+                "layerCount", section.layers().size(),
+                "layers", layers,
+                "full", "/section?x=" + section.chunk().x() + "&y=" + section.sectionY() + "&z=" + section.chunk().z() + "&view=full"
+        );
+    }
+
+    private static Map<String, Object> questSummaryData(RQuest quest) {
+        return linkedMap(
+                "ref", quest.id(),
+                "id", quest.id(),
+                "title", quest.title(),
+                "subtitle", quest.subtitle(),
+                "chapterId", quest.chapterId(),
+                "chapterTitle", quest.chapterTitle(),
+                "state", quest.state(),
+                "rules", quest.rules(),
+                "dependencyCount", quest.dependencies() == null ? 0 : quest.dependencies().size(),
+                "taskCount", quest.tasks() == null ? 0 : quest.tasks().size(),
+                "rewardCount", quest.rewards() == null ? 0 : quest.rewards().size(),
+                "tasks", quest.tasks() == null ? List.of() : quest.tasks(),
+                "rewards", quest.rewards() == null ? List.of() : quest.rewards(),
+                "detail", "/quest/detail/detail?ref=" + url(quest.id()),
+                "detailJson", "/quest/detail/detail.json?ref=" + url(quest.id()),
+                "full", "/quest/detail/" + url(quest.id()) + "?view=full"
+        );
+    }
+
+    private static Map<String, Object> nearbyResourcesSummaryData(RMcpNearbyResourcesData data) {
+        var query = nearbyResourcesQuery(data);
+        var resources = data.resources().stream()
+                .map(resource -> linkedMap(
+                        "ref", resource.id(),
+                        "id", resource.id(),
+                        "category", resource.category(),
+                        "count", resource.count(),
+                        "nearest", resource.nearest(),
+                        "sectionCount", resource.sections().size(),
+                        "detail", "/nearby-resources/detail?" + query + "&ref=" + url(resource.id()),
+                        "detailJson", "/nearby-resources/detail.json?" + query + "&ref=" + url(resource.id())
+                ))
+                .toList();
+        return linkedMap(
+                "dim", data.dim(),
+                "center", data.center(),
+                "range", data.range(),
+                "filter", data.filter(),
+                "scan", data.scan(),
+                "features", data.features(),
+                "resourceCount", data.resources().size(),
+                "resources", resources,
+                "topBlocks", data.topBlocks(),
+                "full", "/nearby-resources?" + query + "&view=full"
+        );
+    }
+
+    private static String nearbyResourcesQuery(RMcpNearbyResourcesData data) {
+        var params = new ArrayList<String>();
+        params.add("pos=" + url(data.dim() + "," + data.center().block().x() + "," + data.center().block().y() + "," + data.center().block().z()));
+        params.add("chunkRadius=" + data.range().chunkRadius());
+        params.add("sectionRadius=" + data.range().sectionRadius());
+        if (!data.filter().categories().isEmpty()) {
+            params.add("category=" + url(String.join(",", data.filter().categories())));
+        }
+        if (!data.filter().ids().isEmpty()) {
+            params.add("ids=" + url(String.join(",", data.filter().ids())));
+        }
+        params.add("limit=" + data.filter().limit());
+        return String.join("&", params);
+    }
+
+    private static Map<String, Object> blockEntitySummaryData(RMcpBlockEntityData data) {
+        var ref = data.dim() + "," + data.pos().x() + "," + data.pos().y() + "," + data.pos().z();
+        return linkedMap(
+                "ref", ref,
+                "dim", data.dim(),
+                "pos", data.pos(),
+                "blockId", data.blockId(),
+                "blockState", data.blockState(),
+                "type", data.type(),
+                "runtimeClass", data.runtimeClass(),
+                "hasSnbt", data.snbt() != null && !data.snbt().isBlank(),
+                "detail", "/blockentity/detail?ref=" + url(ref),
+                "detailJson", "/blockentity/detail.json?ref=" + url(ref),
+                "full", "/blockentity?pos=" + url(ref) + "&view=full"
+        );
+    }
+
+    private static Map<String, Object> containerSummaryData(RMcpContainerData data) {
+        var ref = data.dim() + "," + data.pos().x() + "," + data.pos().y() + "," + data.pos().z() + (data.side() == null ? "" : "~" + data.side());
+        var counts = new LinkedHashMap<String, Integer>();
+        for (var item : data.items()) {
+            counts.merge(item.id(), item.count(), Integer::sum);
+        }
+        var topItems = counts.entrySet().stream()
+                .sorted((left, right) -> {
+                    int countCompare = Integer.compare(right.getValue(), left.getValue());
+                    return countCompare != 0 ? countCompare : left.getKey().compareTo(right.getKey());
+                })
+                .limit(16)
+                .map(entry -> linkedMap("id", entry.getKey(), "count", entry.getValue()))
+                .toList();
+        var items = data.items().stream()
+                .map(item -> linkedMap("slot", item.slot(), "id", item.id(), "count", item.count(), "limit", item.limit(), "canInsert", item.canInsert()))
+                .toList();
+        return linkedMap(
+                "ref", ref,
+                "dim", data.dim(),
+                "pos", data.pos(),
+                "side", data.side(),
+                "slots", data.slots(),
+                "occupiedSlots", data.items().size(),
+                "topItems", topItems,
+                "items", items,
+                "detail", "/container/detail?ref=" + url(ref),
+                "detailJson", "/container/detail.json?ref=" + url(ref),
+                "full", "/container?pos=" + url(data.dim() + "," + data.pos().x() + "," + data.pos().y() + "," + data.pos().z()) + (data.side() == null ? "" : "&side=" + url(data.side())) + "&view=full"
+        );
+    }
+
+    private static Map<String, Object> entitySummaryData(RMcpEntityDetailData data) {
+        return linkedMap(
+                "ref", data.uuid(),
+                "dim", data.dim(),
+                "uuid", data.uuid(),
+                "type", data.type(),
+                "name", data.name(),
+                "pos", data.pos(),
+                "runtime", data.runtime(),
+                "nbtKeys", data.nbt() == null ? List.of() : data.nbt().keySet().stream().sorted().toList(),
+                "hasSnbt", data.snbt() != null && !data.snbt().isBlank(),
+                "detail", "/entity/detail?ref=" + url(data.uuid()),
+                "detailJson", "/entity/detail.json?ref=" + url(data.uuid()),
+                "full", "/entity?uuid=" + url(data.uuid()) + "&view=full"
+        );
+    }
+
+    private static Map<String, Object> entityBriefSummaryData(RMcpEntityData data) {
+        return linkedMap(
+                "ref", data.uuid(),
+                "dim", data.dim(),
+                "uuid", data.uuid(),
+                "type", data.type(),
+                "name", data.name(),
+                "pos", data.pos(),
+                "distance", data.distance(),
+                "detail", "/entity/detail?ref=" + url(data.uuid()),
+                "detailJson", "/entity/detail.json?ref=" + url(data.uuid())
+        );
+    }
+
+    private static String sectionDetailMarkdown(Object detail) {
+        return "### Section detail\n\n```json\n" + GSON.toJson(detail) + "\n```\n";
+    }
+
+    private static String questDetailMarkdown(RQuest quest) {
+        var text = new StringBuilder();
+        text.append("### Quest detail\n\n");
+        text.append("- ID: `").append(quest.id()).append("`\n");
+        text.append("- Title: ").append(quest.title()).append("\n");
+        text.append("- Chapter: ").append(quest.chapterTitle()).append("\n");
+        text.append("- Completed: ").append(quest.state() != null && quest.state().completed()).append("\n\n");
+        if (quest.description() != null && !quest.description().isEmpty()) {
+            text.append("Description:\n");
+            for (var line : quest.description()) {
+                text.append("- ").append(line).append("\n");
+            }
+            text.append("\n");
+        }
+        text.append("```json\n").append(GSON.toJson(quest)).append("\n```\n");
+        return text.toString();
+    }
+
+    private static String nearbyResourcesDetailMarkdown(Object detail) {
+        return "### Nearby resource detail\n\n```json\n" + GSON.toJson(detail) + "\n```\n";
+    }
+
+    private static String blockEntityDetailMarkdown(RMcpBlockEntityData detail) {
+        return "### Block entity detail\n\n- Ref: `" + detail.dim() + "," + detail.pos().x() + "," + detail.pos().y() + "," + detail.pos().z() + "`\n"
+                + "- Block: `" + detail.blockId() + "`\n"
+                + "- Type: `" + detail.type() + "`\n\n```snbt\n" + (detail.snbt() == null ? "" : detail.snbt()) + "\n```\n";
+    }
+
+    private static String containerDetailMarkdown(RMcpContainerData detail) {
+        var text = new StringBuilder();
+        text.append("### Container detail\n\n");
+        text.append("- Pos: `").append(detail.dim()).append(",").append(detail.pos().x()).append(",").append(detail.pos().y()).append(",").append(detail.pos().z()).append("`\n");
+        text.append("- Side: `").append(detail.side()).append("`\n");
+        text.append("- Slots: ").append(detail.slots()).append("\n\n");
+        for (var item : detail.items()) {
+            text.append("- slot ").append(item.slot()).append(": `").append(item.id()).append("` x").append(item.count()).append("\n");
+        }
+        return text.toString();
+    }
+
+    private static String entityDetailMarkdown(RMcpEntityDetailData detail) {
+        return "### Entity detail\n\n- UUID: `" + detail.uuid() + "`\n- Type: `" + detail.type() + "`\n- Name: `" + detail.name() + "`\n\n```snbt\n" + (detail.snbt() == null ? "" : detail.snbt()) + "\n```\n";
+    }
+
+    private static ParsedPos parseDetailPosRef(String ref, HTTPResponse response) {
+        var parts = ref.split(",");
+        if (parts.length != 4) {
+            err400(response, RErrorCode.BAD_POS);
+            return null;
+        }
+        try {
+            return new ParsedPos(parts[0].trim(), Integer.parseInt(parts[1].trim()), Integer.parseInt(parts[2].trim()), Integer.parseInt(parts[3].trim()));
+        } catch (NumberFormatException e) {
+            err400(response, RErrorCode.BAD_POS);
+            return null;
+        }
+    }
+
+    private static Map<String, Object> linkedMap(Object... entries) {
+        var map = new LinkedHashMap<String, Object>();
+        for (int i = 0; i + 1 < entries.length; i += 2) {
+            map.put(String.valueOf(entries[i]), entries[i + 1]);
+        }
+        return map;
+    }
+
+    private static String url(String text) {
+        return java.net.URLEncoder.encode(text, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
     private static void err404(HTTPResponse response) {
         writeJson(response, 404, RMcpResponse.error(RErrorCode.NOT_FOUND.id()));
     }
@@ -2624,6 +3736,9 @@ public final class RMHttpServer {
     private record MenuDropRequest(Integer slot, Integer count, boolean dryRun) {
     }
 
+    private record ResolveSearchRequest(String text, String modId, int limit) {
+    }
+
     private record CraftRequest(Map<String, Integer> slots, String shape, Integer outputSlot, Integer times,
                                 boolean dryRun) {
     }
@@ -2655,7 +3770,7 @@ public final class RMHttpServer {
     private record BlockStateBatchRequest(List<RMcpBlockPosData> positions) {
     }
 
-    private record BlockBoxActionRequest(RMcpBlockPosData from, RMcpBlockPosData to) {
+    private record BlockBoxActionRequest(RMcpBlockPosData from, RMcpBlockPosData to, boolean dryRun) {
     }
 
     private record ContainerMoveRequest(ContainerEndpointRequest from, ContainerEndpointRequest to, int count,

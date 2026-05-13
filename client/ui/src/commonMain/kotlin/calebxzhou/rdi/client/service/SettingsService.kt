@@ -4,6 +4,7 @@ import calebxzhou.rdi.CONF
 import calebxzhou.rdi.client.AiConfig
 import calebxzhou.rdi.client.AiProvider
 import calebxzhou.rdi.client.AiProviderProfile
+import calebxzhou.rdi.client.AiTokenPrice
 import calebxzhou.rdi.client.AppConfig
 import calebxzhou.rdi.client.ui.getPlatformTotalPhysicalMemoryMb
 import calebxzhou.rdi.client.ui.normalizePlatformJavaPath
@@ -110,7 +111,16 @@ object SettingsService {
                 return ValidationResult(false, "当前AI配置的模型不能为空")
             }
         }
+        validateAiTokenPrice(normalizedProfile.tokenPrice).takeIf { !it.success }?.let { return it }
         return validateAiContextLimit(normalizedProfile.contextLimitTokens.toString())
+    }
+
+    private fun validateAiTokenPrice(price: AiTokenPrice): ValidationResult {
+        val prices = listOf(price.inputCacheMiss1M, price.inputCacheHit1M, price.output1M)
+        if (prices.any { it.isNaN() || it.isInfinite() || it < 0.0 }) {
+            return ValidationResult(false, "AI价格必须是不小于0的数字")
+        }
+        return ValidationResult(true)
     }
 
     fun validateAiConfig(aiConfig: AiConfig, requireActiveProfile: Boolean = true): ValidationResult {

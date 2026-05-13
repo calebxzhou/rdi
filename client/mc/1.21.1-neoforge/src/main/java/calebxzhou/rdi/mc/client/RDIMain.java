@@ -47,6 +47,7 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpItemSearchData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpLangKeyIndex;
+import calebxzhou.rdi.mc.common2.mcp.RMcpMenuCloseData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpMenuDropData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpModData;
@@ -61,6 +62,7 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpPlacePaletteRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlaceRingRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPosData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpRespawnData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpResolveSearchData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpRecipeData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSectionSemanticData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextReadData;
@@ -169,6 +171,10 @@ public class RDIMain {
     });
     private static volatile LangKeyIndexCache langKeyIndex;
     private static volatile ItemSearchIndexCache itemSearchIndex;
+    private static volatile ResolveSearchIndexCache blockSearchIndex;
+    private static volatile ResolveSearchIndexCache entityTypeSearchIndex;
+    private static volatile ResolveSearchIndexCache fluidSearchIndex;
+    private static volatile ResolveSearchIndexCache tagSearchIndex;
 
     public RDIMain() {
         try {
@@ -242,6 +248,11 @@ public class RDIMain {
                 @Override
                 public RMcpMenuData menuData() {
                     return RMcpClientBridge.requestMenu();
+                }
+
+                @Override
+                public RMcpMenuCloseData closeMenu() {
+                    return RMcpClientBridge.requestMenuClose();
                 }
 
                 @Override
@@ -498,8 +509,8 @@ public class RDIMain {
                 }
 
                 @Override
-                public RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to) {
-                    return RMcpClientBridge.requestBreakBlockBox(from, to);
+                public RMcpBlockBatchActionData breakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to, boolean dryRun) {
+                    return RMcpClientBridge.requestBreakBlockBox(from, to, dryRun);
                 }
 
                 @Override
@@ -553,8 +564,8 @@ public class RDIMain {
                 }
 
                 @Override
-                public RMcpNearbyResourcesData nearbyResourcesData(String dim, int x, int y, int z, int chunkRadius, int sectionRadius) {
-                    return RDIMain.nearbyResourcesData(Minecraft.getInstance(), dim, x, y, z, chunkRadius, sectionRadius);
+                public RMcpNearbyResourcesData nearbyResourcesData(String dim, int x, int y, int z, int chunkRadius, int sectionRadius, List<String> categories, List<String> ids, int limit) {
+                    return RDIMain.nearbyResourcesData(Minecraft.getInstance(), dim, x, y, z, chunkRadius, sectionRadius, categories, ids, limit);
                 }
 
                 @Override
@@ -622,6 +633,26 @@ public class RDIMain {
                 @Override
                 public RMcpItemSearchData itemSearchData(String text, String modId, int limit) {
                     return RDIMain.itemSearchData(Minecraft.getInstance(), text, modId, limit);
+                }
+
+                @Override
+                public RMcpResolveSearchData blockSearchData(String text, String modId, int limit) {
+                    return RDIMain.blockSearchData(Minecraft.getInstance(), text, modId, limit);
+                }
+
+                @Override
+                public RMcpResolveSearchData entityTypeSearchData(String text, String modId, int limit) {
+                    return RDIMain.entityTypeSearchData(Minecraft.getInstance(), text, modId, limit);
+                }
+
+                @Override
+                public RMcpResolveSearchData fluidSearchData(String text, String modId, int limit) {
+                    return RDIMain.fluidSearchData(Minecraft.getInstance(), text, modId, limit);
+                }
+
+                @Override
+                public RMcpResolveSearchData tagSearchData(String text, String modId, int limit) {
+                    return RDIMain.tagSearchData(Minecraft.getInstance(), text, modId, limit);
                 }
 
                 @Override
@@ -2297,6 +2328,10 @@ public class RDIMain {
     }
 
     private static RMcpNearbyResourcesData nearbyResourcesData(Minecraft minecraft, String dim, int x, int y, int z, int chunkRadius, int sectionRadius) {
+        return nearbyResourcesData(minecraft, dim, x, y, z, chunkRadius, sectionRadius, List.of(), List.of(), 64);
+    }
+
+    private static RMcpNearbyResourcesData nearbyResourcesData(Minecraft minecraft, String dim, int x, int y, int z, int chunkRadius, int sectionRadius, List<String> categories, List<String> ids, int limit) {
         var level = minecraft.level;
         if (level == null) {
             return null;
@@ -2312,9 +2347,16 @@ public class RDIMain {
         if (minSectionY > maxSectionY) {
             throw new RMcpEndpointException(RErrorCode.SECTION_OUT_OF_RANGE);
         }
+        var filterCategories = categories == null ? List.<String>of() : List.copyOf(categories);
+        var filterIds = ids == null ? List.<String>of() : List.copyOf(ids);
 
         var resources = new LinkedHashMap<String, ResourceAccumulator>();
         var topCounts = new LinkedHashMap<String, Integer>();
+        int requestedChunks = (chunkRadius * 2 + 1) * (chunkRadius * 2 + 1);
+        int requestedSectionLevels = sectionRadius * 2 + 1;
+        int scannedSectionLevels = maxSectionY - minSectionY + 1;
+        int requestedSections = requestedChunks * requestedSectionLevels;
+        int skippedOutOfWorldSections = requestedChunks * (requestedSectionLevels - scannedSectionLevels);
         int loadedChunks = 0;
         int skippedChunks = 0;
         int scannedSections = 0;
@@ -2377,12 +2419,22 @@ public class RDIMain {
             }
         }
 
-        var resourceList = resources.values().stream()
+        var matchedResources = resources.values().stream()
+                .filter(resource -> nearbyResourceMatches(resource, filterCategories, filterIds))
                 .sorted(Comparator.comparingInt(ResourceAccumulator::count).reversed()
                         .thenComparing(ResourceAccumulator::id))
-                .limit(64)
+                .toList();
+        var resourceList = matchedResources.stream()
+                .limit(limit)
                 .map(ResourceAccumulator::data)
                 .toList();
+        var skippedReasons = new ArrayList<RMcpNearbyResourcesData.SkippedReason>();
+        if (skippedChunks > 0) {
+            skippedReasons.add(new RMcpNearbyResourcesData.SkippedReason("chunk_not_loaded", skippedChunks));
+        }
+        if (skippedOutOfWorldSections > 0) {
+            skippedReasons.add(new RMcpNearbyResourcesData.SkippedReason("section_out_of_world", skippedOutOfWorldSections));
+        }
         return new RMcpNearbyResourcesData(
                 dim,
                 new RMcpNearbyResourcesData.Center(
@@ -2392,11 +2444,47 @@ public class RDIMain {
                         centerSectionY
                 ),
                 new RMcpNearbyResourcesData.Range(chunkRadius, sectionRadius),
-                new RMcpNearbyResourcesData.Scan(loadedChunks, skippedChunks, scannedSections, scannedBlocks),
+                new RMcpNearbyResourcesData.Filter(filterCategories, filterIds, limit),
+                new RMcpNearbyResourcesData.Scan(
+                        chunkRadius,
+                        sectionRadius,
+                        requestedChunks,
+                        loadedChunks,
+                        skippedChunks,
+                        requestedSections,
+                        scannedSections,
+                        scannedBlocks,
+                        matchedResources.size(),
+                        resourceList.size(),
+                        matchedResources.size() > resourceList.size(),
+                        List.copyOf(skippedReasons)
+                ),
                 resourceList,
                 topBlocks(topCounts, 24),
                 new RMcpNearbyResourcesData.Features(hasWater, hasLava, hasOre, hasWood, hasCrops, hasBlockEntities)
         );
+    }
+
+    private static boolean nearbyResourceMatches(ResourceAccumulator resource, List<String> categories, List<String> ids) {
+        if (!ids.isEmpty() && !ids.contains(resource.id())) {
+            return false;
+        }
+        if (categories.isEmpty()) {
+            return true;
+        }
+        for (var category : categories) {
+            if (nearbyResourceCategoryMatches(category, resource.category())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean nearbyResourceCategoryMatches(String filter, String actual) {
+        if ("fluid".equals(filter)) {
+            return "fluid".equals(actual) || "water".equals(actual) || "lava".equals(actual);
+        }
+        return filter.equals(actual);
     }
 
     private static String fluidResourceCategory(String fluidId) {
@@ -2732,6 +2820,150 @@ public class RDIMain {
         return index.search(text, modId, limit);
     }
 
+    private static RMcpResolveSearchData blockSearchData(Minecraft minecraft, String text, String modId, int limit) {
+        return resolveSearchIndex(
+                minecraft,
+                "block",
+                blockSearchIndex,
+                entries -> blockSearchIndex = entries,
+                (english, chinese) -> {
+                    var entries = new ArrayList<ResolveSearchEntry>();
+                    for (var block : BuiltInRegistries.BLOCK) {
+                        var id = BuiltInRegistries.BLOCK.getKey(block);
+                        if (id != null) {
+                            entries.add(resolveEntry(id.toString(), block.getDescriptionId(), english, chinese));
+                        }
+                    }
+                    return entries;
+                }
+        ).search(text, modId, limit);
+    }
+
+    private static RMcpResolveSearchData entityTypeSearchData(Minecraft minecraft, String text, String modId, int limit) {
+        return resolveSearchIndex(
+                minecraft,
+                "entity_type",
+                entityTypeSearchIndex,
+                entries -> entityTypeSearchIndex = entries,
+                (english, chinese) -> {
+                    var entries = new ArrayList<ResolveSearchEntry>();
+                    for (var entityType : BuiltInRegistries.ENTITY_TYPE) {
+                        var id = BuiltInRegistries.ENTITY_TYPE.getKey(entityType);
+                        if (id != null) {
+                            entries.add(resolveEntry(id.toString(), entityType.getDescriptionId(), english, chinese));
+                        }
+                    }
+                    return entries;
+                }
+        ).search(text, modId, limit);
+    }
+
+    private static RMcpResolveSearchData fluidSearchData(Minecraft minecraft, String text, String modId, int limit) {
+        return resolveSearchIndex(
+                minecraft,
+                "fluid",
+                fluidSearchIndex,
+                entries -> fluidSearchIndex = entries,
+                (english, chinese) -> {
+                    var entries = new ArrayList<ResolveSearchEntry>();
+                    for (var fluid : BuiltInRegistries.FLUID) {
+                        var id = BuiltInRegistries.FLUID.getKey(fluid);
+                        if (id != null) {
+                            entries.add(resolveEntry(id.toString(), "fluid." + id.getNamespace() + "." + id.getPath(), english, chinese));
+                        }
+                    }
+                    return entries;
+                }
+        ).search(text, modId, limit);
+    }
+
+    private static RMcpResolveSearchData tagSearchData(Minecraft minecraft, String text, String modId, int limit) {
+        return resolveSearchIndex(
+                minecraft,
+                "tag",
+                tagSearchIndex,
+                entries -> tagSearchIndex = entries,
+                (english, chinese) -> {
+                    var entries = new ArrayList<ResolveSearchEntry>();
+                    BuiltInRegistries.ITEM.getTagNames().forEach(tag -> entries.add(resolveTagEntry("item", tag.location().toString())));
+                    BuiltInRegistries.BLOCK.getTagNames().forEach(tag -> entries.add(resolveTagEntry("block", tag.location().toString())));
+                    BuiltInRegistries.FLUID.getTagNames().forEach(tag -> entries.add(resolveTagEntry("fluid", tag.location().toString())));
+                    BuiltInRegistries.ENTITY_TYPE.getTagNames().forEach(tag -> entries.add(resolveTagEntry("entity_type", tag.location().toString())));
+                    return entries;
+                }
+        ).search(text, modId, limit);
+    }
+
+    private static ResolveSearchIndex resolveSearchIndex(
+            Minecraft minecraft,
+            String kind,
+            ResolveSearchIndexCache cache,
+            java.util.function.Consumer<ResolveSearchIndexCache> cacheUpdater,
+            ResolveSearchEntryFactory entryFactory
+    ) {
+        var resourceManager = minecraft.getResourceManager();
+        if (cache != null && cache.resourceManager() == resourceManager) {
+            return cache.index();
+        }
+        synchronized (RDIMain.class) {
+            if (cache != null && cache.resourceManager() == resourceManager) {
+                return cache.index();
+            }
+            var english = ClientLanguage.loadFrom(resourceManager, List.of("en_us"), false).getLanguageData();
+            var chinese = ClientLanguage.loadFrom(resourceManager, List.of("zh_cn"), false).getLanguageData();
+            var index = new ResolveSearchIndex(kind, List.copyOf(entryFactory.entries(english, chinese)));
+            cacheUpdater.accept(new ResolveSearchIndexCache(resourceManager, index));
+            return index;
+        }
+    }
+
+    private static ResolveSearchEntry resolveEntry(String id, String langkey, Map<String, String> english, Map<String, String> chinese) {
+        var namespace = id.substring(0, id.indexOf(':'));
+        var modName = ModList.get().getModContainerById(namespace)
+                .map(container -> container.getModInfo().getDisplayName())
+                .orElse(namespace);
+        var englishName = langkey == null ? "" : english.getOrDefault(langkey, "");
+        var chineseName = langkey == null ? "" : chinese.getOrDefault(langkey, "");
+        return new ResolveSearchEntry(
+                id,
+                namespace,
+                langkey,
+                englishName,
+                chineseName,
+                namespace,
+                modName,
+                normalizeSearchText(id),
+                normalizeSearchText(id.substring(id.indexOf(':') + 1)),
+                normalizeSearchText(langkey),
+                normalizeSearchText(englishName),
+                normalizeSearchText(chineseName),
+                normalizeSearchText(modName)
+        );
+    }
+
+    private static ResolveSearchEntry resolveTagEntry(String registry, String id) {
+        var namespace = id.substring(0, id.indexOf(':'));
+        var modName = ModList.get().getModContainerById(namespace)
+                .map(container -> container.getModInfo().getDisplayName())
+                .orElse(namespace);
+        var fullId = registry + "#" + id;
+        return new ResolveSearchEntry(
+                fullId,
+                namespace,
+                null,
+                "",
+                "",
+                namespace,
+                modName,
+                normalizeSearchText(fullId),
+                normalizeSearchText(id.substring(id.indexOf(':') + 1)),
+                "",
+                "",
+                "",
+                normalizeSearchText(modName)
+        );
+    }
+
     private static ItemSearchIndex itemSearchIndex(Minecraft minecraft) {
         var resourceManager = minecraft.getResourceManager();
         var cache = itemSearchIndex;
@@ -2835,6 +3067,148 @@ public class RDIMain {
     }
 
     private record ItemSearchIndexCache(Object resourceManager, ItemSearchIndex index) {
+    }
+
+    private record ResolveSearchIndexCache(Object resourceManager, ResolveSearchIndex index) {
+    }
+
+    @FunctionalInterface
+    private interface ResolveSearchEntryFactory {
+        List<ResolveSearchEntry> entries(Map<String, String> english, Map<String, String> chinese);
+    }
+
+    private record ResolveSearchEntry(
+            String id,
+            String namespace,
+            String langkey,
+            String englishName,
+            String chineseName,
+            String modId,
+            String modName,
+            String normalizedId,
+            String normalizedPath,
+            String normalizedLangkey,
+            String normalizedEnglishName,
+            String normalizedChineseName,
+            String normalizedModName
+    ) {
+    }
+
+    private record ResolveSearchCandidate(ResolveSearchEntry entry, double score, String match) {
+    }
+
+    private static final class ResolveSearchIndex {
+        private final String kind;
+        private final List<ResolveSearchEntry> entries;
+
+        private ResolveSearchIndex(String kind, List<ResolveSearchEntry> entries) {
+            this.kind = kind;
+            this.entries = entries;
+        }
+
+        private RMcpResolveSearchData search(String text, String modId, int limit) {
+            var query = normalizeSearchText(text);
+            var normalizedModId = normalizeSearchText(modId);
+            if (query.isEmpty()) {
+                return new RMcpResolveSearchData(kind, text, modId, limit, List.of());
+            }
+            var candidates = new ArrayList<ResolveSearchCandidate>();
+            for (var entry : entries) {
+                var candidate = score(entry, query, normalizedModId);
+                if (candidate.score() > 0.0D) {
+                    candidates.add(candidate);
+                }
+            }
+            candidates.sort(
+                    Comparator.comparingDouble(ResolveSearchCandidate::score).reversed()
+                            .thenComparing(candidate -> candidate.entry().namespace().equals("minecraft") ? 1 : 0)
+                            .thenComparing(candidate -> candidate.entry().id())
+            );
+            var results = new ArrayList<RMcpResolveSearchData.Result>();
+            for (var candidate : candidates) {
+                if (results.size() >= limit) {
+                    break;
+                }
+                var entry = candidate.entry();
+                results.add(new RMcpResolveSearchData.Result(
+                        entry.id(),
+                        entry.namespace(),
+                        entry.langkey(),
+                        entry.englishName(),
+                        entry.chineseName(),
+                        entry.modId(),
+                        entry.modName(),
+                        candidate.score(),
+                        candidate.match()
+                ));
+            }
+            return new RMcpResolveSearchData(kind, text, normalizedModId.isEmpty() ? null : modId, limit, List.copyOf(results));
+        }
+
+        private static ResolveSearchCandidate score(ResolveSearchEntry entry, String query, String modId) {
+            double bestScore = 0.0D;
+            String match = null;
+            var scored = resolveScoreField(query, entry.normalizedChineseName(), "chinese");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = resolveScoreField(query, entry.normalizedEnglishName(), "english");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = resolveScoreField(query, entry.normalizedId(), "id");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = resolveScoreField(query, entry.normalizedPath(), "path");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = resolveScoreField(query, entry.normalizedLangkey(), "langkey");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            scored = resolveScoreField(query, entry.normalizedModName(), "mod_name");
+            if (scored.score() > bestScore) {
+                bestScore = scored.score();
+                match = scored.match();
+            }
+            if (bestScore <= 0.0D) {
+                return new ResolveSearchCandidate(entry, 0.0D, "");
+            }
+            if (!modId.isEmpty()) {
+                if (entry.namespace().equals(modId)) {
+                    bestScore += 2.0D;
+                } else {
+                    bestScore -= 0.5D;
+                }
+            } else if (!entry.namespace().equals("minecraft")) {
+                bestScore += 0.05D;
+            }
+            return new ResolveSearchCandidate(entry, bestScore, match);
+        }
+
+        private static ScoredMatch resolveScoreField(String query, String candidate, String field) {
+            if (candidate.isEmpty()) {
+                return new ScoredMatch(0.0D, "");
+            }
+            if (candidate.equals(query)) {
+                return new ScoredMatch(4.0D, "exact_" + field);
+            }
+            if (candidate.startsWith(query)) {
+                return new ScoredMatch(3.0D, "prefix_" + field);
+            }
+            if (candidate.contains(query)) {
+                return new ScoredMatch(2.0D, "contains_" + field);
+            }
+            var fuzzy = fuzzySearchScore(query, candidate);
+            return fuzzy <= 0.0D ? new ScoredMatch(0.0D, "") : new ScoredMatch(fuzzy, "fuzzy_" + field);
+        }
     }
 
     private record ItemSearchEntry(
@@ -2990,6 +3364,10 @@ public class RDIMain {
 
         private String id() {
             return id;
+        }
+
+        private String category() {
+            return category;
         }
 
         private int count() {

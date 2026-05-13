@@ -9,7 +9,8 @@ Request body:
 ```json
 {
   "from": {"x": 10, "y": 64, "z": -20},
-  "to": {"x": 13, "y": 65, "z": -20}
+  "to": {"x": 13, "y": 65, "z": -20},
+  "dryRun": true
 }
 ```
 
@@ -21,5 +22,6 @@ Batch and box action rules:
 - Use `/place/box` or `/break/box` only when every block in the cuboid should be acted on.
 - Do not include any player container, storage block, chest, barrel, shulker box, machine inventory, or modded container in a box break unless the player explicitly asks for it. If breaking such a block is necessary, ask the player for permission before calling this API.
 - Inspect `failedBlocks`; if it is empty, every accepted block succeeded.
+- Use `dryRun=true` before large or uncertain break boxes. A dry run validates targets but does not break blocks.
 - Re-read `/inventory` after a large action because item count, durability, and drops may change.
 - After a successful break box action, pick up harvested drops by default unless the user explicitly says not to. Use `POST /entity/pickup-item?radius=64&limit=256`.

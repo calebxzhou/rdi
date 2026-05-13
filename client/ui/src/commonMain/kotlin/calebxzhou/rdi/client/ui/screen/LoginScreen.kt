@@ -9,7 +9,7 @@ import androidx.compose.foundation.text.input.TextObfuscationMode
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedSecureTextField
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -165,6 +165,7 @@ fun LoginScreen(
                 else -> 0.6f
             }
             val formWidthFraction = if (isPortrait) 1f else 0.82f
+            val fieldShape = RoundedCornerShape(if (isPortrait) 28.dp else 36.dp)
 
             Surface(
                 modifier = Modifier
@@ -173,7 +174,7 @@ fun LoginScreen(
                     .fillMaxHeight(panelHeightFraction),
                 shape = RoundedCornerShape(if (isPortrait) 28.dp else 36.dp),
                 color = Color.White.copy(alpha = 0.96f),
-                elevation = 18.dp
+                shadowElevation = 18.dp
             ) {
                 Column(
                     modifier = Modifier
@@ -191,7 +192,7 @@ fun LoginScreen(
                     ) {
                         Text(
                             text = "RDi",
-                            style = MaterialTheme.typography.h5,
+                            style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold,
                             color = Color.Black,
                             modifier = Modifier.fillMaxWidth(),
@@ -206,25 +207,26 @@ fun LoginScreen(
                             Box(modifier = Modifier.fillMaxWidth()) {
                                 OutlinedTextField(
                                     state = qqState,
+                                    shape = fieldShape,
                                     label = if (qqState.text.isBlank()) {
                                         { Text("RDID/QQ号") }
                                     } else {
                                         null
                                     },
                                     lineLimits = TextFieldLineLimits.SingleLine,
-                                    textStyle = MaterialTheme.typography.body2,
-                                    contentPadding = PaddingValues(horizontal = 8.dp,0.dp),
+                                    textStyle = MaterialTheme.typography.bodyMedium,
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(48.dp)
                                         .onKeyEvent { event ->
-                                        if (event.type == KeyEventType.KeyUp && event.key == Key.Enter) {
-                                            attemptLogin()
-                                            true
-                                        } else {
-                                            false
-                                        }
-                                    },
+                                            if (event.type == KeyEventType.KeyUp && event.key == Key.Enter) {
+                                                attemptLogin()
+                                                true
+                                            } else {
+                                                false
+                                            }
+                                        },
                                     trailingIcon = {
                                         TextButton(onClick = { showAccounts = true }) {
                                             Text("▼")
@@ -237,30 +239,33 @@ fun LoginScreen(
                                 ) {
                                     storedAccounts.forEach { entry ->
                                         val info = entry.value
-                                        DropdownMenuItem(onClick = {
-                                            qqState.setTextAndPlaceCursorAtEnd(info.qq)
-                                            pwdState.setTextAndPlaceCursorAtEnd(info.pwd)
-                                            showAccounts = false
-                                        }) {
-                                            Text("${info.name} (${info.qq})")
-                                        }
+                                        DropdownMenuItem(
+                                            text = { Text("${info.name} (${info.qq})") },
+                                            onClick = {
+                                                qqState.setTextAndPlaceCursorAtEnd(info.qq)
+                                                pwdState.setTextAndPlaceCursorAtEnd(info.pwd)
+                                                showAccounts = false
+                                            }
+                                        )
                                     }
                                     if (storedAccounts.isEmpty()) {
-                                        DropdownMenuItem(onClick = { showAccounts = false }) {
-                                            Text("暂无历史账号")
-                                        }
+                                        DropdownMenuItem(
+                                            text = { Text("暂无历史账号") },
+                                            onClick = { showAccounts = false }
+                                        )
                                     }
                                 }
                             }
                             OutlinedSecureTextField(
                                 state = pwdState,
+                                shape = fieldShape,
                                 label = if (pwdState.text.isBlank()) {
                                     { Text("密码") }
                                 } else {
                                     null
                                 },
-                                contentPadding = PaddingValues(horizontal = 8.dp,0.dp),
-                                textStyle = MaterialTheme.typography.body2,
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 0.dp),
+                                textStyle = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(48.dp)
@@ -280,7 +285,7 @@ fun LoginScreen(
                                 trailingIcon = {
                                     Text(
                                         text = "\uDB80\uDE08".asIconText,
-                                        style = MaterialTheme.typography.h6.copy(
+                                        style = MaterialTheme.typography.titleLarge.copy(
                                             fontFamily = CodeFontFamily,
                                             fontSize = 20.sp
                                         ),
@@ -340,12 +345,22 @@ fun LoginScreen(
 
                             if (isDesktop) {
                                 symlinkError?.let { message ->
-                                    AlertWarn(message)
+                                    LoginMessageDialog(
+                                        title = "警告",
+                                        message = message,
+                                        confirmColor = Color(0xFFE0A800),
+                                        onDismiss = { symlinkError = null }
+                                    )
                                 }
                             }
 
                             loginError?.let { message ->
-                                AlertErr(message)
+                                LoginMessageDialog(
+                                    title = "错误",
+                                    message = message,
+                                    confirmColor = MaterialTheme.colorScheme.error,
+                                    onDismiss = { loginError = null }
+                                )
                             }
                             Box(
                                 modifier = Modifier.width(20.dp).height(20.dp),
@@ -363,33 +378,32 @@ fun LoginScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        Row(
+                        FlowRowV(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center
                         ) {
                             Text(
                                 text = updateStatus,
-                                style = MaterialTheme.typography.caption,
-                                color = MaterialTheme.colors.onSurface
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface
                             )
                             if (updateDetail.isNotBlank()) {
                                 Spacer(modifier = Modifier.width(8.dp))
                                 Text(
                                     text = updateDetail,
-                                    style = MaterialTheme.typography.caption,
-                                    color = MaterialTheme.colors.onSurface
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurface
                                 )
                             }
                         }
                         Text(
                             "v"+Const.VERSION_NUMBER + if(DEBUG)"debug" else "",
-                            style = MaterialTheme.typography.caption,
+                            style = MaterialTheme.typography.labelSmall,
                         )
                         if(!isDesktop) {
                             Text(
                                 "为了正常下包 请确保RDI有文件+通知权限",
-                                style = MaterialTheme.typography.caption,
+                                style = MaterialTheme.typography.labelSmall,
                             )
                         }
                     }
@@ -397,14 +411,15 @@ fun LoginScreen(
             }
         }
 
-        BottomSnakebar(snackbarHostState)
+        BottomSnakebarM3(snackbarHostState)
 
         // MS Account Dialog
         if (showMsAccountDialog) {
             Dialog(onDismissRequest = { showMsAccountDialog = false }) {
                 Surface(
                     shape = MaterialTheme.shapes.medium,
-                    color = MaterialTheme.colors.surface,
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 8.dp,
                     modifier = Modifier.padding(16.dp)
                 ) {
                     Column(
@@ -413,7 +428,7 @@ fun LoginScreen(
                     ) {
                         Text(
                             "有微软MC正版号吗？",
-                            style = MaterialTheme.typography.h6
+                            style = MaterialTheme.typography.titleLarge
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -443,4 +458,38 @@ fun LoginScreen(
             }
         }
     }
+}
+
+@Composable
+private fun LoginMessageDialog(
+    title: String,
+    message: String,
+    confirmColor: Color,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+        },
+        text = {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                textAlign = TextAlign.Left,
+                modifier = Modifier.fillMaxWidth()
+            )
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("明白", color = confirmColor)
+            }
+        },
+        shape = RoundedCornerShape(28.dp),
+        containerColor = MaterialTheme.colorScheme.surface
+    )
 }

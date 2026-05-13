@@ -1,13 +1,13 @@
 ### `GET /recipe?itemId=namespace:path`
 
-Use to fetch recipes whose result item exactly matches a known item registry ID. The client must be in a loaded world because recipes are read from live synced recipe data.
+Use to fetch an LLM-readable recipe summary for recipes whose result item exactly matches a known item registry ID. The client must be in a loaded world because recipes are read from live synced recipe data and JEI when available.
 
-When JEI is installed and ready, this endpoint prefers JEI recipe data. JEI usually understands modded machine recipe categories better because tech mods register their own JEI integration. If JEI is absent, not ready, or returns no match, the endpoint falls back to Minecraft's synced recipe manager.
+Default response is compact. It hides high-noise recipe kinds such as loot tables and decorative/chisel variants, aggregates repeated inputs, and gives a stable `ref` for each shown recipe. Use the Markdown `detail` URL only for recipes that are actually relevant. Use `detailJson` when exact structured fields are needed.
 
 Example:
 
 ```text
-/recipe?itemId=minecraft:crafting_table
+/recipe?itemId=minecraft:stone
 ```
 
 Returns:
@@ -15,43 +15,81 @@ Returns:
 ```json
 {
   "code": "ok",
-  "data": [
-    {
-      "id": "minecraft:crafting_table",
-      "source": "minecraft",
-      "type": "minecraft:crafting_shaped",
-      "category": "building",
-      "title": null,
-      "runtimeClass": null,
-      "inputs": [
-        {
-          "role": "input",
-          "items": [
-            {"id": "minecraft:oak_planks", "langKey": "block.minecraft.oak_planks", "count": 1}
-          ],
-          "fluids": []
-        }
-      ],
-      "outputs": [
-        {
-          "role": "output",
-          "items": [
-            {"id": "minecraft:crafting_table", "langKey": "block.minecraft.crafting_table", "count": 1}
-          ],
-          "fluids": []
-        }
-      ],
-      "catalysts": [],
-      "renderOnly": [],
-      "extra": {
-        "pattern": ["AA", "AA"]
+  "data": {
+    "itemId": "minecraft:stone",
+    "totalCount": 87,
+    "shownCount": 4,
+    "hiddenCount": 83,
+    "recipes": [
+      {
+        "ref": "minecraft~minecraft_smelting~1~6f2a9c1d",
+        "id": "minecraft:stone",
+        "source": "minecraft",
+        "type": "minecraft:smelting",
+        "kind": "crafting_or_smelting",
+        "category": "blocks",
+        "title": null,
+        "inputItems": [{"id": "minecraft:cobblestone", "name": "block.minecraft.cobblestone", "count": 1}],
+        "inputFluids": [],
+        "inputTags": [],
+        "outputItems": [{"id": "minecraft:stone", "name": "block.minecraft.stone", "count": 1}],
+        "outputFluids": [],
+        "catalysts": [],
+        "detail": "/recipe/detail?itemId=minecraft:stone&ref=minecraft~minecraft_smelting~1~6f2a9c1d",
+        "detailJson": "/recipe/detail.json?itemId=minecraft:stone&ref=minecraft~minecraft_smelting~1~6f2a9c1d"
       }
-    }
-  ]
+    ]
+  }
 }
 ```
 
-If no synced recipe produces the item, `data` is an empty array.
+Query options:
 
-For JEI-sourced recipes, `inputs`, `outputs`, `catalysts`, and `renderOnly` are extracted from JEI's recipe layout. This can include modded machine recipes such as Create crushing, deploying, milling, and mixing when those mods provide JEI compatibility. Machine-specific fields like duration, EU/t, or output chance may not always be structured here; later raw JSON/codec sources can add those fields.
+- `limit=1..50`: maximum summary entries, default `16`.
+- `kind=crafting_or_smelting|machine|conversion|loot|decorative`: show only one recipe kind.
+- `includeHidden=true` or `include=all`: include loot/decorative entries that are hidden by default.
+- `view=full`: return the old full recipe JSON array. Use only for debugging or when compact/detail data is insufficient.
 
+Recipe kinds:
+
+- `crafting_or_smelting`: crafting table, furnace, blasting, smoking, campfire, and similar vanilla-style recipes.
+- `machine`: modded JEI machine recipes.
+- `conversion`: cutting, compression/decompression, and similar transformations.
+- `loot`: block/chest/entity loot style entries. Usually noisy for crafting questions.
+- `decorative`: large decorative variant sets, such as chisel-style stone variants. Usually noisy for crafting questions.
+
+### `GET /recipe/detail?itemId=namespace:path&ref=...`
+
+Returns concise Markdown for one recipe by `ref`.
+
+### `GET /recipe/detail.json?itemId=namespace:path&ref=...`
+
+Returns exact full JSON for one recipe by `ref`.
+
+`ref` is generated from the current `itemId` recipe list as:
+
+```text
+{source}~{type}~{index}~{hash}
+```
+
+Every ref part is URL-safe. The hash is calculated from the recipe content, and the index is the original position in the full recipe list. The server does not store recipe state; it recomputes the same refs for the current live recipe list.
+
+### `GET /recipe/detail.md?itemId=namespace:path&ref=...`
+
+Alias for `GET /recipe/detail`; kept for compatibility.
+
+Rules:
+
+- Call `/item-search?text=...` first when the player gave a display name instead of an exact `namespace:path`.
+- Read compact `/recipe` first.
+- Pick a relevant summary entry by `kind`, `title`, inputs, outputs, and catalysts.
+- Open Markdown `detail` only when the compact entry does not contain enough information.
+- Open `detailJson` only when exact structured fields are needed.
+- Use `view=full` only for debugging or data extraction, not normal planning.
+
+Common error codes:
+
+- `missing_item_id`: `itemId` is absent or blank.
+- `missing_recipe_ref`: `ref` is absent or blank for detail endpoints.
+- `bad_recipe_ref`: `ref` is malformed or no longer matches the current live recipe list for that `itemId`.
+- `bad_limit`: `limit` is not in `1..50`.

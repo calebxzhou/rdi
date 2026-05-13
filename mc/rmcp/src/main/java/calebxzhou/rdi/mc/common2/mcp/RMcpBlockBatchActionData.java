@@ -4,8 +4,15 @@ import java.util.List;
 
 public record RMcpBlockBatchActionData(
         String action,
-        List<FailedBlock> failedBlocks
+        boolean dryRun,
+        boolean changed,
+        List<FailedBlock> failedBlocks,
+        List<String> warnings
 ) {
+    public RMcpBlockBatchActionData(String action, List<FailedBlock> failedBlocks) {
+        this(action, false, failedBlocks.isEmpty(), failedBlocks, List.of());
+    }
+
     public record FailedBlock(
             RMcpBlockPosData pos,
             String code

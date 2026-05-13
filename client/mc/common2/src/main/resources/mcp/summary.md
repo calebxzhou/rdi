@@ -36,18 +36,20 @@ If `code` is not `ok`, `data` is `null`. Use the HTTP status and `code` to decid
 - Need to swap two slots inside the player's inventory: call `POST /inventory/swap`.
 - Need to move a specific item count between inventory slots: call `POST /inventory/move`.
 - Need to inspect the currently open inventory/container/machine menu: call `/menu`.
+- Need to close the currently open menu/container before inventory actions: call `POST /menu/close` after checking `/menu` shows `carriedItem=null`.
 - Need to throw an item stack or item count out of the currently open menu: call `POST /menu/drop` after `/menu`.
 - Need to craft from chosen inventory slots: call `POST /craft`; it does not need a crafting table, open GUI, or recipe book state.
 - Need to right-click a block with an item, such as composting wheat/saplings or using a container/fluid item on a block: call `POST /item/use-on-block`.
 - Need the current player's main hand item stack: call `/mainhand`.
 - Need to resolve an item display name, Chinese name, English name, screenshot tooltip, common name, registry path, or full registry ID: call `/item-search?text=...`.
-- Need recipes that produce a known item ID: call `/recipe?itemId=...`; when the player gave a display name instead of `namespace:path`, call `/item-search?text=...` first. When JEI is installed, recipes include JEI-backed modded machine recipes.
+- Need to resolve a block, entity type, fluid, or tag name from player language: call `/block-search`, `/entity-type-search`, `/fluid-search`, or `/tag-search` before guessing IDs.
+- Need recipes that produce a known item ID: call `/recipe?itemId=...`; it returns a compact summary with Markdown `detail` and exact JSON `detailJson` refs. When the player gave a display name instead of `namespace:path`, call `/item-search?text=...` first.
 - Need a chunk overview before inspecting terrain/building layout: call `/chunk?x=...&z=...`.
 - Need an LLM-readable 16x16x16 section layout: call `/section?x=...&y=...&z=...`.
 - Need a horizontal top-down block map at one Y level: call `/blockmap/slice`; pass `x/y/z` only for a non-player center.
 - Need a movement-friendly top-down map before `/move`: call `/blockmap/walkable`; use only `cells[].pos` entries with `symbol="."` as normal movement targets.
 - Need to understand vertical terrain relationships, slopes, cliffs, pits, cave mouths, bridges, or stairs along a line: call `/terrain/profile`.
-- Need nearby resources, fluids, containers, crops, wood, ores, or block entities: call `/nearby-resources`; add `pos=...` only for a known non-player center.
+- Need nearby resources, fluids, containers, crops, wood, ores, or block entities: call `/nearby-resources`; add `category=...` or `ids=...` to keep the compact result focused; add `pos=...` only for a known non-player center.
 - Need exact nearby positions for a known block ID: call `POST /blocks/find`; use `scanMode:"chunk"` for mining or whole-chunk vertical scans.
 - Need the block the player is currently looking at: call `/staring-block`.
 - Need exact block states for multiple known positions: call `POST /blockstate/batch` first.
@@ -123,6 +125,7 @@ In a normal 1.21 overworld, section Y can be negative, such as `-4` for blocks `
 
 - Always check `code`; only trust `data` when `code` is `ok`.
 - `/screenshot` is the only success response that is not JSON; treat it as an image.
+- Large read APIs default to compact JSON summaries. Open only a few relevant Markdown `detail` refs for reasoning, or `detailJson` refs for exact fields. Use `view=full` only for debugging or extraction.
 - When the player asks you to build something, read `GET /buildings` first. Use bundled building templates when one matches the request instead of inventing a structure from scratch.
 - For a template build, first call `GET /buildings/{id}` without `layer` to read size, palette, material IDs, and valid layer range before placing blocks.
 - `GET /buildings/{id}?layer=Y` returns only that layer map, without repeating summary or palette. Keep the palette from the summary response.
@@ -132,6 +135,7 @@ In a normal 1.21 overworld, section Y can be negative, such as `-4` for blocks `
 - Call `/situation` first when deciding the next action from current game state.
 - Call `/inventory` when exact item stacks or slots are needed; do not use `/player?detail=true` only for inventory.
 - When the player gives an item display name, Chinese name, English name, screenshot tooltip, common name, or partial registry path, call `/item-search?text=...` first. Do not invent `minecraft:*` from memory.
+- When the player gives a block, fluid, entity, or tag display name, call the matching resolve API first. Do not turn user language directly into `namespace:path` by memory.
 - If the screenshot or user text mentions a mod, pass `modId` when known and prefer candidates from that mod namespace. A tooltip showing `Bonsai Trees 4` and `bonsaitrees4:bonsaipot` means the target is the Bonsai Trees item, not a vanilla flower pot.
 - Call `/recipe?itemId=...` only after `/item-search` returns a verified `itemId`, unless the user already supplied an exact `namespace:path`.
 - Use `POST /hotbar/select` to change the held hotbar slot. The slot must be `0..8`. If the desired item is in main inventory, move or swap it into hotbar first.
@@ -140,13 +144,17 @@ In a normal 1.21 overworld, section Y can be negative, such as `-4` for blocks `
 - Use `POST /item/drop` to drop an item from the player's inventory as an item entity at a known loaded world position. It does not drop from open menus or block containers.
 - Use `dryRun=true` before `POST /item/drop` when the source slot or target position is uncertain, or before dropping valuable items.
 - Use `/menu` for currently open GUI slots. `/menu` slot numbers are menu slot indexes and are not the same as `/inventory` aliases.
+- If an inventory action returns `busy_container_open`: 1. call `/menu`; 2. if `data.carriedItem` is null, call `POST /menu/close`; 3. call `/inventory`; 4. retry the original inventory action. If `carriedItem` is not null, do not close the menu.
+- Do not close a menu with a non-empty carried cursor stack; `POST /menu/close` returns `carried_item_not_empty`.
 - Use `POST /menu/drop` only with a slot returned by `/menu`; use `dryRun=true` before throwing valuable items.
 - `POST /craft` runs server-side from selected inventory slots; it does not require a nearby crafting table, an open menu, or recipe book state.
 - Use `POST /item/use-on-block` for ordinary right-click block interactions with a held item. Prefer passing `itemId` when the item type matters and `fromInventorySlot` when you already selected an exact stack from `/inventory`.
 - `POST /item/use-on-block` runs Minecraft's normal item-on-block logic and can temporarily use a hotbar/main inventory stack, so do not call `/hotbar/select` only to hold the item first.
 - Use `dryRun=true` before `POST /item/use-on-block` when the item stack or target block is uncertain.
-- To craft an item, resolve display names with `/item-search?text=...`, then call `/recipe?itemId=...` and `/inventory`, choose source inventory slots, build a `shape`, then call `POST /craft` with `dryRun=true` before the real action when the slot plan is uncertain.
-- `/recipe` may return JEI-sourced mod machine recipes. Use `inputs`, `outputs`, and `catalysts` to understand required items, fluids, and machines, but do not assume `POST /craft` can execute non-crafting-table machine recipes.
+- To craft an item, resolve display names with `/item-search?text=...`, then call compact `/recipe?itemId=...` and `/inventory`, choose source inventory slots, build a `shape`, then call `POST /craft` with `dryRun=true` before the real action when the slot plan is uncertain.
+- `/recipe`, `/entity`, `/blockentity`, `/container`, `/quest/detail/{id}`, `/nearby-resources`, and `/section` return compact summaries by default. Use summary fields first; open Markdown `detail` for one relevant entry when compact data is not enough. Use `detailJson` only when exact structured fields are needed. Use `view=full` only for debugging or extraction, not normal planning.
+- `/recipe` may return JEI-sourced mod machine recipes. Use `inputItems`, `inputFluids`, `outputItems`, and `catalysts` to understand required items, fluids, and machines, but do not assume `POST /craft` can execute non-crafting-table machine recipes.
+- `/recipe` hides loot/decorative recipe kinds by default because large modpacks can produce noisy loot/chisel entries. Use `includeHidden=true`, `include=all`, or `kind=loot|decorative` only when those paths are specifically needed.
 - Use `POST /blockstate/batch` before `/place/batch`, `/place/discrete`, `/place/palette`, `/break/batch`, `/place/box`, `/place/ring`, or `/break/box` when target cells are not already known.
 - Batch block action responses contain only `data.action` and `data.failedBlocks`. If `failedBlocks` is empty, all accepted targets succeeded. Do not expect per-success `results`, counts, main hand snapshots, or inventory snapshots.
 - `POST /place/box` uses `blockId`, not `inventorySlot`. The server automatically finds and consumes matching block items from the player's hotbar/main inventory; do not swap or select slots first. It has no `face` and no `stopOnError`; it always stops at the first failed target. `endOffset` is relative to `startPos` and inclusive.
@@ -181,8 +189,9 @@ In a normal 1.21 overworld, section Y can be negative, such as `-4` for blocks `
 - Treat `/section` as a visual semantic map, not as exact block data. Use `POST /blockstate/batch` for exact cells unless there is only one cell.
 - Use `POST /blocks/find` when the target block ID is already known. Use `scanMode:"nearby_sections"` for nearby surface/structure targets, and `scanMode:"chunk"` for mining because it scans every vertical section in the selected loaded chunks. Start mining scans with `chunkRadius=0` or `1`; avoid defaulting to `chunkRadius=4`.
 - For ore searches, include both normal and deepslate IDs when relevant, such as `minecraft:diamond_ore` and `minecraft:deepslate_diamond_ore`.
-- Use `/nearby-resources` first when the target is semantic, such as ores, wood, containers, fluids, or crops.
+- Use `/nearby-resources` first when the target is semantic, such as ores, wood, containers, fluids, or crops. Prefer `category=ore`, `category=fluid`, `category=wood`, `category=crop`, `category=container`, or `ids=namespace:path` when the user already gave a narrow target.
 - For nearby resource discovery around the player, call `/nearby-resources` without `pos`; use `pos` only when the center is not the player.
+- Check `/nearby-resources` `scan` before trusting absence: skipped chunks or `limited=true` means the result is incomplete.
 - For nearby monsters or animals around the player, call `/nearby-entities` without `pos`; use `/entity` only after choosing a specific UUID.
 - For dropped items, call `POST /entity/pickup-item?radius=64&limit=256` directly. Call `/nearby-entities?category=item` first only when you need to inspect item IDs/counts before selecting specific `ids`.
 - Prefer `POST /blockstate/batch` over repeated `/blockstate` calls whenever there are 2 or more known positions.
@@ -206,6 +215,9 @@ File names are endpoint paths without the leading slash, with `/` replaced by `$
 - `GET /quest/reachable`: `GET /apidoc/quest$reachable.md`
 - `GET /quest/chapter/{id}`: `GET /apidoc/quest$chapter${id}.md`
 - `GET /quest/detail/{id}`: `GET /apidoc/quest$detail${id}.md`
+- `GET /quest/detail/detail?ref=id`: `GET /apidoc/quest$detail${id}.md`
+- `GET /quest/detail/detail.md?ref=id`: `GET /apidoc/quest$detail${id}.md`
+- `GET /quest/detail/detail.json?ref=id`: `GET /apidoc/quest$detail${id}.md`
 
 - `GET /test`: `GET /apidoc/test.md`
 - `GET /screenshot`: `GET /apidoc/screenshot.md`
@@ -218,6 +230,7 @@ File names are endpoint paths without the leading slash, with `/` replaced by `$
 - `POST /inventory/move`: `GET /apidoc/inventory$move.md`
 - `POST /item/drop`: `GET /apidoc/item$drop.md`
 - `GET /menu`: `GET /apidoc/menu.md`
+- `POST /menu/close`: `GET /apidoc/menu$close.md`
 - `POST /menu/drop`: `GET /apidoc/menu$drop.md`
 - `POST /move`: `GET /apidoc/move.md`
 - `POST /respawn`: `GET /apidoc/respawn.md`
@@ -226,20 +239,35 @@ File names are endpoint paths without the leading slash, with `/` replaced by `$
 - `GET /mainhand`: `GET /apidoc/mainhand.md`
 - `GET /item-search?text=query`: `GET /apidoc/item-search.md`
 - `GET /recipe?itemId=namespace:path`: `GET /apidoc/recipe.md`
+- `GET /recipe/detail?itemId=namespace:path&ref=ref`: `GET /apidoc/recipe.md`
+- `GET /recipe/detail.md?itemId=namespace:path&ref=ref`: `GET /apidoc/recipe.md`
+- `GET /recipe/detail.json?itemId=namespace:path&ref=ref`: `GET /apidoc/recipe.md`
 - `GET /chunk?x=chunkX&z=chunkZ`: `GET /apidoc/chunk.md`
 - `GET /section?x=chunkX&y=sectionY&z=chunkZ`: `GET /apidoc/section.md`
+- `GET /section/detail?x=chunkX&y=sectionY&z=chunkZ&ref=ref`: `GET /apidoc/section.md`
+- `GET /section/detail.md?x=chunkX&y=sectionY&z=chunkZ&ref=ref`: `GET /apidoc/section.md`
+- `GET /section/detail.json?x=chunkX&y=sectionY&z=chunkZ&ref=ref`: `GET /apidoc/section.md`
 - `GET /blockmap/slice`: `GET /apidoc/blockmap$slice.md`
 - `GET /blockmap/walkable`: `GET /apidoc/blockmap$walkable.md`
 - `GET /terrain/profile`: `GET /apidoc/terrain$profile.md`
 - `POST /blocks/find`: `GET /apidoc/blocks$find.md`
-- `GET /nearby-resources?chunkRadius=2&sectionRadius=1`: `GET /apidoc/nearby-resources.md`
+- `GET /nearby-resources?category=ore,fluid&ids=minecraft:iron_ore,minecraft:water&chunkRadius=2&sectionRadius=1&limit=64`: `GET /apidoc/nearby-resources.md`
+- `GET /nearby-resources/detail?ref=ref`: `GET /apidoc/nearby-resources.md`
+- `GET /nearby-resources/detail.md?ref=ref`: `GET /apidoc/nearby-resources.md`
+- `GET /nearby-resources/detail.json?ref=ref`: `GET /apidoc/nearby-resources.md`
 - `GET /staring-block?fluid=true`: `GET /apidoc/staring-block.md`
 - `GET /blockstate?x=10&y=64&z=-20`: `GET /apidoc/blockstate.md`
 - `POST /blockstate/batch`: `GET /apidoc/blockstate$batch.md`
 - `GET /blockentity?pos=dim,x,y,z`: `GET /apidoc/blockentity.md`
+- `GET /blockentity/detail?ref=dim,x,y,z`: `GET /apidoc/blockentity.md`
+- `GET /blockentity/detail.md?ref=dim,x,y,z`: `GET /apidoc/blockentity.md`
+- `GET /blockentity/detail.json?ref=dim,x,y,z`: `GET /apidoc/blockentity.md`
 - `GET /sign/text?x=10&y=64&z=-20`: `GET /apidoc/sign$text$get.md`
 - `POST /sign/text`: `GET /apidoc/sign$text.md`
 - `GET /container?pos=dim,x,y,z&side=north`: `GET /apidoc/container.md`
+- `GET /container/detail?ref=dim,x,y,z~side`: `GET /apidoc/container.md`
+- `GET /container/detail.md?ref=dim,x,y,z~side`: `GET /apidoc/container.md`
+- `GET /container/detail.json?ref=dim,x,y,z~side`: `GET /apidoc/container.md`
 - `POST /container/put`: `GET /apidoc/container$put.md`
 - `POST /container/put/batch`: `GET /apidoc/container$put$batch.md`
 - `POST /container/take`: `GET /apidoc/container$take.md`
@@ -260,9 +288,16 @@ File names are endpoint paths without the leading slash, with `/` replaced by `$
 - `POST /entity/pickup-item`: `GET /apidoc/entity$pickup-item.md`
 - `GET /staring-entity`: `GET /apidoc/staring-entity.md`
 - `GET /entity?uuid=uuid`: `GET /apidoc/entity.md`
+- `GET /entity/detail?ref=uuid`: `GET /apidoc/entity.md`
+- `GET /entity/detail.md?ref=uuid`: `GET /apidoc/entity.md`
+- `GET /entity/detail.json?ref=uuid`: `GET /apidoc/entity.md`
 - `GET /player?uuid=uuid&detail=true`: `GET /apidoc/player.md`
 - `GET /langkey?key=language.key`: `GET /apidoc/langkey.md`
 - `GET /langkey-search?text=query`: `GET /apidoc/langkey-search.md`
+- `GET /block-search?text=query`: `GET /apidoc/block-search.md`
+- `GET /entity-type-search?text=query`: `GET /apidoc/entity-type-search.md`
+- `GET /fluid-search?text=query`: `GET /apidoc/fluid-search.md`
+- `GET /tag-search?text=query`: `GET /apidoc/tag-search.md`
 
 ## Error Codes
 Use `/errcode/{code}` to fetch one error description without reading the full list.
