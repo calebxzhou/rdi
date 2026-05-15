@@ -277,6 +277,16 @@ fun AppNavigation(
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(ResourceRoute(ResourceTab.McResources.name, mcVer?.mcVer))
                     },
+                    onOpenResourceMods = { mcVer, hostId, fromAllHosts ->
+                        navController.navigate(
+                            ResourceRoute(
+                                tab = ResourceTab.Mods.name,
+                                requiredMcVer = mcVer?.mcVer,
+                                fromHostId = hostId,
+                                fromAllHosts = fromAllHosts
+                            )
+                        )
+                    },
                     onOpenMailDetail = { mailId ->
                         navController.navigate(MailDetail(mailId))
                     },
@@ -394,6 +404,7 @@ fun AppNavigation(
                 ResourceScreen(
                     initialCategory = ResourceTab.fromRouteValue(route.tab),
                     requiredMcVer = route.requiredMcVer?.let(McVersion::from),
+                    targetHostId = route.fromHostId?.let(::ObjectId),
                     onBack = {
                         val fromHostId = route.fromHostId
                         if (fromHostId != null) {
@@ -403,13 +414,8 @@ fun AppNavigation(
                         }
                     },
                     onOpenUpload = { navController.navigate(ModpackUpload) },
-                    onOpenModpackVersionEdit = { modpackId, verName ->
-                        navController.navigate(
-                            ModpackVersionEdit(
-                                modpackId = modpackId,
-                                verName = verName
-                            )
-                        )
+                    onOpenModpackInfo = { modpackId ->
+                        navController.navigate(ModpackInfo(modpackId))
                     },
                     onOpenPlay = { args ->
                         openMcPlay(args) { navController.navigateAbsolute(route) }

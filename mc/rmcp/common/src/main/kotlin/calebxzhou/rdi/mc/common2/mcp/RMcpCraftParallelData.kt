@@ -1,0 +1,30 @@
+package calebxzhou.rdi.mc.common2.mcp
+
+@JvmRecord
+data class RMcpCraftParallelData(
+    val action: String,
+    val dryRun: Boolean,
+    val changed: Boolean,
+    val requestedCount: Int,
+    val craftedCount: Int,
+    val results: List<Result>,
+    val failedCrafts: List<FailedCraft>,
+    val before: RMcpInventoryData,
+    val after: RMcpInventoryData?
+) {
+    @JvmRecord
+    data class Result(
+        val index: Int,
+        val recipeId: String,
+        val resultId: String,
+        val requestedCount: Int,
+        val craftedCount: Int,
+        val outputSlot: Int
+    )
+
+    @JvmRecord
+    data class FailedCraft(
+        val index: Int,
+        val code: String?
+    )
+}

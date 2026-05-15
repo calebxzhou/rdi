@@ -1,5 +1,6 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.sha1
@@ -11,6 +12,7 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.isDesktop
 import calebxzhou.rdi.client.ui.loadResourceStream
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.archive.PackArchiveFormat
 import calebxzhou.rdi.common.archive.detectArchiveFormat
@@ -36,6 +38,8 @@ enum class LocalModpackSourceType {
     MODRINTH,
     CURSEFORGE
 }
+
+private val lgr by Loggers
 
 data class ServerExtraFile(
     val sourceFile: File,
@@ -469,8 +473,13 @@ fun mergeMinecraftOptions(
 sealed class StartPlayResult {
     data class Ready(val args: McPlayArgs) : StartPlayResult()
     data class NeedMc(val ver: McVersion) : StartPlayResult()
+    data class NeedMod(val modSlugs: List<String>) : StartPlayResult()
     data class NeedInstall(val task: Task2) : StartPlayResult()
 }
+
+private val requiredClientModSlugs: Map<McVersion, List<String>> = mapOf(
+    McVersion.V211 to listOf("kotlin-for-forge")
+)
 
 data class ModpackLocalDir(
     val dir: java.io.File,
@@ -490,6 +499,15 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
 
     if (!(modpack.mcVer.firstLoaderDir.exists())) {
         return StartPlayResult.NeedMc(modpack.mcVer)
+    }
+    val activeMods = (version.mods + extraMods)
+        .filterNot { mod -> disabledMods.any { sameMod(it, mod) } }
+    val requiredModSlugs = requiredClientModSlugs[modpack.mcVer].orEmpty()
+    val missingRequiredModSlugs = requiredModSlugs.filterNot { slug ->
+        activeMods.any { it.slug.equals(slug, ignoreCase = true) }
+    }
+    if (missingRequiredModSlugs.isNotEmpty() && DEBUG) {
+        return StartPlayResult.NeedMod(missingRequiredModSlugs)
     }
     if (!ModpackService.isVersionInstalled(modpack.id, packVer)) {
         val task = with(ModpackService) { version.startInstallTask2(modpack.mcVer, modpack.modloader, modpack.name) }
@@ -529,7 +547,6 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             mcVer = modpack.mcVer,
             versionId = versionId,
             playArg = playArg,
-            mcpPort = port-10000,
             versionDir = verDir.absolutePath,
             activeBaseMods = activeBaseMods,
             disabledBaseMods = disabledMods,
@@ -553,7 +570,13 @@ suspend fun ModpackService.getLocalPackDirs(): List<ModpackLocalDir> = coroutine
         val match = pattern.matchEntire(dir.name) ?: return@mapNotNull null
         val (idStr, verName) = match.destructured
         async {
-            val vo = server.makeRequest<Modpack.BriefVo>("modpack/${idStr}/brief").data ?: Modpack.BriefVo()
+            val vo = runCatching {
+                val response = server.makeRequest<Modpack.BriefVo>("modpack/${idStr}/brief")
+                response.data ?: error(response.msg)
+            }.getOrElse {
+                lgr.warn(it) { "读取本地整合包${dir.name}元数据失败，将跳过该目录" }
+                return@async null
+            }
             val createTime = runCatching {
                 java.nio.file.Files.readAttributes(
                     dir.toPath(),
@@ -563,5 +586,5 @@ suspend fun ModpackService.getLocalPackDirs(): List<ModpackLocalDir> = coroutine
             ModpackLocalDir(dir, verName, vo, createTime)
         }
     }
-    deferred.awaitAll()
+    deferred.awaitAll().filterNotNull()
 }

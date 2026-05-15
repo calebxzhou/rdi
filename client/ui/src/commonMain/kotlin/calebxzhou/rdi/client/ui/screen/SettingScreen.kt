@@ -1057,10 +1057,22 @@ private fun AiPriceField(
     value: Double,
     onValueChange: (String) -> Unit
 ) {
+    var text by remember { mutableStateOf(formatAiPrice(value)) }
+    LaunchedEffect(value) {
+        val parsedText = parseAiPriceInput(text)
+        if (parsedText == null || parsedText != value) {
+            text = formatAiPrice(value)
+        }
+    }
     RTextField(
         label = "$label/1M",
-        value = formatAiPrice(value),
-        onValueChange = onValueChange,
+        value = text,
+        onValueChange = { input ->
+            val nextText = input.trim()
+            if (!isAiPriceInputCandidate(nextText)) return@RTextField
+            text = nextText
+            parseAiPriceInput(nextText)?.let { onValueChange(nextText) }
+        },
         modifier = Modifier.width(140.dp)
     )
 }
@@ -1068,9 +1080,13 @@ private fun AiPriceField(
 private fun parseAiPriceInput(text: String): Double? {
     val input = text.trim()
     if (input.isEmpty()) return 0.0
+    if (!isAiPriceInputCandidate(input) || input == ".") return null
     return input.toDoubleOrNull()
         ?.takeIf { !it.isNaN() && !it.isInfinite() && it >= 0.0 }
 }
+
+private fun isAiPriceInputCandidate(text: String): Boolean =
+    text.matches(Regex("""\d*(\.\d{0,8})?"""))
 
 private fun formatAiPrice(value: Double): String =
     if (value.isNaN() || value.isInfinite()) {

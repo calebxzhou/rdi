@@ -1,0 +1,45 @@
+package calebxzhou.rdi.mc.common2.mcp
+
+@JvmRecord
+data class RMcpSectionSemanticData(
+    val dim: String,
+    val chunk: ChunkPos,
+    val sectionY: Int,
+    val blockY: BlockYRange,
+    val summary: Summary,
+    val layers: List<Layer>,
+    val legend: Map<String, String>,
+    val features: Features?
+) {
+    @JvmRecord
+    data class ChunkPos(val x: Int, val z: Int)
+
+    @JvmRecord
+    data class BlockYRange(val min: Int, val max: Int)
+
+    @JvmRecord
+    data class BlockCount(val id: String, val count: Int)
+
+    @JvmRecord
+    data class NonAirBox(val min: RBlockPos, val max: RBlockPos?)
+
+    @JvmRecord
+    data class Summary(
+        val empty: Boolean,
+        val nonAir: Int,
+        val paletteSize: Int,
+        val topBlocks: List<BlockCount>,
+        val bboxNonAir: NonAirBox?
+    )
+
+    @JvmRecord
+    data class Layer(val y: Int, val grid: List<String>, val topBlocks: List<BlockCount>)
+
+    @JvmRecord
+    data class Features(
+        val hasFluids: Boolean,
+        val hasBlockEntities: Boolean,
+        val solidRegions: Int,
+        val airRegions: Int
+    )
+}

@@ -127,7 +127,7 @@ enum class McVersion(
     val vMajor get() = mcVer.split(".")[0]
     val vMinor get() = mcVer.split(".")[1]
     val vPatch get() = mcVer.split(".")[2]
-
+    val simpleVer get() = "$vMajor.$vMinor"
     fun supportsConfiguredJava(major: Int): Boolean = major in supportedJreVers
 
     fun supportsCurrentJava(major: Int): Boolean = supportsConfiguredJava(major)

@@ -1,0 +1,23 @@
+package calebxzhou.rdi.mc.common2.mcp
+
+@JvmRecord
+data class RMcpMenuData(
+    val dim: String,
+    val containerId: Int,
+    val menuClass: String,
+    val inventoryMenu: Boolean,
+    val carriedItem: Slot,
+    val slotCount: Int,
+    val slots: List<Slot>
+) {
+    @JvmRecord
+    data class Slot(
+        val slot: Int,
+        val empty: Boolean,
+        val mayPickup: Boolean,
+        val id: String,
+        val count: Int,
+        val limit: Int,
+        val snbt: String?
+    )
+}

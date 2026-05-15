@@ -10,7 +10,7 @@ Request body:
     {
       "fromInventorySlot": 12,
       "to": {
-        "pos": "minecraft:overworld,10,64,-20",
+        "pos": "10,64,-20",
         "side": null,
         "slot": null
       },
@@ -19,7 +19,7 @@ Request body:
     {
       "fromInventorySlot": 13,
       "to": {
-        "pos": "minecraft:overworld,10,64,-20",
+        "pos": "10,64,-20",
         "side": null,
         "slot": 1
       },

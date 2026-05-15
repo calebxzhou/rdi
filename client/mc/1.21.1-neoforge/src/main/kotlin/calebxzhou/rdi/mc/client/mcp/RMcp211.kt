@@ -1,0 +1,17 @@
+package calebxzhou.rdi.mc.client.mcp
+
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
+
+object RMcp211 {
+    private val lgr: Logger = LoggerFactory.getLogger("rdi-mcp")
+
+    fun start() {
+        runCatching {
+            RMHttpServer.start(RMcpImpl211())
+            lgr.info("RDI MCP START OK")
+        }.getOrElse {
+            lgr.error("RDI MCP START ERROR", it)
+        }
+    }
+}

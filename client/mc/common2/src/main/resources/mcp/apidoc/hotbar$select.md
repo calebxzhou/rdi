@@ -28,16 +28,14 @@ Returns:
       "slot": 0,
       "hotbarSlot": 0,
       "id": "minecraft:stone_pickaxe",
-      "count": 1,
-      "snbt": "{count:1,id:\"minecraft:stone_pickaxe\"}"
+      "count": 1
     },
     "afterSelectedItem": {
       "section": "hotbar",
       "slot": 3,
       "hotbarSlot": 3,
       "id": "minecraft:torch",
-      "count": 32,
-      "snbt": "{count:32,id:\"minecraft:torch\"}"
+      "count": 32
     },
     "inventory": {}
   }

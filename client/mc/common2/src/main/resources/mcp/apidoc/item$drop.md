@@ -11,7 +11,6 @@ Request JSON:
   "from": "hotbar:0",
   "count": 1,
   "pos": {
-    "dim": "minecraft:overworld",
     "x": 12.5,
     "y": 64.0,
     "z": -8.5
@@ -29,9 +28,9 @@ Request JSON:
 - `armor:0..3`
 - `offhand:0`
 
-`pos.dim` is optional and defaults to the current player dimension. If provided, it must match the current dimension. The target chunk must already be loaded and the target must be within 64 blocks of the player.
+`pos` uses the current player dimension. The target chunk must already be loaded and the target must be within 64 blocks of the player.
 
-Use `dryRun=true` before dropping valuable items or when the source slot is uncertain. A dry run validates the slot, count, target position, dimension, distance, and loaded chunk, but does not remove items or create an entity.
+Use `dryRun=true` before dropping valuable items or when the source slot is uncertain. A dry run validates the slot, count, target position, distance, and loaded chunk, but does not remove items or create an entity.
 
 Success response:
 
@@ -63,7 +62,6 @@ Common error codes:
 
 - `bad_request`: missing `from`, `count`, or `pos`, malformed JSON, or invalid `pickupDelay`.
 - `bad_pos`: coordinates are missing, non-finite, or outside world bounds.
-- `dim_not_loaded`: `pos.dim` does not match the current dimension.
 - `chunk_not_loaded`: the target chunk is not loaded.
 - `too_far`: target position is more than 64 blocks away.
 - `protected`: the player cannot interact at the target position.

@@ -2,7 +2,7 @@
 
 Use to scan loaded sections around the player or a known position and summarize nearby useful resources like ores, fluids, wood, crops, containers, spawners, and block entities. This endpoint is a compact semantic scan for LLM planning. It does not force-load chunks.
 
-`pos` is optional and defaults to the local player's current block position. `chunkRadius` and `sectionRadius` are optional. Defaults are `chunkRadius=2` and `sectionRadius=1`; valid values are `0..4`.
+`pos` is optional, uses `x,y,z` in the current dimension, and defaults to the local player's current block position. `chunkRadius` and `sectionRadius` are optional. Defaults are `chunkRadius=2` and `sectionRadius=1`; valid values are `0..4`.
 
 Filters are optional:
 
@@ -87,7 +87,7 @@ Compact returns:
 }
 ```
 
-Use `resources[].nearest` for the first target to inspect. Open `resources[].detail` when you need section counts in Markdown. `scan.skippedReasons` may include `chunk_not_loaded` or `section_out_of_world`. Use `/section` for layout when a resource section looks important, then `/blockstate/batch`, `/blockstate`, or `/blockentity` for exact cells.
+Use `resources[].nearest` for the first target to inspect. Open `resources[].detail` when you need section counts in Markdown. `scan.skippedReasons` may include `chunk_not_loaded` or `section_out_of_world`. Use `/blockmap/slice` for horizontal layout when a resource section looks important, then `/blockstate/batch`, `/blockstate`, or `/blockentity` for exact cells.
 
 Errors:
 
@@ -97,5 +97,3 @@ Errors:
 - `bad_limit`: `limit` is not an integer or is outside `1..256`.
 - `bad_request`: `category` or `ids` is malformed.
 - `no_player`: the local player is not in a loaded world.
-- `dim_not_loaded`: provided `pos` dimension is not the client's current loaded dimension.
-

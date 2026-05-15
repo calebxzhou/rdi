@@ -1,7 +1,8 @@
 package calebxzhou.rdi.client.ui.screen
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -23,9 +25,10 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.CircularProgressIndicator
 import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
@@ -38,7 +41,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -47,15 +50,23 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.model.RemoteModCardVo
+import calebxzhou.rdi.client.model.RemoteModSource
 import calebxzhou.rdi.client.model.RemoteModSourceFilter
 import calebxzhou.rdi.client.service.ModSearchService
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.RowV
+import calebxzhou.rdi.client.ui.SimpleTooltip
 import calebxzhou.rdi.client.ui.Space8h
 import calebxzhou.rdi.client.ui.Space8w
+import calebxzhou.rdi.client.ui.baseShapeRadius
 import calebxzhou.rdi.client.ui.comp.RemoteModCard
+import calebxzhou.rdi.client.ui.comp.RemoteModSourceIcon
+import calebxzhou.rdi.client.ui.iconBitmap
+import calebxzhou.rdi.client.ui.loadResourceBitmap
+import calebxzhou.rdi.client.ui.roundShape
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.ModrinthSearchIndex
@@ -222,14 +233,22 @@ fun RemoteModScreen(
                         RemoteModFilterChipItem("全部", selectedSourceFilter == RemoteModSourceFilter.ALL) {
                             selectedSourceFilter = RemoteModSourceFilter.ALL
                         },
-                        RemoteModFilterChipItem("Modrinth", selectedSourceFilter == RemoteModSourceFilter.MODRINTH) {
-                            selectedSourceFilter = RemoteModSourceFilter.MODRINTH
-                        },
-                        RemoteModFilterChipItem("CurseForge", selectedSourceFilter == RemoteModSourceFilter.CURSEFORGE) {
-                            selectedSourceFilter = RemoteModSourceFilter.CURSEFORGE
-                        }
+                        RemoteModFilterChipItem(
+                            text = "Modrinth",
+                            selected = selectedSourceFilter == RemoteModSourceFilter.MODRINTH,
+                            source = RemoteModSource.MODRINTH,
+                            showText = false,
+                            tooltip = "Modrinth"
+                        ) { selectedSourceFilter = RemoteModSourceFilter.MODRINTH },
+                        RemoteModFilterChipItem(
+                            text = "CurseForge",
+                            selected = selectedSourceFilter == RemoteModSourceFilter.CURSEFORGE,
+                            source = RemoteModSource.CURSEFORGE,
+                            showText = false,
+                            tooltip = "CurseForge"
+                        ) { selectedSourceFilter = RemoteModSourceFilter.CURSEFORGE }
                     ),
-                    columns = 1
+                    columns = 3
                 )
             }
             RemoteModFilterSection("MC版本") {
@@ -237,8 +256,11 @@ fun RemoteModScreen(
                 RemoteModFilterGrid(
                     items = versions.map { version ->
                         RemoteModFilterChipItem(
-                            text = version.mcVer,
+                            text = version.simpleVer,
                             selected = selectedMcVer == version,
+                            iconPath = version.icon,
+                            showText = false,
+                            tooltip = version.simpleVer,
                             onClick = {
                                 if (lockedMcVer == null) {
                                     selectedMcVer = version
@@ -259,6 +281,9 @@ fun RemoteModScreen(
                         RemoteModFilterChipItem(
                             text = loader.displayName,
                             selected = selectedLoader == loader,
+                            iconName = loader.iconName,
+                            showText = false,
+                            tooltip = loader.displayName,
                             onClick = { selectedLoader = loader }
                         )
                     }
@@ -425,6 +450,13 @@ private val ModLoader.displayName: String
         ModLoader.cleanroom -> "Cleanroom"
     }
 
+private val ModLoader.iconName: String
+    get() = when (this) {
+        ModLoader.forge -> "forge"
+        ModLoader.neoforge -> "neoforge"
+        ModLoader.cleanroom -> "cleanroom"
+    }
+
 @Composable
 private fun RemoteModFilterSection(
     title: String,
@@ -433,8 +465,8 @@ private fun RemoteModFilterSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
-            style = MaterialTheme.typography.subtitle2,
-            color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f)
+            style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
+            color = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
         )
         content()
     }
@@ -443,39 +475,96 @@ private fun RemoteModFilterSection(
 private data class RemoteModFilterChipItem(
     val text: String,
     val selected: Boolean,
+    val source: RemoteModSource? = null,
+    val iconPath: String? = null,
+    val iconName: String? = null,
+    val showText: Boolean = true,
+    val tooltip: String? = null,
     val onClick: () -> Unit
 )
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RemoteModFilterChip(
     text: String,
     selected: Boolean,
     onClick: () -> Unit,
+    source: RemoteModSource? = null,
+    iconPath: String? = null,
+    iconName: String? = null,
+    showText: Boolean = true,
+    tooltip: String? = null,
     modifier: Modifier = Modifier
 ) {
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(8.dp),
-        color = if (selected) MaterialColor.BLUE_700.color else MaterialColor.GRAY_200.color
-    ) {
-        Text(
-            text = text,
-            color = if (selected) Color.White else MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.body2,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 8.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+    val colors = if (selected) {
+        ButtonDefaults.buttonColors(
+            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.primary,
+            contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onPrimary
         )
+    } else {
+        ButtonDefaults.buttonColors(
+            containerColor = androidx.compose.material3.MaterialTheme.colorScheme.surfaceVariant,
+            contentColor = androidx.compose.material3.MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+    val button: @Composable () -> Unit = {
+        Button(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth().height(32.dp),
+            shape = roundShape,
+            colors = colors,
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 0.dp, pressedElevation = 1.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                source?.let {
+                    RemoteModSourceIcon(
+                        source = it,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                val filterIcon = when {
+                    source != null -> null
+                    iconPath != null -> remember(iconPath) { loadResourceBitmap(iconPath) }
+                    iconName != null -> remember(iconName) { iconBitmap(iconName) }
+                    else -> null
+                }
+                filterIcon?.let { bitmap ->
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = text,
+                        modifier = Modifier.size(24.dp),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+                if (showText || (source == null && filterIcon == null)) {
+                    androidx.compose.material3.Text(
+                        text = text,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyLarge,
+                        textAlign = TextAlign.Center,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+        }
+    }
+    Box(modifier = modifier) {
+        tooltip?.let {
+            SimpleTooltip(it) { button() }
+        } ?: button()
     }
 }
 
 @Composable
 private fun RemoteModFilterGrid(
     items: List<RemoteModFilterChipItem>,
-    columns: Int = 3
+    columns: Int = 4
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -491,6 +580,11 @@ private fun RemoteModFilterGrid(
                         text = item.text,
                         selected = item.selected,
                         onClick = item.onClick,
+                        source = item.source,
+                        iconPath = item.iconPath,
+                        iconName = item.iconName,
+                        showText = item.showText,
+                        tooltip = item.tooltip,
                         modifier = Modifier.weight(1f)
                     )
                 }

@@ -1,8 +1,8 @@
-### `GET /blockentity?pos=dim,x,y,z`
+### `GET /blockentity?pos=x,y,z`
 
-Default response is compact and omits raw SNBT. Use `GET /blockentity/detail?ref=dim,x,y,z` for Markdown, or `GET /blockentity/detail.json?ref=dim,x,y,z` for exact JSON/SNBT. `.detail.md` is a compatibility alias for Markdown. Use `view=full` only for debugging or extraction.
+Default response is compact and omits raw SNBT. Use `GET /blockentity/detail?ref=x,y,z` for Markdown, or `GET /blockentity/detail.json?ref=x,y,z` for exact JSON/SNBT. `.detail.md` is a compatibility alias for Markdown. Use `view=full` only for debugging or extraction.
 
-Use for detailed block entity data at a known position. This is for chests, machines, signs, spawners, and modded blocks that store extra data. This endpoint uses the `rdi:mcp` server bridge, so the returned data is read from the server rather than from the client's partial block entity copy.
+Use for detailed block entity data at a known position in the current dimension. This is for chests, machines, signs, spawners, and modded blocks that store extra data. This endpoint uses the `rdi:mcp` server bridge, so the returned data is read from the server rather than from the client's partial block entity copy.
 
 Returns:
 

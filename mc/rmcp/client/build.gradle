@@ -1,0 +1,31 @@
+plugins {
+    id 'java-library'
+    id 'org.jetbrains.kotlin.jvm' version '2.3.20'
+}
+
+group = "calebxzhou.rdi.mc.rmcp"
+version = "0.1"
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+kotlin {
+    jvmToolchain(25)
+}
+
+dependencies {
+    api project(':rmcp-common')
+    implementation 'io.fusionauth:java-http:1.4.0'
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}

@@ -1,0 +1,52 @@
+package calebxzhou.rdi.mc.client.mcp
+
+import calebxzhou.rdi.mc.common2.mcp.RMarkdownComponent
+import calebxzhou.rdi.mc.common2.mcp.RMarkdownComponent.parse
+import calebxzhou.rdi.mc.common2.mcp.RMarkdownComponent.parseLine
+import calebxzhou.rdi.mc.common2.mcp.RMarkdownComponent.parseLines
+import calebxzhou.rdi.mc.common2.mcp.RMarkdownComponent.parseSignLines
+import net.minecraft.ChatFormatting
+import net.minecraft.network.chat.ClickEvent
+import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.MutableComponent
+import net.minecraft.network.chat.Style
+
+object RMarkdownComponent211 {
+    private val ADAPTER = object : RMarkdownComponent.ComponentAdapter<MutableComponent> {
+        override fun empty(): MutableComponent = Component.empty()
+
+        override fun literal(text: String, style: RMarkdownComponent.TextStyle): MutableComponent =
+            Component.literal(text).withStyle { applyStyle(it, style) }
+
+        override fun append(target: MutableComponent, child: MutableComponent): MutableComponent = target.append(child)
+    }
+
+    fun parse(markdown: String): MutableComponent = parse(markdown, ADAPTER)
+
+    fun parseLine(markdown: String): MutableComponent = parseLine(markdown, ADAPTER)
+
+    fun parseLines(markdown: String): MutableList<MutableComponent> = parseLines(markdown, ADAPTER)
+
+    fun parseSignLines(markdown: String): MutableList<MutableComponent> = parseSignLines(markdown, ADAPTER)
+
+    private fun applyStyle(style: Style, markdownStyle: RMarkdownComponent.TextStyle): Style {
+        var style = style
+        ChatFormatting.getByName(markdownStyle.color)?.let { style = style.withColor(it) }
+        if (markdownStyle.bold) {
+            style = style.withBold(true)
+        }
+        if (markdownStyle.italic) {
+            style = style.withItalic(true)
+        }
+        if (markdownStyle.underlined) {
+            style = style.withUnderlined(true)
+        }
+        if (markdownStyle.strikethrough) {
+            style = style.withStrikethrough(true)
+        }
+        if (markdownStyle.clickUrl != null) {
+            style = style.withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, markdownStyle.clickUrl))
+        }
+        return style
+    }
+}

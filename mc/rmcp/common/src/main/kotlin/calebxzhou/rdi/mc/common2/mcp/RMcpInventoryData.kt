@@ -1,0 +1,9 @@
+package calebxzhou.rdi.mc.common2.mcp
+
+@JvmRecord
+data class RMcpInventoryData(
+    //count + item ids eg. 64x minecraft:dirt
+    val inv: List<String>,
+    val armor: List<String>,
+    val offhand: List<String>,
+)

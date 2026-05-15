@@ -9,7 +9,7 @@ Request body:
   "moves": [
     {
       "from": {
-        "pos": "minecraft:overworld,10,64,-20",
+        "pos": "10,64,-20",
         "side": null,
         "slot": 0
       },
@@ -18,7 +18,7 @@ Request body:
     },
     {
       "from": {
-        "pos": "minecraft:overworld,10,64,-20",
+        "pos": "10,64,-20",
         "side": null,
         "slot": 1
       },

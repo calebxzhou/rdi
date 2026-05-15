@@ -16,19 +16,19 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.Divider
-import androidx.compose.material.DropdownMenu
-import androidx.compose.material.DropdownMenuItem
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Tab
-import androidx.compose.material.TabRow
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,7 +39,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -85,9 +84,6 @@ import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import kotlinx.coroutines.launch
 import kotlinx.serialization.encodeToString
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import org.bson.types.ObjectId
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -269,7 +265,10 @@ fun RemoteModInfoScreen(
                 }
             }
             Space8h()
-            TabRow(selectedTabIndex = activeTabIndex, backgroundColor = Color.White) {
+            TabRow(
+                selectedTabIndex = activeTabIndex,
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
                 tabs.forEachIndexed { index, tab ->
                     Tab(
                         selected = activeTabIndex == index,
@@ -287,7 +286,7 @@ fun RemoteModInfoScreen(
                     CircularProgressIndicator()
                 }
 
-                errorMessage != null -> Text(errorMessage!!, color = MaterialTheme.colors.error)
+                errorMessage != null -> Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
 
                 activeTab == RemoteModInfoTab.Download -> RemoteModDownloadTab(
                     project = project,
@@ -341,9 +340,9 @@ private fun RemoteModTitleFilterChip(
                 .width(100.dp)
                 .clickable { expanded = true },
             shape = RoundedCornerShape(8.dp),
-            color = Color.White,
+            color = MaterialTheme.colorScheme.surface,
             border = BorderStroke(1.dp, MaterialColor.BLUE_700.color),
-            elevation = 1.dp
+            shadowElevation = 1.dp
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
@@ -354,7 +353,7 @@ private fun RemoteModTitleFilterChip(
                     Text(
                         text = label,
                         color = MaterialColor.GRAY_700.color,
-                        style = MaterialTheme.typography.caption,
+                        style = MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -378,13 +377,12 @@ private fun RemoteModTitleFilterChip(
         ) {
             options.distinct().forEach { option ->
                 DropdownMenuItem(
+                    text = { Text(option) },
                     onClick = {
                         onSelect(option)
                         expanded = false
                     }
-                ) {
-                    Text(option)
-                }
+                )
             }
         }
     }
@@ -469,8 +467,8 @@ private fun RemoteModVersionCard(version: ModrinthProjectVersionVo) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = Color.White,
-        elevation = 1.dp,
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 1.dp,
         border = BorderStroke(1.dp, MaterialColor.GRAY_200.color)
     ) {
         Column(
@@ -484,7 +482,7 @@ private fun RemoteModVersionCard(version: ModrinthProjectVersionVo) {
             ) {
                 Text(
                     text = version.name,
-                    style = MaterialTheme.typography.subtitle1,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialColor.GRAY_900.color,
                     maxLines = 1,
@@ -511,7 +509,7 @@ private fun RemoteModVersionCard(version: ModrinthProjectVersionVo) {
                 RemoteModFileRow(file)
             }
             if (version.dependencies.isNotEmpty()) {
-                Divider(color = MaterialColor.GRAY_200.color)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("依赖", color = MaterialColor.GRAY_800.color, fontWeight = FontWeight.Bold)
                     version.dependencies.take(8).forEach { dependency ->
@@ -616,9 +614,9 @@ private fun RemoteModDependenciesPane(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = Color.White,
+        color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(1.dp, MaterialColor.GRAY_200.color),
-        elevation = 1.dp
+        shadowElevation = 1.dp
     ) {
         Column(
             modifier = Modifier.padding(12.dp),
@@ -633,7 +631,7 @@ private fun RemoteModDependenciesPane(
                     CircularProgressIndicator()
                 }
 
-                errorMessage != null -> Text(errorMessage!!, color = MaterialTheme.colors.error)
+                errorMessage != null -> Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
                 dependencies.isEmpty() -> Text("当前版本没有必需前置Mod", color = MaterialColor.GRAY_700.color)
                 else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     dependencies.forEach { dependency ->
@@ -678,8 +676,8 @@ private fun RemoteModDownloadVersionCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(8.dp),
-        color = Color.White,
-        elevation = 1.dp,
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 1.dp,
         border = BorderStroke(1.dp, MaterialColor.GRAY_200.color)
     ) {
         Row(
@@ -737,8 +735,8 @@ private fun RemoteModDownloadTargetDialog(
         Surface(
             modifier = Modifier.fillMaxWidth(0.9f),
             shape = RoundedCornerShape(16.dp),
-            color = Color.White,
-            elevation = 8.dp
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 8.dp
         ) {
             when (step) {
                 RemoteModDownloadStep.Target -> RemoteModDownloadTargetChoice(
@@ -771,7 +769,7 @@ private fun RemoteModDownloadTargetDialog(
                             modifier = Modifier.padding(18.dp),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text("当前房间信息已失效", color = MaterialTheme.colors.error)
+                            Text("当前房间信息已失效", color = MaterialTheme.colorScheme.error)
                             TextButton(onClick = onDismiss) {
                                 Text("关闭")
                             }
@@ -823,11 +821,11 @@ private fun RemoteModFixedHostTargetPane(
         Text(
             text = "添加到当前房间",
             color = MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.subtitle1,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
         Text("会添加为当前房间的附加Mod。", color = MaterialColor.GRAY_700.color)
-        errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.End,
@@ -885,7 +883,7 @@ private fun RemoteModDownloadTargetChoice(
         Text(
             text = "下载${version.primaryFile?.filename ?: version.versionNumber}，要应用到哪里？",
             color = MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.subtitle1,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
         Text(
@@ -949,11 +947,11 @@ private fun RemoteModHostTargetPane(
         Text(
             text = "选择房间",
             color = MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.subtitle1,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
         Text("只显示你拥有管理权限，且MC版本匹配的房间。", color = MaterialColor.GRAY_700.color)
-        errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (loading) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 CircularProgressIndicator()
@@ -1050,7 +1048,7 @@ private fun RemoteModLocalTargetPane(
             val compatiblePackdirs = if (version.gameVersions.isEmpty()) {
                 emptyList()
             } else {
-                it.filter { packdir -> packdir.readLocalMcVersion() in version.gameVersions }
+                it.filter { packdir -> packdir.vo.mcVer.mcVer in version.gameVersions }
             }
             packdirs = compatiblePackdirs
             selectedPack = compatiblePackdirs.firstOrNull()
@@ -1067,11 +1065,11 @@ private fun RemoteModLocalTargetPane(
         Text(
             text = "选择本地整合包",
             color = MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.subtitle1,
+            style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.Bold
         )
         Text("只显示MC版本匹配的本地整合包，会下载到所选整合包的mods目录。", color = MaterialColor.GRAY_700.color)
-        errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+        errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         if (loading) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 CircularProgressIndicator()
@@ -1138,17 +1136,6 @@ private fun RemoteModHostTarget.supportsRemoteModVersion(version: ModrinthProjec
 
 private fun ModrinthProjectVersionVo.supportedMcVersionText(): String =
     gameVersions.takeIf { it.isNotEmpty() }?.joinToString("、") { "MC$it" } ?: "未知MC版本"
-
-private fun ModpackLocalDir.readLocalMcVersion(): String? = runCatching {
-    val manifest = dir.resolve("$versionId.json")
-    if (!manifest.isFile) return@runCatching null
-    serdesJson.parseToJsonElement(manifest.readText())
-        .jsonObject["inheritsFrom"]
-        ?.jsonPrimitive
-        ?.contentOrNull
-        ?.trim()
-        ?.takeIf(String::isNotBlank)
-}.getOrNull()
 
 private fun String.toReadableModrinthDescription(): String {
     return replace(Regex("<iframe[\\s\\S]*?</iframe>", RegexOption.IGNORE_CASE), "")
@@ -1240,7 +1227,7 @@ private fun RemoteModInfoChip(text: String) {
         Text(
             text = text,
             color = MaterialColor.GRAY_800.color,
-            style = MaterialTheme.typography.body2,
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

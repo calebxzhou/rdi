@@ -1,0 +1,17 @@
+package calebxzhou.rdi.mc.common2.mcp
+
+@JvmRecord
+data class RMcpItemDropRequest(
+    val from: String,
+    val count: Int,
+    val pos: Pos,
+    val pickupDelay: Int,
+    val dryRun: Boolean
+) {
+    @JvmRecord
+    data class Pos(
+        val x: Double,
+        val y: Double,
+        val z: Double?
+    )
+}

@@ -74,6 +74,7 @@ fun HostListScreen(
     onOpenHostInfo: ((String, Boolean) -> Unit),
     onOpenHostCreate: (() -> Unit),
     onOpenMcVersions: ((McVersion?) -> Unit),
+    onOpenResourceMods: ((McVersion?, String, Boolean) -> Unit),
     onOpenMcPlay: ((McPlayArgs) -> Unit),
     onOpenTaskList: ((String) -> Unit),
     initialTab: HostTab = HostTab.MyHosts,
@@ -101,7 +102,9 @@ fun HostListScreen(
                 emptyStateText = "暂无你的房间，点击上方创建新房间或等待朋友邀请",
                 listPathForPage = { pageIndex -> "host/my/$pageIndex" },
                 onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, false) },
+                fromAllHosts = false,
                 onOpenMcVersions = onOpenMcVersions,
+                onOpenResourceMods = onOpenResourceMods,
                 onOpenMcPlay = onOpenMcPlay,
                 onOpenTaskList = onOpenTaskList
             ) {
@@ -121,7 +124,9 @@ fun HostListScreen(
                 emptyStateText = "暂无可展示的房间",
                 listPathForPage = { pageIndex -> "host/list/$pageIndex" },
                 onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, true) },
+                fromAllHosts = true,
                 onOpenMcVersions = onOpenMcVersions,
+                onOpenResourceMods = onOpenResourceMods,
                 onOpenMcPlay = onOpenMcPlay,
                 onOpenTaskList = onOpenTaskList
             )
@@ -147,7 +152,9 @@ internal fun HostBrowserPane(
     emptyStateText: String,
     listPathForPage: (Int) -> String,
     onOpenHostInfo: ((String) -> Unit),
+    fromAllHosts: Boolean,
     onOpenMcVersions: ((McVersion?) -> Unit),
+    onOpenResourceMods: ((McVersion?, String, Boolean) -> Unit),
     onOpenMcPlay: ((McPlayArgs) -> Unit),
     onOpenTaskList: ((String) -> Unit),
     modifier: Modifier = Modifier,
@@ -265,6 +272,11 @@ internal fun HostBrowserPane(
 
                                 is StartPlayResult.NeedInstall -> {
                                     installConfirmTask = args.task
+                                }
+
+                                is StartPlayResult.NeedMod -> {
+                                    errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先添加对应Mod后再启动。"
+                                    onOpenResourceMods.invoke(detail.modpack.mcVer, detail._id.toHexString(), fromAllHosts)
                                 }
 
                                 is StartPlayResult.NeedMc -> {

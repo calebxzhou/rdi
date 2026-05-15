@@ -6,7 +6,7 @@ Request body:
 
 ```json
 {
-  "pos": "minecraft:overworld,10,64,-20",
+  "pos": "10,64,-20",
   "face": "up",
   "itemId": "minecraft:wheat",
   "fromInventorySlot": 12,
@@ -18,13 +18,13 @@ Request body:
 
 Fields:
 
-- `pos` is required and uses `dim,x,y,z`.
+- `pos` is required and uses `x,y,z` in the current dimension.
 - `face` is optional. Valid values are `up`, `down`, `north`, `south`, `west`, and `east`. Default is `up`.
 - `itemId` is optional when `fromInventorySlot` or the requested hand already identifies the item. If present, the source stack must match it.
 - `fromInventorySlot` is optional and uses player inventory slots `0..35`; hotbar is `0..8`, main inventory is `9..35`.
 - `hand` is optional. Use `mainhand` by default, or `offhand` when the interaction must come from the offhand.
 - `times` is optional, defaults to `1`, and must be `1..64`.
-- `dryRun=true` validates target, source item, range, and loaded dimension without performing the click.
+- `dryRun=true` validates target, source item, range, and loaded chunk without performing the click.
 
 The server can temporarily use an item from hotbar/main inventory for the interaction and then restore the selected hotbar slot. You do not need to call `/hotbar/select` first when `itemId` or `fromInventorySlot` is known.
 
@@ -57,12 +57,11 @@ Returns:
 
 Errors:
 
-- `bad_pos`: `pos` is missing or not `dim,x,y,z`.
+- `bad_pos`: `pos` is missing or not `x,y,z`.
 - `bad_side`: `face` is present but is not a valid direction.
 - `bad_item_id`: `itemId` is not a loaded item ID.
 - `bad_slot`: `fromInventorySlot` is outside `0..35`.
 - `bad_count`: `times` is outside `1..64`.
-- `dim_not_loaded`: requested dimension is not the current loaded dimension.
 - `too_far`: target is outside the allowed interaction range.
 - `chunk_not_loaded`: target chunk is not loaded.
 - `protected`: the server refused interaction at the target.

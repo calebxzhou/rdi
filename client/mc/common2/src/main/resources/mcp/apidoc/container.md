@@ -1,8 +1,8 @@
-### `GET /container?pos=dim,x,y,z&side=north`
+### `GET /container?pos=x,y,z&side=north`
 
-Default response is compact and omits item SNBT. Use `GET /container/detail?ref=dim,x,y,z~side` for Markdown, or `GET /container/detail.json?ref=dim,x,y,z~side` for exact JSON/SNBT. `.detail.md` is a compatibility alias for Markdown. Use `view=full` only for debugging or extraction.
+Default response is compact and omits item SNBT. Use `GET /container/detail?ref=x,y,z~side` for Markdown, or `GET /container/detail.json?ref=x,y,z~side` for exact JSON/SNBT. `.detail.md` is a compatibility alias for Markdown. Use `view=full` only for debugging or extraction.
 
-Use to read item slots from a container, storage block, or machine block. This endpoint uses the server item handler capability, so it can read vanilla containers and modded machine inventories when they expose item slots.
+Use to read item slots from a container, storage block, or machine block in the current dimension. This endpoint uses the server item handler capability, so it can read vanilla containers and modded machine inventories when they expose item slots.
 
 `side` is optional. Use it when side-specific machine rules matter. Valid values are `up`, `down`, `north`, `south`, `west`, and `east`.
 

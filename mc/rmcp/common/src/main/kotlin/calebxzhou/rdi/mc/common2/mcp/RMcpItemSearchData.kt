@@ -1,0 +1,22 @@
+package calebxzhou.rdi.mc.common2.mcp
+
+@JvmRecord
+data class RMcpItemSearchData(
+    val text: String,
+    val modId: String,
+    val limit: Int,
+    val results: List<Result>
+) {
+    @JvmRecord
+    data class Result(
+        val itemId: String,
+        val namespace: String,
+        val langkey: String,
+        val englishName: String,
+        val chineseName: String,
+        val modId: String,
+        val modName: String,
+        val score: Double,
+        val match: String?
+    )
+}

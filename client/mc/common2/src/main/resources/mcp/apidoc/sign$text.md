@@ -32,7 +32,7 @@ Returns:
 }
 ```
 
-Use `dryRun=true` to preview the parsed plain text lines without changing the sign. If the response is successful and `changed=true`, re-read `/blockentity?pos=dim,x,y,z` only when exact sign NBT verification is needed.
+Use `dryRun=true` to preview the parsed plain text lines without changing the sign. If the response is successful and `changed=true`, re-read `/blockentity?pos=x,y,z` only when exact sign NBT verification is needed.
 
 Common errors:
 

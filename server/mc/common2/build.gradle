@@ -16,10 +16,6 @@ java {
     }
 }
 
-sourceSets.named('main') {
-    java.srcDir '../../../mc/rmcp/src/main/java'
-}
-
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
 }

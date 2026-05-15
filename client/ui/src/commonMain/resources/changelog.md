@@ -1,14 +1,11 @@
-todo: ai计费 input input-cache output $/￥
-recipe response in MD
-
-机械动力的转速调节之类
-search things on mcmod: 
-1. https://search.mcmod.cn/s?key={item res loca}&site=&filter=0&mold=0
-2. parse brief into into md let llm select which detail page to open
-3. resolve https://www.mcmod.cn/item/${page id}.html
-
 - directly read bytecode for given class&method
-
+## 5.15.6 -- 25.5.15
+- AI陪玩加入计费功能，可以设定token价格
+- 修复无法下载本地mod
+## 5.15.5 -- 25.5.14
+- 修改部分界面配色
+- 修复正版号不显示绑定成功
+- 修复改昵称提示密码错误
 ## 5.15.4 -- 26.5.12
 - 优化传包逻辑，直接采用服务端mod加快速度
 - 房间附加mod不会离开房间界面了

@@ -39,8 +39,14 @@ data class AiChatSavedMessage(
     val toolStatuses: List<AiChatSavedToolStatus> = emptyList(),
     val promptTokens: Int? = null,
     val completionTokens: Int? = null,
+    val promptCacheHitTokens: Int? = null,
+    val promptCacheMissTokens: Int? = null,
+    val completionReasoningTokens: Int? = null,
     val billablePromptTokens: Int? = null,
     val billableCompletionTokens: Int? = null,
+    val billablePromptCacheHitTokens: Int? = null,
+    val billablePromptCacheMissTokens: Int? = null,
+    val billableCompletionReasoningTokens: Int? = null,
     val startedAtMillis: Long? = null,
     val reasoningFinishedAtMillis: Long? = null,
     val finishedAtMillis: Long? = null,
@@ -64,7 +70,8 @@ data class AiChatSavedToolStatus(
     val path: String = "",
     val payload: String = "",
     val response: String = "",
-    val status: Int? = null
+    val status: Int? = null,
+    val errorMessage: String = ""
 )
 
 data class AiChatRecordSummary(

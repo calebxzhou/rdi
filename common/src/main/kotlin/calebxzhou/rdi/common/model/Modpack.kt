@@ -131,7 +131,7 @@ class Modpack(
         RELEVANCE,
         UPDATED,
         POPULAR,
-        NAME,
+     //   NAME,
     }
 
     @Serializable

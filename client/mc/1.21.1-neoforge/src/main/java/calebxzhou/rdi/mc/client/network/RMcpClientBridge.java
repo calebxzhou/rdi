@@ -3,7 +3,7 @@ package calebxzhou.rdi.mc.client.network;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockEntityData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockActionData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpBlockBatchActionData;
-import calebxzhou.rdi.mc.common2.mcp.RMcpBlockPosData;
+import calebxzhou.rdi.mc.common2.mcp.RBlockPos;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveBatchData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerMoveBatchRequest;
@@ -15,6 +15,8 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpCraftParallelData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpCraftParallelRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpEndpointException;
 import calebxzhou.rdi.mc.common2.mcp.RErrorCode;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHarvestToolData;
@@ -38,7 +40,6 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpSignTextRequest;
 import com.google.gson.Gson;
 import net.minecraft.client.Minecraft;
-import net.neoforged.api.distmarker.Dist;
 import net.neoforged.fml.loading.FMLEnvironment;
 import net.neoforged.neoforge.network.PacketDistributor;
 
@@ -55,8 +56,8 @@ public final class RMcpClientBridge {
     private RMcpClientBridge() {
     }
 
-    public static RMcpBlockEntityData requestBlockEntity(String dim, int x, int y, int z) {
-        return requestServer("blockentity", new BlockEntityRequest(dim, x, y, z), RMcpBlockEntityData.class);
+    public static RMcpBlockEntityData requestBlockEntity(int x, int y, int z) {
+        return requestServer("blockentity", new BlockEntityRequest(x, y, z), RMcpBlockEntityData.class);
     }
 
     public static RMcpSignTextData requestSignText(RMcpSignTextRequest request) {
@@ -67,12 +68,16 @@ public final class RMcpClientBridge {
         return requestServer("sign-text-get", new SignTextGetRequest(x, y, z, side), RMcpSignTextReadData.class);
     }
 
-    public static RMcpHarvestToolData requestHarvestTool(String blockId, String dim, Integer x, Integer y, Integer z) {
-        return requestServer("harvest-tool", new HarvestToolRequest(blockId, dim, x, y, z), RMcpHarvestToolData.class);
+    public static RMcpHarvestToolData requestHarvestTool(String blockId, Integer x, Integer y, Integer z) {
+        return requestServer("harvest-tool", new HarvestToolRequest(blockId, x, y, z), RMcpHarvestToolData.class);
     }
 
     public static RMcpCraftData requestCraft(Map<String, Integer> slots, String shape, int outputSlot, int times, boolean dryRun) {
         return requestServer("craft", new CraftRequest(slots, shape, outputSlot, times, dryRun), RMcpCraftData.class);
+    }
+
+    public static RMcpCraftParallelData requestCraftParallel(RMcpCraftParallelRequest request) {
+        return requestServer("craft-parallel", request, RMcpCraftParallelData.class);
     }
 
     public static RMcpContainerData requestContainer(String pos, String side) {
@@ -158,7 +163,7 @@ public final class RMcpClientBridge {
         return requestServer("item-use-on-block", request, RMcpItemUseOnBlockData.class);
     }
 
-    public static RMcpBlockBatchActionData requestPlaceBlocks(List<RMcpBlockPosData> positions) {
+    public static RMcpBlockBatchActionData requestPlaceBlocks(List<RBlockPos> positions) {
         return requestServer("place-block-batch", new BlockBatchActionRequest(positions), RMcpBlockBatchActionData.class);
     }
 
@@ -170,7 +175,7 @@ public final class RMcpClientBridge {
         return requestServer("place-block-palette", request, RMcpBlockBatchActionData.class);
     }
 
-    public static RMcpBlockBatchActionData requestBreakBlocks(List<RMcpBlockPosData> positions) {
+    public static RMcpBlockBatchActionData requestBreakBlocks(List<RBlockPos> positions) {
         return requestServer("break-block-batch", new BlockBatchActionRequest(positions), RMcpBlockBatchActionData.class);
     }
 
@@ -182,7 +187,7 @@ public final class RMcpClientBridge {
         return requestServer("place-block-ring", request, RMcpBlockBatchActionData.class);
     }
 
-    public static RMcpBlockBatchActionData requestBreakBlockBox(RMcpBlockPosData from, RMcpBlockPosData to, boolean dryRun) {
+    public static RMcpBlockBatchActionData requestBreakBlockBox(RBlockPos from, RBlockPos to, boolean dryRun) {
         return requestServer("break-block-box", new BlockBoxActionRequest(from, to, dryRun), RMcpBlockBatchActionData.class);
     }
 
@@ -232,13 +237,13 @@ public final class RMcpClientBridge {
         }
     }
 
-    private record BlockEntityRequest(String dim, int x, int y, int z) {
+    private record BlockEntityRequest(int x, int y, int z) {
     }
 
     private record SignTextGetRequest(int x, int y, int z, String side) {
     }
 
-    private record HarvestToolRequest(String blockId, String dim, Integer x, Integer y, Integer z) {
+    private record HarvestToolRequest(String blockId, Integer x, Integer y, Integer z) {
     }
 
     private record CraftRequest(Map<String, Integer> slots, String shape, int outputSlot, int times, boolean dryRun) {
@@ -274,9 +279,9 @@ public final class RMcpClientBridge {
     private record ItemPickupRequest(List<String> ids, double radius, int limit) {
     }
 
-    private record BlockBatchActionRequest(List<RMcpBlockPosData> positions) {
+    private record BlockBatchActionRequest(List<RBlockPos> positions) {
     }
 
-    private record BlockBoxActionRequest(RMcpBlockPosData from, RMcpBlockPosData to, boolean dryRun) {
+    private record BlockBoxActionRequest(RBlockPos from, RBlockPos to, boolean dryRun) {
     }
 }

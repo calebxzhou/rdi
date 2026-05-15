@@ -71,8 +71,14 @@ sealed interface OpenaiChatEvent {
         val promptTokens: Int,
         val completionTokens: Int,
         val totalTokens: Int,
+        val promptCacheHitTokens: Int,
+        val promptCacheMissTokens: Int,
+        val completionReasoningTokens: Int,
         val billablePromptTokens: Int,
-        val billableCompletionTokens: Int
+        val billableCompletionTokens: Int,
+        val billablePromptCacheHitTokens: Int,
+        val billablePromptCacheMissTokens: Int,
+        val billableCompletionReasoningTokens: Int
     ) : OpenaiChatEvent
 }
 
@@ -106,6 +112,9 @@ object OpenaiService {
         val turnContextMessages = mutableListOf<OpenaiChatMessage>()
         var totalPromptTokens = 0
         var totalCompletionTokens = 0
+        var totalPromptCacheHitTokens = 0
+        var totalPromptCacheMissTokens = 0
+        var totalCompletionReasoningTokens = 0
         var usedTool = false
 
         repeat(MAX_TOOL_ROUNDS + 1) { roundIndex ->
@@ -113,13 +122,22 @@ object OpenaiService {
             result.usage?.let {
                 totalPromptTokens += it.promptTokens
                 totalCompletionTokens += it.completionTokens
+                totalPromptCacheHitTokens += it.resolvedPromptCacheHitTokens()
+                totalPromptCacheMissTokens += it.resolvedPromptCacheMissTokens()
+                totalCompletionReasoningTokens += it.completionTokensDetails.reasoningTokens
                 emit(
                     OpenaiChatEvent.Usage(
                         promptTokens = it.promptTokens,
                         completionTokens = it.completionTokens,
                         totalTokens = it.totalTokens,
+                        promptCacheHitTokens = it.resolvedPromptCacheHitTokens(),
+                        promptCacheMissTokens = it.resolvedPromptCacheMissTokens(),
+                        completionReasoningTokens = it.completionTokensDetails.reasoningTokens,
                         billablePromptTokens = totalPromptTokens,
-                        billableCompletionTokens = totalCompletionTokens
+                        billableCompletionTokens = totalCompletionTokens,
+                        billablePromptCacheHitTokens = totalPromptCacheHitTokens,
+                        billablePromptCacheMissTokens = totalPromptCacheMissTokens,
+                        billableCompletionReasoningTokens = totalCompletionReasoningTokens
                     )
                 )
             }
@@ -338,7 +356,28 @@ object OpenaiService {
         @SerialName("completion_tokens")
         val completionTokens: Int = 0,
         @SerialName("total_tokens")
-        val totalTokens: Int = 0
+        val totalTokens: Int = 0,
+        @SerialName("prompt_cache_hit_tokens")
+        val promptCacheHitTokens: Int = 0,
+        @SerialName("prompt_cache_miss_tokens")
+        val promptCacheMissTokens: Int = 0,
+        @SerialName("completion_tokens_details")
+        val completionTokensDetails: ChatCompletionTokenDetails = ChatCompletionTokenDetails()
+    ) {
+        fun resolvedPromptCacheHitTokens(): Int = promptCacheHitTokens.coerceIn(0, promptTokens)
+
+        fun resolvedPromptCacheMissTokens(): Int {
+            if (promptCacheHitTokens > 0 || promptCacheMissTokens > 0) {
+                return promptCacheMissTokens.coerceIn(0, promptTokens)
+            }
+            return promptTokens
+        }
+    }
+
+    @Serializable
+    private data class ChatCompletionTokenDetails(
+        @SerialName("reasoning_tokens")
+        val reasoningTokens: Int = 0
     )
 
     @Serializable

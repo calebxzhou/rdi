@@ -12,14 +12,17 @@ fun HostAllScreen(
     onOpenHostInfo: ((String) -> Unit),
     onOpenMcVersions: ((McVersion?) -> Unit),
     onOpenMcPlay: ((McPlayArgs) -> Unit),
-    onOpenTaskList: ((String) -> Unit)
+    onOpenTaskList: ((String) -> Unit),
+    onOpenResourceMods: ((McVersion?, String, Boolean) -> Unit) = { _, _, _ -> }
 ) {
     HostBrowserPane(
         title = "房间大厅",
         emptyStateText = "暂无可展示的房间",
         listPathForPage = { pageIndex -> "host/list/$pageIndex" },
         onOpenHostInfo = onOpenHostInfo,
+        fromAllHosts = true,
         onOpenMcVersions = onOpenMcVersions,
+        onOpenResourceMods = onOpenResourceMods,
         onOpenMcPlay = onOpenMcPlay,
         onOpenTaskList = onOpenTaskList
     )

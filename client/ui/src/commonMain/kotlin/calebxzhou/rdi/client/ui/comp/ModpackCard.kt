@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.ui.DEFAULT_MODPACK_ICON
@@ -129,7 +130,7 @@ fun Modpack.BriefVo.ModpackCard(
             }
 
             BoxWithConstraints(modifier = Modifier.weight(1f)) {
-                val stackedMeta = maxWidth < 340.dp
+                val stackedMeta = maxWidth < 520.dp
 
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -152,7 +153,7 @@ fun Modpack.BriefVo.ModpackCard(
                             )
                         }
                         ModpackCardMeta(
-                            mcVer = mcVer.mcVer,
+                            mcVer = mcVer.simpleVer,
                             modloader = modloader,
                             playCount = playCount,
                             modCount = modCount,
@@ -175,11 +176,12 @@ fun Modpack.BriefVo.ModpackCard(
                                 modifier = Modifier.weight(1f)
                             )
                             ModpackCardMeta(
-                                mcVer = mcVer.mcVer,
+                                mcVer = mcVer.simpleVer,
                                 modloader = modloader,
                                 playCount = playCount,
                                 modCount = modCount,
-                                updatedTimeText = updatedTimeText
+                                updatedTimeText = updatedTimeText,
+                                aligned = true
                             )
                         }
                     }
@@ -221,8 +223,64 @@ private fun ModpackCardMeta(
     playCount: Int,
     modCount: Int,
     updatedTimeText: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    aligned: Boolean = false
 ) {
+    if (aligned) {
+        Row(
+            modifier = modifier.width(332.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ModpackCardStat(
+                icon = "\uDB80\uDE97",
+                text = playCount.toCompactCountText(),
+                modifier = Modifier.width(50.dp)
+            )
+            ModpackCardStat(
+                icon = "\uDB81\uDC31",
+                text = modCount.toString(),
+                modifier = Modifier.width(54.dp)
+            )
+            Text(
+                text = updatedTimeText,
+                style = MaterialTheme.typography.caption,
+                color = MaterialColor.GRAY_500.color,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                textAlign = TextAlign.End,
+                modifier = Modifier.width(98.dp)
+            )
+            Row(
+                modifier = Modifier.width(74.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Image(
+                    bitmap = iconBitmap("grass_block"),
+                    contentDescription = "MC版本",
+                    modifier = Modifier.size(18.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = mcVer,
+                    style = MaterialTheme.typography.subtitle2,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialColor.GRAY_900.color,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            Box(
+                modifier = Modifier.width(24.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                ModpackLoaderIcon(modloader)
+            }
+        }
+        return
+    }
+
     val statsText = buildString {
         append("\uDB80\uDE97  ")
         append(playCount.toCompactCountText())
@@ -259,19 +317,52 @@ private fun ModpackCardMeta(
                 color = MaterialColor.GRAY_900.color
             )
         }
-        modloader.cardIconName?.let { iconName ->
-            Surface(
-                shape = RoundedCornerShape(5.dp),
-                color = MaterialColor.BLUE_GRAY_100.color
-            ) {
-                Image(
-                    bitmap = iconBitmap(iconName),
-                    contentDescription = modloader.cardLabel,
-                    modifier = Modifier.padding(4.dp).size(14.dp)
-                )
-            }
-        } ?: ModpackCardChip(modloader.cardLabel)
+        ModpackLoaderIcon(modloader)
     }
+}
+
+@Composable
+private fun ModpackCardStat(
+    icon: String,
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = icon.asIconText,
+            style = MaterialTheme.typography.caption,
+            color = MaterialColor.GRAY_500.color
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        Text(
+            text = text,
+            style = MaterialTheme.typography.caption,
+            color = MaterialColor.GRAY_500.color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.End
+        )
+    }
+}
+
+@Composable
+private fun ModpackLoaderIcon(modloader: ModLoader) {
+    modloader.cardIconName?.let { iconName ->
+        Surface(
+            shape = RoundedCornerShape(5.dp),
+            color = MaterialColor.BLUE_GRAY_100.color
+        ) {
+            Image(
+                bitmap = iconBitmap(iconName),
+                contentDescription = modloader.cardLabel,
+                modifier = Modifier.padding(4.dp).size(14.dp)
+            )
+        }
+    } ?: ModpackCardChip(modloader.cardLabel)
 }
 
 @Composable

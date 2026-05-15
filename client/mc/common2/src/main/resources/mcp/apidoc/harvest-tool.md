@@ -5,10 +5,10 @@ Use to ask the server which tools can harvest a block and what drops each tool c
 You can also use a world position:
 
 ```text
-/harvest-tool?pos=minecraft:overworld,10,64,-20
+/harvest-tool?pos=10,64,-20
 ```
 
-Use `pos` when block state or block entity data may matter. Use `blockId` for a generic default-state answer.
+Use `pos` when block state or block entity data may matter. `pos` is `x,y,z` in the current dimension. Use `blockId` for a generic default-state answer.
 
 Returns:
 

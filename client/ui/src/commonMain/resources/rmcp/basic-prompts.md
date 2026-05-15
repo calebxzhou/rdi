@@ -6,7 +6,7 @@ Before using RMCP, the user must tell you the connection number, also called the
 
 After the user provides the port:
 
-1. Fetch the detailed RMCP prompt from the local RMCP server by using the provided port and the `/` path. Use the full local URL only as a hidden tool argument.
+1. Fetch the detailed RMCP prompt from the local RMCP server by using the provided port and the `/` path.
 
 2. Read that prompt carefully. It contains the available MCP API endpoints, request formats, response formats, and usage rules for the local RMCP server.
 

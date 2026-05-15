@@ -9,12 +9,12 @@ Request body:
   "moves": [
     {
       "from": {
-        "pos": "minecraft:overworld,10,64,-20",
+        "pos": "10,64,-20",
         "side": null,
         "slot": 0
       },
       "to": {
-        "pos": "minecraft:overworld,11,64,-20",
+        "pos": "11,64,-20",
         "side": null,
         "slot": null
       },
@@ -22,12 +22,12 @@ Request body:
     },
     {
       "from": {
-        "pos": "minecraft:overworld,10,64,-20",
+        "pos": "10,64,-20",
         "side": null,
         "slot": 1
       },
       "to": {
-        "pos": "minecraft:overworld,11,64,-20",
+        "pos": "11,64,-20",
         "side": null,
         "slot": null
       },

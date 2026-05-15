@@ -1,0 +1,36 @@
+package calebxzhou.rdi.mc.common2.mcp
+
+@JvmRecord
+data class RMcpCraftData(
+    val recipeId: String,
+    val resultId: String,
+    val requestedCount: Int,
+    val craftedCount: Int,
+    val dryRun: Boolean,
+    val changed: Boolean,
+    val outputSlot: Int,
+    val before: RMcpInventoryData,
+    val after: RMcpInventoryData,
+    val warnings: List<String>
+) {
+    constructor(
+        recipeId: String,
+        resultId: String,
+        requestedCount: Int,
+        craftedCount: Int,
+        dryRun: Boolean,
+        outputSlot: Int,
+        inventory: RMcpInventoryData?
+    ) : this(
+        recipeId,
+        resultId,
+        requestedCount,
+        craftedCount,
+        dryRun,
+        !dryRun && craftedCount > 0,
+        outputSlot,
+        null,
+        inventory,
+        mutableListOf<String>()
+    )
+}

@@ -1,0 +1,104 @@
+package calebxzhou.rdi.mc.common2.mcp
+
+import calebxzhou.rdi.mc.common2.mcp.RMcpSectionSemanticData.BlockCount
+
+@JvmRecord
+data class RMcpNearbyResourcesData(
+    val dim: String,
+    val center: Center,
+    val range: Range,
+    val filter: Filter,
+    val scan: Scan,
+    val resources: List<Resource>,
+    val topBlocks: List<BlockCount>,
+    val features: Features?
+) {
+    constructor(
+        dim: String,
+        center: Center,
+        range: Range,
+        scan: Scan,
+        resources: List<Resource>,
+        topBlocks: List<BlockCount>,
+        features: Features?
+    ) : this(
+        dim,
+        center,
+        range,
+        Filter(mutableListOf<String>(), mutableListOf<String>(), 64),
+        scan,
+        resources,
+        topBlocks,
+        features
+    )
+
+    @JvmRecord
+    data class Center(val block: RBlockPos, val chunkX: Int, val chunkZ: Int, val sectionY: Int)
+
+    @JvmRecord
+    data class Range(val chunkRadius: Int, val sectionRadius: Int)
+
+    @JvmRecord
+    data class Filter(val categories: List<String>, val ids: List<String>, val limit: Int)
+
+    @JvmRecord
+    data class Scan(
+        val chunkRadius: Int,
+        val sectionRadius: Int,
+        val requestedChunks: Int,
+        val loadedChunks: Int,
+        val skippedChunks: Int,
+        val requestedSections: Int,
+        val sections: Int,
+        val blocks: Int,
+        val matchedResources: Int,
+        val returnedResources: Int,
+        val limited: Boolean,
+        val skippedReasons: List<SkippedReason>
+    ) {
+        constructor(loadedChunks: Int, skippedChunks: Int, sections: Int, blocks: Int) : this(
+            0,
+            0,
+            loadedChunks + skippedChunks,
+            loadedChunks,
+            skippedChunks,
+            sections,
+            sections,
+            blocks,
+            0,
+            0,
+            false,
+            if (skippedChunks > 0) listOf(
+                SkippedReason(
+                    "chunk_not_loaded",
+                    skippedChunks
+                )
+            ) else emptyList()
+        )
+    }
+
+    @JvmRecord
+    data class SkippedReason(val reason: String, val count: Int)
+
+    @JvmRecord
+    data class Resource(
+        val id: String,
+        val category: String,
+        val count: Int,
+        val nearest: RBlockPos,
+        val sections: List<ResourceSection>
+    )
+
+    @JvmRecord
+    data class ResourceSection(val chunkX: Int, val chunkZ: Int, val sectionY: Int, val count: Int)
+
+    @JvmRecord
+    data class Features(
+        val hasWater: Boolean,
+        val hasLava: Boolean,
+        val hasOre: Boolean,
+        val hasWood: Boolean,
+        val hasCrops: Boolean,
+        val hasBlockEntities: Boolean
+    )
+}

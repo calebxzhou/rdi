@@ -30,8 +30,7 @@ Returns:
           "slot": 2,
           "hotbarSlot": 2,
           "id": "minecraft:oak_log",
-          "count": 8,
-          "snbt": "{count:8,id:\"minecraft:oak_log\"}"
+          "count": 8
         }
       }
     ]

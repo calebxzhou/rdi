@@ -23,13 +23,13 @@ import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,7 +40,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -175,7 +174,7 @@ fun ModrinthProjectListScreen(
                 state = searchState,
                 placeholder = { Text("搜索${projectDisplayName}") },
                 lineLimits = TextFieldLineLimits.SingleLine,
-                textStyle = MaterialTheme.typography.body2,
+                textStyle = MaterialTheme.typography.bodyMedium,
                 shape = RoundedCornerShape(14.dp),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                 modifier = Modifier
@@ -230,7 +229,7 @@ fun ModrinthProjectListScreen(
                 )
             }
             TextButton(onClick = ::clearFilters) {
-                Text("清空筛选", color = MaterialColor.RED_700.color)
+                Text("清空筛选", color = MaterialTheme.colorScheme.error)
             }
         }
     }
@@ -250,7 +249,7 @@ fun ModrinthProjectListScreen(
             }
             Text(
                 text = "共找到${if (loading) "--" else totalHits}个${projectDisplayName}",
-                color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -261,7 +260,7 @@ fun ModrinthProjectListScreen(
     fun ResultList(modifier: Modifier = Modifier) {
         Column(modifier = modifier.fillMaxSize()) {
             errorMessage?.let {
-                Text(it, color = MaterialTheme.colors.error)
+                Text(it, color = MaterialTheme.colorScheme.error)
                 Space8h()
             }
             if (loading) {
@@ -299,7 +298,7 @@ fun ModrinthProjectListScreen(
                     ) {
                         Text(
                             text = "没有找到符合条件的${projectDisplayName}",
-                            color = MaterialTheme.colors.onSurface.copy(alpha = 0.65f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                         )
                     }
                 }
@@ -371,8 +370,8 @@ private fun ModrinthProjectFilterSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             text = title,
-            style = MaterialTheme.typography.subtitle2,
-            color = MaterialTheme.colors.onSurface.copy(alpha = 0.72f)
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
         )
         content()
     }
@@ -394,12 +393,12 @@ private fun ModrinthProjectFilterChip(
     Surface(
         modifier = modifier.clickable(onClick = onClick),
         shape = RoundedCornerShape(16.dp),
-        color = if (selected) MaterialColor.BLUE_700.color else MaterialColor.GRAY_200.color
+        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
     ) {
         Text(
             text = text,
-            color = if (selected) Color.White else MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.body2,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             modifier = Modifier
                 .fillMaxWidth()

@@ -1,6 +1,6 @@
 ### `POST /place/palette`
 
-Use to place multiple block types at multiple target positions. This is the preferred API for mixed-material structures, patterned floors/walls, machine layouts, and building templates where repeated symbols can share one block definition.
+Use to place multiple block types at multiple target positions. This is the preferred API for mixed-material structures, patterned floors/walls, machine layouts, and template-like layouts where repeated symbols can share one block definition.
 
 Request body:
 

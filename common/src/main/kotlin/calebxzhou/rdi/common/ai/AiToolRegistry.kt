@@ -3,6 +3,7 @@ package calebxzhou.rdi.common.ai
 object AiToolRegistry {
     private val tools = listOf(
         HttpAiTool,
+        McmodItemLookupAiTool,
         LocalFileListAiTool,
         LocalTextReadAiTool,
         LocalTextSearchAiTool,

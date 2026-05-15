@@ -22,7 +22,7 @@ JSON body form:
 
 The final safe position selected by the server must be at most 128 blocks from the player's current position. The action is executed on the Minecraft server side and keeps the player's current yaw and pitch.
 
-Important safety rule: the `x/y/z` target is a nearby search center, not a guaranteed final position. The API searches within 4 blocks of it for a safe standable feet position, then moves the player to the center of the selected safe block. A safe target has empty/non-colliding feet and head spaces, a solid floor below, and no obvious hazard such as lava, fire, magma block, cactus, or sweet berry bush. If no nearby safe position is found, the API returns an error and does not move the player. Prefer `GET /blockmap/walkable` and pass a `cells[].pos` entry with `symbol="."` when possible.
+Important safety rule: the `x/y/z` target is a nearby search center, not a guaranteed final position. The API searches within 4 blocks of it for a safe standable feet position, then moves the player to the center of the selected safe block. A safe target has empty/non-colliding feet and head spaces, a solid floor below, and no obvious hazard such as lava, fire, magma block, cactus, or sweet berry bush. If no nearby safe position is found, the API returns an error and does not move the player.
 
 After a successful move, the API immediately gives the player `Slow Falling` for 3 seconds.
 
@@ -72,4 +72,4 @@ Common errors:
 - `move_target_blocked`: no nearby safe standable block was found.
 - `server_mcp_unavailable`: the connected server does not expose the server MCP bridge.
 
-This API finds a nearby safe standable destination, but it does not pathfind. Use `/blockmap/walkable` first for normal movement and pass a known walkable `cells[].pos` when possible. Always trust `data.to` as the actual moved position.
+This API finds a nearby safe standable destination, but it does not pathfind. Always trust `data.to` as the actual moved position.

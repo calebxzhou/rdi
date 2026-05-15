@@ -33,7 +33,7 @@ Returns:
 
 When `side=front`, `back` is `null`. When `side=back`, `front` is `null`. Use the default `side=both` unless you already know which face matters.
 
-Use `POST /sign/text` to write Markdown text to one side of a sign. If exact sign NBT or Component JSON is needed, call `/blockentity?pos=dim,x,y,z`.
+Use `POST /sign/text` to write Markdown text to one side of a sign. If exact sign NBT or Component JSON is needed, call `/blockentity?pos=x,y,z`.
 
 Common errors:
 

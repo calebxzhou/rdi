@@ -73,6 +73,7 @@ val space8
 val space16
     get() = Arrangement.spacedBy(16.dp)
 const val baseShapeRadius = 24
+val roundShape get() = RoundedCornerShape(baseShapeRadius.dp)
 @Composable
 fun MainColumn(content: @Composable (ColumnScope.() -> Unit)) {
     Column(
@@ -386,7 +387,7 @@ fun <T> TitleTabBar(
     val containerShape = RoundedCornerShape(percent = 50)
     val tabShape = RoundedCornerShape(percent = 50)
     Surface(
-        modifier = modifier.height((buttonSize + 12).dp),
+        modifier = modifier.height((buttonSize +12).dp),
         shape = containerShape,
         color = Color(0xFFF6F0F7),
         contentColor = MaterialColor.GRAY_900.color,
@@ -394,7 +395,7 @@ fun <T> TitleTabBar(
         shadowElevation = 3.dp
     ) {
         Row(
-            modifier = Modifier.padding(4.dp),
+            modifier = Modifier.padding(1.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             items.forEach { item ->
@@ -405,8 +406,8 @@ fun <T> TitleTabBar(
                         .widthIn(min = 112.dp)
                         .fillMaxHeight(),
                     shape = tabShape,
-                    color = if (isSelected) Color(0xFFE0DDF6) else Color.Transparent,
-                    contentColor = if (isSelected) Color(0xFF2F263B) else Color(0xFF5D5268)
+                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
                 ) {
                     RowV(
                         modifier = Modifier
@@ -426,7 +427,7 @@ fun <T> TitleTabBar(
                             text = item.label,
                             style = MaterialTheme.typography.bodyMedium,
                             color = LocalContentColor.current,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.SemiBold,
+                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             maxLines = 1,
                             softWrap = false,
                             overflow = TextOverflow.Ellipsis

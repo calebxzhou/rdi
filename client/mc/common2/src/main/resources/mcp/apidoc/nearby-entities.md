@@ -2,7 +2,7 @@
 
 Use to discover nearby monsters, animals, and dropped item entities from the client-loaded entity set. This is a brief semantic scan. Use `/entity?uuid=...` afterwards only when full runtime or NBT details are needed.
 
-`pos` is optional and defaults to the local player's current block position. `radius` defaults to `64` and must be `0..128`. `limit` defaults to `64` and must be `1..128`. `category` is comma-separated; common values are `monster`, `animal`, `item`, or `all`.
+`pos` is optional, uses `x,y,z` in the current dimension, and defaults to the local player's current block position. `radius` defaults to `64` and must be `0..128`. `limit` defaults to `64` and must be `1..128`. `category` is comma-separated; common values are `monster`, `animal`, `item`, or `all`.
 
 Prefer omitting `pos` when the scan should be centered on the player.
 
@@ -75,5 +75,4 @@ Errors:
 - `bad_radius`: `radius` is not a number or is outside `0..128`.
 - `bad_limit`: `limit` is not an integer or is outside `1..128`.
 - `no_player`: the local player is not in a loaded world.
-- `dim_not_loaded`: provided `pos` dimension is not the client's current loaded dimension.
 

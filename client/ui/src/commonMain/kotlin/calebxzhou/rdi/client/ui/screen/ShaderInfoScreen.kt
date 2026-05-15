@@ -30,16 +30,16 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.Divider
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Tab
-import androidx.compose.material.TabRow
-import androidx.compose.material.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -50,7 +50,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -66,7 +65,7 @@ import calebxzhou.rdi.client.service.ModrinthProjectInfoService
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.getLocalPackDirs
-import calebxzhou.rdi.client.ui.BottomSnakebar
+import calebxzhou.rdi.client.ui.BottomSnakebarM3
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainColumn
 import calebxzhou.rdi.client.ui.MaterialColor
@@ -172,7 +171,10 @@ fun ModrinthProjectInfoScreen(
                 }
             }
             Space8h()
-            TabRow(selectedTabIndex = selectedTab, backgroundColor = Color.White) {
+            TabRow(
+                selectedTabIndex = selectedTab,
+                containerColor = MaterialTheme.colorScheme.surface
+            ) {
                 tabTitles.forEachIndexed { index, tabTitle ->
                     Tab(
                         selected = selectedTab == index,
@@ -192,7 +194,7 @@ fun ModrinthProjectInfoScreen(
                 }
             }
             errorMessage?.let {
-                Text(it, color = MaterialTheme.colors.error)
+                Text(it, color = MaterialTheme.colorScheme.error)
                 Space8h()
             }
 
@@ -203,7 +205,7 @@ fun ModrinthProjectInfoScreen(
                 3 -> ShaderDownloadTab(project, projectDisplayName) { downloadVersion = it }
             }
         }
-        BottomSnakebar(snackbarHostState)
+        BottomSnakebarM3(snackbarHostState)
     }
 
     previewGallery?.let { gallery ->
@@ -250,8 +252,8 @@ private fun ShaderChangelogCard(version: ModrinthProjectVersionVo) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        color = MaterialColor.GRAY_100.color,
-        elevation = 1.dp
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        shadowElevation = 1.dp
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -261,7 +263,7 @@ private fun ShaderChangelogCard(version: ModrinthProjectVersionVo) {
             Text(
                 text = version.changelog.toReadableModrinthDescription(),
                 color = MaterialColor.GRAY_900.color,
-                style = MaterialTheme.typography.body1
+                style = MaterialTheme.typography.bodyLarge
             )
         }
     }
@@ -293,11 +295,11 @@ private fun ShaderDownloadTab(
         ) {
             item("header") {
                 ShaderDownloadTableHeader()
-                Divider(color = MaterialColor.GRAY_300.color)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
             lazyItems(project.versions, key = { it.id }) { version ->
                 ShaderDownloadTableRow(version, projectDisplayName, onDownload)
-                Divider(color = MaterialColor.GRAY_300.color)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         }
     }
@@ -346,7 +348,7 @@ private fun ShaderDownloadTableRow(
                     text = version.versionNumber,
                     color = MaterialColor.GRAY_900.color,
                     fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.subtitle1,
+                    style = MaterialTheme.typography.titleMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -375,13 +377,13 @@ private fun ShaderDownloadTableRow(
         Text(
             text = version.publishedText,
             color = MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.subtitle1,
+            style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1.3f)
         )
         Text(
             text = version.downloadsText,
             color = MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.subtitle1,
+            style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f)
         )
         CircleIconButton(
@@ -434,8 +436,8 @@ private fun ShaderDownloadPackDialog(
                 .fillMaxWidth(0.9f)
                 .widthIn(max = 980.dp),
             shape = RoundedCornerShape(28.dp),
-            color = Color(0xFFF7F1FB),
-            elevation = 8.dp
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 8.dp
         ) {
             Column(
                 modifier = Modifier.padding(20.dp),
@@ -444,9 +446,9 @@ private fun ShaderDownloadPackDialog(
                 Text(
                     text = "下载${projectDisplayName}${file?.filename}，要装到哪个包里？",
                     color = MaterialColor.GRAY_900.color,
-                    style = MaterialTheme.typography.subtitle1
+                    style = MaterialTheme.typography.titleMedium
                 )
-                errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+                errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 LoadingFlowGrid(
                     loading = loading,
                     items = packdirs,
@@ -506,7 +508,7 @@ private fun ShaderTableHeaderText(
         text = text,
         color = MaterialColor.GRAY_900.color,
         fontWeight = FontWeight.Bold,
-        style = MaterialTheme.typography.subtitle1,
+        style = MaterialTheme.typography.titleMedium,
         modifier = modifier
     )
 }
@@ -531,8 +533,8 @@ private fun ShaderReleaseBadge(versionType: String?) {
 private fun ShaderInfoChip(text: String) {
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = Color.White,
-        border = BorderStroke(1.dp, MaterialColor.GRAY_300.color)
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
     ) {
         Text(
             text = text,
@@ -581,7 +583,7 @@ private fun ShaderVersionHeader(version: ModrinthProjectVersionVo) {
                 text = version.versionNumber,
                 color = MaterialColor.GRAY_900.color,
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.subtitle1,
+                style = MaterialTheme.typography.titleMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f)
@@ -596,7 +598,7 @@ private fun ShaderVersionHeader(version: ModrinthProjectVersionVo) {
         Text(
             text = "${version.publishedText} · ${version.loaders.joinToString(" / ")} · ${version.gameVersions.toVersionRangeText()}",
             color = MaterialColor.GRAY_700.color,
-            style = MaterialTheme.typography.body2,
+            style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -618,7 +620,7 @@ private fun ShaderDescriptionTab(project: ModrinthProjectInfoVo?) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),
-            color = MaterialColor.GRAY_100.color
+            color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -626,13 +628,13 @@ private fun ShaderDescriptionTab(project: ModrinthProjectInfoVo?) {
             ) {
                 Text(
                     text = project.summary,
-                    style = MaterialTheme.typography.subtitle1,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
                     color = MaterialColor.GRAY_900.color
                 )
                 Text(
                     text = project.description.toReadableModrinthDescription(),
-                    style = MaterialTheme.typography.body1,
+                    style = MaterialTheme.typography.bodyLarge,
                     color = MaterialColor.GRAY_900.color
                 )
             }
@@ -693,8 +695,8 @@ private fun ShaderGalleryCard(
             .fillMaxWidth()
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(18.dp),
-        color = Color.White,
-        elevation = 2.dp
+        color = MaterialTheme.colorScheme.surface,
+        shadowElevation = 2.dp
     ) {
         Column {
             Box(
@@ -727,8 +729,8 @@ private fun ShaderImagePreviewDialog(
                 .fillMaxWidth()
                 .widthIn(max = 1100.dp),
             shape = RoundedCornerShape(24.dp),
-            color = Color.White,
-            elevation = 8.dp
+            color = MaterialTheme.colorScheme.surface,
+            shadowElevation = 8.dp
         ) {
             Column(
                 modifier = Modifier.padding(14.dp),

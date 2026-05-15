@@ -1,0 +1,51 @@
+package calebxzhou.rdi.mc.common2.mcp
+
+@JvmRecord
+data class RMcpSituationData(
+    val player: RMcpPlayerData,
+    val environment: Environment,
+    val inventory: Inventory,
+    val nearby: Nearby?
+) {
+    @JvmRecord
+    data class Environment(
+        val dim: String,
+        val biome: String,
+        val gameTime: Long,
+        val dayTime: Long,
+        val timeOfDay: Long,
+        val timeBucket: String,
+        val raining: Boolean,
+        val thundering: Boolean,
+        val difficulty: String,
+        val light: Light,
+        val canSeeSky: Boolean,
+        val inWater: Boolean,
+        val underWater: Boolean,
+        val onGround: Boolean
+    )
+
+    @JvmRecord
+    data class Light(val block: Int, val sky: Int, val raw: Int)
+
+    @JvmRecord
+    data class Inventory(
+        val selectedHotbarSlot: Int,
+        val selectedItem: RMcpInventoryData.Item,
+        val armor: List<RMcpInventoryData.Item>,
+        val offhand: RMcpInventoryData.Item?,
+        val summary: RMcpInventoryData.Summary?
+    )
+
+    @JvmRecord
+    data class Nearby(
+        val range: Range,
+        val entities: RMcpNearbyEntitiesData.Summary,
+        val entitySamples: List<RMcpNearbyEntitiesData.Entity>,
+        val resources: RMcpNearbyResourcesData.Features?,
+        val resourceSamples: List<RMcpNearbyResourcesData.Resource>
+    )
+
+    @JvmRecord
+    data class Range(val entityRadius: Double, val resourceChunkRadius: Int, val resourceSectionRadius: Int)
+}

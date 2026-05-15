@@ -602,13 +602,12 @@ fun HostInfoScreen(
                         id = host._id.toHexString(),
                         name = host.name
                     )
-                    if (onOpenMcPlay != null) {
-                        onOpenMcPlay(args.args)
-                    } else {
-                        errorMessage = "暂不支持在此页面游玩"
-                    }
+                    onOpenMcPlay(args.args)
                 }
-
+                is StartPlayResult.NeedMod -> {
+                    errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先添加对应Mod后再启动。"
+                    onOpenResourceMods(host.modpack.mcVer)
+                }
                 is StartPlayResult.NeedInstall -> {
                     installConfirmTask = args.task
                 }

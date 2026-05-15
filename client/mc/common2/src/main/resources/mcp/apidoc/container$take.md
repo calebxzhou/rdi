@@ -7,7 +7,7 @@ Request body:
 ```json
 {
   "from": {
-    "pos": "minecraft:overworld,10,64,-20",
+    "pos": "10,64,-20",
     "side": null,
     "slot": 0
   },
@@ -54,7 +54,7 @@ Use `POST /container/take/batch` when moving multiple known container slots into
 Common errors:
 
 - `bad_request`: body is malformed, `from` is missing, `from.slot` is missing, or `count<=0`.
-- `bad_pos`: `from.pos` is not `dim,x,y,z`.
+- `bad_pos`: `from.pos` is not `x,y,z`.
 - `bad_side`: `from.side` is not one of `up`, `down`, `north`, `south`, `west`, or `east`.
 - `bad_slot`: `from.slot` or `toInventorySlot` is outside the valid range.
 - `empty_source`: source container slot is empty or cannot extract items.

@@ -160,7 +160,7 @@ object TextTool {
         if (trimmed.isBlank() || trimmed == ".") return root
         val raw = File(trimmed)
         val target = (if (raw.isAbsolute) raw else root.resolve(trimmed)).canonicalFile
-        require(target.toPath().startsWith(root.toPath())) { "路径不在RDI目录内: $rawPath" }
+        //require(target.toPath().startsWith(root.toPath())) { "路径不在RDI目录内: $rawPath" }
         return target
     }
 

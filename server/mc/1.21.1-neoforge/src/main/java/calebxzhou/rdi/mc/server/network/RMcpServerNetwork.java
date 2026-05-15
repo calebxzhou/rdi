@@ -14,6 +14,8 @@ import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeBatchRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpContainerTakeData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpCraftData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpCraftParallelData;
+import calebxzhou.rdi.mc.common2.mcp.RMcpCraftParallelRequest;
 import calebxzhou.rdi.mc.common2.mcp.RMcpHotbarSelectData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpPlayerMoveData;
 import calebxzhou.rdi.mc.common2.mcp.RMcpItemUseOnBlockData;
@@ -83,15 +85,18 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @EventBusSubscriber(modid = "rdi")
 public final class RMcpServerNetwork {
     private static final Gson GSON = new Gson();
     private static final int BLOCK_BATCH_LIMIT = 512;
+    private static final int CRAFT_PARALLEL_LIMIT = 64;
     private static final int CONTAINER_BATCH_LIMIT = 64;
     private static final double PLAYER_MOVE_MAX_DISTANCE = 128.0D;
     private static final int PLAYER_MOVE_SAFE_SEARCH_RADIUS = 4;
@@ -141,6 +146,7 @@ public final class RMcpServerNetwork {
                 case "sign-text" -> handleSignText(payload, context, player);
                 case "harvest-tool" -> handleHarvestTool(payload, context, player);
                 case "craft" -> handleCraft(payload, context, player);
+                case "craft-parallel" -> handleCraftParallel(payload, context, player);
                 case "container" -> handleContainer(payload, context, player);
                 case "menu" -> handleMenu(payload, context, player);
                 case "menu-close" -> handleMenuClose(payload, context, player);
@@ -175,16 +181,12 @@ public final class RMcpServerNetwork {
 
     private static void handleBlockEntity(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
         var request = GSON.fromJson(payload.json(), BlockEntityRequest.class);
-        if (request == null || request.dim() == null || request.dim().isBlank()) {
+        if (request == null) {
             replyError(context, payload, RErrorCode.BAD_REQUEST);
             return;
         }
         var level = player.serverLevel();
         var dim = level.dimension().location().toString();
-        if (!dim.equals(request.dim())) {
-            replyError(context, payload, RErrorCode.DIM_NOT_LOADED);
-            return;
-        }
         var blockEntity = level.getBlockEntity(new BlockPos(request.x(), request.y(), request.z()));
         if (blockEntity == null) {
             replyError(context, payload, RErrorCode.NO_BLOCK_ENTITY);
@@ -823,15 +825,11 @@ public final class RMcpServerNetwork {
 
     private static void handleHarvestTool(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
         var request = GSON.fromJson(payload.json(), HarvestToolRequest.class);
-        if (request == null || ((request.blockId() == null || request.blockId().isBlank()) && request.dim() == null)) {
+        if (request == null || ((request.blockId() == null || request.blockId().isBlank()) && (request.x() == null || request.y() == null || request.z() == null))) {
             replyError(context, payload, RErrorCode.BAD_REQUEST);
             return;
         }
         var level = player.serverLevel();
-        if (request.dim() != null && !request.dim().isBlank() && !level.dimension().location().toString().equals(request.dim())) {
-            replyError(context, payload, RErrorCode.DIM_NOT_LOADED);
-            return;
-        }
         var data = RMcpServerDataCodec211.harvestToolData(level, player, request.blockId(), request.x(), request.y(), request.z());
         if (data == null) {
             replyError(context, payload, RErrorCode.BAD_BLOCK_ID);
@@ -876,6 +874,39 @@ public final class RMcpServerNetwork {
                 List.of()
         );
         replyOk(context, payload, data);
+    }
+
+    private static void handleCraftParallel(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
+        var request = GSON.fromJson(payload.json(), RMcpCraftParallelRequest.class);
+        if (request == null || request.crafts() == null || request.crafts().isEmpty()) {
+            replyError(context, payload, RErrorCode.BAD_REQUEST);
+            return;
+        }
+        if (request.crafts().size() > CRAFT_PARALLEL_LIMIT) {
+            replyError(context, payload, RErrorCode.BAD_LIMIT);
+            return;
+        }
+        var before = inventoryData(player);
+        var plan = prepareCraftParallelPlan(player, request);
+        if (!request.dryRun() && !plan.steps().isEmpty()) {
+            applyCraftParallelPlan(player, plan);
+        }
+        var dryRun = request.dryRun();
+        var results = new ArrayList<RMcpCraftParallelData.Result>();
+        for (var step : plan.steps()) {
+            results.add(step.result(dryRun));
+        }
+        replyOk(context, payload, new RMcpCraftParallelData(
+                "craft-parallel",
+                dryRun,
+                !dryRun && plan.craftedCount() > 0,
+                plan.requestedCount(),
+                dryRun ? 0 : plan.craftedCount(),
+                results,
+                plan.failedCrafts(),
+                before,
+                inventoryData(player)
+        ));
     }
 
     private static void handlePlaceBlock(RMcpPayload payload, IPayloadContext context, ServerPlayer player) {
@@ -933,11 +964,6 @@ public final class RMcpServerNetwork {
             return;
         }
         var level = player.serverLevel();
-        var dim = level.dimension().location().toString();
-        if (!dim.equals(parsedPos.dim())) {
-            replyError(context, payload, RErrorCode.DIM_NOT_LOADED);
-            return;
-        }
         var face = parseSide(request.face());
         if (face == SideParse.BAD) {
             replyError(context, payload, RErrorCode.BAD_SIDE);
@@ -1223,11 +1249,6 @@ public final class RMcpServerNetwork {
             return;
         }
         var level = player.serverLevel();
-        var dim = pos.dim() == null || pos.dim().isBlank() ? level.dimension().location().toString() : pos.dim().trim();
-        if (!level.dimension().location().toString().equals(dim)) {
-            replyError(context, payload, RErrorCode.DIM_NOT_LOADED);
-            return;
-        }
         var targetBlock = BlockPos.containing(pos.x(), pos.y(), pos.z());
         if (!level.isInWorldBounds(targetBlock)) {
             replyError(context, payload, RErrorCode.BAD_POS);
@@ -2232,6 +2253,191 @@ public final class RMcpServerNetwork {
         player.containerMenu.broadcastChanges();
     }
 
+    private static CraftParallelPlan prepareCraftParallelPlan(ServerPlayer player, RMcpCraftParallelRequest request) {
+        var candidates = new ArrayList<CraftParallelStep>();
+        var failedCrafts = new ArrayList<RMcpCraftParallelData.FailedCraft>();
+        var failedIndexes = new HashSet<Integer>();
+        for (int index = 0; index < request.crafts().size(); index++) {
+            var step = prepareCraftParallelStep(player, index, request.crafts().get(index));
+            if ("ok".equals(step.code())) {
+                candidates.add(step);
+            } else {
+                addFailedCraft(failedCrafts, failedIndexes, index, step.code());
+            }
+        }
+
+        var reservedBySlot = new LinkedHashMap<Integer, Integer>();
+        for (var step : candidates) {
+            for (var entry : step.requiredBySlot().entrySet()) {
+                reservedBySlot.merge(entry.getKey(), entry.getValue(), Integer::sum);
+            }
+        }
+        var inventory = player.getInventory();
+        for (var entry : reservedBySlot.entrySet()) {
+            if (entry.getValue() <= inventory.items.get(entry.getKey()).getCount()) {
+                continue;
+            }
+            for (var step : candidates) {
+                if (step.requiredBySlot().containsKey(entry.getKey())) {
+                    addFailedCraft(failedCrafts, failedIndexes, step.index(), RErrorCode.MISSING_INGREDIENTS.id());
+                }
+            }
+        }
+
+        ArrayList<ItemStack> simulatedItems;
+        while (true) {
+            simulatedItems = copyInventoryItems(player);
+            for (var step : candidates) {
+                if (!failedIndexes.contains(step.index())) {
+                    shrinkCraftInputs(simulatedItems, step);
+                }
+            }
+
+            boolean failedThisPass = false;
+            for (var step : candidates) {
+                if (failedIndexes.contains(step.index())) {
+                    continue;
+                }
+                var outputError = insertCraftParallelOutput(simulatedItems, step);
+                if (outputError != null) {
+                    addFailedCraft(failedCrafts, failedIndexes, step.index(), outputError);
+                    failedThisPass = true;
+                    break;
+                }
+            }
+            if (!failedThisPass) {
+                break;
+            }
+        }
+
+        var steps = new ArrayList<CraftParallelStep>();
+        var requestedCount = 0;
+        var craftedCount = 0;
+        for (var step : candidates) {
+            if (!failedIndexes.contains(step.index())) {
+                steps.add(step);
+                requestedCount += step.requestedCount();
+                craftedCount += step.craftedCount();
+            }
+        }
+        return new CraftParallelPlan(steps, failedCrafts, simulatedItems, requestedCount, craftedCount);
+    }
+
+    private static CraftParallelStep prepareCraftParallelStep(ServerPlayer player, int index, RMcpCraftParallelRequest.Craft craft) {
+        if (craft == null) {
+            return CraftParallelStep.error(index, RErrorCode.BAD_REQUEST.id());
+        }
+        if (craft.slots() == null || craft.slots().isEmpty() || craft.shape() == null || craft.shape().isBlank()) {
+            return CraftParallelStep.error(index, RErrorCode.BAD_SHAPE.id());
+        }
+        if (craft.outputSlot() == null || craft.outputSlot() < 0 || craft.outputSlot() >= player.getInventory().items.size()) {
+            return CraftParallelStep.error(index, RErrorCode.BAD_SLOT.id());
+        }
+        int times = craft.times() == null ? 1 : craft.times();
+        if (times <= 0 || times > 64) {
+            return CraftParallelStep.error(index, RErrorCode.BAD_COUNT.id());
+        }
+        var request = new CraftRequest(craft.slots(), craft.shape().trim(), craft.outputSlot(), times, false);
+        var inputPlan = parseCraftInput(player, request);
+        if (!"ok".equals(inputPlan.code())) {
+            return CraftParallelStep.error(index, inputPlan.code());
+        }
+        var level = player.serverLevel();
+        var input = inputPlan.input();
+        var recipe = level.getRecipeManager().getRecipeFor(RecipeType.CRAFTING, input, level).orElse(null);
+        if (recipe == null) {
+            return CraftParallelStep.error(index, RErrorCode.NO_MATCHING_RECIPE.id());
+        }
+        var result = recipe.value().assemble(input, level.registryAccess());
+        if (result.isEmpty()) {
+            return CraftParallelStep.error(index, RErrorCode.CRAFT_FAILED.id());
+        }
+        int requestedCount = result.getCount() * times;
+        if (requestedCount > result.getMaxStackSize()) {
+            return CraftParallelStep.error(index, RErrorCode.RESULT_FULL.id());
+        }
+        var requiredBySlot = new LinkedHashMap<Integer, Integer>();
+        for (var entry : inputPlan.requiredBySlot().entrySet()) {
+            int required = entry.getValue() * times;
+            if (player.getInventory().items.get(entry.getKey()).getCount() < required) {
+                return CraftParallelStep.error(index, RErrorCode.MISSING_INGREDIENTS.id());
+            }
+            requiredBySlot.put(entry.getKey(), required);
+        }
+        List<ItemStack> remainingItems;
+        CommonHooks.setCraftingPlayer(player);
+        try {
+            remainingItems = recipe.value().getRemainingItems(input);
+        } finally {
+            CommonHooks.setCraftingPlayer(null);
+        }
+        return new CraftParallelStep(
+                "ok",
+                index,
+                request,
+                recipe,
+                input,
+                inputPlan.sourceSlots(),
+                requiredBySlot,
+                remainingItems,
+                recipe.id().toString(),
+                itemId(result),
+                requestedCount,
+                requestedCount,
+                result.copyWithCount(requestedCount)
+        );
+    }
+
+    private static void shrinkCraftInputs(List<ItemStack> items, CraftParallelStep step) {
+        for (var entry : step.requiredBySlot().entrySet()) {
+            var stack = items.get(entry.getKey());
+            stack.shrink(entry.getValue());
+            if (stack.isEmpty()) {
+                items.set(entry.getKey(), ItemStack.EMPTY);
+            }
+        }
+    }
+
+    private static String insertCraftParallelOutput(List<ItemStack> items, CraftParallelStep step) {
+        var outputError = insertResultIntoSlot(items, step.request().outputSlot(), step.resultStack().copy(), step.requiredBySlot().containsKey(step.request().outputSlot()));
+        if (outputError != null) {
+            return outputError;
+        }
+        for (int craftIndex = 0; craftIndex < step.request().times(); craftIndex++) {
+            for (int index = 0; index < step.remainingItems().size(); index++) {
+                var remaining = step.remainingItems().get(index);
+                if (!remaining.isEmpty() && !insertRemainder(items, step.sourceSlots()[index], remaining.copy())) {
+                    return RErrorCode.RESULT_FULL.id();
+                }
+            }
+        }
+        return null;
+    }
+
+    private static boolean addFailedCraft(List<RMcpCraftParallelData.FailedCraft> failedCrafts, Set<Integer> failedIndexes, int index, String code) {
+        if (!failedIndexes.add(index)) {
+            return false;
+        }
+        failedCrafts.add(new RMcpCraftParallelData.FailedCraft(index, code));
+        return true;
+    }
+
+    private static void applyCraftParallelPlan(ServerPlayer player, CraftParallelPlan plan) {
+        var inventory = player.getInventory();
+        for (int slot = 0; slot < plan.simulatedItems().size(); slot++) {
+            inventory.items.set(slot, plan.simulatedItems().get(slot));
+        }
+        for (var step : plan.steps()) {
+            var crafted = step.resultStack().copy();
+            crafted.onCraftedBy(player.serverLevel(), player, step.craftedCount());
+            player.awardRecipes(List.of(step.recipe()));
+            player.triggerRecipeCrafted(step.recipe(), step.input().items());
+        }
+        inventory.setChanged();
+        player.inventoryMenu.broadcastChanges();
+        player.containerMenu.broadcastChanges();
+    }
+
     private static ArrayList<ItemStack> copyInventoryItems(ServerPlayer player) {
         var copied = new ArrayList<ItemStack>(player.getInventory().items.size());
         for (var stack : player.getInventory().items) {
@@ -2290,9 +2496,6 @@ public final class RMcpServerNetwork {
 
     private static ContainerResolve resolveContainer(ServerPlayer player, ParsedPos pos, Direction side) {
         var level = player.serverLevel();
-        if (!level.dimension().location().toString().equals(pos.dim())) {
-            return ContainerResolve.error(RErrorCode.DIM_NOT_LOADED.id());
-        }
         var blockPos = new BlockPos(pos.x(), pos.y(), pos.z());
         if (!level.isLoaded(blockPos)) {
             return ContainerResolve.error(RErrorCode.CHUNK_NOT_LOADED.id());
@@ -2809,27 +3012,23 @@ public final class RMcpServerNetwork {
             return null;
         }
         var parts = text.split(",");
-        if (parts.length != 4) {
+        if (parts.length != 3) {
             return null;
         }
         try {
-            var dim = parts[0].trim();
-            if (dim.isEmpty()) {
-                return null;
-            }
-            return new ParsedPos(dim, Integer.parseInt(parts[1].trim()), Integer.parseInt(parts[2].trim()), Integer.parseInt(parts[3].trim()));
+            return new ParsedPos(Integer.parseInt(parts[0].trim()), Integer.parseInt(parts[1].trim()), Integer.parseInt(parts[2].trim()));
         } catch (NumberFormatException e) {
             return null;
         }
     }
 
-    private record BlockEntityRequest(String dim, int x, int y, int z) {
+    private record BlockEntityRequest(int x, int y, int z) {
     }
 
     private record SignTextGetRequest(int x, int y, int z, String side) {
     }
 
-    private record HarvestToolRequest(String blockId, String dim, Integer x, Integer y, Integer z) {
+    private record HarvestToolRequest(String blockId, Integer x, Integer y, Integer z) {
     }
 
     private record CraftRequest(Map<String, Integer> slots, String shape, int outputSlot, int times, boolean dryRun) {
@@ -3011,7 +3210,7 @@ public final class RMcpServerNetwork {
         }
     }
 
-    private record ParsedPos(String dim, int x, int y, int z) {
+    private record ParsedPos(int x, int y, int z) {
     }
 
     private record SideParse(Direction direction, boolean bad) {
@@ -3033,6 +3232,46 @@ public final class RMcpServerNetwork {
     private record ParsedCraftInput(String code, CraftingInput input, int[] sourceSlots, LinkedHashMap<Integer, Integer> requiredBySlot) {
         private static ParsedCraftInput error(String code) {
             return new ParsedCraftInput(code, null, null, null);
+        }
+    }
+
+    private record CraftParallelPlan(
+            List<CraftParallelStep> steps,
+            List<RMcpCraftParallelData.FailedCraft> failedCrafts,
+            List<ItemStack> simulatedItems,
+            int requestedCount,
+            int craftedCount
+    ) {
+    }
+
+    private record CraftParallelStep(
+            String code,
+            int index,
+            CraftRequest request,
+            RecipeHolder<CraftingRecipe> recipe,
+            CraftingInput input,
+            int[] sourceSlots,
+            LinkedHashMap<Integer, Integer> requiredBySlot,
+            List<ItemStack> remainingItems,
+            String recipeId,
+            String resultId,
+            int requestedCount,
+            int craftedCount,
+            ItemStack resultStack
+    ) {
+        private static CraftParallelStep error(int index, String code) {
+            return new CraftParallelStep(code, index, null, null, null, null, null, List.of(), null, null, 0, 0, ItemStack.EMPTY);
+        }
+
+        private RMcpCraftParallelData.Result result(boolean dryRun) {
+            return new RMcpCraftParallelData.Result(
+                    index,
+                    recipeId,
+                    resultId,
+                    requestedCount,
+                    dryRun ? 0 : craftedCount,
+                    request.outputSlot()
+            );
         }
     }
 

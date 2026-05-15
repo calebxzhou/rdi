@@ -184,7 +184,7 @@ public final class RJeiRecipeSource {
             if (!slots.isEmpty()) {
                 var merged = new ArrayList<>(slots);
                 for (var fallbackSlot : fallbackSlots) {
-                    if (!fallbackSlot.fluids().isEmpty()) {
+                    if (!fallbackSlot.fluids.isEmpty()) {
                         merged.add(fallbackSlot);
                     }
                 }
@@ -201,7 +201,7 @@ public final class RJeiRecipeSource {
                 continue;
             }
             var slot = ingredientSlot(ingredient);
-            if (!slot.items().isEmpty() || !slot.tags().isEmpty()) {
+            if (!slot.items.isEmpty() || !slot.tags.isEmpty()) {
                 result.add(slot);
             }
         }
@@ -288,9 +288,9 @@ public final class RJeiRecipeSource {
     private static List<String> outputItemIds(List<RMcpRecipeData.IngredientSlot> outputs) {
         var ids = new ArrayList<String>();
         for (var output : outputs) {
-            for (var item : output.items()) {
-                if (!ids.contains(item.id())) {
-                    ids.add(item.id());
+            for (var item : output.items) {
+                if (!ids.contains(item.id)) {
+                    ids.add(item.id);
                 }
             }
         }
