@@ -11,11 +11,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material.Card
-import androidx.compose.material.LinearProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MainColumn
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.RowV
 import calebxzhou.rdi.client.ui.Space8h
 import calebxzhou.rdi.client.ui.SpacerFullW
@@ -57,7 +56,7 @@ fun TaskListScreen(
                 CircleIconButton(
                     icon = "\uF2ED",
                     tooltip = "清空已完成",
-                    bgColor = MaterialColor.RED_600.color
+                    bgColor = MaterialTheme.colorScheme.error
                 ) {
                     ClientTaskManager.clearFinished()
                 }
@@ -69,7 +68,10 @@ fun TaskListScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Text("当前没有任务")
+                Text(
+                    text = "当前没有任务",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
         } else {
             LazyColumn(
@@ -103,17 +105,20 @@ private fun TaskEntryCard(
     val status = entry.status
     val fraction = snapshot.currentFraction?.coerceIn(0f, 1f)
     val statusColor = when (status) {
-        Task2Status.QUEUED -> MaterialColor.GRAY_600.color
-        Task2Status.RUNNING -> MaterialTheme.colors.primary
-        Task2Status.DONE -> MaterialColor.GREEN_900.color
-        Task2Status.FAILED -> MaterialTheme.colors.error
-        Task2Status.CANCELLED -> MaterialColor.GRAY_500.color
+        Task2Status.QUEUED -> MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f)
+        Task2Status.RUNNING -> MaterialTheme.colorScheme.primary
+        Task2Status.DONE -> MaterialTheme.colorScheme.tertiary
+        Task2Status.FAILED -> MaterialTheme.colorScheme.error
+        Task2Status.CANCELLED -> MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.76f)
     }
-    Card(
+    Surface(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onOpenDetail() },
-        elevation = 2.dp
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+        tonalElevation = 1.dp
     ) {
         Column(
             modifier = Modifier
@@ -125,12 +130,12 @@ private fun TaskEntryCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = entry.task.title,
-                        style = MaterialTheme.typography.h6
+                        style = MaterialTheme.typography.titleMedium
                     )
                     Text(
                         text = status.text,
                         color = statusColor,
-                        style = MaterialTheme.typography.body2
+                        style = MaterialTheme.typography.bodyMedium
                     )
                 }
                 when {
@@ -138,7 +143,7 @@ private fun TaskEntryCard(
                         CircleIconButton(
                             icon = "\uF05E",
                             tooltip = "结束任务",
-                            bgColor = MaterialColor.RED_600.color
+                            bgColor = MaterialTheme.colorScheme.error
                         ) {
                             ClientTaskManager.cancel(entry.runId)
                         }
@@ -148,7 +153,7 @@ private fun TaskEntryCard(
                         CircleIconButton(
                             icon = "\uF2ED",
                             tooltip = "移除",
-                            bgColor = MaterialColor.GRAY_500.color
+                            bgColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
                         ) {
                             ClientTaskManager.remove(entry.runId)
                         }
@@ -158,25 +163,27 @@ private fun TaskEntryCard(
 
             if (fraction != null) {
                 LinearProgressIndicator(
-                    progress = fraction,
+                    progress = { fraction },
+                    color = MaterialTheme.colorScheme.primary,
+                    trackColor = MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
                     text = "${(fraction * 100).toInt()}%",
-                    style = MaterialTheme.typography.caption
+                    style = MaterialTheme.typography.labelMedium
                 )
             }
 
             Text(
                 text = snapshot.currentMessage.ifBlank { "准备中" },
-                style = MaterialTheme.typography.body2
+                style = MaterialTheme.typography.bodyMedium
             )
 
             snapshot.errorMessage?.let {
                 Text(
                     text = it,
-                    color = MaterialTheme.colors.error,
-                    style = MaterialTheme.typography.body2
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium
                 )
             }
 
@@ -186,13 +193,13 @@ private fun TaskEntryCard(
             ) {
                 Text(
                     text = "节点${snapshot.donePaths.size}/${snapshot.progressByPath.size.coerceAtLeast(snapshot.donePaths.size)}",
-                    style = MaterialTheme.typography.caption
+                    style = MaterialTheme.typography.labelMedium
                 )
                 SpacerFullW()
                 if (entry.startedAt != null) {
                     Text(
                         text = "Run ${entry.runId.take(8)}",
-                        style = MaterialTheme.typography.caption,
+                        style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier.widthIn(max = 160.dp)
                     )
                 }

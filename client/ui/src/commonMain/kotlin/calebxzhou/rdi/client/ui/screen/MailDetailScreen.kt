@@ -5,15 +5,14 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.secondsToHumanDateTime
@@ -35,6 +34,24 @@ import org.bson.types.ObjectId
 fun MailDetailScreen(
     mailId: String,
     onBack: () -> Unit
+) {
+    MainColumn {
+        MailDetailPanel(
+            mailId = mailId,
+            onClose = onBack,
+            onDeleted = onBack,
+            modifier = Modifier.fillMaxSize()
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MailDetailPanel(
+    mailId: String,
+    onClose: () -> Unit,
+    onDeleted: () -> Unit = onClose,
+    modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
     val oid = remember(mailId) { runCatching { ObjectId(mailId) }.getOrNull() }
@@ -68,8 +85,8 @@ fun MailDetailScreen(
 
     LaunchedEffect(mailId) { loadMail() }
 
-    MainColumn {
-        TitleRow(mail?.title ?: "邮件详情", onBack = onBack) {
+    Column(modifier = modifier) {
+        TitleRow(mail?.title ?: "邮件详情", onBack = onClose) {
             if (oid != null) {
                 CircleIconButton(
                     icon = "\uEA81",
@@ -83,7 +100,7 @@ fun MailDetailScreen(
                         if (response == null || !response.ok) {
                             errorMessage = response?.msg ?: "删除失败"
                         } else {
-                            onBack()
+                            onDeleted()
                         }
                     }
                 }
@@ -100,7 +117,7 @@ fun MailDetailScreen(
                 }
             }
             errorMessage != null -> {
-                Text(errorMessage ?: "加载失败", color = MaterialTheme.colors.error)
+                Text(errorMessage ?: "加载失败", color = MaterialTheme.colorScheme.error)
                 Spacer(modifier = Modifier.height(8.dp))
                 TextButton(onClick = { loadMail() }) {
                     Text("重试")
@@ -128,7 +145,7 @@ fun MailDetailScreen(
                         itemsIndexed(lines) { idx, line ->
                             Text(
                                 text = line,
-                                color = Color(0xFF333333),
+                                color = MaterialTheme.colorScheme.onSurface,
                                 fontWeight = FontWeight.Normal
                             )
                             if (idx != lines.lastIndex) {
@@ -141,7 +158,7 @@ fun MailDetailScreen(
                             .align(Alignment.CenterEnd)
                             .fillMaxHeight()
                             .width(14.dp)
-                            .background(Color(0xFFE9E9E9))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
                     ) {
                         PlatformVerticalScrollbar(
                             listState = listState,

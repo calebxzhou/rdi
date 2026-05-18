@@ -21,6 +21,7 @@ import net.raphimc.minecraftauth.MinecraftAuth
 import net.raphimc.minecraftauth.java.JavaAuthManager
 import net.raphimc.minecraftauth.msa.model.MsaDeviceCode
 import net.raphimc.minecraftauth.msa.service.impl.DeviceCodeMsaAuthService
+import net.raphimc.minecraftauth.msa.service.util.ParamMsaAuthServiceSupplier
 import org.bson.types.ObjectId
 import java.util.function.Consumer
 
@@ -37,11 +38,23 @@ val playerInfoCache = PlayerInfoCache<RAccount.Dto>().apply {
 
 object PlayerService {
     private val lgr by Loggers
+    private const val MICROSOFT_LOGIN_TIMEOUT_MS = 10 * 60 * 1000
     fun microsoftLogin(onDevice: (MsaDeviceCode) -> Unit): Result<JavaAuthManager> = runCatching {
+        val deviceCodeConsumer = Consumer<MsaDeviceCode> { deviceCode ->
+            onDevice(deviceCode)
+        }
         JavaAuthManager.create(MinecraftAuth.createHttpClient("rdi-client"))
-            .login(::DeviceCodeMsaAuthService, Consumer { deviceCode: MsaDeviceCode ->
-                onDevice(deviceCode)
-            })
+            .login(
+                ParamMsaAuthServiceSupplier<Consumer<MsaDeviceCode>> { httpClient, applicationConfig, callback ->
+                    DeviceCodeMsaAuthService(
+                        httpClient,
+                        applicationConfig,
+                        callback,
+                        MICROSOFT_LOGIN_TIMEOUT_MS
+                    )
+                },
+                deviceCodeConsumer
+            )
     }
     suspend fun login(usr: String, pwd: String): Result<RAccount> = runCatching {
         val creds = LocalCredentials.read()

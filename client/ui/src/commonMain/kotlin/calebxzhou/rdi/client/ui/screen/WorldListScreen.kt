@@ -2,22 +2,24 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.WorldCard
 import calebxzhou.rdi.common.DEBUG
@@ -94,10 +96,10 @@ fun WorldListPane(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Text("存档", style = MaterialTheme.typography.subtitle1)
+                Text("存档", style = MaterialTheme.typography.titleMedium)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     errorMessage?.let {
-                        Text(it, color = MaterialTheme.colors.error)
+                        Text(it, color = MaterialTheme.colorScheme.error)
                         Space8w()
                     }
                     val canOperate = selectedWorld != null
@@ -144,7 +146,7 @@ fun WorldListPane(
                         icon = "\uDB81\uDC50",
                         tooltip = "重置",
                         enabled = canOperate,
-                        bgColor = MaterialColor.ORANGE_700.color,
+                        bgColor = MaterialTheme.colorScheme.tertiary,
 
                     ) {
                         selectedWorld?.let { confirmReset = it }
@@ -154,7 +156,7 @@ fun WorldListPane(
                         icon = "\uEA81",
                         tooltip = "删除",
                         enabled = canOperate,
-                        bgColor = Color.Red,
+                        bgColor = MaterialTheme.colorScheme.error,
 
                     ) {
                         selectedWorld?.let { confirmDelete = it }
@@ -173,34 +175,38 @@ fun WorldListPane(
             }
 
             if (!loading && worlds.isEmpty()) {
-                Text("没有存档。", color = Color.Gray)
+                Text("没有存档。", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 240.dp),
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                items(worlds, key = { it.id.toHexString() }) { world ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(
-                                width = if (selectedWorld?.id == world.id) 2.dp else 1.dp,
-                                color = if (selectedWorld?.id == world.id) {
-                                    MaterialColor.PURPLE_500.color
-                                } else {
-                                    MaterialColor.GRAY_200.color
-                                },
-                                shape = RoundedCornerShape(16.dp)
+            if (worlds.isNotEmpty()) {
+                WorldTableHeader()
+                Space8h()
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(worlds, key = { it.id.toHexString() }) { world ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .border(
+                                    width = if (selectedWorld?.id == world.id) 2.dp else 1.dp,
+                                    color = if (selectedWorld?.id == world.id) {
+                                        MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.outlineVariant
+                                    },
+                                    shape = roundShape
+                                )
+                                .padding(2.dp)
+                        ) {
+                            world.WorldCard(
+                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { selectedWorld = world }
                             )
-                            .padding(2.dp)
-                    ) {
-                        world.WorldCard(
-                            modifier = Modifier.fillMaxWidth(),
-                            onClick = { selectedWorld = world }
-                        )
+                        }
                     }
                 }
             }
@@ -281,9 +287,9 @@ fun WorldListPane(
                     Text(
                         "重置",
                         color = if (resetConfirmed) {
-                            MaterialColor.ORANGE_900.color
+                            MaterialTheme.colorScheme.tertiary
                         } else {
-                            MaterialTheme.colors.onSurface.copy(alpha = ContentAlpha.disabled)
+                            MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
                         }
                     )
                 }
@@ -316,7 +322,7 @@ fun WorldListPane(
                         }
                     )
                 }) {
-                    Text("删除", color = MaterialTheme.colors.error)
+                    Text("删除", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
@@ -324,6 +330,47 @@ fun WorldListPane(
                     Text("取消")
                 }
             }
+        )
+    }
+}
+
+@Composable
+private fun WorldTableHeader() {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Spacer(modifier = Modifier.width(56.dp))
+        Text(
+            text = "名称",
+            modifier = Modifier.weight(1.4f),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Text(
+            text = "整合包",
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Text(
+            text = "大小",
+            modifier = Modifier.weight(0.6f),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
+        )
+        Text(
+            text = "创建时间",
+            modifier = Modifier.weight(1.1f),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1
         )
     }
 }

@@ -127,7 +127,7 @@ fun RegisterScreen(
                     if (useMsa) {
                         // MS Account registration flow
                         if (msaInfo == null) {
-                            Text("即将登录微软账号，点击复制浏览器中打开链接，请在5分钟内登录")
+                            Text("即将登录微软账号，点击复制浏览器中打开链接，请在10分钟内登录")
                             Text("不要切换到其他页面！", fontWeight = FontWeight.Bold)
                             Text("登录完成后稍等10秒，会自动读取账号信息以进行下一步")
                             msaDeviceCode?.let { msaDeviceCode ->

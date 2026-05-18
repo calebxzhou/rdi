@@ -163,6 +163,14 @@ internal fun GameService.startDesktopInDir(
         mcVer.loaderManifest.copy(id = versionId)
     }
     val manifest = mcVer.manifest
+    val launchBaseLibraries = launchBaseLibraries(manifest, gtnhExtensionRoot)
+    val launchLibraryIssues = validateLaunchLibraries(launchBaseLibraries, loaderManifest.libraries)
+    if (launchLibraryIssues.isNotEmpty()) {
+        launchLibraryIssues.forEach { issue ->
+            lgr.warn { "启动被阻止，运行库不完整: ${issue.summary} path=${issue.file.absolutePath}" }
+        }
+        throw IllegalStateException("运行库缺失或损坏，请先修复: ${launchLibraryIssues.first().summary}")
+    }
     val nativesDir = if (isGtnhJava25Launch) {
         mcVer.nativesDir
     } else {
@@ -189,6 +197,7 @@ internal fun GameService.startDesktopInDir(
         loaderManifest = loaderManifest,
         versionDir = versionDir,
         versionId = versionId,
+        baseLibraries = launchBaseLibraries,
         gtnhExtensionRoot = gtnhExtensionRoot
     )
     val classpath = launchClasspath.joinToString(File.pathSeparator)
@@ -291,6 +300,30 @@ internal fun GameService.startDesktopInDir(
     return process
 }
 
+internal suspend fun GameService.ensureDesktopLaunchLibraries(
+    mcVer: McVersion,
+    versionId: String,
+    versionDir: File = versionListDir.resolve(versionId),
+    onProgress: (String) -> Unit
+): Result<Unit> = runCatching {
+    val isGtnhJava25Launch = mcVer == McVersion.V071
+    val gtnhExtensionRoot = if (isGtnhJava25Launch) {
+        requireGtnhExtensionRoot(versionDir)
+    } else {
+        null
+    }
+    val loaderManifest = if (gtnhExtensionRoot != null) {
+        buildGtnhLoaderManifest(gtnhExtensionRoot, versionId)
+    } else {
+        mcVer.loaderManifest.copy(id = versionId)
+    }
+    ensureLaunchLibraries(
+        baseLibraries = launchBaseLibraries(mcVer.manifest, gtnhExtensionRoot),
+        overrideLibraries = loaderManifest.libraries,
+        onProgress = onProgress
+    ).getOrThrow()
+}
+
 internal suspend fun GameService.ensureGtnhRuntime(
     versionDir: File,
     onProgress: (String) -> Unit
@@ -327,16 +360,12 @@ private fun GameService.buildLaunchClasspath(
     loaderManifest: MojangVersionManifest,
     versionDir: File,
     versionId: String,
-    gtnhExtensionRoot: File? = null
+    gtnhExtensionRoot: File? = null,
+    baseLibraries: List<MojangLibrary> = launchBaseLibraries(manifest, gtnhExtensionRoot)
 ): List<String> {
     val entries = LinkedHashSet<String>()
     if (gtnhExtensionRoot != null) {
         entries += buildGtnhJava25Classpath(gtnhExtensionRoot)
-    }
-    val baseLibraries = if (gtnhExtensionRoot != null) {
-        manifest.libraries.filterNot(MojangLibrary::isLegacyLwjgl2Library)
-    } else {
-        manifest.libraries
     }
     entries += buildClasspath(
         baseLibraries = baseLibraries,
@@ -350,6 +379,17 @@ private fun GameService.buildLaunchClasspath(
     ).filter(File::exists)
         .forEach { entries += it.absolutePath }
     return entries.toList()
+}
+
+private fun launchBaseLibraries(
+    manifest: MojangVersionManifest,
+    gtnhExtensionRoot: File?
+): List<MojangLibrary> {
+    return if (gtnhExtensionRoot != null) {
+        manifest.libraries.filterNot(MojangLibrary::isLegacyLwjgl2Library)
+    } else {
+        manifest.libraries
+    }
 }
 
 private fun GameService.resolveLaunchVersionJarCandidates(

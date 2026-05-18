@@ -18,7 +18,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -59,7 +60,6 @@ import calebxzhou.rdi.client.service.codeeditor.lineStartOffset
 import calebxzhou.rdi.client.service.codeeditor.moveCaretByLines
 import calebxzhou.rdi.client.service.codeeditor.selectedText
 import calebxzhou.rdi.client.service.codeeditor.validateCodeContent
-import calebxzhou.rdi.client.ui.MaterialColor
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.yield
 import kotlin.math.max
@@ -68,21 +68,18 @@ import kotlin.math.min
 private const val HISTORY_LIMIT = 200
 private const val TAB_SPACES = "    "
 
-private val editorTextStyle = TextStyle(
+private val editorBaseTextStyle = TextStyle(
     fontFamily = CodeFontFamily,
-    color = MaterialColor.GRAY_900.color,
     fontSize = 14.sp,
     lineHeight = 20.sp
 )
 
-private val gutterTextStyle = editorTextStyle.copy(
-    color = MaterialColor.GRAY_600.color,
+private val gutterBaseTextStyle = editorBaseTextStyle.copy(
     textAlign = TextAlign.End
 )
 
-private val statusTextStyle = TextStyle(
+private val statusBaseTextStyle = TextStyle(
     fontFamily = CodeFontFamily,
-    color = MaterialColor.BLUE_GRAY_700.color,
     fontSize = 12.sp,
     lineHeight = 16.sp
 )
@@ -108,6 +105,10 @@ fun CodeEditor(
     val horizontalScroll = rememberScrollState()
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val colorScheme = MaterialTheme.colorScheme
+    val editorTextStyle = editorBaseTextStyle.copy(color = colorScheme.onSurface)
+    val gutterTextStyle = gutterBaseTextStyle.copy(color = colorScheme.onSurfaceVariant)
+    val statusTextStyle = statusBaseTextStyle.copy(color = colorScheme.onSurfaceVariant)
     val lineHeightPx = with(density) { editorTextStyle.lineHeight.roundToPx().coerceAtLeast(1) }
 
     var editorValue by remember {
@@ -270,7 +271,7 @@ fun CodeEditor(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(MaterialColor.GRAY_100.color)
+                .background(colorScheme.surfaceVariant)
                 .height(16.dp)
                 .padding(horizontal = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -278,14 +279,14 @@ fun CodeEditor(
         ) {
             Text(
                 text = language.label,
-                color = MaterialColor.BLUE_GRAY_700.color,
+                color = colorScheme.onSurfaceVariant,
                 style = statusTextStyle,
                 fontWeight = FontWeight.SemiBold
             )
             validation?.let {
                 Text(
                     text = it.message,
-                    color = if (it.isValid) MaterialColor.GREEN_800.color else MaterialColor.RED_800.color,
+                    color = if (it.isValid) colorScheme.tertiary else colorScheme.error,
                     style = statusTextStyle,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -360,7 +361,7 @@ fun CodeEditor(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialColor.GRAY_50.color)
+                .background(colorScheme.surface)
                 .onSizeChanged { viewportHeightPx = it.height }
         ) {
             Row(
@@ -374,7 +375,7 @@ fun CodeEditor(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(gutterWidth)
-                        .background(MaterialColor.GRAY_100.color)
+                        .background(colorScheme.surfaceVariant)
                         .padding(start = 6.dp, end = 10.dp, top = 10.dp, bottom = 10.dp),
                     style = gutterTextStyle
                 )
@@ -383,7 +384,7 @@ fun CodeEditor(
                     modifier = Modifier
                         .fillMaxHeight()
                         .width(1.dp)
-                        .background(MaterialColor.GRAY_200.color)
+                        .background(colorScheme.outlineVariant)
                 )
 
                 Box(
@@ -418,7 +419,7 @@ fun CodeEditor(
                                 },
                                 enabled = enabled,
                                 textStyle = editorTextStyle,
-                                cursorBrush = SolidColor(MaterialColor.BLUE_700.color),
+                                cursorBrush = SolidColor(colorScheme.primary),
                                 modifier = Modifier
                                     .widthIn(min = minContentWidth)
                                     .padding(bottom = 10.dp)

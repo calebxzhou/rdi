@@ -9,13 +9,16 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -23,7 +26,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.ui.DEFAULT_HOST_ICON
 import calebxzhou.rdi.client.ui.CircleIconButton
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzhou.rdi.client.ui.Space8w
+import calebxzhou.rdi.client.ui.baseShapeRadius
+import calebxzhou.rdi.client.ui.roundShape
 import calebxzhou.rdi.common.model.Host
 
 /**
@@ -40,7 +45,9 @@ fun Host.BriefVo.HostCard(
 ) {
     val isClickable = (miniMode || playable) && onClick != null
     val cardModifier = if (isClickable) {
-        modifier.clickable { onClick(this) }
+        modifier
+            .clip(roundShape)
+            .clickable { onClick(this) }
     } else {
         modifier
     }
@@ -48,14 +55,20 @@ fun Host.BriefVo.HostCard(
     val isHovered by interactionSource.collectIsHoveredAsState()
 
     if (miniMode) {
+        val miniContentColor = if (selected) {
+            MaterialTheme.colorScheme.onSecondaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
         Surface(
             modifier = cardModifier
                 .fillMaxWidth()
                 .hoverable(interactionSource),
-            color = if (selected) MaterialColor.BLUE_50.color else Color.White,
-            shape = RoundedCornerShape(12.dp),
-            border = if (selected) BorderStroke(2.dp, MaterialColor.BLUE_700.color) else null,
-            elevation = 0.dp
+            color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+            contentColor = miniContentColor,
+            shape = roundShape,
+            border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+            tonalElevation = if (selected) 2.dp else 0.dp
         ) {
             Row(
                 modifier = Modifier
@@ -64,21 +77,22 @@ fun Host.BriefVo.HostCard(
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                HostIcon(size = 28, corner = 8)
+                HostIcon(size = 28)
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(1.dp)
                 ) {
                     Text(
                         text = name.ifBlank { "未命名房间" },
-                        color = Color.Black,
+                        color = miniContentColor,
+                        style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "$modpackName $packVer",
-                        style = MaterialTheme.typography.caption,
-                        color = MaterialColor.GRAY_500.color,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = miniContentColor.copy(alpha = 0.76f),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -89,7 +103,7 @@ fun Host.BriefVo.HostCard(
                         tooltip = "启动MC 玩这个房间",
                         size = 26,
                         contentPadding = PaddingValues(2.dp, 0.dp, 0.dp, 0.dp),
-                        bgColor = MaterialColor.GREEN_900.color,
+                        bgColor = MaterialTheme.colorScheme.primary,
                         showText = false
                     ) {
                         onClickPlay.invoke(this@HostCard)
@@ -102,9 +116,9 @@ fun Host.BriefVo.HostCard(
 
     Surface(
         modifier = cardModifier.fillMaxWidth(),
-        color = Color(0xFFF9F9FB),
-        shape = RoundedCornerShape(16.dp),
-        elevation = 1.dp
+        color = MaterialTheme.colorScheme.surface,
+        shape = roundShape,
+        tonalElevation = 1.dp
     ) {
         Box(
             modifier = Modifier
@@ -112,29 +126,30 @@ fun Host.BriefVo.HostCard(
                 .hoverable(interactionSource)
                 .background(Color.Transparent)
                 .alpha(if (playable) 1f else 0.45f)
-                .padding(12.dp)
+                .padding(8.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                HostIcon(size = 64, corner = 12)
-                Spacer(modifier = Modifier.width(12.dp))
+                HostIcon(size = 64)
+                Space8w()
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
                     Text(
                         text = name,
-                        style = MaterialTheme.typography.subtitle1,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         text = "$modpackName $packVer",
-                        style = MaterialTheme.typography.body2,
-                        color = MaterialColor.GRAY_500.color,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -147,7 +162,7 @@ fun Host.BriefVo.HostCard(
                             nameFontSize = 14.sp,
                             showName = true
                         )
-                        Text(" · ")
+                        Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
                         onlinePlayerIds.forEach {
                             HeadButton(
                                 it,
@@ -166,7 +181,7 @@ fun Host.BriefVo.HostCard(
                         tooltip = "启动MC 玩这个房间",
                         size = 26,
                         contentPadding = PaddingValues(2.dp, 0.dp, 0.dp, 0.dp),
-                        bgColor = MaterialColor.GREEN_900.color,
+                        bgColor = MaterialTheme.colorScheme.primary,
                         showText = false
                     ) {
                         onClickPlay.invoke(this@HostCard)
@@ -180,19 +195,21 @@ fun Host.BriefVo.HostCard(
 @Composable
 private fun Host.BriefVo.HostIcon(
     size: Int,
-    corner: Int
+    corner: Int = baseShapeRadius
 ) {
+    val iconShape = RoundedCornerShape(corner.dp)
     Box(
         modifier = Modifier
             .size(size.dp)
-            .background(MaterialColor.GRAY_200.color, RoundedCornerShape(corner.dp)),
+            .clip(iconShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant, iconShape),
         contentAlignment = Alignment.Center
     ) {
         val iconUrl = iconUrl?.takeIf { it.isNotBlank() }
         if (iconUrl != null) {
             HttpImage(
                 imgUrl = iconUrl,
-                modifier = Modifier.size(size.dp),
+                modifier = Modifier.fillMaxSize(),
                 contentDescription = "Host Icon",
                 contentScale = ContentScale.Crop
             )
@@ -200,7 +217,7 @@ private fun Host.BriefVo.HostIcon(
             Image(
                 bitmap = DEFAULT_HOST_ICON,
                 contentDescription = "Host Icon",
-                modifier = Modifier.size(size.dp),
+                modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
         }

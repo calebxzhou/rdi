@@ -438,6 +438,13 @@ fun <T> TitleTabBar(
         }
     }
 }
+@Composable
+fun CopyButton(value: String) {
+    CircleIconButton("\uF0C5","复制",size = 24, showText = false){
+        copyToClipboard(value)
+    }
+}
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Suppress("UNUSED_PARAMETER")

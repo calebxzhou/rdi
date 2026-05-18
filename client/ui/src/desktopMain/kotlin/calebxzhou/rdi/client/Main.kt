@@ -4,6 +4,7 @@ import androidx.compose.material.AlertDialog
 import androidx.compose.material.MaterialTheme
 import androidx.compose.material.Text
 import androidx.compose.material.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,6 +45,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.awt.Frame
 import java.awt.Toolkit
 
 val VERTICAL_MODE= System.getProperty("rdi.ui.vertical").toBoolean()
@@ -108,6 +110,9 @@ fun main() {
                 event.type == KeyEventType.KeyDown && event.key == Key.Escape
             }
         ) {
+            LaunchedEffect(Unit) {
+                window.extendedState = window.extendedState or Frame.MAXIMIZED_BOTH
+            }
             MaterialTheme(typography = AppTypography) {
                 val initScreenName = System.getProperty("rdi.init.screen")?.trim()
                 val startDestination: Any = when (initScreenName) {

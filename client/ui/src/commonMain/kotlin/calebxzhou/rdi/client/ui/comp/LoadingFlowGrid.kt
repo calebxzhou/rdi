@@ -8,11 +8,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.Text
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.ui.asIconText
@@ -36,7 +36,11 @@ fun <T> LoadingFlowGrid(
             CircularProgressIndicator()
         }
 
-        items.isEmpty() -> Text(emptyText.asIconText, modifier = modifier, color = Color.Black)
+        items.isEmpty() -> Text(
+            text = emptyText.asIconText,
+            modifier = modifier,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
 
         else -> Column(
             modifier = modifier.verticalScroll(rememberScrollState()),

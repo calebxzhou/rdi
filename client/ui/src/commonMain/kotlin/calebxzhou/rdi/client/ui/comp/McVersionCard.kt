@@ -15,20 +15,19 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.shadow
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.loadImageBitmap
 import calebxzhou.rdi.common.model.McVersion
 
@@ -50,19 +49,20 @@ fun McVersionCard(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
             .then(
                 if (highlight) {
                     Modifier
                         .shadow(8.dp, shape, clip = false)
-                        .border(2.dp, MaterialColor.PURPLE_500.color, shape)
+                        .border(2.dp, MaterialTheme.colorScheme.primary, shape)
                 } else {
                     Modifier
                 }
-            ),
-        color = Color(0xFFF9F9FB),
+            )
+            .clip(shape)
+            .clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.surface,
         shape = shape,
-        elevation = 1.dp
+        tonalElevation = 1.dp
     ) {
         Row(
             modifier = Modifier.fillMaxWidth().padding(8.dp),
@@ -72,7 +72,7 @@ fun McVersionCard(
                 modifier = Modifier
                     .size(64.dp)
                     .background(
-                        MaterialColor.GRAY_200.color,
+                        MaterialTheme.colorScheme.surfaceVariant,
                         androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
                     )
                     .padding(4.dp),
@@ -96,14 +96,14 @@ fun McVersionCard(
                 ) {
                     Text(
                         text = "MC ${mcver.mcVer}",
-                        style = MaterialTheme.typography.subtitle1,
+                        style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold,
-                        color = MaterialColor.GRAY_900.color
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = mcver.loaderVersions.keys.joinToString(" / ") { it.name.lowercase() },
-                        style = MaterialTheme.typography.body2,
-                        color = MaterialColor.GRAY_700.color
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

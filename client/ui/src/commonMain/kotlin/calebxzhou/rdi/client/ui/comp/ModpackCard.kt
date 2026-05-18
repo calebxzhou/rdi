@@ -4,13 +4,13 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -18,7 +18,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.ui.DEFAULT_MODPACK_ICON
 import calebxzhou.rdi.client.ui.FlowRowV
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.asIconText
 import calebxzhou.rdi.client.ui.iconBitmap
 import calebxzhou.rdi.common.model.ModLoader
@@ -35,8 +34,11 @@ fun Modpack.BriefVo.ModpackCard(
     miniMode: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
+    val cardShape = if (miniMode) RoundedCornerShape(999.dp) else RoundedCornerShape(18.dp)
     val clickableModifier = if (onClick != null) {
-        modifier.clickable(onClick = onClick)
+        modifier
+            .clip(cardShape)
+            .clickable(onClick = onClick)
     } else {
         modifier
     }
@@ -45,9 +47,9 @@ fun Modpack.BriefVo.ModpackCard(
             modifier = clickableModifier
                 .fillMaxWidth()
                 .height(28.dp),
-            color = Color.White,
-            shape = RoundedCornerShape(999.dp),
-            elevation = 1.dp
+            color = MaterialTheme.colorScheme.surface,
+            shape = cardShape,
+            tonalElevation = 1.dp
         ) {
             Row(
                 modifier = Modifier
@@ -60,7 +62,7 @@ fun Modpack.BriefVo.ModpackCard(
                 Surface(
                     modifier = Modifier.size(20.dp),
                     shape = RoundedCornerShape(6.dp),
-                    color = MaterialColor.GRAY_200.color
+                    color = MaterialTheme.colorScheme.surfaceVariant
                 ) {
                     if (iconUrl != null) {
                         HttpImage(
@@ -80,11 +82,11 @@ fun Modpack.BriefVo.ModpackCard(
                 }
                 Text(
                     text = name.ifBlank { "未命名整合包" },
-                    style = MaterialTheme.typography.body2,
+                    style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = MaterialColor.GRAY_900.color,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f)
                 )
             }
@@ -97,9 +99,9 @@ fun Modpack.BriefVo.ModpackCard(
 
     Surface(
         modifier = clickableModifier.fillMaxWidth(),
-        color = Color.White,
-        shape = RoundedCornerShape(18.dp),
-        elevation = 2.dp
+        color = MaterialTheme.colorScheme.surface,
+        shape = cardShape,
+        tonalElevation = 2.dp
     ) {
         Row(
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
@@ -110,7 +112,7 @@ fun Modpack.BriefVo.ModpackCard(
             Surface(
                 modifier = Modifier.size(54.dp),
                 shape = RoundedCornerShape(14.dp),
-                color = MaterialColor.GRAY_200.color
+                color = MaterialTheme.colorScheme.surfaceVariant
             ) {
                 if (iconUrl != null) {
                     HttpImage(
@@ -144,11 +146,11 @@ fun Modpack.BriefVo.ModpackCard(
                         ) {
                             Text(
                                 text = name.ifBlank { "未命名整合包" },
-                                style = MaterialTheme.typography.subtitle1,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = MaterialColor.GRAY_900.color,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f)
                             )
                         }
@@ -168,11 +170,11 @@ fun Modpack.BriefVo.ModpackCard(
                         ) {
                             Text(
                                 text = name.ifBlank { "未命名整合包" },
-                                style = MaterialTheme.typography.subtitle1,
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
-                                color = MaterialColor.GRAY_900.color,
+                                color = MaterialTheme.colorScheme.onSurface,
                                 modifier = Modifier.weight(1f)
                             )
                             ModpackCardMeta(
@@ -203,8 +205,8 @@ fun Modpack.BriefVo.ModpackCard(
                         }
                         Text(
                             text = briefText,
-                            style = MaterialTheme.typography.body2,
-                            color = MaterialColor.GRAY_600.color,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
@@ -244,8 +246,8 @@ private fun ModpackCardMeta(
             )
             Text(
                 text = updatedTimeText,
-                style = MaterialTheme.typography.caption,
-                color = MaterialColor.GRAY_500.color,
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.End,
@@ -264,9 +266,9 @@ private fun ModpackCardMeta(
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
                     text = mcVer,
-                    style = MaterialTheme.typography.subtitle2,
+                    style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialColor.GRAY_900.color,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -296,8 +298,8 @@ private fun ModpackCardMeta(
     ) {
         Text(
             text = statsText.asIconText,
-            style = MaterialTheme.typography.caption,
-            color = MaterialColor.GRAY_500.color,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -312,9 +314,9 @@ private fun ModpackCardMeta(
             )
             Text(
                 text = mcVer,
-                style = MaterialTheme.typography.subtitle2,
+                style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Medium,
-                color = MaterialColor.GRAY_900.color
+                color = MaterialTheme.colorScheme.onSurface
             )
         }
         ModpackLoaderIcon(modloader)
@@ -334,14 +336,14 @@ private fun ModpackCardStat(
     ) {
         Text(
             text = icon.asIconText,
-            style = MaterialTheme.typography.caption,
-            color = MaterialColor.GRAY_500.color
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = text,
-            style = MaterialTheme.typography.caption,
-            color = MaterialColor.GRAY_500.color,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.End
@@ -354,7 +356,7 @@ private fun ModpackLoaderIcon(modloader: ModLoader) {
     modloader.cardIconName?.let { iconName ->
         Surface(
             shape = RoundedCornerShape(5.dp),
-            color = MaterialColor.BLUE_GRAY_100.color
+            color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             Image(
                 bitmap = iconBitmap(iconName),
@@ -369,12 +371,12 @@ private fun ModpackLoaderIcon(modloader: ModLoader) {
 private fun ModpackCardChip(text: String) {
     Surface(
         shape = RoundedCornerShape(999.dp),
-        color = MaterialColor.GRAY_200.color
+        color = MaterialTheme.colorScheme.secondaryContainer
     ) {
         Text(
             text = text,
-            color = MaterialColor.GRAY_800.color,
-            style = MaterialTheme.typography.caption,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp)
         )
     }

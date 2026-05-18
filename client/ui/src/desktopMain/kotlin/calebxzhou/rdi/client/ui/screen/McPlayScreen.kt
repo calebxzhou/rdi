@@ -40,6 +40,7 @@ import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.GameService
+import calebxzhou.rdi.client.service.ensureDesktopLaunchLibraries
 import calebxzhou.rdi.client.service.ensureGtnhRuntime
 import calebxzhou.rdi.client.service.startDesktop
 import calebxzhou.rdi.client.service.syncHostExtraMods
@@ -121,6 +122,13 @@ fun McPlayScreen(
                     }.getOrThrow()
                     session.appendLog("[RDI] GTNH运行库已就绪")
                 }
+                if (session.stopRequested) return@launchSessionTask
+
+                session.appendLog("[RDI] 检查游戏运行库...")
+                GameService.ensureDesktopLaunchLibraries(args.mcVer, args.versionId) { progress ->
+                    session.appendLog("[RDI] $progress")
+                }.getOrThrow()
+                session.appendLog("[RDI] 游戏运行库已就绪")
                 if (session.stopRequested) return@launchSessionTask
 
                 val launchJvmArgs = buildList {

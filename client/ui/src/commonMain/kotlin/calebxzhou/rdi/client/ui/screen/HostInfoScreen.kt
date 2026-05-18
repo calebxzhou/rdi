@@ -605,8 +605,8 @@ fun HostInfoScreen(
                     onOpenMcPlay(args.args)
                 }
                 is StartPlayResult.NeedMod -> {
-                    errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先添加对应Mod后再启动。"
-                    onOpenResourceMods(host.modpack.mcVer)
+                    errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先前往模组界面添加。"
+                  //  onOpenResourceMods(host.modpack.mcVer)
                 }
                 is StartPlayResult.NeedInstall -> {
                     installConfirmTask = args.task
@@ -624,12 +624,12 @@ fun HostInfoScreen(
         MainColumn {
             TitleRow2(title = host?.name ?: "房间详情", onBack = onBack) {
                     host?.let { host ->
-                        Text("房主：")
+                        CopyButton(hostId.toString())
+                        Text("HID=${hostId}", fontSize = 8.sp)
                         HeadButton(host.ownerId)
-
                         CircleIconButton(
                             icon = "\uF04B",
-                            tooltip = "开始游玩",
+                            tooltip = "开始",
                             bgColor = MaterialColor.GREEN_900.color,
                         ) {
                             startPlay(host)

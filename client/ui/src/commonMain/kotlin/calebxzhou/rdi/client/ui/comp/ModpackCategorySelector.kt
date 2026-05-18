@@ -4,14 +4,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.ui.FlowRowV
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.common.model.Modpack
 
 @Composable
@@ -29,8 +29,10 @@ fun ModpackCategorySelector(
     ) {
         Modpack.Category.entries.forEach { category ->
             val isSelected = category in selectedSet
+            val shape = RoundedCornerShape(16.dp)
             Surface(
                 modifier = Modifier
+                    .clip(shape)
                     .clickable(enabled = enabled) {
                         val next = if (isSelected) {
                             selected.filterNot { it == category }
@@ -39,13 +41,13 @@ fun ModpackCategorySelector(
                         }
                         onSelectedChange(next)
                     },
-                shape = RoundedCornerShape(16.dp),
-                color = if (isSelected) MaterialColor.BLUE_700.color else MaterialColor.GRAY_200.color
+                shape = shape,
+                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
             ) {
                 Text(
                     text = category.label,
-                    color = if (isSelected) MaterialColor.WHITE.color else MaterialColor.GRAY_900.color,
-                    style = MaterialTheme.typography.body2,
+                    color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
                 )
             }
@@ -61,7 +63,7 @@ fun ModpackCategoryChips(
 ) {
     if (categories.isEmpty()) {
         if (!emptyText.isNullOrBlank()) {
-            Text(emptyText, color = MaterialColor.GRAY_600.color)
+            Text(emptyText, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         return
     }
@@ -73,12 +75,12 @@ fun ModpackCategoryChips(
         categories.forEach { category ->
             Surface(
                 shape = RoundedCornerShape(16.dp),
-                color = MaterialColor.BLUE_50.color
+                color = MaterialTheme.colorScheme.primaryContainer
             ) {
                 Text(
                     text = category.label,
-                    color = MaterialColor.BLUE_800.color,
-                    style = MaterialTheme.typography.body2,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
                 )
             }

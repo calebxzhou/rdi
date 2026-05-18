@@ -5,20 +5,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.decodeImageBitmap
 import calebxzhou.rdi.client.ui.wM
 import calebxzhou.rdi.common.model.Mod
@@ -39,7 +38,7 @@ fun Mod.CardVo.ModCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(bottom = 8.dp)
-            .background(Color(255, 255, 255, 235), RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
             .padding(12.dp, 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -51,7 +50,7 @@ fun Mod.CardVo.ModCard(
             modifier = Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(12.dp))
-                .background(Color(240, 240, 240, 255))
+                .background(MaterialTheme.colorScheme.surfaceVariant)
         )
 
         Spacer(modifier = Modifier.width(16.dp))
@@ -66,7 +65,7 @@ fun Mod.CardVo.ModCard(
             ) {
                 Text(
                     text = primaryText.ifBlank { name.trim() },
-                    color = MaterialColor.GRAY_900.color,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                     maxLines = 1,
@@ -100,7 +99,7 @@ fun Mod.CardVo.ModCard(
                 if (secondaryTrimmed.isNotEmpty()) {
                     Text(
                         text = secondaryTrimmed,
-                        color = MaterialColor.BLUE_600.color,
+                        color = MaterialTheme.colorScheme.primary,
                         fontSize = 14.sp,
                         fontStyle = FontStyle.Italic,
                         maxLines = 1,
@@ -114,7 +113,7 @@ fun Mod.CardVo.ModCard(
             // Intro
             Text(
                 text = intro.ifBlank { "暂无简介" },
-                color = (MaterialColor.GRAY_700.color),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -160,7 +159,7 @@ private fun ModCardIcon(
             else -> {
                 Text(
                     text = modName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "M",
-                    color = MaterialColor.GRAY_700.color,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontWeight = FontWeight.Bold,
                     fontSize = 20.sp
                 )

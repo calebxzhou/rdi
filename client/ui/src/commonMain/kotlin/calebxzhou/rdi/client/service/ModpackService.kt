@@ -506,7 +506,7 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
     val missingRequiredModSlugs = requiredModSlugs.filterNot { slug ->
         activeMods.any { it.slug.equals(slug, ignoreCase = true) }
     }
-    if (missingRequiredModSlugs.isNotEmpty() && DEBUG) {
+    if (missingRequiredModSlugs.isNotEmpty()) {
         return StartPlayResult.NeedMod(missingRequiredModSlugs)
     }
     if (!ModpackService.isVersionInstalled(modpack.id, packVer)) {

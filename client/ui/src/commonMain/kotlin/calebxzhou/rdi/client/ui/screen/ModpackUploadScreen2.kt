@@ -1026,7 +1026,13 @@ private fun Modpack.toLocalBriefVo(): Modpack.BriefVo = Modpack.BriefVo(
     categories = categories
 )
 
-private fun modMergeKey(
+private data class ModMergeEntry(
+    val mod: Mod,
+    val strictKey: String,
+    val slugKey: String?
+)
+
+private fun strictModMergeKey(
     mod: Mod,
     installedModIdCache: MutableMap<String, String?>
 ): String {
@@ -1039,31 +1045,79 @@ private fun modMergeKey(
     }
 }
 
+private fun slugModMergeKey(mod: Mod): String? =
+    mod.slug.trim().lowercase().takeIf(String::isNotBlank)?.let { "slug:$it" }
+
+private fun Mod.asMergeEntry(installedModIdCache: MutableMap<String, String?>): ModMergeEntry =
+    ModMergeEntry(
+        mod = this,
+        strictKey = strictModMergeKey(this, installedModIdCache),
+        slugKey = slugModMergeKey(this)
+    )
+
+private fun mergeAsBoth(clientMod: Mod, serverMod: Mod): Mod {
+    val mergedDownloadUrls = (clientMod.downloadUrls + serverMod.downloadUrls).distinct()
+    return clientMod.copy(
+        side = Mod.Side.BOTH,
+        downloadUrls = mergedDownloadUrls
+    ).also { merged ->
+        merged.vo = (clientMod.vo ?: serverMod.vo)?.copy(side = Mod.Side.BOTH)
+        merged.file = clientMod.file ?: serverMod.file
+    }
+}
+
 private fun mergeClientAndServerMods(
     clientMods: List<Mod>,
     serverMods: List<Mod>
 ): List<Mod> {
     val installedModIdCache = mutableMapOf<String, String?>()
-    fun mergeKey(mod: Mod) = modMergeKey(mod, installedModIdCache)
-
-    val clientModsWithKey = clientMods.map { it to mergeKey(it) }
-    val serverModsWithKey = serverMods.map { it to mergeKey(it) }
-    val clientByKey = clientModsWithKey.associate { (mod, key) -> key to mod }
-    val serverByKey = serverModsWithKey.associate { (mod, key) -> key to mod }
+    val clientEntries = clientMods.map { it.asMergeEntry(installedModIdCache) }
+    val serverEntries = serverMods.map { it.asMergeEntry(installedModIdCache) }
+    val serverByStrictKey = serverEntries.associateBy { it.strictKey }
+    val uniqueClientSlugKeys = clientEntries
+        .mapNotNull { it.slugKey }
+        .groupingBy { it }
+        .eachCount()
+        .filterValues { it == 1 }
+        .keys
+    val serverByUniqueSlugKey = serverEntries
+        .filter { it.slugKey != null }
+        .groupBy { it.slugKey!! }
+        .filterValues { it.size == 1 }
+        .mapValues { it.value.single() }
+    val matchedServerEntries = mutableSetOf<ModMergeEntry>()
     val merged = mutableListOf<Mod>()
 
-    clientModsWithKey.forEach { (clientMod, key) ->
-        val mergedSide = if (serverByKey.containsKey(key)) Mod.Side.BOTH else Mod.Side.CLIENT
-        merged += clientMod.toUiMod().withSide(mergedSide).toMod()
+    clientEntries.forEach { clientEntry ->
+        val strictMatch = serverByStrictKey[clientEntry.strictKey]
+            ?.takeIf { it !in matchedServerEntries }
+        val slugMatch = clientEntry.slugKey
+            ?.takeIf { it in uniqueClientSlugKeys }
+            ?.let { serverByUniqueSlugKey[it] }
+            ?.takeIf { it !in matchedServerEntries }
+        val serverMatch = strictMatch ?: slugMatch
+        if (serverMatch != null) {
+            if (strictMatch == null) {
+                lgr.info {
+                    "按slug合并跨来源mod: " +
+                        "${clientEntry.mod.platform}:${clientEntry.mod.projectId} ${clientEntry.mod.slug} + " +
+                        "${serverMatch.mod.platform}:${serverMatch.mod.projectId} ${serverMatch.mod.slug}"
+                }
+            }
+            matchedServerEntries += serverMatch
+            merged += mergeAsBoth(clientEntry.mod, serverMatch.mod)
+        } else {
+            merged += clientEntry.mod.toUiMod().withSide(Mod.Side.CLIENT).toMod()
+        }
     }
 
-    serverModsWithKey.forEach { (serverMod, key) ->
-        if (clientByKey.containsKey(key)) return@forEach
-        merged += serverMod.toUiMod().withSide(Mod.Side.SERVER).toMod()
+    serverEntries.forEach { serverEntry ->
+        if (serverEntry in matchedServerEntries) return@forEach
+        merged += serverEntry.mod.toUiMod().withSide(Mod.Side.SERVER).toMod()
     }
 
     return merged
-        .distinctBy(::mergeKey)
+        .distinctBy { strictModMergeKey(it, installedModIdCache) }
         .sortedBy { it.slug.lowercase() }
 }
 

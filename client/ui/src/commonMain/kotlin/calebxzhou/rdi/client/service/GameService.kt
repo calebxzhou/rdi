@@ -271,6 +271,7 @@ object GameService {
         val path = descriptorToLibraryPath(descriptor)
         val baseUrl = url?.trim().orEmpty().ifBlank {
             when {
+                path.startsWith("net/neoforged/") -> "https://maven.neoforged.net/releases"
                 path.startsWith("net/minecraftforge/") -> "https://maven.minecraftforge.net"
                 path.startsWith("cpw/mods/") -> "https://maven.minecraftforge.net"
                 else -> "https://libraries.minecraft.net"
@@ -379,6 +380,7 @@ object GameService {
         val path = artifact.path?.trim().orEmpty()
         if (path.isEmpty()) return raw
         val base = when {
+            path.startsWith("net/neoforged/") -> "https://maven.neoforged.net/releases"
             path.startsWith("net/minecraftforge/") -> "https://maven.minecraftforge.net"
             path.startsWith("cpw/mods/") -> "https://maven.minecraftforge.net"
             else -> "https://libraries.minecraft.net"
@@ -681,6 +683,48 @@ object GameService {
         return "${library.name}|$artifactPath|$classifierKey"
     }
 
+    internal data class LaunchLibraryValidationIssue(
+        val libraryName: String,
+        val file: File,
+        val reason: String,
+        val expectedSha1: String = "",
+        val actualSha1: String = "",
+    ) {
+        val summary: String
+            get() = buildString {
+                append(libraryName).append(": ").append(reason).append(" (").append(file.name).append(")")
+                if (expectedSha1.isNotBlank()) {
+                    append(" expected=").append(expectedSha1)
+                }
+                if (actualSha1.isNotBlank()) {
+                    append(" actual=").append(actualSha1)
+                }
+            }
+    }
+
+    private data class LaunchLibraryArtifact(
+        val library: MojangLibrary,
+        val artifact: MojangDownloadArtifact,
+        val file: File,
+        val origin: LaunchLibraryOrigin,
+        val kind: LaunchLibraryKind,
+    )
+
+    private data class LaunchLibraryEntry(
+        val library: MojangLibrary,
+        val origin: LaunchLibraryOrigin,
+    )
+
+    private enum class LaunchLibraryOrigin(val displayName: String) {
+        VANILLA("Minecraft"),
+        LOADER("Mod载入器"),
+    }
+
+    private enum class LaunchLibraryKind(val displayName: String) {
+        MAIN("运行库"),
+        NATIVE("原生库"),
+    }
+
     private val classpathOverrideArtifacts = setOf(
         "com.google.code.gson:gson",
         "com.google.guava:guava",
@@ -722,6 +766,166 @@ object GameService {
         val coords = library.name.split(':')
         if (coords.size < 2) return null
         return "${coords[0]}:${coords[1]}"
+    }
+
+    private fun mergedLaunchLibraryEntries(
+        baseLibraries: List<MojangLibrary>,
+        overrideLibraries: List<MojangLibrary>
+    ): List<LaunchLibraryEntry> {
+        val archMatchedOverrideLibraries = overrideLibraries.filter { it.shouldDownloadByArch() }
+        val overrideGroupArtifacts = archMatchedOverrideLibraries.mapNotNull(::libraryGroupArtifact).toSet()
+        val removedBaseArtifacts = buildSet {
+            if ("com.cleanroommc:lwjglxx" in overrideGroupArtifacts) {
+                addAll(cleanroomRemovedBaseArtifacts)
+            }
+        }
+        val filteredOverrideLibraries = archMatchedOverrideLibraries
+            .filterNot { libraryGroupArtifact(it) in removedBaseArtifacts }
+        val filteredBaseLibraries = baseLibraries
+            .filter { it.shouldDownloadByArch() }
+            .filterNot { libraryGroupArtifact(it) in removedBaseArtifacts }
+        val overrideEntries = filteredOverrideLibraries.map { LaunchLibraryEntry(it, LaunchLibraryOrigin.LOADER) }
+        val overrideByKey = overrideEntries
+            .mapNotNull { entry -> classpathOverrideKey(entry.library)?.let { it to entry } }
+            .toMap()
+        val usedOverrideKeys = mutableSetOf<String>()
+        return filteredBaseLibraries.map { library ->
+            val key = classpathOverrideKey(library) ?: return@map LaunchLibraryEntry(library, LaunchLibraryOrigin.VANILLA)
+            overrideByKey[key]?.also { usedOverrideKeys += key } ?: LaunchLibraryEntry(library, LaunchLibraryOrigin.VANILLA)
+        } + overrideEntries.filter { entry ->
+            val key = classpathOverrideKey(entry.library)
+            key == null || key !in usedOverrideKeys
+        }
+    }
+
+    private fun mergedLaunchLibraries(
+        baseLibraries: List<MojangLibrary>,
+        overrideLibraries: List<MojangLibrary>
+    ): List<MojangLibrary> {
+        return mergedLaunchLibraryEntries(baseLibraries, overrideLibraries).map { it.library }
+    }
+
+    private fun LaunchLibraryEntry.launchArtifacts(): List<LaunchLibraryArtifact> {
+        val artifacts = mutableListOf<LaunchLibraryArtifact>()
+        library.mainArtifact()?.let { artifact ->
+            val relativePath = artifact.path?.takeIf { it.isNotBlank() }
+                ?: runCatching { descriptorToLibraryPath(library.name) }.getOrNull()
+            if (relativePath != null) {
+                artifacts += LaunchLibraryArtifact(
+                    library = library,
+                    artifact = artifact,
+                    file = File(libsDir, relativePath),
+                    origin = origin,
+                    kind = LaunchLibraryKind.MAIN
+                )
+            }
+        }
+        library.nativeArtifact()?.let { artifact ->
+            val relativePath = artifact.path?.takeIf { it.isNotBlank() }
+            if (relativePath != null) {
+                artifacts += LaunchLibraryArtifact(
+                    library = library,
+                    artifact = artifact,
+                    file = File(libsDir, relativePath),
+                    origin = origin,
+                    kind = LaunchLibraryKind.NATIVE
+                )
+            }
+        }
+        return artifacts
+    }
+
+    private fun File.canOpenJar(): Boolean {
+        return runCatching {
+            ZipFile(this).use { zip ->
+                zip.entries().hasMoreElements()
+            }
+        }.getOrDefault(false)
+    }
+
+    private fun LaunchLibraryArtifact.validate(): LaunchLibraryValidationIssue? {
+        if (!file.exists()) {
+            return LaunchLibraryValidationIssue(library.name, file, "${origin.displayName}${kind.displayName}缺失")
+        }
+        if (file.length() <= 0L) {
+            return LaunchLibraryValidationIssue(library.name, file, "${origin.displayName}${kind.displayName}文件为空")
+        }
+        val expectedSha1 = artifact.sha1.trim()
+        if (expectedSha1.isNotBlank()) {
+            val actualSha1 = runCatching { file.sha1 }.getOrElse { error ->
+                return LaunchLibraryValidationIssue(library.name, file, "无法计算${origin.displayName}${kind.displayName}校验值: ${error.message ?: error::class.simpleName}")
+            }
+            if (!actualSha1.equals(expectedSha1, true)) {
+                return LaunchLibraryValidationIssue(
+                    libraryName = library.name,
+                    file = file,
+                    reason = "${origin.displayName}${kind.displayName}校验失败",
+                    expectedSha1 = expectedSha1,
+                    actualSha1 = actualSha1
+                )
+            }
+        } else if (!file.canOpenJar()) {
+            return LaunchLibraryValidationIssue(library.name, file, "${origin.displayName}${kind.displayName}无法打开jar")
+        }
+        return null
+    }
+
+    private suspend fun LaunchLibraryArtifact.download(onProgress: (DownloadProgress) -> Unit): Result<File> {
+        return downloadLibraryArtifact(artifact, file, onProgress = onProgress)
+    }
+
+    private fun collectLaunchLibraryArtifacts(
+        baseLibraries: List<MojangLibrary>,
+        overrideLibraries: List<MojangLibrary>
+    ): List<LaunchLibraryArtifact> {
+        return mergedLaunchLibraryEntries(baseLibraries, overrideLibraries)
+            .flatMap { it.launchArtifacts() }
+            .distinctBy { it.file.absolutePath }
+    }
+
+    internal fun validateLaunchLibraries(
+        baseLibraries: List<MojangLibrary>,
+        overrideLibraries: List<MojangLibrary>
+    ): List<LaunchLibraryValidationIssue> {
+        return collectLaunchLibraryArtifacts(baseLibraries, overrideLibraries)
+            .mapNotNull { it.validate() }
+    }
+
+    internal suspend fun ensureLaunchLibraries(
+        baseLibraries: List<MojangLibrary>,
+        overrideLibraries: List<MojangLibrary>,
+        onProgress: (String) -> Unit = {}
+    ): Result<Unit> = runCatching {
+        val badArtifacts = collectLaunchLibraryArtifacts(baseLibraries, overrideLibraries)
+            .filter { it.validate() != null }
+        if (badArtifacts.isEmpty()) {
+            onProgress("运行库完整")
+            return@runCatching
+        }
+        onProgress("发现${badArtifacts.size}个运行库缺失或损坏，开始修复")
+        badArtifacts.forEachIndexed { index, item ->
+            val issue = item.validate()
+            issue?.let { problem ->
+                lgr.warn { "启动前运行库检查失败: ${problem.summary} path=${problem.file.absolutePath}" }
+            }
+            if (item.file.exists()) {
+                item.file.delete()
+            }
+            onProgress("修复${index + 1}/${badArtifacts.size}: ${item.file.name}")
+            item.download { progress ->
+                val total = progress.totalBytes.takeIf { it > 0 }?.humanFileSize ?: "未知"
+                val downloaded = progress.bytesDownloaded.coerceAtLeast(0L).humanFileSize
+                onProgress("修复${item.file.name} $downloaded/$total")
+            }.getOrThrow()
+        }
+        val remainingIssues = validateLaunchLibraries(baseLibraries, overrideLibraries)
+        if (remainingIssues.isNotEmpty()) {
+            remainingIssues.forEach { issue ->
+                lgr.warn { "启动前运行库修复后仍失败: ${issue.summary} path=${issue.file.absolutePath}" }
+            }
+            error("运行库修复失败: ${remainingIssues.first().summary}")
+        }
+        onProgress("运行库修复完成")
     }
 
     private fun addClasspathCompatibilityLibraries(entries: List<String>): List<String> {
@@ -1289,30 +1493,7 @@ object GameService {
         baseLibraries: List<MojangLibrary>,
         overrideLibraries: List<MojangLibrary>
     ): List<String> {
-        val archMatchedOverrideLibraries = overrideLibraries.filter { it.shouldDownloadByArch() }
-        val overrideGroupArtifacts = archMatchedOverrideLibraries.mapNotNull(::libraryGroupArtifact).toSet()
-        val removedBaseArtifacts = buildSet {
-            if ("com.cleanroommc:lwjglxx" in overrideGroupArtifacts) {
-                addAll(cleanroomRemovedBaseArtifacts)
-            }
-        }
-        val filteredOverrideLibraries = archMatchedOverrideLibraries
-            .filterNot { libraryGroupArtifact(it) in removedBaseArtifacts }
-        val filteredBaseLibraries = baseLibraries
-            .filter { it.shouldDownloadByArch() }
-            .filterNot { libraryGroupArtifact(it) in removedBaseArtifacts }
-        val overrideByKey = filteredOverrideLibraries
-            .mapNotNull { library -> classpathOverrideKey(library)?.let { it to library } }
-            .toMap()
-        val usedOverrideKeys = mutableSetOf<String>()
-        val mergedLibraries = filteredBaseLibraries.map { library ->
-            val key = classpathOverrideKey(library) ?: return@map library
-            overrideByKey[key]?.also { usedOverrideKeys += key } ?: library
-        } + filteredOverrideLibraries.filter { library ->
-            val key = classpathOverrideKey(library)
-            key == null || key !in usedOverrideKeys
-        }
-        val entries = mergedLibraries
+        val entries = mergedLaunchLibraries(baseLibraries, overrideLibraries)
             .asSequence()
             .mapNotNull { lib ->
                 lib.mainArtifact()?.path?.takeIf { it.isNotBlank() }

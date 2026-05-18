@@ -475,11 +475,11 @@ fun ModpackVersionEditScreen(
                     val selectedOriginalKeys = editingMods.map { versionModKey(it.mod) }.toSet()
                     val preservedMods = currentVersion.mods.filter { versionModKey(it) !in selectedOriginalKeys }
                     val finalMods = preservedMods + replaceItems.map(ModBatchReplaceItem::mod)
-                    val duplicates = finalMods.groupingBy(::versionModIdentity).eachCount().filterValues { it > 1 }
+                    /*val duplicates = finalMods.groupingBy(::versionModIdentity).eachCount().filterValues { it > 1 }
                     if (duplicates.isNotEmpty()) {
                         errorMessage = "批量编辑后版本里有重复Mod，请检查slug或projectId"
                         return@save
-                    }
+                    }*/
                 }
                 editDialogSaving = true
                 scope.rdiRequestU(

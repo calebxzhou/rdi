@@ -78,7 +78,6 @@ fun HostListScreen(
     onOpenMcPlay: ((McPlayArgs) -> Unit),
     onOpenTaskList: ((String) -> Unit),
     initialTab: HostTab = HostTab.MyHosts,
-    onOpenMailDetail: (String) -> Unit = {},
     onOpenBirdView: (String) -> Unit = {},
     onOpenLocalBirdView: (() -> Unit)? = null
 ) {
@@ -132,7 +131,6 @@ fun HostListScreen(
             )
 
             HostTab.Mail -> MailPane(
-                onOpenDetail = onOpenMailDetail,
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -275,13 +273,12 @@ internal fun HostBrowserPane(
                                 }
 
                                 is StartPlayResult.NeedMod -> {
-                                    errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先添加对应Mod后再启动。"
-                                    onOpenResourceMods.invoke(detail.modpack.mcVer, detail._id.toHexString(), fromAllHosts)
+                                    errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先前往模组界面添加。"
+                                    //onOpenResourceMods.invoke(detail.modpack.mcVer, detail._id.toHexString(), fromAllHosts)
                                 }
 
                                 is StartPlayResult.NeedMc -> {
                                     errorMessage = "请前往更新MC${args.ver.mcVer}版本资源。"
-                                    onOpenMcVersions.invoke(args.ver)
                                 }
                             }
                         }
@@ -296,8 +293,8 @@ internal fun HostBrowserPane(
                 state = gridState,
                 columns = GridCells.Adaptive(minSize = 300.dp),
                 contentPadding = PaddingValues(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 if (playableHosts.isNotEmpty()) {
                     items(playableHosts) { host ->

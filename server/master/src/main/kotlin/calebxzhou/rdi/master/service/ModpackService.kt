@@ -657,7 +657,7 @@ object ModpackService {
 
             Modpack.SearchSort.UPDATED -> Sorts.descending("${Modpack::versions.name}.${Modpack.Version::time.name}")
             Modpack.SearchSort.POPULAR -> Sorts.descending(Modpack::playCount.name)
-            Modpack.SearchSort.NAME -> Sorts.ascending(Modpack::name.name)
+            //Modpack.SearchSort.NAME -> Sorts.ascending(Modpack::name.name)
         }
 
         val total = dbcl.countDocuments(filter).toInt()

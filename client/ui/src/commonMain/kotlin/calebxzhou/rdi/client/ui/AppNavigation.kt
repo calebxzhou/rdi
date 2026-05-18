@@ -287,9 +287,6 @@ fun AppNavigation(
                             )
                         )
                     },
-                    onOpenMailDetail = { mailId ->
-                        navController.navigate(MailDetail(mailId))
-                    },
                     onOpenBirdView = { worldId ->
                         WorldBirdViewStore.current = WorldBirdViewSourceSpec.Remote(worldId)
                         navController.navigate(WorldBirdView(worldId))

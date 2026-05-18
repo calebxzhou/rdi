@@ -4,14 +4,14 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -19,7 +19,6 @@ import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.millisToHumanDateTime
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.ui.DEFAULT_MODPACK_ICON
-import calebxzhou.rdi.client.ui.MaterialColor
 
 /**
  * calebxzhou @ 2026-01-27 21:24
@@ -35,18 +34,25 @@ fun ModpackManageCard(
     miniMode: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
-    val clickModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     if (miniMode) {
+        val shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp)
+        val clickModifier = if (onClick != null) Modifier.clip(shape).clickable(onClick = onClick) else Modifier
+        val miniContentColor = if (selected) {
+            MaterialTheme.colorScheme.onPrimaryContainer
+        } else {
+            MaterialTheme.colorScheme.onSurface
+        }
         Surface(
             modifier = modifier.then(clickModifier),
-            color = if (selected) MaterialColor.PURPLE_50.color else Color.White,
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+            color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+            contentColor = miniContentColor,
+            shape = shape,
             border = when {
-                selected -> BorderStroke(2.dp, MaterialColor.PURPLE_500.color)
-                isRunning -> BorderStroke(2.dp, MaterialColor.ORANGE_900.color)
+                selected -> BorderStroke(2.dp, MaterialTheme.colorScheme.primary)
+                isRunning -> BorderStroke(2.dp, MaterialTheme.colorScheme.tertiary)
                 else -> null
             },
-            elevation = 0.dp
+            tonalElevation = if (selected) 2.dp else 0.dp
         ) {
             Row(
                 modifier = Modifier.widthIn(max = 350.dp).padding(horizontal = 5.dp, vertical = 4.dp),
@@ -60,7 +66,8 @@ fun ModpackManageCard(
                     ModpackManageIcon(packdir, 28)
                     Text(
                         text = "${packdir.vo.name.ifBlank { "未知整合包" }} ${packdir.verName}",
-                        color = Color.Black,
+                        color = miniContentColor,
+                        style = MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -71,9 +78,10 @@ fun ModpackManageCard(
     }
 
     val cardShape = androidx.compose.foundation.shape.RoundedCornerShape(20.dp)
+    val clickModifier = if (onClick != null) Modifier.clip(cardShape).clickable(onClick = onClick) else Modifier
     val glowModifier = if (isRunning) {
         Modifier
-            .background(MaterialColor.ORANGE_900.color, cardShape)
+            .background(MaterialTheme.colorScheme.tertiary, cardShape)
             .padding(2.dp)
     } else {
         Modifier
@@ -85,10 +93,10 @@ fun ModpackManageCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .then(clickModifier),
-            color = Color(0xFFF9F9FB),
+            color = MaterialTheme.colorScheme.surface,
             shape = cardShape,
-            border = if (selected) BorderStroke(2.dp, MaterialColor.PURPLE_500.color) else null,
-            elevation = 1.dp
+            border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
+            tonalElevation = 1.dp
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(8.dp),
@@ -97,7 +105,7 @@ fun ModpackManageCard(
                 Box(
                     modifier = Modifier
                         .size(64.dp)
-                        .background(MaterialColor.GRAY_200.color, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant, androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
                         .padding(4.dp),
                     contentAlignment = Alignment.Center
                 ) {
@@ -114,23 +122,23 @@ fun ModpackManageCard(
                     ) {
                         Text(
                             text = packdir.vo.name,
-                            style = MaterialTheme.typography.subtitle1,
+                            style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color.Black,
+                            color = MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
                         )
                         Text(
                             text = packdir.verName,
-                            style = MaterialTheme.typography.body2,
-                            color = MaterialColor.GRAY_700.color
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     Text(
                         text = packdir.createTime.millisToHumanDateTime,
-                        style = MaterialTheme.typography.body2,
-                        color = MaterialColor.GRAY_700.color
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
             }

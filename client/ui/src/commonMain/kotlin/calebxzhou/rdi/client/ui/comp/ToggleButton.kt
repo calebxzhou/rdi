@@ -4,17 +4,15 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.asIconText
 
 @Composable
@@ -24,8 +22,8 @@ fun ToggleButton(
     onClick: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
-    val bg = if (checked) MaterialTheme.colors.primary else MaterialColor.GRAY_300.color
-    val fg = if (checked) Color.White else MaterialColor.GRAY_700.color
+    val bg = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val fg = if (checked) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     val clickModifier = if (onClick != null) {
         Modifier.clickable { onClick() }
     } else {

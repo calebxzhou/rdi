@@ -13,8 +13,3 @@ object RDIClient {
     }
 
 }
-
-fun main() {
-    //redirect new ui
-    calebxzhou.rdi.client.main()
-}

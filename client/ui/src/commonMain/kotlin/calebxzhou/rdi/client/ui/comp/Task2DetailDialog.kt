@@ -16,12 +16,11 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.LinearProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
@@ -31,7 +30,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.ui.CircleIconButton
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.Space8h
 import calebxzhou.rdi.client.ui.Space8w
 import calebxzhou.rdi.common.model.Task2
@@ -72,9 +70,10 @@ fun Task2DetailDialog(
                 modifier = Modifier
                     .fillMaxWidth(3f / 4f)
                     .fillMaxHeight(3f / 4f),
-                shape = RoundedCornerShape(24.dp),
-                color = Color.White,
-                elevation = 12.dp
+                shape = MaterialTheme.shapes.large,
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+                shadowElevation = 12.dp
             ) {
                 Column(
                     modifier = Modifier
@@ -88,19 +87,19 @@ fun Task2DetailDialog(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = entry.task.title,
-                                style = MaterialTheme.typography.h5,
+                                style = MaterialTheme.typography.headlineSmall,
                                 fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 text = entry.status.text,
                                 color = entry.status.color(),
-                                style = MaterialTheme.typography.body2
+                                style = MaterialTheme.typography.bodyMedium
                             )
                         }
                         CircleIconButton(
                             icon = "\uF00D",
                             tooltip = "隐藏到后台",
-                            bgColor = MaterialColor.GRAY_600.color
+                            bgColor = MaterialTheme.colorScheme.onSurfaceVariant
                         ) {
                             onClose()
                         }
@@ -108,21 +107,23 @@ fun Task2DetailDialog(
                     Space8h()
                     entry.snapshot.currentFraction?.coerceIn(0f, 1f)?.let {
                         LinearProgressIndicator(
-                            progress = it,
+                            progress = { it },
+                            color = MaterialTheme.colorScheme.primary,
+                            trackColor = MaterialTheme.colorScheme.surfaceVariant,
                             modifier = Modifier.fillMaxWidth()
                         )
                         Space8h()
                     }
                     Text(
                         text = entry.snapshot.currentMessage.ifBlank { "准备中" },
-                        style = MaterialTheme.typography.body2
+                        style = MaterialTheme.typography.bodyMedium
                     )
                     entry.snapshot.errorMessage?.let {
                         Space8h()
                         Text(
                             text = it,
-                            color = MaterialTheme.colors.error,
-                            style = MaterialTheme.typography.body2
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
                     Space8h()
@@ -249,21 +250,23 @@ private fun Task2DetailRow(
             Text(
                 text = row.title,
                 color = status.color(),
-                style = if (row.level == 0) MaterialTheme.typography.subtitle1 else MaterialTheme.typography.body1,
+                style = if (row.level == 0) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
                 modifier = Modifier.weight(1f)
             )
             Text(
                 text = status.text,
-                style = MaterialTheme.typography.caption
+                style = MaterialTheme.typography.labelMedium
             )
         }
         Text(
             text = progress.detailText(status),
-            style = MaterialTheme.typography.caption
+            style = MaterialTheme.typography.labelMedium
         )
         progress?.fraction?.coerceIn(0f, 1f)?.let {
             LinearProgressIndicator(
-                progress = it,
+                progress = { it },
+                color = MaterialTheme.colorScheme.primary,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
                 modifier = Modifier.fillMaxWidth()
             )
         }
@@ -287,9 +290,9 @@ private val Task2Status.text: String
 
 @Composable
 private fun Task2Status.color(): Color = when (this) {
-        Task2Status.QUEUED -> MaterialColor.GRAY_600.color
-        Task2Status.RUNNING -> MaterialTheme.colors.primary
-        Task2Status.DONE -> MaterialColor.GREEN_900.color
-        Task2Status.FAILED -> MaterialTheme.colors.error
-        Task2Status.CANCELLED -> MaterialColor.GRAY_500.color
+        Task2Status.QUEUED -> MaterialTheme.colorScheme.onSurfaceVariant
+        Task2Status.RUNNING -> MaterialTheme.colorScheme.primary
+        Task2Status.DONE -> MaterialTheme.colorScheme.tertiary
+        Task2Status.FAILED -> MaterialTheme.colorScheme.error
+        Task2Status.CANCELLED -> MaterialTheme.colorScheme.onSurfaceVariant
     }
