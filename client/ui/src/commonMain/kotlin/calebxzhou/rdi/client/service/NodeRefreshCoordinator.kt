@@ -8,24 +8,12 @@ import kotlinx.coroutines.sync.withLock
 object NodeRefreshCoordinator {
     private val refreshMutex = Mutex()
 
-    suspend fun refreshCurrent(reason: String): Result<ServerEntry> = refreshMutex.withLock {
-        lgr.info { "刷新节点入口: $reason" }
-        refreshNodeSettings()
-            .onSuccess { lgr.info { "节点刷新成功[$reason]: ${it.nodeName}" } }
-            .onFailure { lgr.warn(it) { "节点刷新失败[$reason]" } }
-    }
-
-    suspend fun refreshFromPrimary(reason: String): Result<ServerEntry> = refreshMutex.withLock {
-        lgr.info { "从主入口刷新节点: $reason" }
-        refreshNodeSettingsFromPrimary()
-            .onSuccess { lgr.info { "节点刷新成功[$reason]: ${it.nodeName}" } }
-            .onFailure { lgr.warn(it) { "节点刷新失败[$reason]" } }
-    }
-
-    suspend fun refreshGameBackup(reason: String): Result<ServerEntry> = refreshMutex.withLock {
-        lgr.info { "临时刷新到备用游戏节点: $reason" }
-        refreshNodeSettingsFromPrimary(gameBackup = true)
-            .onSuccess { lgr.info { "备用游戏节点刷新成功[$reason]: ${it.nodeName}" } }
-            .onFailure { lgr.warn(it) { "备用游戏节点刷新失败[$reason]" } }
+    suspend fun refreshCurrent(
+        gameBackup: Boolean = false,
+                                forceMain: Boolean = false): Result<ServerEntry> = refreshMutex.withLock {
+        lgr.info { "刷新节点入口" }
+        refreshNodeSettings(gameBackup,forceMain)
+            .onSuccess { lgr.info { "节点刷新成功: ${it.nodeName}" } }
+            .onFailure { lgr.warn(it) { "节点刷新失败" } }
     }
 }

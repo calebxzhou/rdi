@@ -19,23 +19,24 @@ fun Route.gameNodeRoutes() {
         response(
             data = GameNodeService.resolveServerEntry(
                 ipv4 = call.param("myIp"),
-                gameBackup = call.paramNull("gameBackup") == "true"
+                gameBackup = call.paramNull("gameBackup") == "true",
+                call.paramNull("forceMain") == "true",
             )
         )
     }
 }
 
 object GameNodeService {
-    fun resolveServerEntry(ipv4: String, gameBackup: Boolean = false): ServerEntry {
+    fun resolveServerEntry(ipv4: String, gameBackup: Boolean = false, forceMain: Boolean = false): ServerEntry {
         requireIpv4(ipv4)
         val region = CarrierDetectService.detectResult(ipv4)
-        val node = selectNode(region, gameBackup)
+        val node = selectNode(region, gameBackup, forceMain)
         val backupApi = CONF.server.bgpUrl.trim()
         val useBackupNode = backupApi.isNotBlank() && !region.isCT && isPeekHour()
         return ServerEntry(
             api = backupApi.takeIf { useBackupNode },
             useBackupNode = useBackupNode,
-            nodeName = node.name+"-"+region.province.substring(0..1)+region.carrierName,
+            nodeName = node.name + "-" + region.province.substring(0..1) + region.carrierName,
             gameAddr = node.gameAddr
         )
     }
@@ -51,15 +52,18 @@ object GameNodeService {
         }
     }
 
-    private fun selectNode(region: Ip2RegionResult, gameBackup: Boolean): GameNodeRuleConfig {
+    private fun selectNode(region: Ip2RegionResult, gameBackup: Boolean, forceMain: Boolean): GameNodeRuleConfig {
         val nodes = CONF.gameNode.nodes
+        if (forceMain) {
+            return nodes.firstOrNull { it.id == FALLBACK_GAME_NODE_ID } ?: throw ParamError("未配置主节点")
+        }
         if (gameBackup) {
             nodes.firstOrNull { it.gameBackup }?.let { return it }
         }
         return nodes.firstOrNull { it.matches(region) }
-            // `id=0`是显式声明的国内兜底节点，不再依赖配置顺序里的“第一个节点”。
+        // `id=0`是显式声明的国内兜底节点，不再依赖配置顺序里的“第一个节点”。
             ?: nodes.firstOrNull { it.id == FALLBACK_GAME_NODE_ID }
-            ?: throw ParamError("未配置id=$FALLBACK_GAME_NODE_ID 的兜底游戏节点")
+            ?: throw ParamError("未配置主节点")
     }
 
     private fun GameNodeRuleConfig.matches(region: Ip2RegionResult): Boolean {
@@ -73,7 +77,7 @@ object GameNodeService {
         }
         // 运营商名称可能同时出现“电信/中国电信”这两种写法，
         // 所以这里先做一次归一化，再比较，避免只修单向前缀导致配置和region写法不一致时漏匹配。
-        if (carriers.isNotEmpty() && carriers.none {  region.carrierName == it }) {
+        if (carriers.isNotEmpty() && carriers.none { region.carrierName == it }) {
             return false
         }
         // 如果规则声明了省份，则当前IP所在省份必须命中其中一个省份，否则排除。

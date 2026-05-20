@@ -3,6 +3,8 @@ package calebxzhou.rdi.common.util
 import calebxzhou.mykotutils.std.DEFAULT_DATE_TIME_PATTERN
 import calebxzhou.mykotutils.std.digest
 import calebxzhou.mykotutils.std.displayLength
+import calebxzhou.rdi.common.VALID_NAME_REGEX
+import calebxzhou.rdi.common.VALID_PLAYER_NAME_REGEX
 import calebxzhou.rdi.common.exception.RequestError
 import kotlinx.coroutines.CoroutineExceptionHandler
 import kotlinx.coroutines.CoroutineScope
@@ -70,10 +72,21 @@ fun ok(): Result<Unit> {
 }
 
 val ObjectId.str get() = toHexString()
-fun String.validateName(): Result<Unit> {
+fun String.validateName(): Result<Unit> = runCatching {
+    if (!matches(VALID_NAME_REGEX)) throw RequestError("昵称只能包含字母数字汉字或_-")
     val trimmed = this.trim()
     val len = trimmed.displayLength
     if (len !in 3..32) throw RequestError("名称长度需在3~32个字符，当前为${len}（一个汉字算两个）")
+    return Result.success(Unit)
+}
+fun String.validatePlayerName(): Result<Unit> = runCatching {
+    if (!matches(VALID_PLAYER_NAME_REGEX)) {
+        return Result.failure(RequestError("昵称只能包含字母数字汉字_"))
+    }
+    val len = displayLength
+    if (len !in 3..24) {
+        return Result.failure(RequestError("昵称长度应在3~24，当前为${len}（一个汉字算两个）"))
+    }
     return Result.success(Unit)
 }
 fun String.validateHttpUrl(): Result<URI> {

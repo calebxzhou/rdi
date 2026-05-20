@@ -2,9 +2,9 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.client.net.RServer
-import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.model.ServerEntry
 import calebxzhou.rdi.common.net.httpRequest
+import calebxzhou.rdi.common.util.ok
 import calebxzhou.rdi.lgr
 import io.ktor.client.request.url
 import io.ktor.client.statement.bodyAsText
@@ -17,21 +17,19 @@ private val ipv4Regex =
 
 
 internal suspend fun refreshNodeSettings(
-    usePrimaryServer: Boolean = false,
-    gameBackup: Boolean = false
-): Result<ServerEntry> {
+    gameBackup: Boolean = false,
+    forceMain: Boolean = false,
+): Result<ServerEntry> = runCatching {
     val ipv4 = runCatching { detectPublicIpv4() }.getOrElse {
         lgr.warn(it) { "无法读取ip信息" }
         return Result.failure(it)
     }
-    val routeLookupServer = if (usePrimaryServer) {
-        if (DEBUG) RServer.DBG else RServer.OFFICIAL_NNG
-    } else {
-        server
-    }
+    val routeLookupServer = if (DEBUG) RServer.DBG else RServer.OFFICIAL_NNG
+
     val params = buildMap<String, Any> {
         put("myIp", ipv4)
         if (gameBackup) put("gameBackup", true)
+        if (forceMain) put("forceMain", true)
     }
     val entry = runCatching {
         routeLookupServer.makeRequest<ServerEntry>("server-entry", params = params).data
@@ -42,12 +40,10 @@ internal suspend fun refreshNodeSettings(
     RServer.updateServerEntry(entry)
     val routeState = RServer.routeState.value
     lgr.info { "服务端为当前IP选择节点${routeState.nodeName ?: entry.nodeName} -> ${RServer.currentGameAddr}，backup=${routeState.useBackupNode}" }
-    return Result.success(entry)
+    return ok(entry)
 }
 
-internal suspend fun refreshNodeSettingsFromPrimary(gameBackup: Boolean = false): Result<ServerEntry> =
-    refreshNodeSettings(usePrimaryServer = true, gameBackup = gameBackup)
-
+//frp节点不会显示原ip
 private suspend fun detectPublicIpv4() = withContext(Dispatchers.IO) {
     val ipv4 = httpRequest {
         url("https://ip.3322.net/")

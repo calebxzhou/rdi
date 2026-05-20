@@ -298,9 +298,9 @@ object EmailService {
 
     private fun validateRegisterSender(email: ReceivedEmail, registerDto: RAccount.RegisterDto) {
         val senderQq = extractSenderQq(email.from)
-            ?: throw RequestError("register邮件发件人必须是QQ邮箱")
+            ?: throw RequestError("没有在发件人地址${email.from}中找到有效QQ号")
         if (senderQq != registerDto.qq) {
-            throw RequestError("register邮件发件人QQ与注册QQ不一致")
+            throw RequestError("注册邮件发件人QQ与注册QQ不一致")
         }
     }
 

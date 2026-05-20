@@ -1,12 +1,8 @@
 package calebxzhou.rdi.client.ui.screen
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -17,12 +13,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzhou.mykotutils.std.javaExePath
-import calebxzhou.rdi.client.AiConfig
-import calebxzhou.rdi.client.AiPriceCurrency
-import calebxzhou.rdi.client.AiProvider
-import calebxzhou.rdi.client.AiProviderProfile
-import calebxzhou.rdi.client.AiReasoningEffort
-import calebxzhou.rdi.client.AppConfig
+import calebxzhou.rdi.client.*
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequestU
@@ -141,6 +132,26 @@ fun SettingScreen(
             profiles = aiProfiles.toList()
         ).normalized()
 
+
+    fun switchNode(
+                   gameBackup: Boolean = false,
+                   forceMain: Boolean = false) {
+        if (!switchingNode) {
+            switchingNode = true
+            scope.launch {
+                NodeRefreshCoordinator.refreshCurrent(gameBackup,forceMain)
+                    .onSuccess {
+                        snackbarHostState.showSnackbar("已临时切换到${it.nodeName}")
+                    }
+                    .onFailure {
+                        snackbarHostState.showSnackbar(
+                            it.message ?: "备用节点刷新失败"
+                        )
+                    }
+                switchingNode = false
+            }
+        }
+    }
 
     MainBox {
         MainColumn {
@@ -318,40 +329,9 @@ fun SettingScreen(
                                         onProxyUsrChange = { proxyUsr = it },
                                         onProxyPwdChange = { proxyPwd = it },
                                         switchingNode = switchingNode,
-                                        onAutoSwitchFastestNode = {
-                                            if (!switchingNode) {
-                                                switchingNode = true
-                                                scope.launch {
-                                                    NodeRefreshCoordinator.refreshFromPrimary("manual-setting")
-                                                        .onSuccess {
-                                                            snackbarHostState.showSnackbar("已切换到${it.nodeName}")
-                                                        }
-                                                        .onFailure {
-                                                            snackbarHostState.showSnackbar(
-                                                                it.message ?: "节点刷新失败"
-                                                            )
-                                                        }
-                                                    switchingNode = false
-                                                }
-                                            }
-                                        },
-                                        onUseGameBackupNode = {
-                                            if (!switchingNode) {
-                                                switchingNode = true
-                                                scope.launch {
-                                                    NodeRefreshCoordinator.refreshGameBackup("manual-setting")
-                                                        .onSuccess {
-                                                            snackbarHostState.showSnackbar("已临时切换到${it.nodeName}")
-                                                        }
-                                                        .onFailure {
-                                                            snackbarHostState.showSnackbar(
-                                                                it.message ?: "备用节点刷新失败"
-                                                            )
-                                                        }
-                                                    switchingNode = false
-                                                }
-                                            }
-                                        }
+                                        onAutoSwitchFastestNode = { switchNode() },
+                                        onUseGameBackupNode = { switchNode(true) },
+                                        onUseMainNode = { switchNode(gameBackup = false, forceMain = true) }
                                     )
                                 }
 
@@ -1119,6 +1099,7 @@ private fun NetworkSettings(
     switchingNode: Boolean,
     onAutoSwitchFastestNode: () -> Unit,
     onUseGameBackupNode: () -> Unit,
+    onUseMainNode: () -> Unit,
 ) {
     RColumn {
         RRow {
@@ -1131,7 +1112,8 @@ private fun NetworkSettings(
         AutoRouteStatus(
             switchingNode = switchingNode,
             onAutoSwitchFastestNode = onAutoSwitchFastestNode,
-            onUseGameBackupNode = onUseGameBackupNode
+            onUseGameBackupNode = onUseGameBackupNode,
+            onUseMainNode
         )
         // Proxy settings — desktop only
         if (isDesktop) {
@@ -1196,7 +1178,8 @@ private fun NetworkSettings(
 private fun AutoRouteStatus(
     switchingNode: Boolean,
     onAutoSwitchFastestNode: () -> Unit,
-    onUseGameBackupNode: () -> Unit
+    onUseGameBackupNode: () -> Unit,
+    onUseMainNode: () -> Unit,
 ) {
     val routeState by RServer.routeState.collectAsState()
     RRow {
@@ -1217,6 +1200,13 @@ private fun AutoRouteStatus(
             bgColor = MaterialColor.BLUE_900.color,
             enabled = !switchingNode,
             onClick = onUseGameBackupNode
+        )
+        CircleIconButton(
+            "\uDB80\uDC02",
+            "临时主用节点",
+            bgColor = MaterialColor.TEAL_900.color,
+            enabled = !switchingNode,
+            onClick = onUseMainNode
         )
     }
 }

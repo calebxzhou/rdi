@@ -699,7 +699,7 @@ object ModpackService {
         }
 
         if (!normalized.matches(VALID_NAME_REGEX)) {
-            throw RequestError("版本名只能包含字母 数字 点 汉字")
+            throw RequestError("版本名只能包含字母 数字 汉字")
         }
         return ok(normalized)
     }

@@ -2,10 +2,8 @@ package calebxzhou.rdi.master.service
 
 import calebxzhou.mykotutils.hwspec.HwSpec
 import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.displayLength
 import calebxzhou.mykotutils.std.getDateTimeNow
 import calebxzhou.mykotutils.std.isValidHttpUrl
-import calebxzhou.rdi.common.VALID_NAME_REGEX
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.MojangPlayerProfile
 import calebxzhou.rdi.common.model.MsaAccountInfo
@@ -14,6 +12,7 @@ import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.MojangApi
 import calebxzhou.rdi.common.service.MojangApi.dashless
 import calebxzhou.rdi.common.util.ok
+import calebxzhou.rdi.common.util.validatePlayerName
 import calebxzhou.rdi.master.CRASH_REPORT_DIR
 import calebxzhou.rdi.master.DB
 import calebxzhou.rdi.master.exception.AuthError
@@ -197,13 +196,7 @@ object PlayerService {
     suspend fun RAccount.RegisterDto.validate(): Result<Unit> {
         if (hasQQ(qq)) throw RequestError("QQ被占用")
         if (hasName(name)) throw RequestError("昵称被占用")
-        if (!name.matches(VALID_NAME_REGEX)) {
-            throw RequestError("昵称只能包含字母数字汉字")
-        }
-        val nameSize = name.displayLength
-        if (nameSize !in 3..24) {
-            throw RequestError("昵称长度应在3~24，当前为${nameSize}")
-        }
+        name.validatePlayerName().getOrThrow()
         if (qq.length !in 5..10 || !qq.all { it.isDigit() }) {
             throw RequestError("QQ号格式不正确")
         }

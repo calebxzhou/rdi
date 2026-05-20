@@ -286,6 +286,15 @@ object ModpackService {
         return Task2.Sequence(
             title = title,
             children = listOf(
+                Task2.Leaf("刷新节点") { ctx ->
+                    ctx.emit(Task2Progress("正在刷新节点...", 0f))
+                    NodeRefreshCoordinator.refreshCurrent()
+                        .onSuccess { ctx.emit(Task2Progress("节点已刷新: ${it.nodeName}", 1f)) }
+                        .onFailure {
+                            lgr.warn(it) { "下载整合包前刷新节点失败，继续使用当前节点" }
+                            ctx.emit(Task2Progress("节点刷新失败，继续使用当前节点", 1f))
+                        }
+                },
                 installVersionTask2(mcVersion, modLoader, modpackId, this@startInstallTask2.name, mods)
             )
         )
@@ -491,6 +500,9 @@ data class ModpackLocalDir(
 }
 
 suspend fun Host.DetailVo.startPlay(): StartPlayResult {
+    NodeRefreshCoordinator.refreshCurrent()
+        .onFailure { lgr.warn(it) { "启动游戏前刷新节点失败，继续使用当前节点" } }
+
     val statusResp = server.makeRequest<HostStatus>("host/${_id}/status")
     val status = statusResp.data ?: throw RequestError("获取房间状态失败: ${statusResp.msg}")
 

@@ -2,9 +2,9 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,20 +16,14 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.service.PlayerService
-import calebxzhou.rdi.client.ui.BottomSnakebarM3
-import calebxzhou.rdi.client.ui.CircleIconButton
-import calebxzhou.rdi.client.ui.MainBox
-import calebxzhou.rdi.client.ui.MaterialColor
-import calebxzhou.rdi.client.ui.TitleRow
-import calebxzhou.rdi.client.ui.TitleRow2
-import calebxzhou.rdi.client.ui.copyToClipboard
-import calebxzhou.rdi.client.ui.openMsaVerificationUrl
+import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.PasswordField
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.model.Request
 import calebxzhou.rdi.common.service.CryptoManager
+import calebxzhou.rdi.common.util.validatePlayerName
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import net.raphimc.minecraftauth.java.JavaAuthManager
@@ -64,6 +58,21 @@ fun RegisterScreen(
     var registerCode by remember { mutableStateOf("") }
     var registerMailTitle by remember { mutableStateOf("") }
     var showReceiptQueryDialog by remember { mutableStateOf(false) }
+    fun validateRegisterInput(): Boolean {
+        if (pwd != pwd2) {
+            errorMessage = "两次输入的密码不一致"
+            return false
+        }
+        if (name.isBlank() || qq.isBlank() || pwd.isBlank()) {
+            errorMessage = "未填写完整"
+            return false
+        }
+        name.validatePlayerName().getOrElse {
+            errorMessage = it.message ?: "昵称格式不正确"
+            return false
+        }
+        return true
+    }
     LaunchedEffect(okMessage) {
         okMessage?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
@@ -191,12 +200,7 @@ fun RegisterScreen(
                             ) {
                                 Button(
                                     onClick = {
-                                        if (pwd != pwd2) {
-                                            errorMessage = "两次输入的密码不一致"
-                                            return@Button
-                                        }
-                                        if (name.isBlank() || qq.isBlank() || pwd.isBlank()) {
-                                            errorMessage = "未填写完整"
+                                        if (!validateRegisterInput()) {
                                             return@Button
                                         }
                                         submitting = true
@@ -260,12 +264,7 @@ fun RegisterScreen(
                         ) {
                             Button(
                                 onClick = {
-                                    if (pwd != pwd2) {
-                                        errorMessage = "两次输入的密码不一致"
-                                        return@Button
-                                    }
-                                    if (name.isBlank() || qq.isBlank() || pwd.isBlank()) {
-                                        errorMessage = "未填写完整"
+                                    if (!validateRegisterInput()) {
                                         return@Button
                                     }
                                     errorMessage = null

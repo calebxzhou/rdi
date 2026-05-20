@@ -9,8 +9,8 @@ val coroutinesVersion = "1.10.2"
 val zstdVer = "1.5.7-7"
 val desugarVersion = "2.1.5"
 val desktopJavaSdkVersion = 25
-val desktopJvmTarget = JvmTarget.JVM_21
-val version = "5.15.6"
+val desktopJvmTarget = JvmTarget.JVM_25
+val version = "5.15.6.2"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
@@ -223,8 +223,8 @@ android {
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+        sourceCompatibility = JavaVersion.VERSION_25
+        targetCompatibility = JavaVersion.VERSION_25
     }
 
    /* signingConfigs {
@@ -301,7 +301,7 @@ configurations.configureEach {
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
     if (!name.endsWith("JavaWithJavac")) {
-        options.release.set(21)
+        options.release.set(25)
     }
 }
 

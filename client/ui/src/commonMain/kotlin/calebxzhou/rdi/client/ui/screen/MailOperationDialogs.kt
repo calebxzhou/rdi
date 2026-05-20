@@ -107,10 +107,10 @@ fun ReceiptQueryDialogs(
                     onShowQueryDialogChange(false)
                 }
             },
-            title = { Text("${operationName}进度查询") },
+            title = { Text("请打开QQ邮箱“已发送”界面") },
             text = {
                 Column(verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(12.dp)) {
-                    Text("粘贴邮件标题，例如rdi-opr-xxxxxxxxxxxxxxxxxxxxxxxx")
+                    Text("复制已发邮件标题，粘贴到下方")
                     OutlinedTextField(
                         value = receiptMailTitle,
                         onValueChange = {

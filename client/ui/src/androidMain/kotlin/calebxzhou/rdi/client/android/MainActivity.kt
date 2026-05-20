@@ -28,7 +28,6 @@ import androidx.core.view.WindowCompat
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.net.RServer
-import calebxzhou.rdi.client.service.AutoNodeRefreshService
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
@@ -97,7 +96,6 @@ class MainActivity : ComponentActivity() {
         clearPackProcDirOnStartup()
         warmUpHwSpecCacheOnStartup()
         refreshNodeSettingsOnStartup()
-        AutoNodeRefreshService.start(startupScope)
         setContent {
             val showFclDialog = remember { mutableStateOf(!checkLauncherInstalled()) }
             MaterialTheme {
@@ -152,7 +150,7 @@ class MainActivity : ComponentActivity() {
 
     private fun refreshNodeSettingsOnStartup() {
         startupScope.launch {
-            NodeRefreshCoordinator.refreshCurrent("android-startup")
+            NodeRefreshCoordinator.refreshCurrent()
         }
     }
 

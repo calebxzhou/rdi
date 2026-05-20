@@ -27,7 +27,6 @@ import calebxzhou.mykotutils.std.decodeBase64
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.rdi.client.net.loggedAccount
-import calebxzhou.rdi.client.service.AutoNodeRefreshService
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
@@ -60,9 +59,8 @@ fun main() {
         warmUpHwSpecCache()
     }
     GlobalScope.launch(Dispatchers.IO) {
-        NodeRefreshCoordinator.refreshCurrent("startup")
+        NodeRefreshCoordinator.refreshCurrent()
     }
-    AutoNodeRefreshService.start(GlobalScope)
     initializeLoggedAccountOnStartup()
     application {
         val windowIcon = remember {
