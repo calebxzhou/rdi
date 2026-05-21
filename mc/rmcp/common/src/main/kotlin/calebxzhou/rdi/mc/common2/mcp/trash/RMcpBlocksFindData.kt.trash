@@ -1,0 +1,44 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+import calebxzhou.rdi.mc.common2.mcp.model.RBlockPos
+
+@JvmRecord
+data class RMcpBlocksFindData(
+    val dim: String,
+    val center: Center,
+    val range: Range,
+    val scan: Scan,
+    val matches: List<Match>
+) {
+    @JvmRecord
+    data class Center(val block: RBlockPos, val chunkX: Int, val chunkZ: Int, val sectionY: Int)
+
+    @JvmRecord
+    data class Range(
+        val chunkRadius: Int,
+        val sectionRadius: Int,
+        val scanMode: String,
+        val minSectionY: Int,
+        val maxSectionY: Int
+    )
+
+    @JvmRecord
+    data class Scan(
+        val loadedChunks: Int,
+        val skippedChunks: Int,
+        val sections: Int,
+        val blocks: Int,
+        val matched: Int,
+        val returned: Int,
+        val truncated: Boolean
+    )
+
+    @JvmRecord
+    data class Match(
+        val id: String,
+        val count: Int,
+        val nearest: RBlockPos,
+        val positions: List<RBlockPos>,
+        val states: List<String>?
+    )
+}

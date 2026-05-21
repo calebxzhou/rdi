@@ -1,12 +1,13 @@
 plugins {
     id 'java-library'
-    id 'org.jetbrains.kotlin.jvm' version '2.3.20'
-    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.20'
+    id 'org.jetbrains.kotlin.jvm' version '2.3.21'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.21'
 
 }
 
 group = "calebxzhou.rdi.mc.rmcp"
 version = "0.1"
+
 
 repositories {
     mavenLocal()
@@ -28,7 +29,11 @@ kotlin {
     }
 }
 dependencies{
-    implementation("de.brudaswen.kotlinx.serialization:kotlinx-serialization-csv:3.2.1")
+    implementation project(':ktutils-std')
+    //implementation("de.brudaswen.kotlinx.serialization:kotlinx-serialization-csv:3.2.1")
+    implementation 'io.fusionauth:java-http:1.4.0'
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation("io.heapy.kotaml:kotaml:0.108.0")
 }
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'

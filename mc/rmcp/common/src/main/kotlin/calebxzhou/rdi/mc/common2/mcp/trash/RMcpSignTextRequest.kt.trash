@@ -1,0 +1,11 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+import calebxzhou.rdi.mc.common2.mcp.model.RBlockPos
+
+@JvmRecord
+data class RMcpSignTextRequest(
+    val pos: RBlockPos,
+    val side: String,
+    val text: String,
+    val dryRun: Boolean
+)

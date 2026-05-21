@@ -1,0 +1,12 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+@JvmRecord
+data class RMcpHotbarSelectData(
+    val dryRun: Boolean,
+    val requestedSlot: Int,
+    val beforeSlot: Int,
+    val afterSlot: Int,
+    val beforeSelectedItem: RMcpInventoryData.Item,
+    val afterSelectedItem: RMcpInventoryData.Item,
+    val inventory: RMcpInventoryData?
+)

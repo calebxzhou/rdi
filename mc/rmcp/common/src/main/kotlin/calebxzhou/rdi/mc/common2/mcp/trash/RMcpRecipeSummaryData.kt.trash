@@ -1,0 +1,38 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+@JvmRecord
+data class RMcpRecipeSummaryData(
+    val itemId: String,
+    val totalCount: Int,
+    val shownCount: Int,
+    val hiddenCount: Int,
+    val recipes: List<Entry>
+) {
+    @JvmRecord
+    data class Entry(
+        val ref: String,
+        val id: String,
+        val source: String,
+        val type: String,
+        val kind: String,
+        val category: String,
+        val title: String,
+        val inputItems: List<Item>,
+        val inputFluids: List<Fluid>,
+        val inputTags: List<Tag>,
+        val outputItems: List<Item>,
+        val outputFluids: List<Fluid>,
+        val catalysts: List<Item>,
+        val detail: String,
+        val detailJson: String?
+    )
+
+    @JvmRecord
+    data class Item(val id: String, val name: String, val count: Int)
+
+    @JvmRecord
+    data class Fluid(val id: String, val name: String, val amount: Long)
+
+    @JvmRecord
+    data class Tag(val id: String, val count: Int, val candidateCount: Int)
+}

@@ -1,0 +1,16 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+import calebxzhou.rdi.mc.common2.mcp.model.EntityPos
+
+@JvmRecord
+data class RMcpPlayerData(
+    val dim: String,
+    val uuid: String,
+    val name: String,
+    val pos: EntityPos,
+    val health: Float,
+    val maxHealth: Float,
+    val food: Int,
+    val gameMode: String,
+    val latency: Int?
+)

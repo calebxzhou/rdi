@@ -1,0 +1,155 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+class RMcpLangKeyIndex private constructor(
+    private val english: Map<String, String>,
+    private val chinese: Map<String, String>,
+    private val entries: List<Entry>
+) {
+    fun langKey(key: String?): RMcpLangKeyData? {
+        val en = english.getOrDefault(key, "")
+        val cn = chinese.getOrDefault(key, "")
+        return if (en.isEmpty() && cn.isEmpty()) null else RMcpLangKeyData(en, cn)
+    }
+
+    fun search(text: String): RMcpLangKeySearchData {
+        val query = normalize(text)
+        if (query.isEmpty()) {
+            return RMcpLangKeySearchData(text, emptyList())
+        }
+
+        val candidates = mutableListOf<Candidate>()
+        for (entry in entries) {
+            val chineseScore = fuzzyScore(query, entry.normalizedCn)
+            if (chineseScore > 0) {
+                addCandidate(
+                    candidates, Candidate(
+                        RMcpLangKeySearchResult(entry.key, entry.en, entry.cn),
+                        0,
+                        chineseScore
+                    )
+                )
+                continue
+            }
+            val englishScore = fuzzyScore(query, entry.normalizedEn)
+            if (englishScore > 0) {
+                addCandidate(
+                    candidates, Candidate(
+                        RMcpLangKeySearchResult(entry.key, entry.en, entry.cn),
+                        1,
+                        englishScore
+                    )
+                )
+            }
+        }
+
+        return RMcpLangKeySearchData(text, candidates.map { it.result })
+    }
+
+    @JvmRecord
+    private data class Entry(
+        val key: String,
+        val en: String,
+        val cn: String,
+        val normalizedEn: String,
+        val normalizedCn: String
+    )
+
+    @JvmRecord
+    private data class Candidate(val result: RMcpLangKeySearchResult, val languagePriority: Int, val score: Double)
+
+    companion object {
+        fun create(english: Map<String?, String?>, chinese: Map<String?, String?>): RMcpLangKeyIndex {
+            val englishCopy = english.cleanLangMap()
+            val chineseCopy = chinese.cleanLangMap()
+            val keys = linkedSetOf<String>()
+            keys.addAll(englishCopy.keys)
+            keys.addAll(chineseCopy.keys)
+
+            return RMcpLangKeyIndex(
+                englishCopy,
+                chineseCopy,
+                keys.map { key ->
+                    val englishName = englishCopy.getOrDefault(key, "")
+                    val chineseName = chineseCopy.getOrDefault(key, "")
+                    Entry(
+                        key,
+                        englishName,
+                        chineseName,
+                        normalize(englishName),
+                        normalize(chineseName)
+                    )
+                }
+            )
+        }
+
+        private fun Map<String?, String?>.cleanLangMap(): Map<String, String> =
+            entries
+                .asSequence()
+                .mapNotNull { (key, value) ->
+                    val cleanKey = key?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                    cleanKey to value.orEmpty()
+                }
+                .toMap()
+
+        private fun addCandidate(candidates: MutableList<Candidate>, candidate: Candidate) {
+            candidates.add(candidate)
+            candidates.sortWith(
+                compareBy<Candidate> { it.languagePriority }
+                    .thenByDescending { it.score }
+                    .thenBy { it.result.langkey }
+            )
+            if (candidates.size > 10) {
+                candidates.removeAt(candidates.size - 1)
+            }
+        }
+
+        private fun fuzzyScore(query: String, candidate: String): Double {
+            if (query.isEmpty() || candidate.isEmpty()) {
+                return 0.0
+            }
+            var matched = 0
+            var candidateIndex = 0
+            for (i in 0..<query.length) {
+                val ch = query.get(i)
+                while (candidateIndex < candidate.length && candidate.get(candidateIndex) != ch) {
+                    candidateIndex++
+                }
+                if (candidateIndex >= candidate.length) {
+                    continue
+                }
+                matched++
+                candidateIndex++
+            }
+
+            val containsQuery = candidate.contains(query)
+            if (matched < 2 && !containsQuery) {
+                return 0.0
+            }
+            var score = matched.toDouble() / candidate.length
+            if (containsQuery) {
+                score += 1.0
+            }
+            if (candidate.startsWith(query)) {
+                score += 0.25
+            }
+            if (candidate == query) {
+                score += 0.5
+            }
+            return score
+        }
+
+        private fun normalize(text: String): String {
+            val builder = StringBuilder()
+            val lower = text.trim { it <= ' ' }.lowercase()
+            var offset = 0
+            while (offset < lower.length) {
+                val codePoint: Int = lower.codePointAt(offset)
+                if (Character.isLetterOrDigit(codePoint) || codePoint == '_'.code || codePoint == ':'.code || codePoint == '.'.code) {
+                    builder.appendCodePoint(codePoint)
+                }
+                offset += Character.charCount(codePoint)
+            }
+            return builder.toString()
+        }
+    }
+}

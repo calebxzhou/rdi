@@ -3,8 +3,8 @@ plugins {
     id 'maven-publish'
     id 'idea'
     id 'net.neoforged.moddev' version '2.0.141'
-    id 'org.jetbrains.kotlin.jvm' version '2.3.20'
-    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.20'
+    id 'org.jetbrains.kotlin.jvm' version '2.3.21'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.21'
 
 }
 
@@ -53,7 +53,7 @@ base {
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
@@ -115,9 +115,13 @@ dependencies {
     additionalRuntimeClasspath project(':s-mc-common2')
     implementation project(':rmcp-common')
     additionalRuntimeClasspath project(':rmcp-common')
+    implementation project(':rmcp-server')
+    additionalRuntimeClasspath project(':rmcp-server')
+    implementation project(':ktutils-std')
+    additionalRuntimeClasspath project(':ktutils-std')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
-
-    implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+   // implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
 
     //>>>Modrinth Mods<<<
     [
@@ -201,14 +205,20 @@ idea {
 evaluationDependsOn(':s-mc-common')
 evaluationDependsOn(':s-mc-common2')
 evaluationDependsOn(':rmcp-common')
+evaluationDependsOn(':rmcp-server')
+evaluationDependsOn(':ktutils-std')
 jar {
     // Bundle compiled outputs from shared server modules into this jar
     dependsOn project(":s-mc-common").tasks.named("classes")
     dependsOn project(":s-mc-common2").tasks.named("classes")
     dependsOn project(":rmcp-common").tasks.named("classes")
+    dependsOn project(":rmcp-server").tasks.named("classes")
+    dependsOn project(":ktutils-std").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
     from(project(":s-mc-common2").sourceSets.main.output)
     from(project(":rmcp-common").sourceSets.main.output)
+    from(project(":rmcp-server").sourceSets.main.output)
+    from(project(":ktutils-std").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {

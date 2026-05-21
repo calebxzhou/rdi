@@ -1,0 +1,14 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+import calebxzhou.rdi.mc.common2.mcp.model.EntityPos
+
+@JvmRecord
+data class RMcpRespawnData(
+    val wasDead: Boolean,
+    val respawned: Boolean,
+    val hardcore: Boolean,
+    val beforeHealth: Float,
+    val afterHealth: Float,
+    val before: EntityPos,
+    val after: EntityPos?
+)

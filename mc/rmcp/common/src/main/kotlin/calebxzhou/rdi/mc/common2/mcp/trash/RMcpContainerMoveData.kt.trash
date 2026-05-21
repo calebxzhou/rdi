@@ -1,0 +1,21 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+import calebxzhou.rdi.mc.common2.mcp.model.RBlockPos
+
+@JvmRecord
+data class RMcpContainerMoveData(
+    val dryRun: Boolean,
+    val requestedCount: Int,
+    val movedCount: Int,
+    val movedItem: RMcpContainerData.Slot,
+    val from: Endpoint,
+    val to: Endpoint?
+) {
+    @JvmRecord
+    data class Endpoint(
+        val dim: String,
+        val pos: RBlockPos,
+        val side: String,
+        val slot: Int?
+    )
+}

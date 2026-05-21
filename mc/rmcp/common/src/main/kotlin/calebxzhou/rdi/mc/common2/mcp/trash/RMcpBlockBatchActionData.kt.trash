@@ -1,0 +1,11 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+import calebxzhou.rdi.mc.common2.mcp.model.RBlockPos
+
+@JvmRecord
+data class RMcpBlockBatchActionData(
+    val action: String,
+    val dryRun: Boolean,
+    val changed: Boolean,
+    val failedPos: List<RBlockPos>,
+)

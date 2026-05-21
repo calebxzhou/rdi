@@ -1,0 +1,8 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+@JvmRecord
+data class RMcpRecipeDetailData(
+    val itemId: String,
+    val ref: String,
+    val recipe: RMcpRecipeData?
+)

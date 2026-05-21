@@ -1,0 +1,12 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+import calebxzhou.rdi.mc.common2.mcp.model.EntityPos
+
+@JvmRecord
+data class RMcpPlayerMoveData(
+    val moved: Boolean,
+    val from: EntityPos,
+    val to: EntityPos,
+    val distance: Double,
+    val onGround: Boolean
+)

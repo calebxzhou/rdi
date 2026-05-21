@@ -1,0 +1,22 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+@JvmRecord
+data class RMcpContainerMoveBatchRequest(
+    val moves: List<Move>,
+    val dryRun: Boolean,
+    val stopOnError: Boolean
+) {
+    @JvmRecord
+    data class Move(
+        val from: Endpoint,
+        val to: Endpoint,
+        val count: Int
+    )
+
+    @JvmRecord
+    data class Endpoint(
+        val pos: String,
+        val side: String,
+        val slot: Int?
+    )
+}

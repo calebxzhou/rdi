@@ -5,7 +5,9 @@ import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 
-public record RMcpPayload(String requestId, String kind, String action, String code, String json) implements CustomPacketPayload {
+public record RMcpPayload(String requestId, String kind,
+                          String action, String code, String json)
+        implements CustomPacketPayload {
     private static final int MAX_JSON_LENGTH = 2_097_152;
     private static final int MAX_TEXT_LENGTH = 128;
     public static final Type<RMcpPayload> TYPE = new Type<>(ResourceLocation.fromNamespaceAndPath("rdi", "mcp"));

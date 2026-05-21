@@ -14,7 +14,7 @@ public final class RdiJeiPlugin implements IModPlugin {
         return UID;
     }
 
-    @Override
+    /*@Override
     public void onRuntimeAvailable(IJeiRuntime jeiRuntime) {
         RJeiRecipeSource.setRuntime(jeiRuntime);
     }
@@ -22,5 +22,5 @@ public final class RdiJeiPlugin implements IModPlugin {
     @Override
     public void onRuntimeUnavailable() {
         RJeiRecipeSource.clearRuntime();
-    }
+    }*/
 }

@@ -7,7 +7,7 @@ import java.util.*;
  * calebxzhou @ 2026-01-06 19:34
  */
 public class RDI {
-    public static final boolean LOCAL_TEST_MODE;
+    public static final boolean DEBUG;
     public static final String IHQ_URL;
     public static final String GAME_IP;
     public static final String HOST_NAME;
@@ -17,7 +17,7 @@ public class RDI {
     //nullable
     public static String PLAYER_NAME;
     static {
-        LOCAL_TEST_MODE = Boolean.parseBoolean(System.getProperty("rdi.localTestMode", "false"));
+        DEBUG = Boolean.parseBoolean(System.getProperty("rdi.debug", "false"));
         String playData = System.getProperty("rdi.play");
         if (playData != null) {
             byte[] decodedBytes = Base64.getDecoder().decode(playData.trim());

@@ -1,0 +1,13 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+import calebxzhou.rdi.mc.common2.mcp.model.EntityPos
+
+@JvmRecord
+data class RMcpEntityData(
+    val dim: String,
+    val uuid: String,
+    val type: String,
+    val name: String,
+    val pos: EntityPos,
+    val distance: Double?
+)

@@ -1,0 +1,665 @@
+package calebxzhou.rdi.mc.client.trash
+
+import calebxzhou.rdi.mc.common2.mcp.trash.RMcpItemSearchData
+import calebxzhou.rdi.mc.common2.mcp.trash.RMcpLangKeyIndex
+import calebxzhou.rdi.mc.common2.mcp.trash.RMcpResolveSearchData
+import net.minecraft.client.Minecraft
+import net.minecraft.client.resources.language.ClientLanguage
+import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.resources.ResourceLocation
+import net.minecraft.world.item.ItemStack
+import net.neoforged.fml.ModList
+
+object Search {
+    @JvmRecord
+    private data class LangKeyIndexCache(val resourceManager: Any?, val index: RMcpLangKeyIndex)
+
+    @JvmRecord
+    private data class ItemSearchIndexCache(val resourceManager: Any?, val index: ItemSearchIndex)
+
+    @JvmRecord
+    private data class ResolveSearchIndexCache(val resourceManager: Any?, val index: ResolveSearchIndex)
+
+    private fun interface ResolveSearchEntryFactory {
+        fun entries(
+            english: MutableMap<String, String>,
+            chinese: MutableMap<String, String>
+        ): MutableList<ResolveSearchEntry>
+    }
+
+    @JvmRecord
+    private data class ResolveSearchEntry(
+        val id: String?,
+        val namespace: String?,
+        val langkey: String?,
+        val englishName: String?,
+        val chineseName: String?,
+        val modId: String?,
+        val modName: String?,
+        val normalizedId: String?,
+        val normalizedPath: String?,
+        val normalizedLangkey: String?,
+        val normalizedEnglishName: String?,
+        val normalizedChineseName: String?,
+        val normalizedModName: String?
+    )
+
+    @JvmRecord
+    private data class ResolveSearchCandidate(val entry: ResolveSearchEntry, val score: Double, val match: String?)
+
+    private class ResolveSearchIndex(private val kind: String?, private val entries: MutableList<ResolveSearchEntry>) {
+        fun search(text: String?, modId: String?, limit: Int): RMcpResolveSearchData {
+            val page = searchEntries(
+                text,
+                modId,
+                limit,
+                entries,
+                ::score,
+                { it.score },
+                { it.entry },
+                { it.namespace },
+                { it.id }
+            ) { candidate, entry ->
+                RMcpResolveSearchData.Result(
+                    entry.id,
+                    entry.namespace,
+                    entry.langkey,
+                    entry.englishName,
+                    entry.chineseName,
+                    entry.modId,
+                    entry.modName,
+                    candidate.score,
+                    candidate.match
+                )
+            }
+            return RMcpResolveSearchData(
+                kind,
+                text,
+                page.modId,
+                limit,
+                page.results
+            )
+        }
+
+        companion object {
+            private fun score(entry: ResolveSearchEntry, query: String, modId: String): ResolveSearchCandidate {
+                val scored = scoreSearchFields(
+                    query,
+                    entry.namespace,
+                    modId,
+                    entry.normalizedChineseName,
+                    entry.normalizedEnglishName,
+                    entry.normalizedId,
+                    "id",
+                    entry.normalizedPath,
+                    entry.normalizedLangkey,
+                    entry.normalizedModName
+                )
+                return ResolveSearchCandidate(entry, scored.score, scored.match)
+            }
+        }
+    }
+
+    @JvmRecord
+    private data class ItemSearchEntry(
+        val itemId: String?,
+        val namespace: String?,
+        val langkey: String?,
+        val englishName: String?,
+        val chineseName: String?,
+        val modId: String?,
+        val modName: String?,
+        val normalizedItemId: String?,
+        val normalizedPath: String?,
+        val normalizedLangkey: String?,
+        val normalizedEnglishName: String?,
+        val normalizedChineseName: String?,
+        val normalizedModName: String?
+    )
+
+    @JvmRecord
+    private data class ItemSearchCandidate(val entry: ItemSearchEntry, val score: Double, val match: String?)
+
+    private class ItemSearchIndex(private val entries: MutableList<ItemSearchEntry>) {
+        fun search(text: String?, modId: String?, limit: Int): RMcpItemSearchData {
+            val page = searchEntries(
+                text,
+                modId,
+                limit,
+                entries,
+                ::score,
+                { it.score },
+                { it.entry },
+                { it.namespace },
+                { it.itemId }
+            ) { candidate, entry ->
+                RMcpItemSearchData.Result(
+                    entry.itemId,
+                    entry.namespace,
+                    entry.langkey,
+                    entry.englishName,
+                    entry.chineseName,
+                    entry.modId,
+                    entry.modName,
+                    candidate.score,
+                    candidate.match
+                )
+            }
+            return RMcpItemSearchData(
+                text,
+                page.modId,
+                limit,
+                page.results
+            )
+        }
+
+        companion object {
+            private fun score(entry: ItemSearchEntry, query: String, modId: String): ItemSearchCandidate {
+                val scored = scoreSearchFields(
+                    query,
+                    entry.namespace,
+                    modId,
+                    entry.normalizedChineseName,
+                    entry.normalizedEnglishName,
+                    entry.normalizedItemId,
+                    "item_id",
+                    entry.normalizedPath,
+                    entry.normalizedLangkey,
+                    entry.normalizedModName
+                )
+                return ItemSearchCandidate(entry, scored.score, scored.match)
+            }
+        }
+    }
+
+    @JvmRecord
+    private data class SearchResultPage<R>(val modId: String?, val results: MutableList<R>)
+
+    @JvmRecord
+    private data class ScoredMatch(val score: Double, val match: String?)
+
+    @Volatile
+    private var langKeyIndex: LangKeyIndexCache? = null
+
+    @Volatile
+    private var itemSearchIndex: ItemSearchIndexCache? = null
+
+    @Volatile
+    private var blockSearchIndex: ResolveSearchIndexCache? = null
+
+    @Volatile
+    private var entityTypeSearchIndex: ResolveSearchIndexCache? = null
+
+    @Volatile
+    private var fluidSearchIndex: ResolveSearchIndexCache? = null
+
+    @Volatile
+    private var tagSearchIndex: ResolveSearchIndexCache? = null
+
+    fun langKeyIndex(minecraft: Minecraft): RMcpLangKeyIndex {
+        return cachedIndex(
+            minecraft,
+            { langKeyIndex },
+            { it.resourceManager },
+            { it.index },
+            { langKeyIndex = it },
+            { english, chinese -> RMcpLangKeyIndex.Companion.create(english, chinese) },
+            { resourceManager, index -> LangKeyIndexCache(resourceManager, index) }
+        )
+    }
+
+    fun itemSearchData(
+        minecraft: Minecraft,
+        text: String?,
+        modId: String?,
+        limit: Int
+    ): RMcpItemSearchData {
+        val index: ItemSearchIndex = itemSearchIndex(minecraft)
+        return index.search(text, modId, limit)
+    }
+
+    fun blockSearchData(
+        minecraft: Minecraft,
+        text: String?,
+        modId: String?,
+        limit: Int
+    ): RMcpResolveSearchData {
+        return resolveSearchIndex(
+            minecraft,
+            "block",
+            { blockSearchIndex },
+            { blockSearchIndex = it },
+            ResolveSearchEntryFactory { english, chinese ->
+                val entries = ArrayList<ResolveSearchEntry>()
+                for (block in BuiltInRegistries.BLOCK) {
+                    val id: ResourceLocation = BuiltInRegistries.BLOCK.getKey(block)
+                    if (id != null) {
+                        entries.add(
+                            resolveEntry(
+                                id.toString(),
+                                block.getDescriptionId(),
+                                english,
+                                chinese
+                            )
+                        )
+                    }
+                }
+                entries
+            }
+        ).search(text, modId, limit)
+    }
+
+    fun entityTypeSearchData(
+        minecraft: Minecraft,
+        text: String?,
+        modId: String?,
+        limit: Int
+    ): RMcpResolveSearchData {
+        return resolveSearchIndex(
+            minecraft,
+            "entity_type",
+            { entityTypeSearchIndex },
+            { entityTypeSearchIndex = it },
+            ResolveSearchEntryFactory { english, chinese ->
+                val entries = ArrayList<ResolveSearchEntry>()
+                for (entityType in BuiltInRegistries.ENTITY_TYPE) {
+                    val id: ResourceLocation = BuiltInRegistries.ENTITY_TYPE.getKey(entityType)
+                    entries.add(
+                        resolveEntry(
+                            id.toString(),
+                            entityType.getDescriptionId(),
+                            english,
+                            chinese
+                        )
+                    )
+                }
+                entries
+            }
+        ).search(text, modId, limit)
+    }
+
+    fun fluidSearchData(
+        minecraft: Minecraft,
+        text: String?,
+        modId: String?,
+        limit: Int
+    ): RMcpResolveSearchData {
+        return resolveSearchIndex(
+            minecraft,
+            "fluid",
+            { fluidSearchIndex },
+            { fluidSearchIndex = it },
+            { english, chinese ->
+                val entries = ArrayList<ResolveSearchEntry>()
+                for (fluid in BuiltInRegistries.FLUID) {
+                    val id: ResourceLocation = BuiltInRegistries.FLUID.getKey(fluid)
+                    entries.add(
+                        resolveEntry(
+                            id.toString(),
+                            "fluid." + id.getNamespace() + "." + id.getPath(),
+                            english,
+                            chinese
+                        )
+                    )
+                }
+                entries
+            }
+        ).search(text, modId, limit)
+    }
+
+    fun tagSearchData(
+        minecraft: Minecraft,
+        text: String?,
+        modId: String?,
+        limit: Int
+    ): RMcpResolveSearchData {
+        return resolveSearchIndex(
+            minecraft,
+            "tag",
+            { tagSearchIndex },
+            { tagSearchIndex = it },
+            { _, _ ->
+                val entries = ArrayList<ResolveSearchEntry>()
+                BuiltInRegistries.ITEM.getTagNames().forEach { tag ->
+                    entries.add(
+                        resolveTagEntry(
+                            "item",
+                            tag.location().toString()
+                        )
+                    )
+                }
+                BuiltInRegistries.BLOCK.getTagNames()
+                    .forEach { tag ->
+                        entries.add(
+                            resolveTagEntry(
+                                "block",
+                                tag.location().toString()
+                            )
+                        )
+                    }
+                BuiltInRegistries.FLUID.getTagNames()
+                    .forEach { tag ->
+                        entries.add(
+                            resolveTagEntry(
+                                "fluid",
+                                tag.location().toString()
+                            )
+                        )
+                    }
+                BuiltInRegistries.ENTITY_TYPE.getTagNames().forEach { tag ->
+                    entries.add(
+                        resolveTagEntry(
+                            "entity_type",
+                            tag.location().toString()
+                        )
+                    )
+                }
+                entries
+            }
+        ).search(text, modId, limit)
+    }
+
+    private fun <E, C, R> searchEntries(
+        text: String?,
+        modId: String?,
+        limit: Int,
+        entries: MutableList<E>,
+        score: (E, String, String) -> C,
+        candidateScore: (C) -> Double,
+        candidateEntry: (C) -> E,
+        entryNamespace: (E) -> String?,
+        entryId: (E) -> String?,
+        result: (C, E) -> R
+    ): SearchResultPage<R> {
+        val query = normalizeSearchText(text)
+        val normalizedModId = normalizeSearchText(modId)
+        if (query.isEmpty()) {
+            return SearchResultPage(modId, ArrayList())
+        }
+
+        val candidates = ArrayList<C>()
+        for (entry in entries) {
+            val candidate = score(entry, query, normalizedModId)
+            if (candidateScore(candidate) > 0.0) {
+                candidates.add(candidate)
+            }
+        }
+        candidates.sortWith(
+            compareByDescending<C> { candidateScore(it) }
+                .thenBy { if (entryNamespace(candidateEntry(it)) == "minecraft") 1 else 0 }
+                .thenBy { entryId(candidateEntry(it)) }
+        )
+
+        val results = ArrayList<R>()
+        for (candidate in candidates) {
+            if (results.size >= limit) {
+                break
+            }
+            results.add(result(candidate, candidateEntry(candidate)))
+        }
+        return SearchResultPage(if (normalizedModId.isEmpty()) null else modId, results)
+    }
+
+    private fun scoreSearchFields(
+        query: String,
+        namespace: String?,
+        modId: String,
+        chineseName: String?,
+        englishName: String?,
+        id: String?,
+        idField: String,
+        path: String?,
+        langkey: String?,
+        modName: String?
+    ): ScoredMatch {
+        var bestScore = 0.0
+        var match: String? = null
+        var scored = scoreSearchField(query, chineseName.orEmpty(), "chinese")
+        if (scored.score > bestScore) {
+            bestScore = scored.score
+            match = scored.match
+        }
+        scored = scoreSearchField(query, englishName.orEmpty(), "english")
+        if (scored.score > bestScore) {
+            bestScore = scored.score
+            match = scored.match
+        }
+        scored = scoreSearchField(query, id.orEmpty(), idField)
+        if (scored.score > bestScore) {
+            bestScore = scored.score
+            match = scored.match
+        }
+        scored = scoreSearchField(query, path.orEmpty(), "path")
+        if (scored.score > bestScore) {
+            bestScore = scored.score
+            match = scored.match
+        }
+        scored = scoreSearchField(query, langkey.orEmpty(), "langkey")
+        if (scored.score > bestScore) {
+            bestScore = scored.score
+            match = scored.match
+        }
+        scored = scoreSearchField(query, modName.orEmpty(), "mod_name")
+        if (scored.score > bestScore) {
+            bestScore = scored.score
+            match = scored.match
+        }
+        if (bestScore <= 0.0) {
+            return ScoredMatch(0.0, "")
+        }
+        val score = when {
+            modId.isNotEmpty() && namespace == modId -> bestScore + 2.0
+            modId.isNotEmpty() -> bestScore - 0.5
+            namespace != "minecraft" -> bestScore + 0.05
+            else -> bestScore
+        }
+        return ScoredMatch(score, match)
+    }
+
+    private fun scoreSearchField(query: String, candidate: String, field: String): ScoredMatch {
+        if (candidate.isEmpty()) {
+            return ScoredMatch(0.0, "")
+        }
+        if (candidate == query) {
+            return ScoredMatch(4.0, "exact_$field")
+        }
+        if (candidate.startsWith(query)) {
+            return ScoredMatch(3.0, "prefix_$field")
+        }
+        if (candidate.contains(query)) {
+            return ScoredMatch(2.0, "contains_$field")
+        }
+        val fuzzy = fuzzySearchScore(query, candidate)
+        return if (fuzzy <= 0.0) ScoredMatch(0.0, "") else ScoredMatch(fuzzy, "fuzzy_$field")
+    }
+
+    private fun resolveSearchIndex(
+        minecraft: Minecraft,
+        kind: String?,
+        currentCache: () -> ResolveSearchIndexCache?,
+        cacheUpdater: (ResolveSearchIndexCache) -> Unit,
+        entryFactory: ResolveSearchEntryFactory
+    ): ResolveSearchIndex {
+        return cachedIndex(
+            minecraft,
+            currentCache,
+            { it.resourceManager },
+            { it.index },
+            cacheUpdater,
+            { english, chinese -> ResolveSearchIndex(kind, entryFactory.entries(english, chinese)) },
+            { resourceManager, index -> ResolveSearchIndexCache(resourceManager, index) }
+        )
+    }
+
+    private fun resolveEntry(
+        id: String,
+        langkey: String?,
+        english: MutableMap<String, String>,
+        chinese: MutableMap<String, String>
+    ): ResolveSearchEntry {
+        val namespace = id.substring(0, id.indexOf(':'))
+        val modName = ModList.get().getModContainerById(namespace)
+            .map<String> { it.getModInfo().getDisplayName() }
+            .orElse(namespace)
+        val englishName = if (langkey == null) "" else english.getOrDefault(langkey, "")
+        val chineseName = if (langkey == null) "" else chinese.getOrDefault(langkey, "")
+        return ResolveSearchEntry(
+            id,
+            namespace,
+            langkey,
+            englishName,
+            chineseName,
+            namespace,
+            modName,
+            normalizeSearchText(id),
+            normalizeSearchText(id.substring(id.indexOf(':') + 1)),
+            normalizeSearchText(langkey),
+            normalizeSearchText(englishName),
+            normalizeSearchText(chineseName),
+            normalizeSearchText(modName)
+        )
+    }
+
+    private fun resolveTagEntry(registry: String?, id: String): ResolveSearchEntry {
+        val namespace = id.substring(0, id.indexOf(':'))
+        val modName = ModList.get().getModContainerById(namespace)
+            .map<String> { it.getModInfo().getDisplayName() }
+            .orElse(namespace)
+        val fullId = registry + "#" + id
+        return ResolveSearchEntry(
+            fullId,
+            namespace,
+            null,
+            "",
+            "",
+            namespace,
+            modName,
+            normalizeSearchText(fullId),
+            normalizeSearchText(id.substring(id.indexOf(':') + 1)),
+            "",
+            "",
+            "",
+            normalizeSearchText(modName)
+        )
+    }
+
+    private fun itemSearchIndex(minecraft: Minecraft): ItemSearchIndex {
+        return cachedIndex(
+            minecraft,
+            { itemSearchIndex },
+            { it.resourceManager },
+            { it.index },
+            { itemSearchIndex = it },
+            { english, chinese ->
+                val entries = ArrayList<ItemSearchEntry>()
+                for (item in BuiltInRegistries.ITEM) {
+                    val id = BuiltInRegistries.ITEM.getKey(item)
+                    if (id == null || "minecraft:air" == id.toString()) {
+                        continue
+                    }
+                    val stack = ItemStack(item)
+                    val langkey = item.getDescriptionId(stack)
+                    val namespace = id.getNamespace()
+                    val modName = ModList.get().getModContainerById(namespace)
+                        .map<String> { it.getModInfo().getDisplayName() }
+                        .orElse(namespace)
+                    val englishName = english.getOrDefault(langkey, "")
+                    val chineseName = chinese.getOrDefault(langkey, "")
+                    entries.add(
+                        ItemSearchEntry(
+                            id.toString(),
+                            namespace,
+                            langkey,
+                            englishName,
+                            chineseName,
+                            namespace,
+                            modName,
+                            normalizeSearchText(id.toString()),
+                            normalizeSearchText(id.getPath()),
+                            normalizeSearchText(langkey),
+                            normalizeSearchText(englishName),
+                            normalizeSearchText(chineseName),
+                            normalizeSearchText(modName)
+                        )
+                    )
+                }
+                ItemSearchIndex(entries)
+            },
+            { resourceManager, index -> ItemSearchIndexCache(resourceManager, index) }
+        )
+    }
+
+    private inline fun <C, I> cachedIndex(
+        minecraft: Minecraft,
+        crossinline currentCache: () -> C?,
+        crossinline cacheResourceManager: (C) -> Any?,
+        crossinline cacheIndex: (C) -> I,
+        crossinline cacheUpdater: (C) -> Unit,
+        crossinline buildIndex: (MutableMap<String, String>, MutableMap<String, String>) -> I,
+        crossinline cacheFactory: (Any?, I) -> C
+    ): I {
+        val resourceManager = minecraft.getResourceManager()
+        currentCache()?.takeIf { cacheResourceManager(it) === resourceManager }?.let { return cacheIndex(it) }
+
+        synchronized(Search::class.java) {
+            currentCache()?.takeIf { cacheResourceManager(it) === resourceManager }?.let { return cacheIndex(it) }
+
+            val english =
+                ClientLanguage.loadFrom(resourceManager, mutableListOf("en_us"), false).getLanguageData()
+            val chinese =
+                ClientLanguage.loadFrom(resourceManager, mutableListOf("zh_cn"), false).getLanguageData()
+            return buildIndex(english, chinese).also { cacheUpdater(cacheFactory(resourceManager, it)) }
+        }
+    }
+
+    fun normalizeSearchText(text: String?): String {
+        if (text == null) {
+            return ""
+        }
+        val builder = StringBuilder()
+        val lower = text.trim { it <= ' ' }.lowercase()
+        var offset = 0
+        while (offset < lower.length) {
+            val codePoint = lower.codePointAt(offset)
+            if (Character.isLetterOrDigit(codePoint) || codePoint == '_'.code || codePoint == ':'.code || codePoint == '.'.code) {
+                builder.appendCodePoint(codePoint)
+            }
+            offset += Character.charCount(codePoint)
+        }
+        return builder.toString()
+    }
+
+    fun fuzzySearchScore(query: String, candidate: String): Double {
+        if (query.isEmpty() || candidate.isEmpty()) {
+            return 0.0
+        }
+        var matched = 0
+        var candidateIndex = 0
+        for (i in 0..<query.length) {
+            val ch = query.get(i)
+            while (candidateIndex < candidate.length && candidate.get(candidateIndex) != ch) {
+                candidateIndex++
+            }
+            if (candidateIndex >= candidate.length) {
+                continue
+            }
+            matched++
+            candidateIndex++
+        }
+        val containsQuery = candidate.contains(query)
+        if (matched < 2 && !containsQuery) {
+            return 0.0
+        }
+        var score = matched.toDouble() / candidate.length
+        if (containsQuery) {
+            score += 1.0
+        }
+        if (candidate.startsWith(query)) {
+            score += 0.25
+        }
+        if (candidate == query) {
+            score += 0.5
+        }
+        return score
+    }
+}

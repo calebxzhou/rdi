@@ -1,0 +1,6 @@
+package calebxzhou.rdi.mc.common2.mcp.trash
+
+import calebxzhou.rdi.mc.common2.mcp.model.RBlockPos
+
+@JvmRecord
+data class RMcpBlockStateData(val dim: String, val pos: RBlockPos, val id: String, val state: String?)
