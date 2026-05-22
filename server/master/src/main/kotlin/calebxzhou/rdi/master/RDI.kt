@@ -35,6 +35,8 @@ import io.ktor.server.request.uri
 import io.ktor.server.routing.*
 import io.ktor.server.sse.*
 import io.ktor.server.websocket.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo
 import org.bouncycastle.jce.provider.BouncyCastleProvider
@@ -110,6 +112,9 @@ fun main(): Unit = runBlocking {
     ModpackService.dbcl.createIndex(Indexes.descending(Modpack::playCount.name))
 
     ModpackService.recoverUnfinishedVersionBuildsOnStartup()
+    launch(Dispatchers.IO) {
+        UnusedModPurgeService.purgeOnStartup()
+    }
     HostService.startIdleMonitor()
     EmailService.startListener()
     Runtime.getRuntime().addShutdownHook(Thread {
