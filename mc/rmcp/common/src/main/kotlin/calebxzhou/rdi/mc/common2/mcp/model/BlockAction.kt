@@ -36,7 +36,7 @@ data class BlockPlaceDiscreteQ(
     )
 }
 
-// break given poses use player's main hand item
+
 @Serializable
 data class BlockBreakBoxQ(
     val startPos: RBlockPos,

@@ -6,6 +6,8 @@ import calebxzhou.rdi.mc.common2.mcp.model.BlockFindQ
 import calebxzhou.rdi.mc.common2.mcp.model.InventoryListP
 import calebxzhou.rdi.mc.common2.mcp.model.InventorySlotQ
 import calebxzhou.rdi.mc.common2.mcp.model.McpC2SNetPacket
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeTreeQ
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeQ
 import kotlinx.serialization.encodeToString
 import java.util.UUID
 
@@ -18,6 +20,10 @@ interface McpGameInterface {
     fun inventorySlot(req: InventorySlotQ): Result<String>
 
     fun blockFind(req: BlockFindQ): Result<BlockFindP>
+
+    fun recipes(req: RecipeQ): Result<String>
+
+    fun recipeTree(req: RecipeTreeQ): Result<String>
 }
 
 inline fun <reified Q : Any> McpGameInterface.send(req: Q): Result<String> {

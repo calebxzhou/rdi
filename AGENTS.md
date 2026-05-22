@@ -1,7 +1,9 @@
 # Introduction
 this project is minecraft multiplayer platform, player can upload modpacks to create a host that can invite friends to play together
 # Repository Guidelines
-
+no need do git diff --check unless explictly declared
+unless i explictly express agree to change code, otherwise you should not change code.
+when you wanna change the code, you should gimme plan
 ## Project Structure & Module Organization
 - `client/ui/`: Desktop launcher/UI (Compose for Desktop), game install/play logic, and UI screens/components.
 - `common/`: Shared models, network helpers, parsing services, and cross-module utilities.

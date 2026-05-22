@@ -3,6 +3,7 @@ package calebxzhou.rdi.mc.server.mcpimpl211
 import calebxzhou.rdi.mc.common2.mcp.*
 import calebxzhou.rdi.mc.common2.mcp.model.BlockPlaceBoxQ
 import calebxzhou.rdi.mc.common2.mcp.model.BlockPlaceDiscreteQ
+import calebxzhou.rdi.mc.common2.mcp.model.ContainerMoveQ
 import calebxzhou.rdi.mc.common2.mcp.model.ContainerSlotListQ
 import calebxzhou.rdi.mc.common2.mcp.model.McpC2SNetPacket
 import calebxzhou.rdi.mc.common2.mcp.model.McpS2CNetPacket
@@ -70,6 +71,9 @@ object GameNetPayload211Registry {
         },
         c2sHandler<ContainerSlotListQ> { req, player ->
             ContainerHandler.slotList(req, player).getOrThrow()
+        },
+        c2sHandler<ContainerMoveQ> { req, player ->
+            ContainerHandler.move(req, player).getOrThrow()
         },
     )
 

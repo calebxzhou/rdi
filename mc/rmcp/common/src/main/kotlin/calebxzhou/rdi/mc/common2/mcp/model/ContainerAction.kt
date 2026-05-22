@@ -5,35 +5,26 @@ import kotlinx.serialization.Serializable
 /**
  * calebxzhou @ 2026-05-18 11:44
  */
-@Serializable
-enum class ContainerKind { BLOCK, INVENTORY }
+
+
 
 @Serializable
-sealed class ContainerSlotRef {
-    abstract val kind: ContainerKind
-    abstract val pos: RBlockPos?
+data class ContainerRef(
+    val pos: RBlockPos? = null,
+) {
+    val isPlayerInventory get() = pos == null
+}
 
+@Serializable
+data class ContainerSlotRef(
+    val pos: RBlockPos? = null,
     // as target, -1 means auto find
-    abstract val slotId: Int
-
+    val slotId: Int,
+) {
+    val isPlayerInventory get() = pos == null
     val targetAutoFind get() = slotId < 0
 }
 
-@Serializable
-data class BlockContainerSlotRef(
-    override val pos: RBlockPos,
-    override val slotId: Int
-) : ContainerSlotRef() {
-    override val kind = ContainerKind.BLOCK
-}
-
-@Serializable
-data class InventorySlotRef(
-    override val slotId: Int
-) : ContainerSlotRef() {
-    override val kind = ContainerKind.INVENTORY
-    override val pos: RBlockPos? = null
-}
 
 @Serializable
 data class ContainerSlot(
@@ -80,18 +71,6 @@ private fun List<Int>.toRangeText(): String {
     ranges += if (start == prev) "$start" else "$start..$prev"
     return ranges.joinToString(" ")
 }
-@Serializable
-data class ContainerSlotSource(
-    val pos: RBlockPos,
-    val slotId: Int,
-)
-
-@Serializable
-data class ContainerSlotTarget(
-    val pos: RBlockPos,
-    //null = auto find available slot
-    val slotId: Int? = null,
-)
 
 @Serializable
 data class ContainerSlotListQ(
@@ -132,17 +111,55 @@ data class ContainerSlotListP(
 }
 
 
+
 @Serializable
 data class ContainerMoveQ(
-    val moves: List<Move>,
+    val groups: List<Group>,
     val test: Boolean = false,
 ) {
     @Serializable
-    data class Move(
-        val from: ContainerSlotRef,
-        val to: ContainerSlotRef,
-        val count: Int,
+    data class Group(
+        val from: ContainerRef,
+        val to: ContainerRef,
+        val moves: List<Move>,
     )
+
+    @Serializable
+    data class Move(
+        val fromSlotId: Int,
+        val toSlotId: Int? = null,
+        val count: Int? = null,
+    ) {
+        val targetAutoFind get() = toSlotId == null
+        val countAll get() = count == null
+    }
+}
+
+@Serializable
+data class ContainerMoveP(
+    val count: Int,
+    val failures: Map<ActionResult.Err, List<Failure>>,
+    val test: Boolean = false,
+) {
+    override fun toString() = buildString {
+        appendLine("moved $count")
+        appendLine("test $test")
+        appendLine("failures ${failures.values.sumOf { it.size }}")
+        failures.forEach { (failure, moves) ->
+            appendLine("${failure.reason}: ${moves.joinToString(", ")}")
+        }
+    }
+
+    @Serializable
+    data class Failure(
+        val groupId: Int,
+        val moveId: Int,
+        val fromSlotId: Int,
+        val toSlotId: Int?,
+        val count: Int?,
+    ) {
+        override fun toString() = "group${groupId}move${moveId} slot$fromSlotId->${toSlotId ?: "auto"} count ${count ?: "all"}"
+    }
 }
 
 enum class InventoryCompart{ INV,ARMOR,OFFHAND }

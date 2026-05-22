@@ -14,7 +14,18 @@ import calebxzhou.rdi.mc.common2.mcp.model.InventoryListP
 import calebxzhou.rdi.mc.common2.mcp.model.InventorySlotQ
 import calebxzhou.rdi.mc.common2.mcp.model.McpC2SNetPacket
 import calebxzhou.rdi.mc.common2.mcp.model.McpS2CNetPacket
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeIngredient
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcess
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcessTextView
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeQ
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeTextView
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeTreeP
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeTreeQ
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeTreeNode
 import net.minecraft.core.registries.BuiltInRegistries
+import net.minecraft.core.registries.Registries
+import net.minecraft.resources.ResourceLocation
+import net.minecraft.tags.TagKey
 import net.minecraft.world.item.ItemStack
 import net.neoforged.neoforge.network.PacketDistributor
 import java.util.concurrent.CompletableFuture
@@ -77,6 +88,20 @@ object McpGameImpl : McpGameInterface {
 
     override fun blockFind(req: BlockFindQ): Result<BlockFindP> = BlockMcpImpl.find(req)
 
+    override fun recipes(req: RecipeQ): Result<String> = runCatching {
+        if (!RecipeProcessIndex.isReady()) {
+            return@runCatching "unresolved reason=jei_not_ready"
+        }
+        val recipesByItem = req.items.associateWith { RecipeProcessIndex.recipesByOutputItem(it) }
+        val processes = recipesByItem.values.flatten()
+        RecipeProcessTextView.render(req.items, recipesByItem, processes.tagInventoryMatches())
+    }
+
+    override fun recipeTree(req: RecipeTreeQ): Result<String> = runCatching {
+        val tree = RecipeTreeResolver.resolve(req)
+        RecipeTextView.render(tree, tree.tagInventoryMatches())
+    }
+
 
     fun complete(packet: McpS2CNetPacket) {
         pendingPacketMap.remove(packet.reqId)?.complete(packet)
@@ -88,6 +113,55 @@ object McpGameImpl : McpGameInterface {
         } else {
             ContainerSlot(id, BuiltInRegistries.ITEM.getKey(stack.item).toString(), stack.count)
         }
+    }
+
+    private fun RecipeTreeP.tagInventoryMatches(): Map<String, List<String>> {
+        return processes().tagInventoryMatches()
+    }
+
+    private fun Iterable<RecipeProcess>.tagInventoryMatches(): Map<String, List<String>> {
+        val player = mc.player ?: return emptyMap()
+        val inventoryItemIds = (player.inventory.items + player.inventory.armor + player.inventory.offhand)
+            .asSequence()
+            .filterNot { it.isEmpty }
+            .map { BuiltInRegistries.ITEM.getKey(it.item).toString() }
+            .distinct()
+            .toList()
+        if (inventoryItemIds.isEmpty()) return emptyMap()
+
+        val tagIds = linkedSetOf<String>()
+        forEach { it.collectTagIds(tagIds) }
+        if (tagIds.isEmpty()) return emptyMap()
+
+        return tagIds.associateWith { tagId ->
+            val location = ResourceLocation.tryParse(tagId) ?: return@associateWith emptyList()
+            val tag = TagKey.create(Registries.ITEM, location)
+            val tagItemIds = BuiltInRegistries.ITEM.getTagOrEmpty(tag)
+                .mapTo(mutableSetOf()) { BuiltInRegistries.ITEM.getKey(it.value()).toString() }
+            inventoryItemIds.filter { it in tagItemIds }
+        }
+    }
+
+    private fun RecipeTreeP.processes(): List<RecipeProcess> {
+        val processes = mutableListOf<RecipeProcess>()
+        root?.collectProcesses(processes)
+        return processes
+    }
+
+    private fun RecipeTreeNode.collectProcesses(processes: MutableList<RecipeProcess>) {
+        process?.let { processes += it }
+        children.forEach { it.collectProcesses(processes) }
+    }
+
+    private fun RecipeProcess.collectTagIds(tagIds: MutableSet<String>) {
+        inputs.forEach { it.collectTagIds(tagIds) }
+        catalysts.forEach { it.collectTagIds(tagIds) }
+        renderOnly.forEach { it.collectTagIds(tagIds) }
+        shape?.key?.values?.forEach { it.collectTagIds(tagIds) }
+    }
+
+    private fun RecipeIngredient.collectTagIds(tagIds: MutableSet<String>) {
+        tags.forEach { tagIds += it.tagId }
     }
 
 }

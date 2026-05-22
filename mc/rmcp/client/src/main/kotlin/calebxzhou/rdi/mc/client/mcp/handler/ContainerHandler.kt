@@ -4,9 +4,11 @@ import calebxzhou.rdi.mc.common2.mcp.McpBadRequestError
 import calebxzhou.rdi.mc.client.mcp.McpHttpContext
 import calebxzhou.rdi.mc.client.mcp.McpTypedHandler
 import calebxzhou.rdi.mc.client.mcp.send
+import calebxzhou.rdi.mc.common2.mcp.model.ContainerMoveQ
 import calebxzhou.rdi.mc.common2.mcp.model.ContainerSlotListQ
 import calebxzhou.rdi.mc.common2.mcp.model.InventoryCompart
 import calebxzhou.rdi.mc.common2.mcp.model.InventorySlotQ
+import calebxzhou.rdi.mc.common2.mcp.model.toRBlockPos
 import calebxzhou.rdi.mc.common2.mcp.model.toRBlockPosList
 import io.fusionauth.http.HTTPMethod
 
@@ -44,5 +46,11 @@ object ContainerSlotListHandler : McpTypedHandler {
         val poses = ctx.param("poses").toRBlockPosList()
         if (poses.isEmpty()) throw McpBadRequestError("no poses")
         return ctx.game.send(ContainerSlotListQ(poses))
+    }
+}
+object ContainerSlotMoveHandler : McpTypedHandler {
+    override val method = HTTPMethod.POST
+    override fun handle(ctx: McpHttpContext): Result<Any?> {
+        return ctx.game.send(ctx.ymlBody<ContainerMoveQ>())
     }
 }

@@ -2,6 +2,7 @@ package calebxzhou.rdi.mc.client
 
 import calebxzhou.rdi.mc.client.mcpimpl211.McpGameImpl
 import calebxzhou.rdi.mc.client.mcp.McpServer
+import calebxzhou.rdi.mc.client.mcpimpl211.Search
 import calebxzhou.rdi.mc.client.rcmd.RcmdClientCommands
 import calebxzhou.rdi.mc.common.RDI
 import com.google.common.net.HostAndPort
@@ -16,6 +17,7 @@ import net.minecraft.client.renderer.RenderType
 import net.minecraft.commands.Commands
 import net.minecraft.core.SectionPos
 import net.minecraft.network.chat.Component
+import net.minecraft.server.packs.resources.ResourceManagerReloadListener
 import net.neoforged.api.distmarker.Dist
 import net.neoforged.bus.api.SubscribeEvent
 import net.neoforged.fml.common.EventBusSubscriber
@@ -23,6 +25,7 @@ import net.neoforged.fml.common.Mod
 import net.neoforged.neoforge.client.event.ClientChatEvent
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent
 import net.neoforged.neoforge.client.event.RegisterClientCommandsEvent
+import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent
 import org.joml.Matrix4f
 import java.util.concurrent.ExecutorService
@@ -66,7 +69,13 @@ class RDIMain {
             JOIN_BUTTON.setWidth(200)
             JOIN_BUTTON.setHeight(20)
         }
-
+        @SubscribeEvent
+        @JvmStatic
+        fun onResourceReload(event: RegisterClientReloadListenersEvent) {
+            event.registerReloadListener(ResourceManagerReloadListener {
+                Search.refreshResourceIndex()
+            })
+        }
         @SubscribeEvent
         fun onRegisterClientCommands(event: RegisterClientCommandsEvent) {
             event.getDispatcher().register(

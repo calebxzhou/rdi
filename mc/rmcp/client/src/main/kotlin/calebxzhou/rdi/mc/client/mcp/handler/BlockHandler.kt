@@ -17,6 +17,15 @@ object BlockPlaceBoxHandler : McpTypedHandler {
         return ctx.game.send(req)
     }
 }
+object BlockBreakBoxHandler : McpTypedHandler {
+    override val method = HTTPMethod.POST
+    override fun handle(ctx: McpHttpContext): Result<Any?> {
+        // break given poses use player's main hand item, auto pick droppings to inventory
+        val req = ctx.ymlBody<BlockBreakBoxHandler>()
+        //todo
+        return ctx.game.send(req)
+    }
+}
 
 object BlockFindHandler : McpTypedHandler {
     override val method = HTTPMethod.GET
@@ -33,3 +42,4 @@ object BlockPlaceDiscreteHandler : McpTypedHandler {
         return ctx.game.send(req)
     }
 }
+

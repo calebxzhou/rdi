@@ -15,3 +15,12 @@ fun Any.jarResource(path: String): InputStream {
     return cl?.getResourceAsStream(path)
         ?: throw IllegalArgumentException("Resource not found: $path")
 }
+fun String.spaceSplit(): List<String> {
+    val text = trim()
+    val spaceRegex = Regex("\\s+")
+    return if (text.contains(spaceRegex)) {
+        text.split(spaceRegex)
+    } else {
+        listOf(text)
+    }
+}

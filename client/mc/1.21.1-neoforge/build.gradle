@@ -49,6 +49,11 @@ repositories {
         name = 'Kotlin for Forge'
         url = 'https://thedarkcolour.github.io/KotlinForForge/'
     }
+
+    maven {
+        name = "TerraformersMC"
+        url = "https://maven.terraformersmc.com/"
+    }
 }
 
 base {
@@ -210,16 +215,19 @@ dependencies {
     additionalRuntimeClasspath project(':ktutils-std')
     additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
     compileOnly "mezz.jei:jei-1.21.1-neoforge-api:19.21.2.313"
+    // at runtime, use the full JEI jar for NeoForge
+    runtimeOnly("mezz.jei:jei-1.21.1-neoforge:19.21.2.313")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("io.heapy.kotaml:kotaml:0.108.0")
-   // implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
+    runtimeOnly "dev.emi:emi-neoforge:1.1.24+1.21.1"
+    // implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
     shaded('io.fusionauth:java-http:1.4.0') {
         transitive = false
     }
 
     //>>>Modrinth Mods<<<
     ['architectury-api:13.0.8+neoforge',
-
+    'create:6.0.10+mc1.21.1',
      'sodium:mc1.21.1-0.6.13-neoforge',
    //  'dynamic-fps:T238FZpQ',
     ].each { dep ->
