@@ -1,14 +1,21 @@
 package calebxzhou.rdi.mc.server.mcpimpl211
 
 import calebxzhou.rdi.mc.common2.mcp.*
+import calebxzhou.rdi.mc.common2.mcp.model.BlockBreakBoxQ
+import calebxzhou.rdi.mc.common2.mcp.model.BlockBreakDiscreteQ
 import calebxzhou.rdi.mc.common2.mcp.model.BlockPlaceBoxQ
 import calebxzhou.rdi.mc.common2.mcp.model.BlockPlaceDiscreteQ
+import calebxzhou.rdi.mc.common2.mcp.model.BlockHarvestResultQ
+import calebxzhou.rdi.mc.common2.mcp.model.BlockUseItemQ
+import calebxzhou.rdi.mc.common2.mcp.model.ContainerDropItemQ
 import calebxzhou.rdi.mc.common2.mcp.model.ContainerMoveQ
 import calebxzhou.rdi.mc.common2.mcp.model.ContainerSlotListQ
+import calebxzhou.rdi.mc.common2.mcp.model.CraftQ
 import calebxzhou.rdi.mc.common2.mcp.model.McpC2SNetPacket
 import calebxzhou.rdi.mc.common2.mcp.model.McpS2CNetPacket
-import calebxzhou.rdi.mc.server.mcpimpl211.handler.BlockHandler211
+import calebxzhou.rdi.mc.server.mcpimpl211.handler.BlockHandler
 import calebxzhou.rdi.mc.server.mcpimpl211.handler.ContainerHandler
+import calebxzhou.rdi.mc.server.mcpimpl211.handler.CraftHandler
 import net.minecraft.network.RegistryFriendlyByteBuf
 import net.minecraft.network.codec.StreamCodec
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload
@@ -21,7 +28,7 @@ import net.neoforged.neoforge.network.handling.IPayloadContext
 
 private const val MAX_JSON_LENGTH = 2_097_152
 
-data class GameNetPayload211(
+data class GameNetPayload(
     val packetJson: String,
 ) : CustomPacketPayload {
     constructor(buf: RegistryFriendlyByteBuf) : this(
@@ -43,37 +50,55 @@ data class GameNetPayload211(
     override fun type(): CustomPacketPayload.Type<out CustomPacketPayload> = TYPE
 
     companion object {
-        val TYPE = CustomPacketPayload.Type<GameNetPayload211>(
+        val TYPE = CustomPacketPayload.Type<GameNetPayload>(
             ResourceLocation.fromNamespaceAndPath("rdi", "mcp_game")
         )
 
-        val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, GameNetPayload211> =
-            CustomPacketPayload.codec(GameNetPayload211::write, ::GameNetPayload211)
+        val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, GameNetPayload> =
+            CustomPacketPayload.codec(GameNetPayload::write, ::GameNetPayload)
 
-        fun fromC2S(packet: McpC2SNetPacket): GameNetPayload211 {
-            return GameNetPayload211(json.encodeToString(packet))
+        fun fromC2S(packet: McpC2SNetPacket): GameNetPayload {
+            return GameNetPayload(json.encodeToString(packet))
         }
 
-        fun fromS2C(packet: McpS2CNetPacket): GameNetPayload211 {
-            return GameNetPayload211(json.encodeToString(packet))
+        fun fromS2C(packet: McpS2CNetPacket): GameNetPayload {
+            return GameNetPayload(json.encodeToString(packet))
         }
     }
 }
 
 @EventBusSubscriber(modid = "rdi")
-object GameNetPayload211Registry {
+object GameNetPayloadRegistry {
     private val C2S_HANDLERS: Map<String, (String, ServerPlayer) -> Any> = mapOf(
+        c2sHandler<BlockBreakBoxQ> { req, player ->
+            BlockHandler.breakBox(req, player).getOrThrow()
+        },
+        c2sHandler<BlockBreakDiscreteQ> { req, player ->
+            BlockHandler.breakDiscrete(req, player).getOrThrow()
+        },
         c2sHandler<BlockPlaceBoxQ> { req, player ->
-            BlockHandler211.handleBox(req, player).getOrThrow()
+            BlockHandler.handleBox(req, player).getOrThrow()
         },
         c2sHandler<BlockPlaceDiscreteQ> { req, player ->
-            BlockHandler211.handleDiscrete(req, player).getOrThrow()
+            BlockHandler.handleDiscrete(req, player).getOrThrow()
+        },
+        c2sHandler<BlockHarvestResultQ> { req, player ->
+            BlockHandler.harvestResult(req, player).getOrThrow()
+        },
+        c2sHandler<BlockUseItemQ> { req, player ->
+            BlockHandler.useItemOn(req, player).getOrThrow()
+        },
+        c2sHandler<ContainerDropItemQ> { req, player ->
+            ContainerHandler.dropItem(req, player).getOrThrow()
         },
         c2sHandler<ContainerSlotListQ> { req, player ->
             ContainerHandler.slotList(req, player).getOrThrow()
         },
         c2sHandler<ContainerMoveQ> { req, player ->
             ContainerHandler.move(req, player).getOrThrow()
+        },
+        c2sHandler<CraftQ> { req, player ->
+            CraftHandler.craft(req, player).getOrThrow()
         },
     )
 
@@ -83,13 +108,13 @@ object GameNetPayload211Registry {
         event.registrar("1")
             .optional()
             .playBidirectional(
-                GameNetPayload211.TYPE,
-                GameNetPayload211.STREAM_CODEC,
-                GameNetPayload211Registry::handlePayload,
+                GameNetPayload.TYPE,
+                GameNetPayload.STREAM_CODEC,
+                GameNetPayloadRegistry::handlePayload,
             )
     }
 
-    private fun handlePayload(payload: GameNetPayload211, context: IPayloadContext) {
+    private fun handlePayload(payload: GameNetPayload, context: IPayloadContext) {
         if (!context.flow().isServerbound) {
             return
         }
@@ -111,7 +136,7 @@ object GameNetPayload211Registry {
             }
             mcpErrorText(error)
         }
-        context.reply(GameNetPayload211.fromS2C(McpS2CNetPacket(packet.reqId, resp.toString())))
+        context.reply(GameNetPayload.fromS2C(McpS2CNetPacket(packet.reqId, resp.toString())))
     }
 
     private fun dispatchC2S(packet: McpC2SNetPacket, player: ServerPlayer): Any {
@@ -131,11 +156,11 @@ object GameNetPayload211Registry {
         return runCatching {
             json.decodeFromString<T>(reqJson)
         }.getOrElse {
-            throw McpBadRequestError("malformed request")
+            throw McpBadRequestError("C2S request decode Error ${it.message}")
         }
     }
 
     private fun mcpErrorText(e: McpError): String {
-        return "${e.javaClass.simpleName.removeSuffix("Error")} ${e.detail}"
+        return "${e.javaClass.simpleName} ${e.detail}"
     }
 }

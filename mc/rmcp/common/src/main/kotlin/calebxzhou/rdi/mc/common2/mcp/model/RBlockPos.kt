@@ -1,5 +1,6 @@
 package calebxzhou.rdi.mc.common2.mcp.model
 
+import calebxzhou.ktutils.std.spaceSplit
 import calebxzhou.rdi.mc.common2.mcp.McpBadArgsError
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
@@ -16,7 +17,7 @@ data class RBlockPos(val x: Int, val y: Int, val z: Int){
 val Iterable<RBlockPos>.text get() = this.joinToString(", ")
 
 fun String.toRBlockPos(): RBlockPos  {
-    val parts = trim().split(Regex("\\s+"))
+    val parts = this.spaceSplit()
     if (parts.size != 3) {
         throw McpBadArgsError("RBlockPos must be x y z")
     }

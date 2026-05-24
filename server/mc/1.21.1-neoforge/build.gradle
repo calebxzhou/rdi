@@ -95,6 +95,7 @@ neoForge {
 
 sourceSets.named('main') {
     java.srcDir '../../../mc/rcmd/src/main/java'
+    kotlin.srcDir '../../../mc/common3/1.21/src/main/kotlin'
     resources.srcDir 'src/generated/resources'
 }
 

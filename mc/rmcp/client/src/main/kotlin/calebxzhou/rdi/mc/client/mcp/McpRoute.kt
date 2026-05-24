@@ -1,7 +1,6 @@
 package calebxzhou.rdi.mc.client.mcp
 
 import calebxzhou.rdi.mc.common2.mcp.McpBadRequestError
-import calebxzhou.rdi.mc.common2.mcp.yml
 import io.fusionauth.http.HTTPMethod
 import io.fusionauth.http.server.HTTPRequest
 import io.fusionauth.http.server.HTTPResponse
@@ -17,7 +16,7 @@ val ROUTES = HANDLERS
         McpRoute(
             method = typedHandler.method,
             path = "/${typedHandler.javaClass.simpleName.removeSuffix("Handler").toKebabCase()}",
-            handler = typedHandler::handle,
+            handler = typedHandler,
         )
     }
     .associateBy { it.path }
@@ -29,12 +28,9 @@ private fun String.toKebabCase(): String {
 data class McpRoute(
     val method: HTTPMethod,
     val path: String,
-    val handler: McpHandler,
+    val handler: McpTypedHandler,
 )
 
-fun interface McpHandler {
-    fun handle(ctx: McpHttpContext): Result<Any?>
-}
 class McpHttpContext(
     val request: HTTPRequest,
     val response: HTTPResponse,
@@ -52,7 +48,7 @@ class McpHttpContext(
                 yml.decodeFromString(type.serializer(), request.bodyBytes.toString(Charsets.UTF_8))
             }
         }.getOrElse {
-            throw McpBadRequestError()
+            throw McpBadRequestError(it.message?:"").apply { cause = it }
         }
     }
     fun param(key: String): String {
@@ -60,6 +56,20 @@ class McpHttpContext(
     }
     fun paramNull(key: String): String? {
         return request.getURLParameter(key)
+    }
+
+    fun intParam(key: String, default: Int): Int {
+        val text = paramNull(key) ?: return default
+        return text.toIntOrNull() ?: throw McpBadRequestError("$key must be integer")
+    }
+
+    fun booleanParam(key: String, default: Boolean): Boolean {
+        return when (paramNull(key)?.trim()?.lowercase()) {
+            null -> default
+            "true", "1", "yes" -> true
+            "false", "0", "no" -> false
+            else -> throw McpBadRequestError("$key must be boolean")
+        }
     }
 
 }

@@ -1,10 +1,11 @@
 package calebxzhou.rdi.mc.client.mcp
 
+import calebxzhou.rdi.mc.common2.mcp.McpBadRequestError
 import calebxzhou.rdi.mc.common2.mcp.McpError
 import calebxzhou.rdi.mc.common2.mcp.McpInternalError
 import calebxzhou.rdi.mc.common2.mcp.McpMethodNotAllowedError
 import calebxzhou.rdi.mc.common2.mcp.McpNotFoundError
-import calebxzhou.rdi.mc.common2.mcp.McpServerMcpUnavailableError
+import io.fusionauth.http.HTTPMethod
 import io.fusionauth.http.server.*
 import org.slf4j.LoggerFactory
 import java.io.File
@@ -54,19 +55,31 @@ object McpServer {
     }
 
     private fun handle(request: HTTPRequest, response: HTTPResponse) {
+        var matchedRoute: McpRoute? = null
         runCatching {
+            if (request.path == "/") {
+                response.writeText(endpointListText())
+                return
+            }
             val route = ROUTES[request.path] ?: throw McpNotFoundError()
+            matchedRoute = route
             if (!request.method.`is`(route.method)) {
                 throw McpMethodNotAllowedError()
             }
-            route.handler.handle(McpHttpContext(request, response, game ?: throw McpServerMcpUnavailableError())).getOrThrow()
+            route.handler.handle(McpHttpContext(request, response, game ?: throw McpError("unavaliable local server"))).getOrThrow()
         }.onSuccess { result ->
-            if (result == null) {
-                response.writeText("ok")
-            } else {
-                response.writeText(result.toString())
+            when (result) {
+                null -> response.writeText("ok")
+                is ByteArray -> response.writePng(result)
+                else -> response.writeText(result.toString())
             }
         }.onFailure { e ->
+            val route = matchedRoute
+            if (e is McpBadRequestError && route != null) {
+                response.writeBadRequestError(e, route)
+                e.printStackTrace()
+                return@onFailure
+            }
             if(e is McpError){
                 response.writeError(e)
                 return@onFailure
@@ -80,10 +93,31 @@ object McpServer {
         lgr.info("RMCP routes: {}", ROUTES.map { (_,it) ->"${it.method} ${it.path}" })
     }
 
+    private fun endpointListText(): String {
+        return buildString {
+            appendLine("""
+                Use these local HTTP APIs to read live data from the running Minecraft client. 
+                Do not guess game state when an API can read it directly.
+                Read APIs use `GET`. Action APIs use `POST`.
+                
+            """.trimIndent())
+            ROUTES.values
+                .sortedBy { it.path }
+                .forEach { appendLine("${it.method} ${it.path}") }
+        }.trimEnd()
+    }
+
     private fun HTTPResponse.writeText(text: String) {
         this.status = 200
         contentType = "text/plain; charset=utf-8"
         getWriter().write(text)
+    }
+    private fun HTTPResponse.writePng(data: ByteArray) {
+        this.status = 200
+        contentType = "image/png"
+        setHeader("Cache-Control", "no-store")
+        contentLength = data.size.toLong()
+        outputStream.write(data)
     }
 
     private fun selectAvailablePort(): Int {
@@ -97,6 +131,10 @@ object McpServer {
     }
 
     private fun HTTPResponse.writeError(e: McpError) {
-        writeText("${e.javaClass.simpleName.removeSuffix("Error")} ${e.detail}")
+        writeText("${e.javaClass.simpleName} ${e.detail}")
+    }
+
+    private fun HTTPResponse.writeBadRequestError(e: McpBadRequestError, route: McpRoute) {
+        writeText("${e.javaClass.simpleName} ${e.detail}\nHELP DOC: ${route.handler.helpDoc}")
     }
 }

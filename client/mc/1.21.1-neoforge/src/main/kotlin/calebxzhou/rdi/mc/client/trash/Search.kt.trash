@@ -232,7 +232,7 @@ object Search {
             ResolveSearchEntryFactory { english, chinese ->
                 val entries = ArrayList<ResolveSearchEntry>()
                 for (block in BuiltInRegistries.BLOCK) {
-                    val id: ResourceLocation = BuiltInRegistries.BLOCK.getKey(block)
+                    val id: ResourceLocation = block.resId
                     if (id != null) {
                         entries.add(
                             resolveEntry(

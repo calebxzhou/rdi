@@ -200,27 +200,3 @@ data class RecipeUnresolved(
     override fun toString() = "${stack.itemId} $reason"
 }
 
-@Serializable
-data class RecipeCraftQ(
-    val shape: List<String>,
-    val slots: Map<String, Int>,
-    val outputSlot: Int,
-    val times: Int = 1,
-    val test: Boolean = false,
-)
-
-@Serializable
-data class RecipeCraftP(
-    val crafted: RecipeStack,
-    val leftovers: List<RecipeStack> = emptyList(),
-    val test: Boolean = false,
-) {
-    override fun toString() = buildString {
-        appendLine("crafted $crafted")
-        appendLine("test $test")
-        if (leftovers.isNotEmpty()) {
-            appendLine("leftovers")
-            leftovers.forEach { appendLine(it) }
-        }
-    }.trimEnd()
-}

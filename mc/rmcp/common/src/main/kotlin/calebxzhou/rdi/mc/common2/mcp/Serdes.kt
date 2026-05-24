@@ -1,6 +1,5 @@
 package calebxzhou.rdi.mc.common2.mcp
 
-import com.charleskorn.kaml.Yaml
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.descriptors.PrimitiveKind
 import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
@@ -24,7 +23,7 @@ val json = Json {
     isLenient = true // Allows parsing of malformed JSON
     coerceInputValues = true // Helps with default values and nulls
 }
-val yml = Yaml.default
+
 object UUIDSerializer : KSerializer<UUID> {
     override val descriptor: SerialDescriptor = PrimitiveSerialDescriptor("UUID", PrimitiveKind.STRING)
 

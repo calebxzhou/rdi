@@ -1,17 +1,13 @@
 package calebxzhou.rdi.mc.server.mcpimpl211.handler
 
-import calebxzhou.rdi.mc.common2.mcp.model.ActionResult
-import calebxzhou.rdi.mc.common2.mcp.model.ContainerMoveP
-import calebxzhou.rdi.mc.common2.mcp.model.ContainerMoveQ
-import calebxzhou.rdi.mc.common2.mcp.model.ContainerRef
-import calebxzhou.rdi.mc.common2.mcp.model.ContainerSlot
-import calebxzhou.rdi.mc.common2.mcp.model.ContainerSlotListP
-import calebxzhou.rdi.mc.common2.mcp.model.ContainerSlotListQ
-import calebxzhou.rdi.mc.common2.mcp.model.RBlockPos
-import calebxzhou.rdi.mc.server.mcpimpl211.handler.BlockHandler211.mcBpos
+import calebxzhou.rdi.mc.common2.mcp.McpBadSlotError
+import calebxzhou.rdi.mc.common2.mcp.McpContainerError
+import calebxzhou.rdi.mc.common2.mcp.model.*
+import calebxzhou.rdi.mc.common3.resId
+import calebxzhou.rdi.mc.server.mcpimpl211.handler.BlockHandler.mcBpos
 import net.minecraft.core.BlockPos
-import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.item.ItemStack
 import net.neoforged.neoforge.capabilities.Capabilities
 import net.neoforged.neoforge.items.IItemHandler
@@ -61,6 +57,48 @@ object ContainerHandler {
         ContainerMoveP(count, failures, req.test)
     }
 
+    fun dropItem(req: ContainerDropItemQ, player: ServerPlayer): Result<ContainerDropItemP> = runCatching {
+        if (req.count <= 0) {
+            throw McpContainerError("bad count ${req.count}")
+        }
+        val level = player.serverLevel()
+        val spawnBlockPos = BlockPos.containing(req.x, req.y, req.z)
+        if (level.isOutsideBuildHeight(spawnBlockPos) || !level.isLoaded(spawnBlockPos)) {
+            throw McpContainerError("spawn position is not loaded")
+        }
+        val source = when (val resolved = resolveContainer(ContainerRef(req.source.pos), player)) {
+            is ActionResult.Ok<*> -> resolved.data as ResolvedContainer
+            is ActionResult.Err -> throw McpContainerError(resolved.reason)
+        }
+        val slotId = req.source.slotId
+        if (!source.handler.validSlot(slotId)) {
+            throw McpBadSlotError()
+        }
+        val extracted = source.handler.extractItem(slotId, req.count, true)
+        if (extracted.isEmpty) {
+            throw McpContainerError("source empty")
+        }
+        if (extracted.count < req.count) {
+            throw McpContainerError("source only has ${extracted.count}, requested ${req.count}")
+        }
+        val actualExtracted = source.handler.extractItem(slotId, extracted.count, false)
+        if (actualExtracted.count != req.count) {
+            throw McpContainerError("extract failed, got ${actualExtracted.count}, requested ${req.count}")
+        }
+        val itemEntity = ItemEntity(level, req.x, req.y, req.z, actualExtracted)
+        itemEntity.setDeltaMovement(0.0, 0.0, 0.0)
+        if (!level.addFreshEntity(itemEntity)) {
+            throw McpContainerError("spawn item entity failed")
+        }
+        markChanged(source, player)
+        player.inventoryMenu.broadcastChanges()
+        player.containerMenu.broadcastChanges()
+        ContainerDropItemP(
+            entityId = itemEntity.id,
+            item = ContainerDropItemP.Stack(actualExtracted.item.resId.toString(), actualExtracted.count),
+        )
+    }
+
     private fun readContainer(player: ServerPlayer, pos: RBlockPos): ActionResult<ContainerSlotListP.Group> {
         val level = player.serverLevel()
         val mcpos = pos.mcBpos
@@ -76,7 +114,7 @@ object ContainerHandler {
         return ActionResult.Ok(
             ContainerSlotListP.Group(
                 pos = pos,
-                blockId = BuiltInRegistries.BLOCK.getKey(state.block).toString(),
+                blockId = state.block.resId.toString(),
                 slots = slots,
             )
         )
@@ -86,7 +124,7 @@ object ContainerHandler {
         return if (stack.isEmpty) {
             ContainerSlot.empty(id)
         } else {
-            ContainerSlot(id, BuiltInRegistries.ITEM.getKey(stack.item).toString(), stack.count)
+            ContainerSlot(id, stack.item.resId.toString(), stack.count)
         }
     }
 

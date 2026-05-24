@@ -1,14 +1,16 @@
 package calebxzhou.rdi.mc.client.mcpimpl211
 
-import calebxzhou.rdi.mc.client.mc
 import calebxzhou.rdi.mc.common2.mcp.McpBlockError
 import calebxzhou.rdi.mc.common2.mcp.McpError
 import calebxzhou.rdi.mc.common2.mcp.McpNoPlayerError
+import calebxzhou.rdi.mc.common2.mcp.model.BlockFetchBoxP
+import calebxzhou.rdi.mc.common2.mcp.model.BlockFetchBoxQ
 import calebxzhou.rdi.mc.common2.mcp.model.BlockFindP
 import calebxzhou.rdi.mc.common2.mcp.model.BlockFindQ
 import calebxzhou.rdi.mc.common2.mcp.model.BlockRange
 import calebxzhou.rdi.mc.common2.mcp.model.RBlockAABB
 import calebxzhou.rdi.mc.common2.mcp.model.RBlockPos
+import calebxzhou.rdi.mc.common3.mc
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.core.registries.BuiltInRegistries
@@ -21,9 +23,20 @@ import java.util.function.Supplier
 object BlockMcpImpl {
     private const val BLOCK_FIND_HORIZONTAL_SIZE = 256
     private const val BLOCK_FIND_LIMIT_PER_ID = 128
+    private const val BLOCK_FETCH_BOX_LIMIT = 1024
 
     fun find(req: BlockFindQ): Result<BlockFindP> = runCatching {
         mc.submit(Supplier { scanBlocks(req) }).get()
+    }.recoverCatching { e ->
+        val cause = (e as? ExecutionException)?.cause
+        if (cause is McpError) {
+            throw cause
+        }
+        throw e
+    }
+
+    fun fetchBox(req: BlockFetchBoxQ): Result<BlockFetchBoxP> = runCatching {
+        mc.submit(Supplier { scanBox(req) }).get()
     }.recoverCatching { e ->
         val cause = (e as? ExecutionException)?.cause
         if (cause is McpError) {
@@ -91,6 +104,57 @@ object BlockMcpImpl {
         }
         openCuboids.values.forEach { ranges.getValue(it.block).add(it) }
         return blockFindResult(targets, ranges)
+    }
+
+    private fun scanBox(req: BlockFetchBoxQ): BlockFetchBoxP {
+        val level = mc.level ?: throw McpNoPlayerError()
+        val minX = minOf(req.from.x, req.to.x)
+        val minY = minOf(req.from.y, req.to.y)
+        val minZ = minOf(req.from.z, req.to.z)
+        val maxX = maxOf(req.from.x, req.to.x)
+        val maxY = maxOf(req.from.y, req.to.y)
+        val maxZ = maxOf(req.from.z, req.to.z)
+        val sizeX = maxX - minX + 1
+        val sizeY = maxY - minY + 1
+        val sizeZ = maxZ - minZ + 1
+        val total = sizeX * sizeY * sizeZ
+        if (total > BLOCK_FETCH_BOX_LIMIT) {
+            throw McpBlockError("block fetch box max $BLOCK_FETCH_BOX_LIMIT blocks current ${total}")
+        }
+        if (minY < level.minBuildHeight || maxY >= level.maxBuildHeight) {
+            throw McpBlockError("block fetch box y must be ${level.minBuildHeight}..${level.maxBuildHeight - 1}")
+        }
+
+        val paletteIds = mutableListOf<String>()
+        val paletteIndex = linkedMapOf<String, Int>()
+        val pos = BlockPos.MutableBlockPos()
+        val layers = mutableListOf<BlockFetchBoxP.Layer>()
+        for (y in minY..maxY) {
+            val rows = mutableListOf<String>()
+            for (z in minZ..maxZ) {
+                val row = mutableListOf<String>()
+                for (x in minX..maxX) {
+                    val id = BuiltInRegistries.BLOCK.getKey(level.getBlockState(pos.set(x, y, z)).block).toString()
+                    val index = paletteIndex.getOrPut(id) {
+                        paletteIds += id
+                        paletteIds.lastIndex
+                    }
+                    row += index.toString()
+                }
+                rows += row.joinToString(" ")
+            }
+            layers += BlockFetchBoxP.Layer(y, rows)
+        }
+        return BlockFetchBoxP(
+            from = RBlockPos(minX, minY, minZ),
+            to = RBlockPos(maxX, maxY, maxZ),
+            sizeX = sizeX,
+            sizeY = sizeY,
+            sizeZ = sizeZ,
+            total = total,
+            palette = paletteIds,
+            layers = layers,
+        )
     }
 
     private fun resolveBlock(blockId: String): Block {

@@ -192,6 +192,7 @@ tasks.register('generateModMetadata', ProcessResources) {
 }
 
 sourceSets.named('main') {
+    kotlin.srcDir '../../../mc/common3/1.21/src/main/kotlin'
     resources.srcDir 'src/generated/resources'
     resources.srcDir metadataOutput
     // Make common assets visible in IDE dev runs (textures, lang, etc.)
@@ -218,7 +219,12 @@ dependencies {
     // at runtime, use the full JEI jar for NeoForge
     runtimeOnly("mezz.jei:jei-1.21.1-neoforge:19.21.2.313")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    implementation("io.heapy.kotaml:kotaml:0.108.0")
+    //KOTAML yml
+    implementation(jarJar("io.heapy.kotaml:kotaml-jvm:0.108.0"))
+    jarJar("com.squareup.okio:okio-jvm:3.17.0")
+    jarJar("it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1")
+    jarJar("net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0")
+
     runtimeOnly "dev.emi:emi-neoforge:1.1.24+1.21.1"
     // implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
     shaded('io.fusionauth:java-http:1.4.0') {

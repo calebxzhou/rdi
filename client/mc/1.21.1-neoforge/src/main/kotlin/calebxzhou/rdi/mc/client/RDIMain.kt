@@ -35,7 +35,6 @@ import java.util.concurrent.ThreadFactory
 /**
  * calebxzhou @ 2026-01-10 22:33
  */
-val mc get() = Minecraft.getInstance()
 @Mod("rdi")
 @EventBusSubscriber(modid = "rdi", value = [Dist.CLIENT])
 class RDIMain {

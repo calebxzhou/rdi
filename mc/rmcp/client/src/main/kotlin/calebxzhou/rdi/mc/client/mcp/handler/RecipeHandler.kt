@@ -11,6 +11,14 @@ import io.fusionauth.http.HTTPMethod
 
 object RecipeHandler : McpTypedHandler {
     override val method = HTTPMethod.GET
+    override val helpDoc = """
+        List possible single-step recipe processes for one or more output item ids.
+        Query params:
+        items: required space separated exact item ids, such as "minecraft:stick create:andesite_alloy".
+        includeHidden: optional boolean. Default false.
+        Use res-id-resolve first when the user gives fuzzy item names.
+        Response shows direct recipe methods only, not a recursive material tree.
+    """.trimIndent()
 
     override fun handle(ctx: McpHttpContext): Result<Any?> {
         val items = ctx.param("items")
@@ -30,6 +38,18 @@ object RecipeHandler : McpTypedHandler {
 
 object RecipeTreeHandler : McpTypedHandler {
     override val method = HTTPMethod.GET
+    override val helpDoc = """
+        Build a compact recipe roadmap for crafting an output item recursively.
+        Query params:
+        outputItemId: required exact item id to craft.
+        outputCount: optional target count. Default 1 and must be positive.
+        maxDepth: optional recursion depth from 0 to 32. Default 8.
+        includeAlternatives: optional boolean. Default false.
+        useInventory: optional boolean. Default true, allowing current inventory to satisfy needed materials.
+        recipeId: optional selected recipe id for this output when multiple recipes exist.
+        ingredientItemId: optional selected ingredient item id for this output when a recipe input accepts alternatives.
+        Response is a text roadmap and unresolved/material summary for LLM planning.
+    """.trimIndent()
 
     override fun handle(ctx: McpHttpContext): Result<Any?> {
         val outputItemId = ctx.param("outputItemId").trim().takeIf { it.isNotEmpty() }
@@ -60,19 +80,5 @@ object RecipeTreeHandler : McpTypedHandler {
             recipeId = recipeId,
             ingredientItemId = ingredientItemId,
         )
-    }
-}
-
-private fun McpHttpContext.intParam(key: String, default: Int): Int {
-    val text = paramNull(key) ?: return default
-    return text.toIntOrNull() ?: throw McpBadRequestError("$key must be integer")
-}
-
-private fun McpHttpContext.booleanParam(key: String, default: Boolean): Boolean {
-    return when (paramNull(key)?.trim()?.lowercase()) {
-        null -> default
-        "true", "1", "yes" -> true
-        "false", "0", "no" -> false
-        else -> throw McpBadRequestError("$key must be boolean")
     }
 }

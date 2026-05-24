@@ -5,6 +5,7 @@ import calebxzhou.rdi.mc.common2.mcp.model.RecipeItemTag
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcess
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeShape
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeStack
+import calebxzhou.rdi.mc.common3.resId
 import net.minecraft.client.Minecraft
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.item.ItemStack
@@ -158,7 +159,7 @@ object VanillaRecipeProcessCollector {
         val itemId = if (stack.isEmpty) {
             "minecraft:air"
         } else {
-            BuiltInRegistries.ITEM.getKey(stack.item).toString()
+            stack.item.resId.toString()
         }
         return RecipeStack(
             itemId = itemId,
@@ -172,7 +173,7 @@ object VanillaRecipeProcessCollector {
         val remainder = craftingRemainingItem
         if (remainder.isEmpty) return null
         return RecipeStack(
-            itemId = BuiltInRegistries.ITEM.getKey(remainder.item).toString(),
+            itemId = remainder.item.resId.toString(),
             count = remainder.count,
         )
     }

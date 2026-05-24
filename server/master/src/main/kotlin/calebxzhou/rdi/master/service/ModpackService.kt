@@ -101,7 +101,7 @@ val Modpack.Version.clientPackFile
     get() = clientZstdPack.takeIf(File::exists) ?: clientZip
 
 const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
-val MAX_PACK_SIZE = 1024 * 1024 * 1024L
+val MAX_PACK_SIZE = 384 * 1024 * 1024L
 
 private suspend inline fun <reified T> ApplicationCall.receiveUploadPayload(
     jsonFieldName: String,

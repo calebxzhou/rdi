@@ -162,6 +162,31 @@ data class ContainerMoveP(
     }
 }
 
+@Serializable
+data class ContainerDropItemQ(
+    val source: ContainerSlotRef,
+    val count: Int,
+    val x: Double,
+    val y: Double,
+    val z: Double,
+)
+
+@Serializable
+data class ContainerDropItemP(
+    val entityId: Int,
+    val item: Stack,
+) {
+    override fun toString() = "entity $entityId item $item"
+
+    @Serializable
+    data class Stack(
+        val itemId: String,
+        val count: Int,
+    ) {
+        override fun toString() = "${count}x $itemId"
+    }
+}
+
 enum class InventoryCompart{ INV,ARMOR,OFFHAND }
 
 @Serializable

@@ -24,7 +24,7 @@ object RMcpMcDataCodec211 {
     ): RMcpBlockEntityData {
         val pos = blockEntity.blockPos
         val blockState = blockEntity.blockState
-        val blockId = BuiltInRegistries.BLOCK.getKey(blockState.block).toString()
+        val blockId = blockState.block.resId.toString()
         val type = BlockEntityType.getKey(blockEntity.type).toString()
         val tag = blockEntity.saveWithFullMetadata(registryAccess)
         return RMcpBlockEntityData(

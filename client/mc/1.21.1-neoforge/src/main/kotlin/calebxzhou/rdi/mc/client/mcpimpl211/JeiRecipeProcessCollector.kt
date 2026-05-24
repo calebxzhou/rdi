@@ -6,6 +6,7 @@ import calebxzhou.rdi.mc.common2.mcp.model.RecipeItemTag
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcess
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeShape
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeStack
+import calebxzhou.rdi.mc.common3.resId
 import mezz.jei.api.gui.builder.IIngredientAcceptor
 import mezz.jei.api.gui.builder.IRecipeLayoutBuilder
 import mezz.jei.api.gui.builder.IRecipeSlotBuilder
@@ -317,7 +318,7 @@ object JeiRecipeProcessCollector {
     private fun recipeStack(stack: ItemStack): RecipeStack? {
         if (stack.isEmpty) return null
         return RecipeStack(
-            itemId = BuiltInRegistries.ITEM.getKey(stack.item).toString(),
+            itemId = stack.item.resId.toString(),
             count = stack.count,
             remainder = stack.remainderStack(),
         )
@@ -328,7 +329,7 @@ object JeiRecipeProcessCollector {
         val remainder = craftingRemainingItem
         if (remainder.isEmpty) return null
         return RecipeStack(
-            itemId = BuiltInRegistries.ITEM.getKey(remainder.item).toString(),
+            itemId = remainder.item.resId.toString(),
             count = remainder.count,
         )
     }

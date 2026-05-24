@@ -1,39 +1,20 @@
 package calebxzhou.rdi.mc.client.mcpimpl211
 
-import calebxzhou.rdi.mc.client.mc
+import calebxzhou.rdi.mc.client.RDIMain
 import calebxzhou.rdi.mc.client.mcp.McpGameInterface
+import calebxzhou.rdi.mc.common2.mcp.McpBadRequestError
 import calebxzhou.rdi.mc.common2.mcp.McpBadSlotError
+import calebxzhou.rdi.mc.common2.mcp.McpError
 import calebxzhou.rdi.mc.common2.mcp.McpNoPlayerError
-import calebxzhou.rdi.mc.common2.mcp.McpServerMcpUnavailableError
-import calebxzhou.rdi.mc.common2.mcp.McpServerTimeoutError
-import calebxzhou.rdi.mc.common2.mcp.model.BlockFindP
-import calebxzhou.rdi.mc.common2.mcp.model.BlockFindQ
-import calebxzhou.rdi.mc.common2.mcp.model.ContainerSlot
-import calebxzhou.rdi.mc.common2.mcp.model.InventoryCompart
-import calebxzhou.rdi.mc.common2.mcp.model.InventoryListP
-import calebxzhou.rdi.mc.common2.mcp.model.InventorySlotQ
-import calebxzhou.rdi.mc.common2.mcp.model.McpC2SNetPacket
-import calebxzhou.rdi.mc.common2.mcp.model.McpS2CNetPacket
-import calebxzhou.rdi.mc.common2.mcp.model.RecipeIngredient
-import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcess
-import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcessTextView
-import calebxzhou.rdi.mc.common2.mcp.model.RecipeQ
-import calebxzhou.rdi.mc.common2.mcp.model.RecipeTextView
-import calebxzhou.rdi.mc.common2.mcp.model.RecipeTreeP
-import calebxzhou.rdi.mc.common2.mcp.model.RecipeTreeQ
-import calebxzhou.rdi.mc.common2.mcp.model.RecipeTreeNode
-import net.minecraft.core.registries.BuiltInRegistries
-import net.minecraft.core.registries.Registries
-import net.minecraft.resources.ResourceLocation
-import net.minecraft.tags.TagKey
+import calebxzhou.rdi.mc.common2.mcp.model.*
+import calebxzhou.rdi.mc.common3.*
+import com.mojang.blaze3d.pipeline.RenderCall
+import com.mojang.blaze3d.systems.RenderSystem
+import net.minecraft.client.Screenshot
 import net.minecraft.world.item.ItemStack
+import net.neoforged.fml.ModList
 import net.neoforged.neoforge.network.PacketDistributor
-import java.util.concurrent.CompletableFuture
-import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.ExecutionException
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
-import kotlin.collections.set
+import java.util.concurrent.*
 
 object McpGameImpl : McpGameInterface {
     
@@ -55,9 +36,9 @@ object McpGameImpl : McpGameInterface {
             future.get(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS).text
         }.recoverCatching { e ->
             throw when (e) {
-                is TimeoutException -> McpServerTimeoutError()
-                is ExecutionException -> McpServerMcpUnavailableError()
-                else -> McpServerMcpUnavailableError()
+                is TimeoutException -> McpError("server time out")
+                is ExecutionException -> McpError("server execution error")
+                else -> McpError("server unavailable")
             }
         }.also {
             pendingPacketMap.remove(packet.reqId)
@@ -88,6 +69,22 @@ object McpGameImpl : McpGameInterface {
 
     override fun blockFind(req: BlockFindQ): Result<BlockFindP> = BlockMcpImpl.find(req)
 
+    override fun blockFetchBox(req: BlockFetchBoxQ): Result<BlockFetchBoxP> = BlockMcpImpl.fetchBox(req)
+
+    override fun playerInfo(): Result<PlayerInfo> = runCatching {
+        val player = mc.player ?: throw McpNoPlayerError()
+        PlayerInfo(
+            dim = player.level().dimension().location().toString(),
+            uuid = player.uuid.toString(),
+            name = player.name.string,
+            pos = EntityPos(player.x, player.y, player.z, player.yRot, player.xRot),
+            health = player.health,
+            maxHealth = player.maxHealth,
+            food = player.foodData.foodLevel,
+            gameMode = mc.gameMode?.playerMode?.getName() ?: "unknown",
+        )
+    }
+
     override fun recipes(req: RecipeQ): Result<String> = runCatching {
         if (!RecipeProcessIndex.isReady()) {
             return@runCatching "unresolved reason=jei_not_ready"
@@ -102,6 +99,92 @@ object McpGameImpl : McpGameInterface {
         RecipeTextView.render(tree, tree.tagInventoryMatches())
     }
 
+    override fun screenshotPngData(): Result<ByteArray> = runCatching {
+        val future = CompletableFuture<ByteArray>()
+        val capture = RenderCall {
+            try {
+                val image = Screenshot.takeScreenshot(mc.getMainRenderTarget())
+                RDIMain.SCREENSHOT_EXECUTOR.execute {
+                    try {
+                        image.use {
+                            future.complete(it.asByteArray())
+                        }
+                    } catch (e: Throwable) {
+                        future.completeExceptionally(e)
+                    }
+                }
+            } catch (e: Throwable) {
+                future.completeExceptionally(e)
+            }
+        }
+        if (RenderSystem.isOnRenderThread()) {
+            capture.execute()
+        } else {
+            RenderSystem.recordRenderCall(capture)
+        }
+        future.get(5, TimeUnit.SECONDS)
+    }.recoverCatching { e ->
+        if (e is InterruptedException) {
+            Thread.currentThread().interrupt()
+        }
+        throw when (e) {
+            is TimeoutException -> McpError("screenshot timeout")
+            is InterruptedException -> McpError("screenshot interrupted")
+            else -> e
+        }
+    }
+
+    override fun modIds(): Result<String> = runCatching {
+        ModList.get().getSortedMods().joinToString(" ") { it.modInfo.modId }
+    }
+
+    override fun modInfo(id: String): Result<ModInfo> = runCatching {
+        val mod = ModList.get().getModContainerById(id).orElseThrow {
+            McpBadRequestError("unknown mod $id")
+        }.modInfo
+        ModInfo(
+            id = mod.modId,
+            name = mod.displayName,
+            version = mod.version.toString(),
+            description = mod.description,
+            dependencies = mod.dependencies.map { dep ->
+                ModDependency(
+                    id = dep.modId,
+                    versionRange = dep.versionRange.toString(),
+                    type = dep.type.name.lowercase(),
+                    ordering = dep.ordering.name.lowercase(),
+                    side = dep.side.name.lowercase(),
+                )
+            },
+        )
+    }
+
+    override fun questChapterList(): Result<String> = runCatching {
+        mc.player ?: throw McpNoPlayerError()
+        FtbQuestsMcpBridge.questChapterList().joinToString("\n") { chapter ->
+            buildString {
+                append(chapter.id)
+                append(" title=").append(chapter.title)
+                append(" group=").append(chapter.groupId).append(":").append(chapter.groupTitle)
+                append(" completed=").append(chapter.completed)
+                append(" quests=").append(chapter.questCount)
+                append(" completedQuests=").append(chapter.completedQuestCount)
+            }
+        }
+    }
+
+    override fun questsOfChapter(chapterId: String): Result<String> = runCatching {
+        val player = mc.player ?: throw McpNoPlayerError()
+        val quests = FtbQuestsMcpBridge.questsOfChapter(chapterId, player.uuid)
+        if (quests.isEmpty()) {
+            return@runCatching "none"
+        }
+        quests.joinToString("\n") { quest ->
+            val dependencyIds = quest.dependencies.joinToString(",") { it.id }.ifEmpty { "none" }
+            "${quest.id} title=${quest.title} completed=${quest.state.completed} optional=${quest.rules.optional} repeatable=${quest.rules.repeatable} tasks=${quest.tasks.size} rewards=${quest.rewards.size} deps=$dependencyIds"
+        }
+    }
+
 
     fun complete(packet: McpS2CNetPacket) {
         pendingPacketMap.remove(packet.reqId)?.complete(packet)
@@ -111,7 +194,7 @@ object McpGameImpl : McpGameInterface {
         return if (stack.isEmpty) {
             ContainerSlot.empty(id)
         } else {
-            ContainerSlot(id, BuiltInRegistries.ITEM.getKey(stack.item).toString(), stack.count)
+            ContainerSlot(id, stack.item.resId.toString(), stack.count)
         }
     }
 
@@ -124,7 +207,7 @@ object McpGameImpl : McpGameInterface {
         val inventoryItemIds = (player.inventory.items + player.inventory.armor + player.inventory.offhand)
             .asSequence()
             .filterNot { it.isEmpty }
-            .map { BuiltInRegistries.ITEM.getKey(it.item).toString() }
+            .map { it.item.resId.toString() }
             .distinct()
             .toList()
         if (inventoryItemIds.isEmpty()) return emptyMap()
@@ -134,11 +217,8 @@ object McpGameImpl : McpGameInterface {
         if (tagIds.isEmpty()) return emptyMap()
 
         return tagIds.associateWith { tagId ->
-            val location = ResourceLocation.tryParse(tagId) ?: return@associateWith emptyList()
-            val tag = TagKey.create(Registries.ITEM, location)
-            val tagItemIds = BuiltInRegistries.ITEM.getTagOrEmpty(tag)
-                .mapTo(mutableSetOf()) { BuiltInRegistries.ITEM.getKey(it.value()).toString() }
-            inventoryItemIds.filter { it in tagItemIds }
+            val ids = tagId.parseResId()?.makeItemTagKey()?.tagItemIds ?: return@associateWith emptyList()
+            inventoryItemIds.filter { it in ids }
         }
     }
 
