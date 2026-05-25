@@ -1,0 +1,236 @@
+import java.nio.charset.Charset
+
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'idea'
+    id 'net.neoforged.moddev' version '2.0.141'
+    id 'org.jetbrains.kotlin.jvm' version '2.3.21'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.21'
+}
+
+wrapper {
+    distributionType = Wrapper.DistributionType.BIN
+}
+group = mod_group_id
+version = mod_version
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+    //CurseForge
+    exclusiveContent {
+        forRepository {
+            maven {
+                url "https://cursemaven.com"
+            }
+        }
+        filter {
+            includeGroup "curse.maven"
+        }
+    }
+    //Modrinth
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
+    maven {
+        name = "Jared"
+        url = "https://maven.blamejared.com"
+    }
+    maven {
+        name = 'Kotlin for Forge'
+        url = 'https://thedarkcolour.github.io/KotlinForForge/'
+    }
+
+    maven {
+        name = "TerraformersMC"
+        url = "https://maven.terraformersmc.com/"
+    }
+}
+
+base {
+    archivesName = mod_id
+}
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    evaluationDependsOn(':ktutils-std')
+    dependsOn project(":ktutils-std").tasks.named("classes")
+    from(project(":ktutils-std").sourceSets.main.output)
+    from({
+        configurations.shaded.collect { it.isDirectory() ? it : zipTree(it) }
+    }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
+
+    manifest {
+        attributes([
+                "Specification-Title"     : mod_id,
+                "Specification-Vendor"    : mod_authors,
+                "Specification-Version"   : "1",
+                "Implementation-Title"    : project.name,
+                "Implementation-Version"  : version,
+                "Implementation-Vendor"   : mod_authors,
+                "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+               // "MixinConfigs"            : "rdi6sky.mixins.json"
+        ])
+    }
+}
+
+neoForge {
+    version = neo_version
+
+    parchment {
+        mappingsVersion = parchment_mappings_version
+        minecraftVersion = parchment_minecraft_version
+    }
+
+    validateAccessTransformers = true
+    runs {
+        client {
+            client()
+            programArgument '--width'
+            programArgument '2560'
+            programArgument '--height'
+            programArgument '1440'
+            programArgument '--quickPlayMultiplayer'
+            programArgument 'localhost:56370'
+            systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+            systemProperty 'mixin.hotSwap', 'true'
+            systemProperty 'rdi.debug', 'true'
+
+        }
+        client2 {
+            client()
+            programArgument '--width'
+            programArgument '2560'
+            programArgument '--height'
+            programArgument '1440'
+            systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+            systemProperty 'mixin.hotSwap', 'true'
+            systemProperty 'rdi.debug', 'true'
+        }
+        configureEach {
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            logLevel = org.slf4j.event.Level.DEBUG
+        }
+    }
+
+    mods {
+        register(mod_id) {
+            def localSourceSets = project.extensions.getByType(SourceSetContainer)
+            sourceSet localSourceSets.named('main').get()
+        }
+    }
+}
+
+def localRuntimeConfiguration = configurations.maybeCreate('localRuntime')
+def librariesConfiguration = configurations.maybeCreate('libraries')
+def shadedConfiguration = configurations.maybeCreate('shaded')
+
+configurations.named('runtimeClasspath') {
+    extendsFrom localRuntimeConfiguration
+}
+configurations.named('implementation') {
+    extendsFrom librariesConfiguration
+}
+
+
+def metadataOutput = layout.buildDirectory.dir('generated/sources/modMetadata')
+
+tasks.register('generateModMetadata', ProcessResources) {
+    def replaceProperties = [
+            minecraft_version      : minecraft_version,
+            minecraft_version_range: minecraft_version_range,
+            neo_version            : neo_version,
+            neo_version_range      : neo_version_range,
+            loader_version_range   : loader_version_range,
+            mod_id                 : mod_id,
+            mod_name               : mod_name,
+            mod_license            : mod_license,
+            mod_version            : mod_version,
+            mod_authors            : mod_authors,
+            mod_description        : mod_description
+    ]
+    inputs.properties(replaceProperties)
+    expand(replaceProperties)
+    from 'src/main/templates'
+    into metadataOutput
+}
+
+sourceSets.named('main') {
+    kotlin.srcDir '../common3/1.21/src/main/kotlin'
+    resources.srcDir 'src/generated/resources'
+    resources.srcDir metadataOutput
+}
+
+neoForge.ideSyncTask(tasks.named('generateModMetadata'))
+
+dependencies {
+    implementation project(':ktutils-std')
+    additionalRuntimeClasspath project(':ktutils-std')
+    compileOnly "mezz.jei:jei-1.21.1-neoforge-api:19.21.2.313"
+    // at runtime, use the full JEI jar for NeoForge
+    runtimeOnly("mezz.jei:jei-1.21.1-neoforge:19.21.2.313")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    // Source: https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-stdlib
+    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.3.20")
+  //  runtimeOnly "dev.emi:emi-neoforge:1.1.24+1.21.1"
+    // implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
+
+    //>>>Modrinth Mods<<<
+    [//'architectury-api:13.0.8+neoforge',
+  //  'create:6.0.10+mc1.21.1',
+   //  'sodium:mc1.21.1-0.6.13-neoforge',
+   //  'dynamic-fps:T238FZpQ',
+    ].each { dep ->
+        implementation "maven.modrinth:$dep"
+    }
+    //>>>CurseForge Mods<<<
+    [
+         //   "ftb-library-forge-404465:7746959",
+        //    "ftb-quests-forge-289412:7878289",
+        //    "ftb-teams-forge-404468:7878281",
+    ].each { dep ->
+        implementation "curse.maven:$dep-deobf"
+    }
+
+
+}
+
+publishing {
+    publications {
+        create('mavenJava', MavenPublication) {
+            from components.java
+        }
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    useJUnitPlatform()
+}
+
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+    }
+}

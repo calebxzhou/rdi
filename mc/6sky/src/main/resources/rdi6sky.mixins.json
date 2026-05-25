@@ -1,0 +1,23 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "calebxzhou.rdi.mc.visky.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "mixins": [
+    "mBlockEntityNeverBoom",
+    "mEmptyLevel",
+    "mGhast",
+    "mGhastFly",
+    "mGhastMove",
+    "mGhastShoot",
+    "mMonsterSpawnLight",
+    "mMoreWanderingTraders",
+    "mStructureEverywhere",
+    "mStructureEverywhere2"
+  ]
+}
