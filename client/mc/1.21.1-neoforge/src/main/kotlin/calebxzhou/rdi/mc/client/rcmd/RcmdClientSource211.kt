@@ -1,49 +1,37 @@
-package calebxzhou.rdi.mc.client.rcmd;
+package calebxzhou.rdi.mc.client.rcmd
 
-import calebxzhou.rdi.mc.rcmd.RcmdSource;
-import net.minecraft.client.Minecraft;
-import net.minecraft.network.chat.Component;
+import calebxzhou.rdi.mc.rcmd.RcmdSource
+import net.minecraft.client.Minecraft
+import net.minecraft.network.chat.Component
+import java.util.*
 
-import java.util.UUID;
-
-public final class RcmdClientSource211 implements RcmdSource {
-    private final Minecraft minecraft;
-
-    public RcmdClientSource211(Minecraft minecraft) {
-        this.minecraft = minecraft;
+class RcmdClientSource211(private val minecraft: Minecraft) : RcmdSource {
+    override fun name(): String {
+        return minecraft.getUser().getName()
     }
 
-    @Override
-    public String name() {
-        return minecraft.getUser().getName();
+    override fun playerId(): UUID {
+        return if (minecraft.player == null) RcmdSource.NO_PLAYER_ID else minecraft.player!!.getUUID()
     }
 
-    @Override
-    public UUID playerId() {
-        return minecraft.player == null ? NO_PLAYER_ID : minecraft.player.getUUID();
+    override fun hasPermission(permission: String?): Boolean {
+        return true
     }
 
-    @Override
-    public boolean hasPermission(String permission) {
-        return true;
+    override fun sendFeedback(message: String) {
+        sendMessage(message)
     }
 
-    @Override
-    public void sendFeedback(String message) {
-        sendMessage(message);
+    override fun sendError(message: String?) {
+        sendMessage("[rcmd] $message")
     }
 
-    @Override
-    public void sendError(String message) {
-        sendMessage("[rcmd] " + message);
-    }
-
-    private void sendMessage(String message) {
-        var component = Component.literal(message);
+    private fun sendMessage(message: String) {
+        val component = Component.literal(message)
         if (minecraft.player != null) {
-            minecraft.player.displayClientMessage(component, false);
-            return;
+            minecraft.player!!.displayClientMessage(component, false)
+            return
         }
-        minecraft.gui.getChat().addMessage(component);
+        minecraft.gui.getChat().addMessage(component)
     }
 }

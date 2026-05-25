@@ -1,44 +1,28 @@
-package calebxzhou.rdi.mc.server.rcmd;
+package calebxzhou.rdi.mc.server.rcmd
 
-import calebxzhou.rdi.mc.rcmd.RcmdSource;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerPlayer;
+import calebxzhou.rdi.mc.rcmd.RcmdSource
+import net.minecraft.network.chat.Component
+import net.minecraft.server.level.ServerPlayer
+import java.util.*
 
-import java.util.UUID;
-
-public final class RcmdServerSource211 implements RcmdSource {
-    private final ServerPlayer player;
-
-    public RcmdServerSource211(ServerPlayer player) {
-        this.player = player;
+class RcmdServerSource211( val player: ServerPlayer) : RcmdSource {
+    override fun name(): String {
+        return player.gameProfile.name
     }
 
-    public ServerPlayer getPlayer() {
-        return player;
+    override fun playerId(): UUID {
+        return player.getUUID()
     }
 
-    @Override
-    public String name() {
-        return player.getGameProfile().getName();
+    override fun hasPermission(permission: String): Boolean {
+        return player.hasPermissions(2)
     }
 
-    @Override
-    public UUID playerId() {
-        return player.getUUID();
+    override fun sendFeedback(message: String) {
+        player.sendSystemMessage(Component.literal(message))
     }
 
-    @Override
-    public boolean hasPermission(String permission) {
-        return player.hasPermissions(2);
-    }
-
-    @Override
-    public void sendFeedback(String message) {
-        player.sendSystemMessage(Component.literal(message));
-    }
-
-    @Override
-    public void sendError(String message) {
-        player.sendSystemMessage(Component.literal("[rcmd] " + message));
+    override fun sendError(message: String) {
+        player.sendSystemMessage(Component.literal("[rcmd] $message"))
     }
 }

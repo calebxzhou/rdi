@@ -1,99 +1,59 @@
-package calebxzhou.rdi.mc.client.rcmd;
+package calebxzhou.rdi.mc.client.rcmd
 
-import calebxzhou.rdi.mc.common.RDI;
-import calebxzhou.rdi.mc.common2.rcmd.client.RcmdClientBridge;
-import calebxzhou.rdi.mc.common2.rcmd.client.RcmdLangSnapshot;
-import calebxzhou.rdi.mc.common2.rcmd.client.RcmdRecipeSnapshot;
-import calebxzhou.rdi.mc.common2.rcmd.client.RcmdRecipeView;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.language.ClientLanguage;
-import net.minecraft.network.chat.Component;
+import calebxzhou.rdi.mc.common.RDI
+import calebxzhou.rdi.mc.common2.rcmd.client.RcmdClientBridge
+import calebxzhou.rdi.mc.rcmd.RcmdSource
+import net.minecraft.client.Minecraft
+import net.minecraft.network.chat.Component
+import java.nio.file.Path
+import java.util.*
 
-import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
-
-public final class RcmdClientBridge211 implements RcmdClientBridge {
-    private final Minecraft minecraft;
-
-    public RcmdClientBridge211(Minecraft minecraft) {
-        this.minecraft = minecraft;
+class RcmdClientBridge211(private val minecraft: Minecraft) : RcmdClientBridge {
+    override fun name(): String {
+        return minecraft.getUser().getName()
     }
 
-    @Override
-    public String name() {
-        return minecraft.getUser().getName();
+    override fun playerId(): UUID {
+        return if (minecraft.player == null) RcmdSource.NO_PLAYER_ID else minecraft.player!!.getUUID()
     }
 
-    @Override
-    public UUID playerId() {
-        return minecraft.player == null ? NO_PLAYER_ID : minecraft.player.getUUID();
+    override fun hasPermission(permission: String?): Boolean {
+        return true
     }
 
-    @Override
-    public boolean hasPermission(String permission) {
-        return true;
+    override fun sendFeedback(message: String) {
+        sendMessage(message)
     }
 
-    @Override
-    public void sendFeedback(String message) {
-        sendMessage(message);
+    override fun sendError(message: String?) {
+        sendMessage("[rcmd] $message")
     }
 
-    @Override
-    public void sendError(String message) {
-        sendMessage("[rcmd] " + message);
+    override fun gameDirectory(): Path {
+        return minecraft.gameDirectory.toPath()
     }
 
-    @Override
-    public Path gameDirectory() {
-        return minecraft.gameDirectory.toPath();
+    override fun executeOnMainThread(task: Runnable) {
+        minecraft.execute(task)
     }
 
-    @Override
-    public void executeOnMainThread(Runnable task) {
-        minecraft.execute(task);
+    override fun toggleSetFirmSectionsVisible(): Boolean {
+        RDI.SHOW_SET_FIRM_SECTIONS = !RDI.SHOW_SET_FIRM_SECTIONS
+        return RDI.SHOW_SET_FIRM_SECTIONS
     }
 
-    @Override
-    public void setFirmChunkVisible(boolean visible) {
-        RDI.SHOW_FIRM_CHUNKS = visible;
+    override fun toggleNowFirmSectionVisible(): Boolean {
+        RDI.SHOW_NOW_FIRM_SECTION = !RDI.SHOW_NOW_FIRM_SECTION
+        return RDI.SHOW_NOW_FIRM_SECTION
     }
 
-    @Override
-    public RcmdRecipeSnapshot recipeExportSnapshot() {
-        if (minecraft.level == null) {
-            return null;
-        }
-        var registries = minecraft.level.registryAccess();
-        var recipes = new ArrayList<RcmdRecipeView>();
-        for (var holder : minecraft.level.getRecipeManager().getOrderedRecipes()) {
-            var recipe = holder.value();
-            var result = recipe.getResultItem(registries);
-            recipes.add(RcmdRecipeCodec211.recipeView(
-                    holder.id().toString(),
-                    recipe,
-                    result
-            ));
-        }
-        return new RcmdRecipeSnapshot(List.copyOf(recipes));
-    }
 
-    @Override
-    public RcmdLangSnapshot langExportSnapshot() {
-        var resourceManager = minecraft.getResourceManager();
-        var english = ClientLanguage.loadFrom(resourceManager, List.of("en_us"), false).getLanguageData();
-        var chinese = ClientLanguage.loadFrom(resourceManager, List.of("zh_cn"), false).getLanguageData();
-        return new RcmdLangSnapshot(english, chinese);
-    }
-
-    private void sendMessage(String message) {
-        var component = Component.literal(message);
+    private fun sendMessage(message: String) {
+        val component = Component.literal(message)
         if (minecraft.player != null) {
-            minecraft.player.displayClientMessage(component, false);
-            return;
+            minecraft.player!!.displayClientMessage(component, false)
+            return
         }
-        minecraft.gui.getChat().addMessage(component);
+        minecraft.gui.getChat().addMessage(component)
     }
 }

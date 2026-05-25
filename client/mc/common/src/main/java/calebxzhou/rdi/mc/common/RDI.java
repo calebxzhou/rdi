@@ -39,7 +39,8 @@ public class RDI {
     public static String getTextureQueryUrl(UUID profileId, String authlibVer) {
         return IHQ_URL + "/mc-profile/" + profileId + "/clothes?authlibVer=" + authlibVer;
     }
-    public static boolean SHOW_FIRM_CHUNKS=false;
+    public static boolean SHOW_SET_FIRM_SECTIONS=false;
+    public static boolean SHOW_NOW_FIRM_SECTION=false;
     //维度id与永久子区块
     public static Map<String, List<SectionPos>> FIRM_CHUNKS = new HashMap<>();
 }

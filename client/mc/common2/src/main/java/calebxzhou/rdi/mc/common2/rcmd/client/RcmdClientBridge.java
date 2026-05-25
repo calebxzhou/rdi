@@ -9,9 +9,7 @@ public interface RcmdClientBridge extends RcmdSource {
 
     void executeOnMainThread(Runnable task);
 
-    void setFirmChunkVisible(boolean visible);
+    boolean toggleSetFirmSectionsVisible();
 
-    RcmdRecipeSnapshot recipeExportSnapshot();
-
-    RcmdLangSnapshot langExportSnapshot();
+    boolean toggleNowFirmSectionVisible();
 }

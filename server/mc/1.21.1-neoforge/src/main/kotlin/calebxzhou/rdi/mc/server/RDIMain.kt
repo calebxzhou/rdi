@@ -4,6 +4,9 @@ import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.WebSocketClient
 import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState
 import calebxzhou.rdi.mc.common2.tpa.TpaService
+import calebxzhou.rdi.mc.rcmd.RcmdResult
+import calebxzhou.rdi.mc.server.firmsection.FirmSectionSavedData
+import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
 import calebxzhou.rdi.mc.server.network.RServerNetwork
 import net.minecraft.network.chat.Component
 import net.minecraft.server.dedicated.DedicatedServer
@@ -25,9 +28,8 @@ import org.apache.logging.log4j.Logger
 @Mod("rdi")
 @EventBusSubscriber(modid = "rdi")
 class RDIMain {
-
     companion object {
-        private val lgr: Logger = LogManager.getLogger("rdi")
+        val lgr: Logger = LogManager.getLogger("rdi")
 
 
         @SubscribeEvent
@@ -74,7 +76,12 @@ class RDIMain {
             }
             val range = PlayerChatRangeState.get(player.getUUID())
             player.sendSystemMessage(Component.literal("当前聊天范围：" + range.displayName + "，输入\\chat range host或\\chat range global切换"))
+            player.sendSystemMessage(Component.literal("务必在5月31日前设置固定子区块，否则存档数据会丢失，详见群文档N章"))
+            val result = FirmSectionService.list(player)
+            player.sendSystemMessage(Component.literal("此存档已设置${result.total}个"))
+
             RServerNetwork.sendLastTo(player)
+            RServerNetwork.sendFirmSectionsTo(player)
         }
 
         @SubscribeEvent @JvmStatic

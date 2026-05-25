@@ -1,46 +1,34 @@
-package calebxzhou.rdi.mc.server.rcmd;
+package calebxzhou.rdi.mc.server.rcmd
 
-import calebxzhou.rdi.mc.rcmd.RcmdSource;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerPlayer;
+import calebxzhou.rdi.mc.rcmd.RcmdSource
+import net.minecraft.commands.CommandSourceStack
+import net.minecraft.network.chat.Component
+import net.minecraft.server.level.ServerPlayer
+import java.util.*
+import java.util.function.Supplier
 
-import java.util.UUID;
+class RcmdCommandSourceStackSource(private val source: CommandSourceStack) : RcmdSource {
+    val player: ServerPlayer?
+        get() = source.player
 
-public final class RcmdCommandSourceStackSource implements RcmdSource {
-    private final CommandSourceStack source;
-
-    public RcmdCommandSourceStackSource(CommandSourceStack source) {
-        this.source = source;
+    override fun name(): String {
+        return source.textName
     }
 
-    public ServerPlayer getPlayer() {
-        return source.getPlayer();
+    override fun playerId(): UUID {
+        val player = this.player
+        return if (player == null) RcmdSource.NO_PLAYER_ID else player.getUUID()
     }
 
-    @Override
-    public String name() {
-        return source.getTextName();
+    override fun hasPermission(permission: String?): Boolean {
+        return source.hasPermission(4)
     }
 
-    @Override
-    public UUID playerId() {
-        ServerPlayer player = getPlayer();
-        return player == null ? RcmdSource.NO_PLAYER_ID : player.getUUID();
+    override fun sendFeedback(message: String) {
+        source.sendSuccess(Supplier { Component.literal(message) }, false)
     }
 
-    @Override
-    public boolean hasPermission(String permission) {
-        return source.hasPermission(4);
-    }
-
-    @Override
-    public void sendFeedback(String message) {
-        source.sendSuccess(() -> Component.literal(message), false);
-    }
-
-    @Override
-    public void sendError(String message) {
-        source.sendFailure(Component.literal("[rcmd] " + message));
+    override fun sendError(message: String?) {
+        source.sendFailure(Component.literal("[rcmd] " + message))
     }
 }

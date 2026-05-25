@@ -76,6 +76,7 @@ neoForge {
             jvmArgument '-Xmx4G'
             programArgument '--nogui'
             systemProperty 'rdi.debug', 'true'
+            systemProperty 'rdi.onlySaveFirmSections', 'true'
             systemProperty 'neoforge.enabledGameTestNamespaces', 'rdi'
         }
 

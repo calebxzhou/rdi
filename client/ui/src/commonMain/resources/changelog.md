@@ -1,4 +1,7 @@
 - directly read bytecode for given class&method
+## 5.15.7 -- 25.5.24
+- 重构AI陪玩MCP，节约两倍token
+- 修了点bug
 ## 5.15.6.2 -- 25.5.19
 - 添加主用节点功能
 ## 5.15.6.1 -- 25.5.18
