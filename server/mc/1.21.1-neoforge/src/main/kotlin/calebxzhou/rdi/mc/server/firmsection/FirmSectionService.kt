@@ -12,18 +12,21 @@ import net.minecraft.world.level.ChunkPos
 enum class FirmSectionSetStatus {
     ADDED,
     ALREADY_PRESENT,
-    LIMIT_REACHED,
+    PLAYER_LIMIT_REACHED,
+    TOTAL_LIMIT_REACHED,
 }
 
 data class FirmSectionSetResult(
     val status: FirmSectionSetStatus,
     val key: FirmSectionKey,
+    val playerCount: Int,
     val total: Int,
 )
 
 data class FirmSectionUnsetResult(
     val removed: Boolean,
     val key: FirmSectionKey,
+    val playerCount: Int,
     val total: Int,
 )
 
@@ -41,13 +44,14 @@ object FirmSectionService {
         val status = when (data.add(player.uuid, key)) {
             FirmSectionAddResult.ADDED -> FirmSectionSetStatus.ADDED
             FirmSectionAddResult.ALREADY_PRESENT -> FirmSectionSetStatus.ALREADY_PRESENT
-            FirmSectionAddResult.LIMIT_REACHED -> FirmSectionSetStatus.LIMIT_REACHED
+            FirmSectionAddResult.PLAYER_LIMIT_REACHED -> FirmSectionSetStatus.PLAYER_LIMIT_REACHED
+            FirmSectionAddResult.TOTAL_LIMIT_REACHED -> FirmSectionSetStatus.TOTAL_LIMIT_REACHED
         }
         if (status == FirmSectionSetStatus.ADDED) {
             player.level().getChunkAt(player.blockPosition()).setUnsaved(true)
             RServerNetwork.sendFirmSectionsToAll(player.server)
         }
-        return FirmSectionSetResult(status, key, data.totalCount())
+        return FirmSectionSetResult(status, key, data.playerCount(player.uuid), data.totalCount())
     }
 
     fun unset(player: ServerPlayer): FirmSectionUnsetResult {
@@ -57,7 +61,7 @@ object FirmSectionService {
         if (removed) {
             RServerNetwork.sendFirmSectionsToAll(player.server)
         }
-        return FirmSectionUnsetResult(removed, key, data.totalCount())
+        return FirmSectionUnsetResult(removed, key, data.playerCount(player.uuid), data.totalCount())
     }
 
     fun list(player: ServerPlayer): FirmSectionListResult {

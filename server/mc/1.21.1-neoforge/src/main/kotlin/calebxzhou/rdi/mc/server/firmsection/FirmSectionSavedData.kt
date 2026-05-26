@@ -19,7 +19,8 @@ data class FirmSectionKey(
 enum class FirmSectionAddResult {
     ADDED,
     ALREADY_PRESENT,
-    LIMIT_REACHED,
+    PLAYER_LIMIT_REACHED,
+    TOTAL_LIMIT_REACHED,
 }
 
 class FirmSectionSavedData : SavedData() {
@@ -51,13 +52,17 @@ class FirmSectionSavedData : SavedData() {
         }
 
     fun add(playerId: UUID, key: FirmSectionKey): FirmSectionAddResult {
-        val sections = sectionsByPlayer.getOrPut(playerId) { linkedSetOf() }
-        if (key in sections) {
+        val existingSections = sectionsByPlayer[playerId]
+        if (existingSections != null && key in existingSections) {
             return FirmSectionAddResult.ALREADY_PRESENT
         }
-        if (totalCount() >= MAX_SECTIONS) {
-            return FirmSectionAddResult.LIMIT_REACHED
+        if (MAX_SECTIONS_PERSON > 0 && (existingSections?.size ?: 0) >= MAX_SECTIONS_PERSON) {
+            return FirmSectionAddResult.PLAYER_LIMIT_REACHED
         }
+        if (totalCount() >= MAX_SECTIONS_TOTAL) {
+            return FirmSectionAddResult.TOTAL_LIMIT_REACHED
+        }
+        val sections = sectionsByPlayer.getOrPut(playerId) { linkedSetOf() }
         sections += key
         setDirty()
         return FirmSectionAddResult.ADDED
@@ -102,7 +107,9 @@ class FirmSectionSavedData : SavedData() {
 
     companion object {
         const val FILE_ID = "rdi_firm_sections"
-        val MAX_SECTIONS: Int = Integer.getInteger("rdi.firmSectionLimit",160)
+        val MAX_SECTIONS_TOTAL: Int = Integer.getInteger("rdi.firmSectionTotalMax",160)
+        val MAX_SECTIONS_PERSON: Int = Integer.getInteger("rdi.firmSectionPersonMax",0)
+        val MAX_SECTIONS_PERSON: Int = Integer.getInteger("rdi.firmSectionPersonMax",0)
 
         private const val PLAYERS_TAG = "players"
         private const val UUID_TAG = "uuid"

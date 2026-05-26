@@ -188,13 +188,16 @@ object RcmdServerCommands {
         val label = firmSectionLabel(result.key)
         return when (result.status) {
             FirmSectionSetStatus.ADDED ->
-                RcmdResult.ok("已固定当前子区块：$label (${result.total}/${FirmSectionSavedData.MAX_SECTIONS})")
+                RcmdResult.ok("已固定当前子区块：$label ${firmSectionCountLabel(result.playerCount, result.total)}")
 
             FirmSectionSetStatus.ALREADY_PRESENT ->
                 RcmdResult.ok("当前子区块已经固定了")
 
-            FirmSectionSetStatus.LIMIT_REACHED ->
-                RcmdResult.error("固定子区块已达到上限${FirmSectionSavedData.MAX_SECTIONS}个")
+            FirmSectionSetStatus.PLAYER_LIMIT_REACHED ->
+                RcmdResult.error("你固定的子区块已达到个人上限${FirmSectionSavedData.MAX_SECTIONS_PERSON}个")
+
+            FirmSectionSetStatus.TOTAL_LIMIT_REACHED ->
+                RcmdResult.error("固定子区块已达到全世界上限${FirmSectionSavedData.MAX_SECTIONS_TOTAL}个")
         }
     }
 
@@ -202,9 +205,8 @@ object RcmdServerCommands {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = FirmSectionService.unset(player)
         val label = firmSectionLabel(result.key)
-        val count = "(${result.total}/${FirmSectionSavedData.MAX_SECTIONS})"
         return if (result.removed) {
-            RcmdResult.ok("已取消固定当前子区块：$label $count")
+            RcmdResult.ok("已取消固定当前子区块：$label ${firmSectionCountLabel(result.playerCount, result.total)}")
         } else {
             RcmdResult.ok("当前子区块尚未固定")
         }
@@ -214,10 +216,10 @@ object RcmdServerCommands {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = FirmSectionService.list(player)
         if (result.sections.isEmpty()) {
-            return RcmdResult.ok("你还没有固定子区块。全世界：${result.total}/${FirmSectionSavedData.MAX_SECTIONS}")
+            return RcmdResult.ok("你还没有固定子区块。${firmSectionCountLabel(result.playerCount, result.total)}")
         }
         val lines = buildList {
-            add("你的固定子区块：${result.playerCount}个，全世界：${result.total}/${FirmSectionSavedData.MAX_SECTIONS}")
+            add("固定子区块数量：${firmSectionCountLabel(result.playerCount, result.total)}")
             result.sections.groupBy { it.dimensionId }.forEach { (dimensionId, sections) ->
                 add("$dimensionId : ${sections.map { firmSectionPositionLabel(it) }}")
             }
@@ -309,6 +311,13 @@ object RcmdServerCommands {
 
     private fun firmSectionPositionLabel(key: FirmSectionKey): String =
         "${key.chunkX},${key.sectionY},${key.chunkZ}"
+
+    private fun firmSectionCountLabel(playerCount: Int, total: Int): String =
+        if (FirmSectionSavedData.MAX_SECTIONS_PERSON > 0) {
+            "你：${playerCount}/${FirmSectionSavedData.MAX_SECTIONS_PERSON}，全世界：${total}/${FirmSectionSavedData.MAX_SECTIONS_TOTAL}"
+        } else {
+            "你：${playerCount}个，全世界：${total}/${FirmSectionSavedData.MAX_SECTIONS_TOTAL}"
+        }
 
     @JvmRecord
     data class PosLockState(

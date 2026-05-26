@@ -528,11 +528,17 @@ object HostService {
             }
         }
         val noguiArg = if (mcv == McVersion.V071) "nogui" else "--nogui"
+        val totalArg = mutableListOf("-Xmx8G", "").apply {
+            if(this@containerEnv.isPublic){
+                this.add("-Drdi.firmSectionTotalMax=65536")
+                this.add("-Drdi.firmSectionPersonMax=80")
+            }
+        } + serverArgs + noguiArg
         return mutableListOf(
             "HOST_ID=${_id.str}",
             "GAME_PORT=${port}",
             "ALL_OP=${if (allowCheats) "true" else "false"}",
-            "START_PARAMS=${(listOf("-Xmx8G") + serverArgs + noguiArg).joinToString(" ")}"
+            "START_PARAMS=${totalArg.joinToString(" ")}"
         ).apply {
             gameRules.forEach { id, value ->
                 this += "GAME_RULE_${id}=${value}"
