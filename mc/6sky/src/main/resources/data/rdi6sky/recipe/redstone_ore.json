@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "group": "ore",
+  "key": {
+    "S": {
+      "item": "minecraft:stone"
+    },
+    "X": {
+      "item": "minecraft:redstone_block"
+    }
+  },
+  "pattern": [
+    " X ",
+    "XSX",
+    " X "
+  ],
+  "result": {
+    "count": 1,
+    "id": "minecraft:redstone_ore"
+  }
+}

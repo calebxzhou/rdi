@@ -18,7 +18,7 @@ public abstract class mMoreWanderingTraders {
     @ModifyConstant(method = "<init>(Lnet/minecraft/world/level/storage/ServerLevelData;)V",
             constant = @Constant(intValue = 24000))
     private int modifyConstSpawnDelay(int constant){
-        return 6000;
+        return 4000;
     }
 
     @ModifyConstant(method = "tick(Lnet/minecraft/server/level/ServerLevel;ZZ)I",

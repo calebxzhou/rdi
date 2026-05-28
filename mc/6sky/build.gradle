@@ -120,7 +120,15 @@ neoForge {
             programArgument '2560'
             programArgument '--height'
             programArgument '1440'
+            programArgument '--quickPlayMultiplayer'
+            programArgument 'localhost:56370'
             systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+            systemProperty 'mixin.hotSwap', 'true'
+            systemProperty 'rdi.debug', 'true'
+        }
+        server {
+            server()
+            programArgument '--nogui'
             systemProperty 'mixin.hotSwap', 'true'
             systemProperty 'rdi.debug', 'true'
         }
@@ -193,18 +201,19 @@ dependencies {
     // implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
 
     //>>>Modrinth Mods<<<
-    [//'architectury-api:13.0.8+neoforge',
-  //  'create:6.0.10+mc1.21.1',
-   //  'sodium:mc1.21.1-0.6.13-neoforge',
-   //  'dynamic-fps:T238FZpQ',
+    ['architectury-api:13.0.8+neoforge',
+     'create:6.0.10+mc1.21.1',
+     'sodium:mc1.21.1-0.6.13-neoforge',
+     'dynamic-fps:T238FZpQ',
     ].each { dep ->
         implementation "maven.modrinth:$dep"
     }
     //>>>CurseForge Mods<<<
     [
-         //   "ftb-library-forge-404465:7746959",
-        //    "ftb-quests-forge-289412:7878289",
-        //    "ftb-teams-forge-404468:7878281",
+            "ftb-library-forge-404465:7746959",
+            "ftb-quests-forge-289412:7878289",
+            "ftb-teams-forge-404468:7878281",
+            'ftb-team-bases-1197857:7973062'
     ].each { dep ->
         implementation "curse.maven:$dep-deobf"
     }

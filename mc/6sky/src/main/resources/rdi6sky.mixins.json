@@ -4,6 +4,7 @@
   "package": "calebxzhou.rdi.mc.visky.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "mSkyBlue"
   ],
   "injectors": {
     "defaultRequire": 1
@@ -11,13 +12,28 @@
   "mixins": [
     "mBlockEntityNeverBoom",
     "mEmptyLevel",
+    "mFox",
     "mGhast",
     "mGhastFly",
     "mGhastMove",
     "mGhastShoot",
+    "mLlama",
     "mMonsterSpawnLight",
+    "mMoreSnow",
     "mMoreWanderingTraders",
+    "mPortalForcer",
+    "mRangedBowAttackGoal",
+    "mSnowBreaking",
+    "mSnowballStack",
+    "mWanderingTraderSaplings",
+    "mMoreZombiePiglin",
+    "mSkeleton",
+    "mSlime",
     "mStructureEverywhere",
-    "mStructureEverywhere2"
+    "mStructureEverywhere2",
+    "mWarden",
+    "mWitch",
+    "mWorldOptions",
+    "mZombie"
   ]
 }

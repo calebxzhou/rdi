@@ -1,0 +1,22 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "building",
+  "group": "ore",
+  "key": {
+    "S": {
+      "item": "minecraft:deepslate"
+    },
+    "X": {
+      "item": "minecraft:iron_ingot"
+    }
+  },
+  "pattern": [
+    " X ",
+    "XSX",
+    " X "
+  ],
+  "result": {
+    "count": 1,
+    "id": "minecraft:deepslate_iron_ore"
+  }
+}

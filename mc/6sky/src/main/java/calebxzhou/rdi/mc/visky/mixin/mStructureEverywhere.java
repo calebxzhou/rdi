@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.Overwrite;
 public class mStructureEverywhere {
     @Overwrite
     private boolean canCreateStructure(ChunkPos pChunkPos, Structure pStructure) {
-        return true;
+        return false;
     }
 }
 
@@ -21,6 +21,6 @@ public class mStructureEverywhere {
 class mStructureEverywhere2 {
     @Overwrite
     private static boolean isValidBiome(Structure.GenerationStub pStub, Structure.GenerationContext pContext) {
-        return true;
+        return false;
     }
 }
