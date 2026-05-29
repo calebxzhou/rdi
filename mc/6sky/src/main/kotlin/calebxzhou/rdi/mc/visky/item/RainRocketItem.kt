@@ -28,7 +28,7 @@ class RainRocketItem(properties: Properties) : FireworkRocketItem(properties) {
 
     private fun startRain(level: Level, player: Player?, stack: ItemStack, consume: Boolean) {
         val overworld = level.server?.overworld() ?: return
-        overworld.setWeatherParameters(0, RAIN_DURATION, true, false)
+        overworld.setWeatherParameters(0, RAIN_DURATION, true, true)
         if (player != null) {
             if (consume && !player.abilities.instabuild) {
                 stack.consume(1, player)

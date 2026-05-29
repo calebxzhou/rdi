@@ -11,6 +11,8 @@ import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
+import java.util.Optional;
+
 /**
  * calebxzhou @ 2026-05-27 15:10
  */
@@ -20,5 +22,13 @@ public class mWanderingTraderSaplings {
     private void RDI$AddOakSaplingTrade(CallbackInfo ci) {
         MerchantOffers offers = ((WanderingTrader) (Object) this).getOffers();
         offers.add(0, new MerchantOffer(new ItemCost(Items.EMERALD, 1), new ItemStack(Items.OAK_SAPLING), 64, 1, 0.0F));
+        offers.add(0, new MerchantOffer(
+                new ItemCost(Items.BUCKET, 1),
+                Optional.of(new ItemCost(Items.EMERALD, 16)),
+                new ItemStack(Items.LAVA_BUCKET),
+                64,
+                1,
+                0.0F
+        ));
     }
 }
