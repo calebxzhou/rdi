@@ -44,7 +44,6 @@ import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.isDav
-import calebxzhou.rdi.common.model.Task2
 import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 
@@ -161,7 +160,7 @@ internal fun HostBrowserPane(
     val scope = rememberCoroutineScope()
     var hosts by remember { mutableStateOf<List<Host.BriefVo>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
-    var installConfirmTask by remember { mutableStateOf<Task2?>(null) }
+    var installConfirmTask by remember { mutableStateOf<StartPlayResult.NeedInstall?>(null) }
     var page by remember { mutableStateOf(0) }
     var loadingMore by remember { mutableStateOf(false) }
     var initialLoading by remember { mutableStateOf(true) }
@@ -245,44 +244,6 @@ internal fun HostBrowserPane(
             @Composable
             fun renderHostCard(host: Host.BriefVo) {
                 host.HostCard(
-                    onClickPlay = {
-                        scope.launch {
-                            val res = server.makeRequest<Host.DetailVo>("host/${host._id}/detail")
-                            val detail = res.data
-                                ?: run {
-                                    errorMessage = "获取房间信息失败: ${res.msg}"
-                                    return@launch
-                                }
-                            val args = try {
-                                detail.startPlay()
-                            } catch (e: Exception) {
-                                errorMessage = e.message ?: "无法开始游玩"
-                                return@launch
-                            }
-                            when (args) {
-                                is StartPlayResult.Ready -> {
-                                    LocalCredentials.read().updateLastPlayHost(
-                                        id = detail._id.toHexString(),
-                                        name = detail.name
-                                    )
-                                    onOpenMcPlay(args.args)
-                                }
-
-                                is StartPlayResult.NeedInstall -> {
-                                    installConfirmTask = args.task
-                                }
-
-                                is StartPlayResult.NeedMod -> {
-                                    errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先前往模组界面添加。"
-                                    //onOpenResourceMods.invoke(detail.modpack.mcVer, detail._id.toHexString(), fromAllHosts)
-                                }
-
-                                is StartPlayResult.NeedMc -> {
-                                    errorMessage = "请前往更新MC${args.ver.mcVer}版本资源。"
-                                }
-                            }
-                        }
-                    },
                     onClick = {
                         onOpenHostInfo.invoke(host._id.toHexString())
                     }
@@ -334,19 +295,20 @@ internal fun HostBrowserPane(
         }
     }
 
-    installConfirmTask?.let { task ->
+    installConfirmTask?.let { install ->
         AlertDialog(
-            onDismissRequest = { },
+            onDismissRequest = { installConfirmTask = null },
             title = { Text("未下载整合包") },
             text = { Text("未下载此房间的整合包，是否立即下载？") },
             confirmButton = {
                 TextButton(onClick = {
-                    val runId = ClientTaskManager.submit(task)
+                    installConfirmTask = null
+                    val runId = ClientTaskManager.submit(install.task, dedupeKey = install.dedupeKey)
                     onOpenTaskList(runId)
                 }) { Text("下载") }
             },
             dismissButton = {
-                TextButton(onClick = { }) { Text("取消") }
+                TextButton(onClick = { installConfirmTask = null }) { Text("取消") }
             }
         )
     }

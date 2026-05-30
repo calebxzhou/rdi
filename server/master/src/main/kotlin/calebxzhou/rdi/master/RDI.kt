@@ -11,13 +11,16 @@ import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.response
 import calebxzhou.rdi.master.service.*
 import calebxzhou.rdi.master.service.PlayerService.accountCol
+import calebxzhou.rdi.master.service.host.HostPresenceService
+import calebxzhou.rdi.master.service.host.HostService
+import calebxzhou.rdi.master.service.host.hostPlayRoutes
+import calebxzhou.rdi.master.service.host.hostRoutes
 import calebxzhou.rdi.master.ygg.YggdrasilService.yggdrasilRoutes
 import com.mongodb.MongoClientSettings
 import com.mongodb.ServerAddress
 import com.mongodb.client.model.IndexOptions
 import com.mongodb.client.model.Indexes
 import com.mongodb.kotlin.client.coroutine.MongoClient
-import com.sun.org.apache.bcel.internal.Const
 import io.github.oshai.kotlinlogging.KotlinLogging
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
@@ -115,7 +118,7 @@ fun main(): Unit = runBlocking {
     launch(Dispatchers.IO) {
         UnusedModPurgeService.purgeOnStartup()
     }
-    HostService.startIdleMonitor()
+    HostPresenceService.startIdleMonitor()
     EmailService.startListener()
     Runtime.getRuntime().addShutdownHook(Thread {
         lgr.info { "Application shutdown initiated..." }
@@ -261,7 +264,7 @@ private fun Application.configureServer() {
         //其他内部错误
         exception<Throwable> { call, cause ->
             cause.printStackTrace()
-            call.response<Unit>(-500, cause.message ?: "未知错误", null)
+            call.response<Unit>(-500, "服务器内部错误", null)
         }
     }
     install(ContentNegotiation) {
@@ -350,6 +353,7 @@ private fun Application.configureServer() {
             worldRoutes()
             chatRoutes()
             modpackRoutes()
+            modFileRoutes()
             mailRoutes()
         }
     }

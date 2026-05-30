@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.model.ModLoader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,6 +19,7 @@ private val mcPlaySessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Ma
 data class McPlayArgs(
     val title: String,
     val mcVer: McVersion,
+    val modLoader: ModLoader,
     val versionId: String,
     val playArg: String,
     val mcpPort: Int? = null,

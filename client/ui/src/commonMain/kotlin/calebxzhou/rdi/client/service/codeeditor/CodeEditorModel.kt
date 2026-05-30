@@ -5,7 +5,8 @@ enum class CodeLanguage(val label: String) {
     JSON("JSON"),
     JSON5("JSON5"),
     TOML("TOML"),
-    YAML("YAML");
+    YAML("YAML"),
+    FORGE_CFG("CFG");
 
     companion object {
         fun fromPath(path: String?): CodeLanguage = when {
@@ -14,6 +15,7 @@ enum class CodeLanguage(val label: String) {
             path.endsWith(".json", ignoreCase = true) -> JSON
             path.endsWith(".toml", ignoreCase = true) -> TOML
             path.endsWith(".yaml", ignoreCase = true) || path.endsWith(".yml", ignoreCase = true) -> YAML
+            path.endsWith(".cfg", ignoreCase = true) -> FORGE_CFG
             else -> PLAIN_TEXT
         }
     }

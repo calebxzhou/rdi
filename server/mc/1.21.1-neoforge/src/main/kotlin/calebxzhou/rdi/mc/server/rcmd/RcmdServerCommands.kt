@@ -1,11 +1,13 @@
 package calebxzhou.rdi.mc.server.rcmd
 
+import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common2.chat.ChatRange
 import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState
 import calebxzhou.rdi.mc.common2.home.HomeResult
 import calebxzhou.rdi.mc.common2.home.HomeService
 import calebxzhou.rdi.mc.common2.tpa.TpaResult
 import calebxzhou.rdi.mc.common2.tpa.TpaService
+import calebxzhou.rdi.mc.common3.mcs
 import calebxzhou.rdi.mc.rcmd.*
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionKey
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionSavedData
@@ -15,7 +17,13 @@ import calebxzhou.rdi.mc.server.home.HomePlayer211
 import calebxzhou.rdi.mc.server.tpa.TpaPlayer211
 import calebxzhou.rdi.mc.server.tpa.TpaPlayerLookup211
 import net.minecraft.resources.ResourceKey
+import net.minecraft.server.MinecraftServer
+import net.minecraft.server.dedicated.DedicatedServer
 import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.entity.animal.Pig
+import net.minecraft.world.entity.item.ItemEntity
+import net.minecraft.world.item.ItemStack
+import net.minecraft.world.item.Items
 import net.minecraft.world.level.Level
 import net.minecraft.world.phys.Vec3
 import net.neoforged.bus.api.SubscribeEvent
@@ -30,6 +38,8 @@ object RcmdServerCommands {
     private val DISPATCHER = RcmdDispatcher()
     private val POS_LOCKS = mutableMapOf<UUID, PosLockState>()
     private const val POS_LOCK_MAX_DISTANCE_SQR = 0.0001
+    private const val TEST_ENTITY_COUNT = 65535
+    private const val TEST_ENTITY_ITEM_COUNT = 32
 
     init {
         DISPATCHER.register(
@@ -119,6 +129,14 @@ object RcmdServerCommands {
                 .command(::handleFirmSectionList)
                 .build()
         )
+        if (RDI.DEBUG) {
+            DISPATCHER.register(
+                RcmdCommandSpec.builder("testentity")
+                    .description("Generate test item entities")
+                    .command(::handleTestEntity)
+                    .build()
+            )
+        }
     }
 
     @JvmStatic
@@ -262,6 +280,26 @@ object RcmdServerCommands {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = HomeService.deleteHome(HomePlayer211(player), context.getString("name"))
         return toRcmdResult(result)
+    }
+
+    private fun handleTestEntity(context: RcmdContext): RcmdResult {
+        mcs.execute {
+
+
+            val player = playerOrNull(context.source) ?: return@execute
+            val level = player.serverLevel()
+            val x = player.x
+            val y = player.y - 3.0
+            val z = player.z
+            var added = 0
+            repeat(TEST_ENTITY_COUNT) {
+                val itemEntity = ItemEntity(level, x, y, z, ItemStack(Items.DIAMOND_AXE, TEST_ENTITY_ITEM_COUNT))
+                if (level.addFreshEntity(itemEntity)) {
+                    added++
+                }
+            }
+        }
+        return RcmdResult.ok()
     }
 
     private fun toRcmdResult(result: TpaResult): RcmdResult =

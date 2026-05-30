@@ -78,7 +78,7 @@ internal class LocalMcProxyServer(
                 onListenPortChanged((channel.localAddress() as InetSocketAddress).port)
 
                 val endpoint = resolveEndpoint()
-                reportLog("listening on $gameAddr -> ${endpoint.host}:${endpoint.port}")
+                reportLog("listening on $gameAddr")
             } catch (t: Throwable) {
                 nextBossGroup.shutdownGracefully()
                 nextWorkerGroup.shutdownGracefully()

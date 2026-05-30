@@ -608,12 +608,12 @@ fun ModpackUploadScreen2(
             ) {
                 if (editMode) {
                     if (serverPackName == null) {
-                        Text("如果选择了服务端，就不需要进行测试。")
+                        Text("如果选择了整合包服务端，就不需要进行测试。")
                     }
                     Space8w()
                     CircleIconButton(
                         "\uF07C",
-                        if (serverPackName == null) "选择服务端" else "重选服务端",
+                        if (serverPackName == null) "选择整合包服务端" else "重选服务端",
                         enabled = canSelectServerPack,
                         onClick = ::selectServerPack
                     )

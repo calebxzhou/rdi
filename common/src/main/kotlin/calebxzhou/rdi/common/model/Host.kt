@@ -4,8 +4,14 @@ import calebxzhou.rdi.model.Role
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import org.bson.types.ObjectId
-
-
+val HOST_ALLOW_FILE_EXT = setOf("txt","js","json","json5","jsonc","md","ini","toml","yaml","yml","cfg","zs","properties","snbt","mcmeta","bak","lang","lua","mcfunction","xml")
+val HOST_OPR_DIR = mapOf(
+    "config" to "配置",
+    "datapacks" to "数据包",
+    "tacz" to "TaCZ",
+    "kubejs" to "KJS",
+    "scripts" to "CrT",
+)
 @Serializable
 data class Host(
     @Contextual
@@ -37,6 +43,25 @@ data class Host(
 ) {
     companion object {
         var portNow: Int = 0
+        fun getGameModeText(modeId: Int): String {
+            return when (modeId) {
+                0 -> "survival"
+                1 -> "creative"
+                2 -> "adventure"
+                else -> "survival"
+            }
+        }
+
+        fun getDifficultyText(diffId: Int): String {
+            return when (diffId) {
+                0 -> "peaceful"
+                1 -> "easy"
+                2 -> "normal"
+                3 -> "hard"
+                else -> "normal"
+            }
+        }
+
     }
     //所有人都能玩 无论是否启动
     val isPublic get() = name.contains("公共")
@@ -170,6 +195,38 @@ data class Host(
     @Serializable
     data class FileDeleteDto(
         val path: String
+    )
+
+    @Serializable
+    data class FileReadDto(
+        val path: String
+    )
+
+    @Serializable
+    data class FileContentVo(
+        val path: String,
+        val content: String,
+        val size: Long,
+        val updateTime: Long
+    )
+
+    @Serializable
+    data class FileCreateDto(
+        val path: String,
+        val directory: Boolean = false,
+        val content: String = ""
+    )
+
+    @Serializable
+    data class FileWriteDto(
+        val path: String,
+        val content: String
+    )
+
+    @Serializable
+    data class FileRenameDto(
+        val from: String,
+        val to: String
     )
 
     @Serializable

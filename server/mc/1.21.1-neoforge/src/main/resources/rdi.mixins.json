@@ -19,6 +19,7 @@
     "mGuardLevelTick",
     "mGuardServerLevelTick",
     "mLimitExecutor",
+    "mLimitEntitiesInSection",
     "mOnlySaveFirmSectionEntities",
     "mOnlySaveFirmSections",
     "mPackListener",

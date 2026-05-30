@@ -5,6 +5,7 @@ import net.minecraft.core.Holder
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.core.registries.Registries
 import net.minecraft.resources.ResourceLocation
+import net.minecraft.server.MinecraftServer
 import net.minecraft.tags.TagKey
 import net.minecraft.world.item.Item
 import net.minecraft.world.level.block.Block
@@ -14,7 +15,7 @@ import net.minecraft.world.level.block.Block
  */
 val mc
     get() = Minecraft.getInstance()
-
+lateinit var mcs: MinecraftServer
 val Block.resId: ResourceLocation
     get() = BuiltInRegistries.BLOCK.getKey(this)
 val Item.resId: ResourceLocation

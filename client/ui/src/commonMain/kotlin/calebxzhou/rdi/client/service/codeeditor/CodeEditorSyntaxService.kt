@@ -27,6 +27,12 @@ private val yamlNumberStyle = SpanStyle(color = MaterialColor.DEEP_ORANGE_700.co
 private val yamlLiteralStyle = SpanStyle(color = MaterialColor.PURPLE_700.color, fontWeight = FontWeight.Medium)
 private val yamlCommentStyle = SpanStyle(color = MaterialColor.GRAY_600.color)
 private val yamlAnchorStyle = SpanStyle(color = MaterialColor.TEAL_800.color, fontWeight = FontWeight.Medium)
+private val cfgSectionStyle = SpanStyle(color = MaterialColor.BLUE_800.color, fontWeight = FontWeight.SemiBold)
+private val cfgTypeStyle = SpanStyle(color = MaterialColor.PURPLE_700.color, fontWeight = FontWeight.Medium)
+private val cfgKeyStyle = SpanStyle(color = MaterialColor.TEAL_800.color, fontWeight = FontWeight.SemiBold)
+private val cfgValueStyle = SpanStyle(color = MaterialColor.GREEN_800.color)
+private val cfgNumberStyle = SpanStyle(color = MaterialColor.DEEP_ORANGE_700.color)
+private val cfgCommentStyle = SpanStyle(color = MaterialColor.GRAY_600.color)
 
 private val strictJson = Json {
     ignoreUnknownKeys = true
@@ -49,6 +55,14 @@ private val yamlLiteralTokens = setOf("true", "false", "null", "~", "yes", "no",
 private val yamlSpecialNumberTokens = setOf(".inf", "+.inf", "-.inf", ".nan")
 private val yamlTokenBreakChars = charArrayOf(' ', '\t', ',', '[', ']', '{', '}', ':')
 private val yamlTagBreakChars = charArrayOf(',', '[', ']', '{', '}', ':')
+private val forgeCfgNumberRegex = Regex("[+-]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][+-]?\\d+)?")
+private val forgeCfgTypeTokens = setOf('B', 'I', 'D', 'S')
+private val forgeCfgSectionNameRegex = Regex("(?:[A-Za-z0-9_.-]+|\"(?:[^\"\\\\]|\\\\.)+\")")
+private const val FORGE_CFG_QUOTED_NAME_PATTERN = "\"(?:[^\"\\\\]|\\\\.)+\""
+private const val FORGE_CFG_BARE_KEY_NAME_PATTERN = "[^<>=\\s:\"]+"
+private val forgeCfgKeyNamePattern = "(?:$FORGE_CFG_BARE_KEY_NAME_PATTERN|$FORGE_CFG_QUOTED_NAME_PATTERN)"
+private val forgeCfgValueLineRegex = Regex("[BIDS]:\\s*$forgeCfgKeyNamePattern\\s*=.*")
+private val forgeCfgListStartRegex = Regex("[BIDS]:\\s*$forgeCfgKeyNamePattern\\s*<")
 
 fun buildEditorValue(
     text: String,
@@ -89,6 +103,10 @@ fun validateCodeContent(text: String, language: CodeLanguage): CodeEditorValidat
         CodeEditorValidation(language, false, "YAML语法错误: $it")
     } ?: CodeEditorValidation(language, true, "YAML语法正确")
 
+    CodeLanguage.FORGE_CFG -> validateForgeCfgSyntaxMessage(text)?.let {
+        CodeEditorValidation(language, false, "CFG语法错误: $it")
+    } ?: CodeEditorValidation(language, true, "CFG语法正确")
+
     CodeLanguage.PLAIN_TEXT -> null
 }
 
@@ -99,6 +117,7 @@ private fun highlightCode(text: String, language: CodeLanguage): AnnotatedString
         CodeLanguage.JSON5 -> applyJsonHighlight(text)
         CodeLanguage.TOML -> applyTomlHighlight(text)
         CodeLanguage.YAML -> applyYamlHighlight(text)
+        CodeLanguage.FORGE_CFG -> applyForgeCfgHighlight(text)
         CodeLanguage.PLAIN_TEXT -> Unit
     }
 }
@@ -303,6 +322,138 @@ private fun AnnotatedString.Builder.applyYamlTokenHighlight(text: String, start:
         normalizedToken in yamlLiteralTokens -> safeAddStyle(yamlLiteralStyle, start, end)
         normalizedToken in yamlSpecialNumberTokens || yamlNumberRegex.matches(token) -> safeAddStyle(yamlNumberStyle, start, end)
     }
+}
+
+private fun AnnotatedString.Builder.applyForgeCfgHighlight(text: String) {
+    var lineStart = 0
+    while (lineStart <= text.length) {
+        val lineEnd = text.indexOf('\n', lineStart).let { if (it == -1) text.length else it }
+        applyForgeCfgLineHighlight(text, lineStart, lineEnd)
+        if (lineEnd == text.length) break
+        lineStart = lineEnd + 1
+    }
+}
+
+private fun AnnotatedString.Builder.applyForgeCfgLineHighlight(text: String, start: Int, end: Int) {
+    if (start >= end) return
+    val commentStart = findForgeCfgCommentStart(text, start, end)
+    val codeEnd = commentStart ?: end
+    if (commentStart != null) safeAddStyle(cfgCommentStyle, commentStart, end)
+    val contentStart = skipWhitespace(text, start, codeEnd)
+    if (contentStart >= codeEnd) return
+
+    val content = text.substring(contentStart, codeEnd).trimEnd()
+    val trimmedEnd = contentStart + content.length
+    when {
+        content == "}" || content == ">" -> safeAddStyle(punctuationStyle, contentStart, trimmedEnd)
+        content.endsWith("{") -> {
+            val sectionEnd = contentStart + content.dropLast(1).trimEnd().length
+            safeAddStyle(cfgSectionStyle, contentStart, sectionEnd)
+            safeAddStyle(punctuationStyle, trimmedEnd - 1, trimmedEnd)
+        }
+        content.length >= 2 && content[0] in forgeCfgTypeTokens && content[1] == ':' -> {
+            safeAddStyle(cfgTypeStyle, contentStart, contentStart + 1)
+            safeAddStyle(punctuationStyle, contentStart + 1, contentStart + 2)
+            val equalsIndex = text.indexOf('=', contentStart + 2).takeIf { it in contentStart + 2 until codeEnd }
+            val listIndex = text.indexOf('<', contentStart + 2).takeIf { it in contentStart + 2 until codeEnd }
+            val separatorIndex = listOfNotNull(equalsIndex, listIndex).minOrNull()
+            if (separatorIndex != null) {
+                safeAddStyle(cfgKeyStyle, contentStart + 2, separatorIndex)
+                safeAddStyle(punctuationStyle, separatorIndex, separatorIndex + 1)
+                if (separatorIndex == equalsIndex) {
+                    applyForgeCfgValueHighlight(text, separatorIndex + 1, codeEnd)
+                }
+            } else {
+                safeAddStyle(cfgKeyStyle, contentStart + 2, trimmedEnd)
+            }
+        }
+        else -> applyForgeCfgValueHighlight(text, contentStart, codeEnd)
+    }
+}
+
+private fun AnnotatedString.Builder.applyForgeCfgValueHighlight(text: String, start: Int, end: Int) {
+    var index = skipWhitespace(text, start, end)
+    while (index < end) {
+        when (text[index]) {
+            '<', '>', '{', '}', ':' -> {
+                safeAddStyle(punctuationStyle, index, index + 1)
+                index++
+            }
+            ' ', '\t' -> index++
+            else -> {
+                val tokenEnd = scanForgeCfgValueToken(text, index, end)
+                val token = text.substring(index, tokenEnd)
+                when {
+                    token.equals("true", ignoreCase = true) || token.equals("false", ignoreCase = true) ->
+                        safeAddStyle(tomlLiteralStyle, index, tokenEnd)
+                    forgeCfgNumberRegex.matches(token) -> safeAddStyle(cfgNumberStyle, index, tokenEnd)
+                    token.isNotBlank() -> safeAddStyle(cfgValueStyle, index, tokenEnd)
+                }
+                index = if (tokenEnd > index) tokenEnd else index + 1
+            }
+        }
+    }
+}
+
+private fun validateForgeCfgSyntaxMessage(text: String): String? {
+    var sectionDepth = 0
+    var listDepth = 0
+    for ((lineIndex, rawLine) in text.lineSequence().withIndex()) {
+        val lineNumber = lineIndex + 1
+        val line = rawLine.trimEnd('\r')
+        val code = stripForgeCfgComment(line).trim()
+        if (code.isBlank()) continue
+
+        if (listDepth > 0) {
+            if (code == ">") listDepth--
+            continue
+        }
+
+        when {
+            code == "}" -> {
+                if (sectionDepth == 0) return "第${lineNumber}行 多余的}"
+                sectionDepth--
+            }
+            code == ">" -> return "第${lineNumber}行 多余的>"
+            code.endsWith("{") -> {
+                val sectionName = code.dropLast(1).trim()
+                if (sectionName.isBlank() || !forgeCfgSectionNameRegex.matches(sectionName)) {
+                    return "第${lineNumber}行 section名称无效"
+                }
+                sectionDepth++
+            }
+            forgeCfgListStartRegex.matches(code) -> listDepth++
+            forgeCfgValueLineRegex.matches(code) -> Unit
+            code.length >= 2 && code[1] == ':' && code[0] !in forgeCfgTypeTokens ->
+                return "第${lineNumber}行 不支持的类型前缀${code[0]}"
+            else -> return "第${lineNumber}行 无法识别的CFG配置行"
+        }
+    }
+    return when {
+        listDepth > 0 -> "缺少>"
+        sectionDepth > 0 -> "缺少}"
+        else -> null
+    }
+}
+
+private fun findForgeCfgCommentStart(text: String, start: Int, end: Int): Int? {
+    var index = start
+    while (index < end) {
+        if (text[index] == '#') return index
+        index++
+    }
+    return null
+}
+
+private fun stripForgeCfgComment(line: String): String {
+    val index = line.indexOf('#')
+    return if (index == -1) line else line.substring(0, index)
+}
+
+private fun scanForgeCfgValueToken(text: String, start: Int, end: Int): Int {
+    var index = start
+    while (index < end && !text[index].isWhitespace() && text[index] !in charArrayOf('<', '>', '{', '}', ':')) index++
+    return index
 }
 
 private fun scanQuotedText(text: String, start: Int, quote: Char): Int {

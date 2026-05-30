@@ -307,6 +307,11 @@ object ModpackService {
         return true
     }
 
+    fun isVersionReadyToLaunch(version: Modpack.Version, activeMods: List<Mod>): Boolean {
+        val versionDir = getVersionDir(version.modpackId, version.name)
+        return versionDir.exists() && versionDir.resolve("mods").isDirectory
+    }
+
     private suspend fun collectReferencedModFileNamesExcluding(
         packdir: ModpackLocalDir,
         fallbackPreserve: Set<String>
@@ -483,12 +488,9 @@ sealed class StartPlayResult {
     data class Ready(val args: McPlayArgs) : StartPlayResult()
     data class NeedMc(val ver: McVersion) : StartPlayResult()
     data class NeedMod(val modSlugs: List<String>) : StartPlayResult()
-    data class NeedInstall(val task: Task2) : StartPlayResult()
+    data class NeedInstall(val task: Task2, val dedupeKey: String) : StartPlayResult()
+    data class Installing(val runId: String) : StartPlayResult()
 }
-
-private val requiredClientModSlugs: Map<McVersion, List<String>> = mapOf(
-    McVersion.V211 to listOf("kotlin-for-forge")
-)
 
 data class ModpackLocalDir(
     val dir: java.io.File,
@@ -508,22 +510,15 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
 
     val versionResp = server.makeRequest<Modpack.Version>("modpack/${modpack.id}/version/$packVer")
     val version = versionResp.data ?: throw RequestError("获取整合包版本信息失败: ${versionResp.msg}")
+    val installTaskKey = ModpackService.modpackInstallTaskKey(version.modpackId, version.name)
+    ClientTaskManager.entries.value.firstOrNull { entry ->
+        entry.dedupeKey == installTaskKey && !entry.status.isTerminal
+    }?.let { activeInstall ->
+        return StartPlayResult.Installing(activeInstall.runId)
+    }
 
     if (!(modpack.mcVer.firstLoaderDir.exists())) {
         return StartPlayResult.NeedMc(modpack.mcVer)
-    }
-    val activeMods = (version.mods + extraMods)
-        .filterNot { mod -> disabledMods.any { sameMod(it, mod) } }
-    val requiredModSlugs = requiredClientModSlugs[modpack.mcVer].orEmpty()
-    val missingRequiredModSlugs = requiredModSlugs.filterNot { slug ->
-        activeMods.any { it.slug.equals(slug, ignoreCase = true) }
-    }
-    if (missingRequiredModSlugs.isNotEmpty()) {
-        return StartPlayResult.NeedMod(missingRequiredModSlugs)
-    }
-    if (!ModpackService.isVersionInstalled(modpack.id, packVer)) {
-        val task = with(ModpackService) { version.startInstallTask2(modpack.mcVer, modpack.modloader, modpack.name) }
-        return StartPlayResult.NeedInstall(task)
     }
 
     val startResp = server.makeRequest<Unit>("host/${_id}/start", HttpMethod.Post)
@@ -534,7 +529,7 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
     var gameAddr = "127.0.0.1:55667"
     val verDir = ModpackService.getVersionDir(version.modpackId, version.name)
     if (!isDesktop) {
-        ModpackService.installRdiCore(modpack.mcVer, modpack.modloader, verDir)
+        ModpackService.installRdiCore(modpack.mcVer, modpack.modloader, verDir.resolve("mods"))
         //安卓端暂时不支持本地代理
         gameAddr = RServer.currentGameAddr
     }
@@ -557,6 +552,7 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         McPlayArgs(
             title = "游玩 $name",
             mcVer = modpack.mcVer,
+            modLoader = modpack.modloader,
             versionId = versionId,
             playArg = playArg,
             versionDir = verDir.absolutePath,

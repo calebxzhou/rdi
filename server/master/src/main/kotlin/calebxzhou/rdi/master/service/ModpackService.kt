@@ -27,7 +27,7 @@ import calebxzhou.rdi.master.GAME_LIBS_DIR
 import calebxzhou.rdi.master.MODPACK_DATA_DIR
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.*
-import calebxzhou.rdi.master.service.HostService.status
+import calebxzhou.rdi.master.service.host.HostControlService.status
 import calebxzhou.rdi.master.service.ModpackService.addVersionMod
 import calebxzhou.rdi.master.service.ModpackService.addVersionMods
 import calebxzhou.rdi.master.service.ModpackService.changeOptions
@@ -46,10 +46,10 @@ import calebxzhou.rdi.master.service.ModpackService.toBriefVo
 import calebxzhou.rdi.master.service.ModpackService.toDetailVo
 import calebxzhou.rdi.master.service.ModpackService.validateVerName
 import calebxzhou.rdi.master.service.PlayerService.getPlayerNames
+import calebxzhou.rdi.master.service.host.HostQueryService
+import calebxzhou.rdi.master.service.host.dir
 import com.mongodb.ErrorCategory
 import com.mongodb.MongoWriteException
-import com.mongodb.client.model.IndexOptions
-import com.mongodb.client.model.Indexes
 import com.mongodb.client.model.Filters.*
 import com.mongodb.client.model.Projections
 import com.mongodb.client.model.Sorts
@@ -1466,11 +1466,11 @@ object ModpackService {
     }
 
     suspend fun Modpack.Version.hostsUsing(): List<Host> {
-        return HostService.findByModpackVersion(modpackId, name).filter { it.status != HostStatus.STOPPED }
+        return HostQueryService.findByModpackVersion(modpackId, name).filter { it.status != HostStatus.STOPPED }
     }
 
     suspend fun Modpack.hostsUsing(): List<Host> {
-        return HostService.findByModpack(_id).filter { it.status != HostStatus.STOPPED }
+        return HostQueryService.findByModpack(_id).filter { it.status != HostStatus.STOPPED }
     }
 
     suspend fun ModpackContext.deleteVersion() {

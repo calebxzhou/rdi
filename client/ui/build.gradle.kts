@@ -10,7 +10,7 @@ val zstdVer = "1.5.7-7"
 val desugarVersion = "2.1.5"
 val desktopJavaSdkVersion = 25
 val desktopJvmTarget = JvmTarget.JVM_25
-val version = "5.15.7"
+val version = "5.16"
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)

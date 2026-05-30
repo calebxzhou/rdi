@@ -1,4 +1,11 @@
 - directly read bytecode for given class&method
+## 5.16 -- 25.5.30
+- 可以管理房间的所有配置文件了
+- 启动包会检测mod完整性
+## 5.15.8 -- 25.5.28
+- 房间配置支持旧版forge cfg格式
+- 房间配置支持搜索
+- 房间配置支持文件夹展开折叠
 ## 5.15.7 -- 25.5.24
 - 重构AI陪玩MCP，节约两倍token
 - 修了点bug

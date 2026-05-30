@@ -1,5 +1,0 @@
-{
-    "java.compile.nullAnalysis.mode": "disabled",
-    "chat.agent.maxRequests": 100,
-    "java.configuration.updateBuildConfiguration": "disabled"
-}

@@ -109,7 +109,6 @@ class FirmSectionSavedData : SavedData() {
         const val FILE_ID = "rdi_firm_sections"
         val MAX_SECTIONS_TOTAL: Int = Integer.getInteger("rdi.firmSectionTotalMax",160)
         val MAX_SECTIONS_PERSON: Int = Integer.getInteger("rdi.firmSectionPersonMax",0)
-        val MAX_SECTIONS_PERSON: Int = Integer.getInteger("rdi.firmSectionPersonMax",0)
 
         private const val PLAYERS_TAG = "players"
         private const val UUID_TAG = "uuid"

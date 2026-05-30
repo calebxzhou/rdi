@@ -90,13 +90,17 @@ object DockerService {
         val hostConfig = HostConfig.newHostConfig()
             .withPortBindings(parse("$port:$port"))
             .withCpuCount(4L)
-            .withMemory(8L * 1024 * 1024 * 1024)  // 8GB RAM limit
-            .withMemorySwap(12L * 1024 * 1024 * 1024)  //4G swap
             .withPidsLimit(512L)
             .withExtraHosts("host.docker.internal:host-gateway")
             .withMounts(mounts)
             .withCapAdd(Capability.NET_ADMIN)
-
+        if(containerName == "69da4ec7015319d405bbb3be"){
+            hostConfig.withMemory(12*1024*1024*1024L)
+                .withMemorySwap(16L * 1024 * 1024 * 1024)
+        }else{
+            hostConfig.withMemory(8*1024*1024*1024L)
+                .withMemorySwap(12L * 1024 * 1024 * 1024)
+        }
 
         val createCmd = client.createContainerCmd(image)
             .withName(containerName)

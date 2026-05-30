@@ -20,12 +20,13 @@ import calebxzhou.rdi.common.model.world.RChunkPos
 import calebxzhou.rdi.common.util.ioScope
 import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.master.WORLDS_DIR
-import calebxzhou.rdi.master.service.HostService.status
+import calebxzhou.rdi.master.service.host.HostControlService.status
 import calebxzhou.rdi.master.service.WorldService.getDimensions
 import calebxzhou.rdi.master.service.WorldService.readSurfaceCacheOnly
 import calebxzhou.rdi.master.service.WorldService.startSurfaceCacheBuild
 import calebxzhou.rdi.master.service.WorldService.toVo
 import calebxzhou.rdi.master.service.WorldService.world
+import calebxzhou.rdi.master.service.host.HostQueryService
 import com.mongodb.client.model.CreateCollectionOptions
 import com.mongodb.client.model.Filters.and
 import com.mongodb.client.model.Filters.eq
@@ -239,7 +240,7 @@ object WorldService {
         if (worldSurfaceBuildInProgress.contains(worldId.toHexString())) {
             throw RequestError("地图缓存正在构建中，请稍后再重置存档")
         }
-        HostService.findByWorld(worldId)?.let { host ->
+        HostQueryService.findByWorld(worldId)?.let { host ->
             if (host.status != HostStatus.STOPPED) {
                 throw RequestError("请先停止主机“${host.name}”再重置存档")
             }
@@ -255,7 +256,7 @@ object WorldService {
     suspend fun delete(uid: ObjectId, worldId: ObjectId) {
         val world = getById(worldId) ?: throw RequestError("存档不存在")
         if (world.ownerId != uid) throw RequestError("无权限")
-        HostService.findByWorld(worldId)?.let { throw RequestError("须先删除房间“${it.name}”，再删除此区块数据") }
+        HostQueryService.findByWorld(worldId)?.let { throw RequestError("须先删除房间“${it.name}”，再删除此区块数据") }
         dbcl.deleteOne(eq("_id", worldId))
         worldSurfaceCol.deleteMany(eq("worldId", worldId))
         val dir = world.dir

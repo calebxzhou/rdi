@@ -483,6 +483,7 @@ fun InstalledResourcePane(
                     val playArgs = McPlayArgs(
                         title = "单机 - ${packdir.vo.name} ${packdir.verName}",
                         mcVer = packdir.vo.mcVer,
+                        modLoader = packdir.vo.modloader,
                         versionId = packdir.versionId,
                         playArg = "${server.hqUrl}\n" +
                                 "127.0.0.1:55667\n" +
@@ -638,8 +639,16 @@ fun InstalledResourcePane(
                             .widthIn(min = 320.dp, max = 420.dp)
                             .fillMaxHeight()
                     ) {
-                        HostConfigEditor(
-                            files = localConfigFiles,
+                        /*HostFileExplorer(
+                            files = localConfigFiles.map {
+                                Host.FileEntry(
+                                    path = it.path,
+                                    name = it.path.substringAfterLast('/'),
+                                    directory = false,
+                                    size = it.size,
+                                    updateTime = it.updateTime
+                                )
+                            },
                             selectedPath = selectedLocalConfigPath,
                             loadingFiles = localConfigFilesLoading,
                             statusMessage = localConfigStatusMessage,
@@ -650,8 +659,12 @@ fun InstalledResourcePane(
                                     loadLocalConfigFile(packdir, path)
                                 }
                             },
+                            onLoadDir = {},
+                            onCreateFile = { _, _ -> errorMessage = "本地配置编辑暂不支持新建文件" },
+                            onRenameFile = { _, _ -> errorMessage = "本地配置编辑暂不支持重命名" },
+                            onDeleteFile = { errorMessage = "本地配置编辑暂不支持删除文件" },
                             onReloadList = { loadLocalConfigFiles(packdir) }
-                        )
+                        )*/
                     }
 
                     Column(

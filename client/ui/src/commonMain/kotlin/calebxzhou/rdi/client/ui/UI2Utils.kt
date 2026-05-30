@@ -14,6 +14,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.*
@@ -95,6 +96,7 @@ fun RThinTextField(
     enabled: Boolean = true,
     label: String = "",
     lineLimits: TextFieldLineLimits = TextFieldLineLimits.SingleLine,
+    shape: Shape = RoundedCornerShape(baseShapeRadius.dp),
     leadingIcon: @Composable (() -> Unit)? = null,
     trailingIcon: @Composable (() -> Unit)? = null,
 ) {
@@ -107,7 +109,7 @@ fun RThinTextField(
         modifier = modifier,
         leadingIcon = leadingIcon,
         trailingIcon = trailingIcon,
-        shape = RoundedCornerShape(baseShapeRadius.dp)
+        shape = shape
     )
 }
 

@@ -13,6 +13,7 @@ public class RDI {
     public static final String IHQ_URL;
     public static final String HOST_ID;
     public static final Boolean ONLY_SAVE_FIRM_SECTIONS = Boolean.getBoolean("rdi.onlySaveFirmSections");
+    public static final Boolean DEBUG = Boolean.getBoolean("rdi.debug");
     private static final File ALL_OP_FILE = new File("R_ALL_OP");
     static {
         String ihqUrl = System.getProperty("rdi.ihq.url");

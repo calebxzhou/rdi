@@ -40,6 +40,7 @@ import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.GameService
+import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.ensureDesktopLaunchLibraries
 import calebxzhou.rdi.client.service.ensureGtnhRuntime
 import calebxzhou.rdi.client.service.startDesktop
@@ -113,6 +114,15 @@ fun McPlayScreen(
                     }
                     session.appendLog("[RDI] 房间附加Mod已同步")
                 }
+                if (session.stopRequested) return@launchSessionTask
+
+                session.appendLog("[RDI] 检查RDI核心Mod...")
+                ModpackService.installRdiCore(
+                    args.mcVer,
+                    args.modLoader,
+                    GameService.versionListDir.resolve(args.versionId).resolve("mods")
+                )
+                session.appendLog("[RDI] RDI核心Mod已同步")
                 if (session.stopRequested) return@launchSessionTask
 
                 if (args.mcVer == McVersion.V071) {

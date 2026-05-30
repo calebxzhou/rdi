@@ -1,6 +1,6 @@
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.RAccount
-import calebxzhou.rdi.master.service.HostContext
+import calebxzhou.rdi.master.service.host.HostContext
 import calebxzhou.rdi.model.Role
 import org.bson.types.ObjectId
 

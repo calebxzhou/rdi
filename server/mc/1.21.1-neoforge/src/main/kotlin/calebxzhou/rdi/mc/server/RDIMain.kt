@@ -4,6 +4,7 @@ import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.WebSocketClient
 import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState
 import calebxzhou.rdi.mc.common2.tpa.TpaService
+import calebxzhou.rdi.mc.common3.mcs
 import calebxzhou.rdi.mc.rcmd.RcmdResult
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionSavedData
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
@@ -48,7 +49,7 @@ class RDIMain {
         @SubscribeEvent @JvmStatic
         fun starting(e: ServerStartingEvent) {
             val server = e.getServer() as DedicatedServer
-
+            mcs = server
             GameRules.visitGameRuleTypes(object : GameRules.GameRuleTypeVisitor {
                 override fun <T : GameRules.Value<T>> visit(key: GameRules.Key<T>, type: GameRules.Type<T>) {
                     val gameRuleEnv = System.getenv("GAME_RULE_" + key.getId())

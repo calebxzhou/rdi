@@ -46,8 +46,6 @@ import calebxzhou.rdi.client.service.GithubRelease
 import calebxzhou.rdi.client.service.GithubReleaseAsset
 import calebxzhou.rdi.client.service.GithubRepoRef
 import calebxzhou.rdi.client.service.StartPlayResult
-import calebxzhou.rdi.client.service.codeeditor.CodeLanguage
-import calebxzhou.rdi.client.service.codeeditor.validateCodeContent
 import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.service.startPlay
 import calebxzhou.rdi.client.service.toUiMods
@@ -113,6 +111,7 @@ fun HostInfoScreen(
     var stopConfirm by remember { mutableStateOf(false) }
     var restartConfirm by remember { mutableStateOf(false) }
     var forceStopConfirm by remember { mutableStateOf(false) }
+    var startPlayLoading by remember { mutableStateOf(false) }
     var showCommandDialog by remember { mutableStateOf(false) }
     var hostCommand by remember { mutableStateOf("") }
     var hostCommandSending by remember { mutableStateOf(false) }
@@ -122,7 +121,7 @@ fun HostInfoScreen(
     var logStreamSseJob by remember { mutableStateOf<Job?>(null) }
     var showInviteDialog by remember { mutableStateOf(false) }
     var inviteQq by remember { mutableStateOf("") }
-    var installConfirmTask by remember { mutableStateOf<Task2?>(null) }
+    var installConfirmTask by remember { mutableStateOf<StartPlayResult.NeedInstall?>(null) }
     var showAddExtraModAdvancedDialog by remember { mutableStateOf(false) }
     var addExtraModLoading by remember { mutableStateOf(false) }
     var selectAllExtraMods by remember { mutableStateOf(false) }
@@ -151,16 +150,6 @@ fun HostInfoScreen(
     var removeExtraModConfirm by remember { mutableStateOf<Mod?>(null) }
     var hydratedExtraUiMods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
     var extraModsLoadVersion by remember { mutableStateOf(0) }
-    var configFilesLoading by remember { mutableStateOf(false) }
-    var configContentLoading by remember { mutableStateOf(false) }
-    var configSaving by remember { mutableStateOf(false) }
-    var configFiles by remember { mutableStateOf<List<Host.ConfigFileEntry>>(emptyList()) }
-    var selectedConfigPath by remember { mutableStateOf<String?>(null) }
-    var configEditorText by remember { mutableStateOf("") }
-    var configOriginalText by remember { mutableStateOf("") }
-    var configSyntaxErrorMessage by remember { mutableStateOf<String?>(null) }
-    var configStatusMessage by remember { mutableStateOf<String?>(null) }
-    var configEditorOpen by remember { mutableStateOf(false) }
 
     val memberTabIndex = 0
     val extraModsTabIndex = 1
@@ -221,117 +210,6 @@ fun HostInfoScreen(
         disabledMods = updatedMods
     }
 
-    fun loadConfigFile(path: String) {
-        val switchingFile = selectedConfigPath != path
-        selectedConfigPath = path
-        configStatusMessage = "正在读取 $path"
-        configSyntaxErrorMessage = null
-        if (switchingFile) {
-            configEditorText = ""
-            configOriginalText = ""
-        }
-        configContentLoading = true
-        scope.rdiRequest<Host.ConfigFileContentVo>(
-            path = "host/$hostId/config/file",
-            params = mapOf("path" to path),
-            onOk = { response ->
-                val file = response.data ?: run {
-                    errorMessage = "读取配置文件失败"
-                    return@rdiRequest
-                }
-                selectedConfigPath = file.path
-                configEditorText = file.content
-                configOriginalText = file.content
-                configSyntaxErrorMessage = validateCodeContent(
-                    text = file.content,
-                    language = CodeLanguage.fromPath(file.path)
-                )?.takeIf { !it.isValid }?.message
-                configStatusMessage = "已打开 ${file.path}"
-            },
-            onErr = { errorMessage = it.message ?: "读取配置文件失败" },
-            onDone = { configContentLoading = false }
-        )
-    }
-
-    fun loadConfigFiles(preferredPath: String? = selectedConfigPath) {
-        configFilesLoading = true
-        scope.rdiRequest<List<Host.ConfigFileEntry>>(
-            path = "host/$hostId/config/files",
-            onOk = { response ->
-                val files = response.data ?: emptyList()
-                configFiles = files
-                if (files.isEmpty()) {
-                    configEditorOpen = false
-                    selectedConfigPath = null
-                    configEditorText = ""
-                    configOriginalText = ""
-                    configSyntaxErrorMessage = null
-                    configStatusMessage = "当前没有可编辑配置文件"
-                    return@rdiRequest
-                }
-
-                when {
-                    preferredPath != null && files.any { it.path == preferredPath } && selectedConfigPath == null -> {
-                        loadConfigFile(preferredPath)
-                    }
-
-                    selectedConfigPath == null -> {
-                        loadConfigFile(files.first().path)
-                    }
-
-                    selectedConfigPath != null && files.none { it.path == selectedConfigPath } -> {
-                        if (configEditorText == configOriginalText) {
-                            loadConfigFile(files.first().path)
-                        } else {
-                            configStatusMessage = "当前文件已不在配置列表中，请先保存或还原内容"
-                        }
-                    }
-                }
-            },
-            onErr = { errorMessage = it.message ?: "加载配置文件列表失败" },
-            onDone = { configFilesLoading = false }
-        )
-    }
-
-    fun saveConfigFile() {
-        val path = selectedConfigPath ?: return
-        configSaving = true
-        scope.rdiRequest<Host.ConfigFileContentVo>(
-            path = "host/$hostId/config/file",
-            method = HttpMethod.Put,
-            body = serdesJson.encodeToString(
-                Host.ConfigFileSaveDto(
-                    path = path,
-                    content = configEditorText
-                )
-            ),
-            onOk = { response ->
-                val saved = response.data ?: run {
-                    errorMessage = "保存配置文件失败"
-                    return@rdiRequest
-                }
-                selectedConfigPath = saved.path
-                configOriginalText = saved.content
-                configEditorText = saved.content
-                configSyntaxErrorMessage = null
-                configStatusMessage = "已保存 ${saved.path}"
-                configFiles = configFiles.map { entry ->
-                    if (entry.path == saved.path) {
-                        entry.copy(size = saved.size, updateTime = saved.updateTime)
-                    } else {
-                        entry
-                    }
-                }
-                if (configFiles.none { it.path == saved.path }) {
-                    configFiles = (configFiles + Host.ConfigFileEntry(saved.path, saved.size, saved.updateTime))
-                        .sortedBy { it.path.lowercase() }
-                }
-            },
-            onErr = { errorMessage = it.message ?: "保存配置文件失败" },
-            onDone = { configSaving = false }
-        )
-    }
-
     fun reload() {
         loading = true
         errorMessage = null
@@ -373,12 +251,6 @@ fun HostInfoScreen(
         disabledMods = emptyList()
         selectedModListKeys = emptySet()
         selectedDisabledModKeys = emptySet()
-        configFiles = emptyList()
-        selectedConfigPath = null
-        configEditorText = ""
-        configOriginalText = ""
-        configSyntaxErrorMessage = null
-        configStatusMessage = null
         reload()
     }
     LaunchedEffect(selectedTab) {
@@ -412,8 +284,6 @@ fun HostInfoScreen(
     val hasTacz = (extraMods + baseVersionMods)
         .filterNot { mod -> disabledMods.any { sameMod(it, mod) } }
         .any { it.normalizedSlug == TACZ_MOD_SLUG }
-    val configDirty = selectedConfigPath != null && configEditorText != configOriginalText
-
     fun switchExtraModPlatform(platform: String) {
         extraModPlatform = platform
         addExtraModDialogError = null
@@ -540,12 +410,6 @@ fun HostInfoScreen(
         }
     }
 
-    LaunchedEffect(selectedTab, host?._id, canManageConfigFiles) {
-        if (selectedTab == configTabIndex && host != null && canManageConfigFiles && configFiles.isEmpty() && !configFilesLoading) {
-            loadConfigFiles()
-        }
-    }
-
     DisposableEffect(selectedTab, hostId) {
         if (selectedTab != consoleTabIndex) {
             onDispose { }
@@ -589,11 +453,14 @@ fun HostInfoScreen(
     }
 
     fun startPlay(host: Host.DetailVo) {
+        if (startPlayLoading) return
+        startPlayLoading = true
         scope.launch {
             val args = try {
                 host.startPlay()
             } catch (e: Exception) {
                 errorMessage = e.message ?: "无法开始游玩"
+                startPlayLoading = false
                 return@launch
             }
             when (args) {
@@ -606,14 +473,22 @@ fun HostInfoScreen(
                 }
                 is StartPlayResult.NeedMod -> {
                     errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先前往模组界面添加。"
+                    startPlayLoading = false
                   //  onOpenResourceMods(host.modpack.mcVer)
                 }
                 is StartPlayResult.NeedInstall -> {
-                    installConfirmTask = args.task
+                    installConfirmTask = args
+                    startPlayLoading = false
+                }
+                is StartPlayResult.Installing -> {
+                    errorMessage = "整合包正在下载，请等待下载完成后再启动"
+                    startPlayLoading = false
+                    onOpenTaskList?.invoke(args.runId)
                 }
 
                 is StartPlayResult.NeedMc -> {
                     errorMessage = "请更新MC${args.ver.mcVer}版本资源"
+                    startPlayLoading = false
                     onOpenMcVersions?.invoke(args.ver)
                 }
             }
@@ -631,8 +506,15 @@ fun HostInfoScreen(
                             icon = "\uF04B",
                             tooltip = "开始",
                             bgColor = MaterialColor.GREEN_900.color,
+                            enabled = !startPlayLoading,
                         ) {
                             startPlay(host)
+                        }
+                        if (startPlayLoading) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(20.dp),
+                                strokeWidth = 2.dp
+                            )
                         }
 
                         if (meAdmin) {
@@ -1151,23 +1033,7 @@ fun HostInfoScreen(
                                 if (!canManageConfigFiles) {
                                     Text("仅房间管理员可编辑配置文件", color = MaterialColor.GRAY_700.color)
                                 } else {
-                                    HostConfigEditor(
-                                        files = configFiles,
-                                        selectedPath = selectedConfigPath,
-                                        loadingFiles = configFilesLoading,
-                                        statusMessage = configStatusMessage,
-                                        onSelectFile = { path ->
-                                            if (configDirty && path != selectedConfigPath) {
-                                                errorMessage = "当前配置有未保存修改，请先保存或还原"
-                                            } else {
-                                                configEditorOpen = true
-                                                loadConfigFile(path)
-                                            }
-                                        },
-                                        onReloadList = {
-                                            loadConfigFiles()
-                                        }
-                                    )
+                                    HostFileExplorer(hostId = hostId)
                                 }
                             }
 
@@ -1723,51 +1589,13 @@ fun HostInfoScreen(
         }
     }
 
-    HostConfigEditorOverlay(
-        visible = configEditorOpen,
-        selectedPath = selectedConfigPath,
-        editorText = configEditorText,
-        loadingContent = configContentLoading,
-        saving = configSaving,
-        dirty = configDirty,
-        validationErrorMessage = configSyntaxErrorMessage,
-        onClose = { configEditorOpen = false },
-        onReload = {
-            val path = selectedConfigPath
-            if (path == null) {
-                errorMessage = "请先选择配置文件"
-            } else {
-                loadConfigFile(path)
-            }
-        },
-        onSave = {
-            if (selectedConfigPath == null) {
-                errorMessage = "请先选择配置文件"
-            } else if (configSyntaxErrorMessage != null) {
-                errorMessage = configSyntaxErrorMessage
-            } else {
-                saveConfigFile()
-            }
-        },
-        onEditorChange = {
-            configEditorText = it
-            configSyntaxErrorMessage = validateCodeContent(
-                text = it,
-                language = CodeLanguage.fromPath(selectedConfigPath)
-            )?.takeIf { validation -> !validation.isValid }?.message
-        },
-        onValidationChange = { validation ->
-            configSyntaxErrorMessage = validation?.takeIf { !it.isValid }?.message
-        }
-    )
-
-    installConfirmTask?.let { task ->
+    installConfirmTask?.let { install ->
         ConfirmDialog(
             title = "未下载整合包",
             message = "未下载此房间的整合包，是否立即下载？",
             onConfirm = {
                 installConfirmTask = null
-                val runId = ClientTaskManager.submit(task)
+                val runId = ClientTaskManager.submit(install.task, dedupeKey = install.dedupeKey)
                 if (onOpenTaskList != null) {
                     onOpenTaskList(runId)
                 } else {

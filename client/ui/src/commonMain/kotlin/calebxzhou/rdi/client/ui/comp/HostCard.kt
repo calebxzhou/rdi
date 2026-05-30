@@ -40,7 +40,7 @@ fun Host.BriefVo.HostCard(
     modifier: Modifier = Modifier,
     miniMode: Boolean = false,
     selected: Boolean = false,
-    onClickPlay: ((Host.BriefVo) -> Unit)? = null,
+    //onClickPlay: ((Host.BriefVo) -> Unit)? = null,
     onClick: ((Host.BriefVo) -> Unit)? = null
 ) {
     val isClickable = (miniMode || playable) && onClick != null
@@ -97,7 +97,7 @@ fun Host.BriefVo.HostCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                if (isHovered && onClickPlay != null && playable) {
+               /* if (isHovered && onClickPlay != null && playable) {
                     CircleIconButton(
                         icon = "\uF04B",
                         tooltip = "启动MC 玩这个房间",
@@ -108,7 +108,7 @@ fun Host.BriefVo.HostCard(
                     ) {
                         onClickPlay.invoke(this@HostCard)
                     }
-                }
+                }*/
             }
         }
         return
@@ -174,7 +174,7 @@ fun Host.BriefVo.HostCard(
                 }
             }
 
-            if (isHovered && onClickPlay != null && playable) {
+           /* if (isHovered && onClickPlay != null && playable) {
                 Box(modifier = Modifier.align(Alignment.TopEnd)) {
                     CircleIconButton(
                         icon = "\uF04B",
@@ -187,7 +187,7 @@ fun Host.BriefVo.HostCard(
                         onClickPlay.invoke(this@HostCard)
                     }
                 }
-            }
+            }*/
         }
     }
 }
