@@ -9,7 +9,7 @@ object RDIClient {
         lgr.info { "RDI启动中" }
         DIR.mkdir()
         lgr.info { (javaClass.protectionDomain.codeSource.location.toURI().toString()) }
-
+        System.setProperty("compose.interop.blending", "true")
     }
 
 }
