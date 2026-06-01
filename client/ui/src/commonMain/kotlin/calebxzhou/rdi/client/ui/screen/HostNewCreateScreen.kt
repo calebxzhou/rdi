@@ -9,7 +9,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -309,15 +309,15 @@ fun HostNewCreateScreen(
             }
             Space8h()
             statusMessage?.let {
-                Text(it, color = MaterialTheme.colors.error)
+                Text(it, color = MaterialTheme.colorScheme.error)
                 Space8h()
             }
             errorMessage?.let {
-                Text(it, color = MaterialTheme.colors.error)
+                Text(it, color = MaterialTheme.colorScheme.error)
                 Space8h()
             }
 
-            TabRow(selectedTabIndex = selectedTab, backgroundColor = MaterialColor.GRAY_100.color) {
+            TabRow(selectedTabIndex = selectedTab, containerColor = MaterialColor.GRAY_100.color) {
                 tabs.forEachIndexed { index, tabTitle ->
                     Tab(
                         selected = selectedTab == index,
@@ -342,7 +342,7 @@ fun HostNewCreateScreen(
                     }
                     Space8h()
                     localPackError?.let {
-                        Text(it, color = MaterialTheme.colors.error)
+                        Text(it, color = MaterialTheme.colorScheme.error)
                         Space8h()
                     }
                     if (loadingLocalPacks) {

@@ -21,7 +21,6 @@ import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
 import io.ktor.http.isSuccess
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -207,7 +206,6 @@ object SettingsService {
         maxMemoryText: String,
         jre25Path: String,
         jre21Path: String,
-        jre8Path: String,
         proxyEnabled: Boolean,
         proxySystem: Boolean,
         proxyHost: String,
@@ -225,7 +223,6 @@ object SettingsService {
         val memoryValue = maxMemoryText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
         val jre25 = normalizeJavaPath(jre25Path, "Java25")
         val jre21 = normalizeJavaPath(jre21Path, "Java21")
-        val jre8 = normalizeJavaPath(jre8Path, "Java8")
         val proxyPort = proxyPortText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
         val normalizedAiConfig = normalizeAiConfigForSave(aiConfig)
         val aiValidation = validateAiConfig(normalizedAiConfig, requireActiveAiProfile)
@@ -237,7 +234,6 @@ object SettingsService {
             maxMemory = memoryValue ?: 0,
             jre25Path = jre25,
             jre21Path = jre21,
-            jre8Path = jre8,
             proxyConfig = ProxyConfig(
                 enabled = proxyEnabled,
                 systemProxy = proxySystem,

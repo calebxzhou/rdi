@@ -5,7 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -237,8 +237,9 @@ private fun ModGridContextMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest
     ) {
-        DropdownMenuItem(onClick = onCopyFileName) {
-            Text("复制Mod文件名")
-        }
+        DropdownMenuItem(
+            text = { Text("复制Mod文件名") },
+            onClick = onCopyFileName
+        )
     }
 }

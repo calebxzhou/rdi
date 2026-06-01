@@ -3,6 +3,7 @@ package calebxzhou.rdi.client.ui.screen
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
@@ -14,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.net.server
@@ -21,7 +23,9 @@ import calebxzhou.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.RColumn
 import calebxzhou.rdi.client.ui.RRow
 import calebxzhou.rdi.client.ui.RowV
+import calebxzhou.rdi.client.ui.SpacerFullW
 import calebxzhou.rdi.client.ui.copyToClipboard
+import calebxzhou.rdi.client.ui.openUrl
 import calebxzhou.rdi.client.ui.space8
 import calebxzhou.rdi.common.exception.RequestError
 import io.ktor.http.HttpMethod
@@ -53,23 +57,38 @@ fun MailOperationGuideDialog(
                     style = MaterialTheme.typography.titleLarge
                 )
                 RRow {
-                    MailCopyButton("rdibot@qq.com")
                     Text("收件人 rdibot@qq.com")
+                    SpacerFullW()
+                    MailCopyButton("rdibot@qq.com")
                 }
                 RRow {
-                    MailCopyButton(mailTitle)
                     Text("标题")
-                    Text(mailTitle, fontSize = 16.sp)
+                    Text(mailTitle, fontSize = 10.sp)
+                    SpacerFullW()
+                    MailCopyButton(mailTitle)
                 }
                 RRow {
-                    MailCopyButton(encryptedContent)
                     Text("内容")
-                    Text(encryptedContent, fontSize = 8.sp)
+                    SpacerFullW()
+                    MailCopyButton(encryptedContent)
+                    Text(encryptedContent, fontSize = 6.sp)
                 }
-                Text("发件人 ${qq}@qq.com 请勿选择abcdefg@qq.com等字母邮箱地址")
-                Text("发送后等60~120秒，可在本页查询${operationName}进度")
-                CircleIconButton("\uF00D","关闭"){
-                    onDismiss()
+                RRow {
+                    Text("发件人")
+                    Text(" ${qq}@qq.com ", fontWeight = FontWeight.Bold)
+                    Text("必须为纯数字QQ号", fontWeight = FontWeight.Bold)
+                }
+                RRow {
+                    Text("发送两分钟后生效")
+                }
+                RRow {
+                    CircleIconButton("\uF00D","关闭"){
+                        onDismiss()
+                    }
+                    SpacerFullW()
+                    CircleIconButton("\uF42F","打开邮箱"){
+                        openUrl("https://mail.qq.com")
+                    }
                 }
             }
         }
@@ -81,7 +100,7 @@ fun MailOperationGuideDialog(
 private fun RowScope.MailCopyButton(
     value: String
 ) {
-    CircleIconButton("\uF0C5","复制",size = 24, showText = false){
+    CircleIconButton("\uF0C5","复制",size = 24){
         copyToClipboard(value)
     }
 }

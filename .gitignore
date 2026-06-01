@@ -13,5 +13,5 @@
 .gradle-home-client
 .gradle-home-server
 .sisyphus/
-$$DEL/
 DEL/
+CODEREF/

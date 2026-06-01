@@ -10,18 +10,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -183,53 +180,11 @@ fun ModrinthProjectListScreen(
             )
             Space8w()
             CircleIconButton(
-                icon = "\uE721",
+                icon = "\uF002",
                 tooltip = "搜索${projectDisplayName}",
-                bgColor = MaterialColor.BLUE_700.color
+                showText = false,
             ) {
                 submitSearch()
-            }
-        }
-    }
-
-    @Composable
-    fun FilterSidebar(modifier: Modifier = Modifier) {
-        Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            ModrinthProjectFilterSection("排序") {
-                ModrinthProjectFilterGrid(
-                    items = listOf(
-                        ModrinthProjectFilterChipItem("最热", selectedSort == ModrinthSearchIndex.DOWNLOADS) {
-                            selectedSort = ModrinthSearchIndex.DOWNLOADS
-                        },
-                        ModrinthProjectFilterChipItem("收藏", selectedSort == ModrinthSearchIndex.FOLLOWS) {
-                            selectedSort = ModrinthSearchIndex.FOLLOWS
-                        },
-                        ModrinthProjectFilterChipItem("最近", selectedSort == ModrinthSearchIndex.UPDATED) {
-                            selectedSort = ModrinthSearchIndex.UPDATED
-                        },
-                        ModrinthProjectFilterChipItem("相关", selectedSort == ModrinthSearchIndex.RELEVANCE) {
-                            selectedSort = ModrinthSearchIndex.RELEVANCE
-                        }
-                    )
-                )
-            }
-            ModrinthProjectFilterSection("MC版本") {
-                val versions = listOf<McVersion?>(null) + McVersion.entries.filter { it.enabled }
-                ModrinthProjectFilterGrid(
-                    items = versions.map { version ->
-                        ModrinthProjectFilterChipItem(
-                            text = version?.mcVer ?: "全部",
-                            selected = selectedMcVer == version,
-                            onClick = { selectedMcVer = version }
-                        )
-                    }
-                )
-            }
-            TextButton(onClick = ::clearFilters) {
-                Text("清空筛选", color = MaterialTheme.colorScheme.error)
             }
         }
     }

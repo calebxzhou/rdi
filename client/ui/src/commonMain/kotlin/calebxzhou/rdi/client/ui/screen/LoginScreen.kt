@@ -101,8 +101,7 @@ fun LoginScreen(
     LaunchedEffect(Unit) {
         // Desktop-only: symlink check
         if (isDesktop && !checkCanCreateSymlink()) {
-            symlinkError = """RDI需要权限为Mod及资源文件创建软连接。
-请打开系统设置启动“开发人员模式”，详见群文档。"""
+            symlinkError = "请打开系统设置启动“开发人员模式”，否则无法下包\n详见群文档。"
         }
         if(Const.NO_UPDATE){
             updateCheckComplete=true
@@ -427,7 +426,7 @@ fun LoginScreen(
                         verticalArrangement = Arrangement.spacedBy(16.dp)
                     ) {
                         Text(
-                            "有微软MC正版号吗？",
+                            "请选择注册方式",
                             style = MaterialTheme.typography.titleLarge
                         )
                         Row(
@@ -441,7 +440,7 @@ fun LoginScreen(
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("有")
+                                Text("用微软MC正版号注册")
                             }
                             OutlinedButton(
                                 onClick = {
@@ -450,7 +449,7 @@ fun LoginScreen(
                                 },
                                 modifier = Modifier.weight(1f)
                             ) {
-                                Text("没有")
+                                Text("用QQ邮箱注册")
                             }
                         }
                     }

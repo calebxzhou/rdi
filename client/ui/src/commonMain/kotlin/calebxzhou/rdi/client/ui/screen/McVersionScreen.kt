@@ -6,15 +6,18 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.firstLoader
 import calebxzhou.rdi.client.model.firstLoaderVersion
@@ -25,6 +28,14 @@ import calebxzhou.rdi.client.ui.comp.McVersionCard
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.Task2
+
+private sealed interface McVersionDownloadAction {
+    val mcVer: McVersion
+
+    data class All(override val mcVer: McVersion) : McVersionDownloadAction
+    data class Assets(override val mcVer: McVersion) : McVersionDownloadAction
+    data class Loader(override val mcVer: McVersion, val loader: ModLoader) : McVersionDownloadAction
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,37 +48,38 @@ fun McVersionPane(
 ) {
     var fclDialogText by remember { mutableStateOf<String?>(null) }
     var fclDialogDirName by remember { mutableStateOf<String?>(null) }
+    var downloadSourceDialogAction by remember { mutableStateOf<McVersionDownloadAction?>(null) }
+    var showGroupFileDialog by remember { mutableStateOf(false) }
     var selectedMcVer by rememberSaveable(requiredMcVer) { mutableStateOf(requiredMcVer) }
 
-    val titleActions: ResourceScreenTitleActions? = remember(isDesktop, onOpenTaskList) {
-        if (isDesktop) {
-            {
-                CircleIconButton("\uDB85\uDC03", "不限速网盘下载") {
-                    openUrl("https://www.123865.com/s/iWSWvd-Zrtdd")
-                }
-                Space8w()
-                CircleIconButton("\uEE38", "导入RDI资源") {
-                    val files = selectRdiPackFiles() ?: return@CircleIconButton
-                    val task = if (files.size == 1) {
-                        buildImportPackTask2(files.first())
-                    } else {
-                        Task2.Sequence(
-                            title = "导入MC版本",
-                            children = files.map { buildImportPackTask2(it) }
-                        )
-                    }
-                    val runId = ClientTaskManager.submit(task)
-                    onOpenTaskList?.invoke(runId)
-                }
-            }
-        } else {
-            null
-        }
-    }
 
     fun submitTask(task: Task2) {
         val runId = ClientTaskManager.submit(task)
         onOpenTaskList?.invoke(runId)
+    }
+
+    fun submitAssetsTask(mcver: McVersion) {
+        val runId = ClientTaskManager.submit(
+            task = GameService.downloadAssetsOnlyTask2(mcver),
+            dedupeKey = "mc-assets:${mcver.mcVer}"
+        )
+        onOpenTaskList?.invoke(runId)
+    }
+
+    fun runMojangDownload(action: McVersionDownloadAction) {
+        when (action) {
+            is McVersionDownloadAction.All -> {
+                submitTask(GameService.downloadVersionTask2(action.mcVer, action.mcVer.firstLoader))
+            }
+
+            is McVersionDownloadAction.Assets -> {
+                submitAssetsTask(action.mcVer)
+            }
+
+            is McVersionDownloadAction.Loader -> {
+                submitTask(GameService.downloadLoaderTask2(action.mcVer, action.loader))
+            }
+        }
     }
 
     fun openFclGuide(mcver: McVersion) {
@@ -86,9 +98,6 @@ fun McVersionPane(
     }
 
     if (!showPaneActions) {
-        SideEffect {
-            onTitleActionsChange(titleActions)
-        }
         DisposableEffect(Unit) {
             onDispose {
                 onTitleActionsChange(null)
@@ -97,25 +106,10 @@ fun McVersionPane(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
-        if (showPaneActions && titleActions != null) {
-            FlowRowV(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-                Text(
-                    text = "若下载不成功，从网盘下载，然后手动导入。（不限速，需要手机号登录，免费）"
-                )
-                RowV(horizontalArrangement = Arrangement.End) {
-                    titleActions(this)
-                }
-            }
-        } else {
-            Text("若下载不成功，从网盘下载，然后手动导入。（不限速，需要手机号登录，免费）")
-        }
         if (requiredMcVer != null) {
             Text(
                 text = "MC${requiredMcVer.mcVer}版本资源需要更新。请点击下载",
-                color = MaterialTheme.colors.error
+                color = MaterialTheme.colorScheme.error
             )
             Spacer(modifier = Modifier.height(6.dp))
         }
@@ -123,17 +117,13 @@ fun McVersionPane(
         McVersionActionRow(
             selectedMcVer = selectedMcVer,
             onDownloadAll = { mcver ->
-                submitTask(GameService.downloadVersionTask2(mcver, mcver.firstLoader))
+                downloadSourceDialogAction = McVersionDownloadAction.All(mcver)
             },
             onDownloadAssets = { mcver ->
-                val runId = ClientTaskManager.submit(
-                    task = GameService.downloadAssetsOnlyTask2(mcver),
-                    dedupeKey = "mc-assets:${mcver.mcVer}"
-                )
-                onOpenTaskList?.invoke(runId)
+                downloadSourceDialogAction = McVersionDownloadAction.Assets(mcver)
             },
             onInstallLoader = { mcver, loader ->
-                submitTask(GameService.downloadLoaderTask2(mcver, loader))
+                downloadSourceDialogAction = McVersionDownloadAction.Loader(mcver, loader)
             },
             onOpenFclGuide = ::openFclGuide
         )
@@ -194,6 +184,66 @@ fun McVersionPane(
             }
         )
     }
+
+    downloadSourceDialogAction?.let { action ->
+        AlertDialog(
+            onDismissRequest = { downloadSourceDialogAction = null },
+            title = { Text("要从哪里下载？") },
+            text = { Text("请选择MC${action.mcVer.mcVer}版本资源下载来源") },
+            dismissButton = {
+                TextButton(onClick = {
+                    downloadSourceDialogAction = null
+                    showGroupFileDialog = true
+                }) {
+                    Text("从群文件下载")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    downloadSourceDialogAction = null
+                    runMojangDownload(action)
+                }) {
+                    Text("从mojang官方服务器下载")
+                }
+            }
+        )
+    }
+
+    if (showGroupFileDialog) {
+        AlertDialog(
+            onDismissRequest = { showGroupFileDialog = false },
+            title = { Text("请打开RDI群文件") },
+            text = {
+                Column {
+                    RRow {
+                        Text("1.打开")
+                        Text("MC运行资源",fontWeight = FontWeight.Bold)
+                        Text("文件夹")
+                    }
+                    Text("2.下载${selectedMcVer?.simpleVer?:"对应MC版本"}.rdimcpack文件")
+                    Text("3.耐心等待下载完成")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showGroupFileDialog = false
+                    val files = selectRdiPackFiles() ?: return@TextButton
+                    val task = if (files.size == 1) {
+                        buildImportPackTask2(files.first())
+                    } else {
+                        Task2.Sequence(
+                            title = "导入MC版本",
+                            children = files.map { buildImportPackTask2(it) }
+                        )
+                    }
+                    val runId = ClientTaskManager.submit(task)
+                    onOpenTaskList?.invoke(runId)
+                }) {
+                    Text("4.点此选择已下载好的文件")
+                }
+            }
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -214,7 +264,7 @@ private fun McVersionActionRow(
         Text(
             text = selected?.let { "已选择MC ${it.mcVer}" } ?: "请选择MC版本",
             color = if (selected == null) MaterialColor.GRAY_700.color else MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.subtitle1
+            style = MaterialTheme.typography.titleMedium
         )
         RowV(
             modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -236,23 +286,14 @@ private fun McVersionActionRow(
                 ) {
                     selected?.let(onDownloadAssets)
                 }
-                if (selected == null) {
+                selected?.loaderVersions?.forEach { (loader, _) ->
                     CircleIconButton(
                         icon = "\uEEFF",
-                        tooltip = "安装最新loader",
+                        tooltip = "更新${loader.name.lowercase()}",
                         bgColor = MaterialColor.TEAL_900.color,
-                        enabled = false
-                    ) {}
-                } else {
-                    selected.loaderVersions.forEach { (loader, _) ->
-                        CircleIconButton(
-                            icon = "\uEEFF",
-                            tooltip = "更新${loader.name.lowercase()}",
-                            bgColor = MaterialColor.TEAL_900.color,
-                            enabled = enabled
-                        ) {
-                            onInstallLoader(selected, loader)
-                        }
+                        enabled = enabled
+                    ) {
+                        onInstallLoader(selected, loader)
                     }
                 }
             } else {

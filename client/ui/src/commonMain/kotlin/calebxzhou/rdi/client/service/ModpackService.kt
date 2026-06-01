@@ -427,8 +427,9 @@ object ModpackService {
                 McVersion.V211,
                 McVersion.V201,
                 McVersion.V192,
-                McVersion.V182,
-                McVersion.V165 -> {
+                //McVersion.V182,
+                //McVersion.V165
+                    -> {
                     put("darkMojangStudiosBackground", "true")
                     put("lang", "zh_cn")
                 }

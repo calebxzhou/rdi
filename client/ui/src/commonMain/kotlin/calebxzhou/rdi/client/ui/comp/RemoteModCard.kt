@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -38,6 +39,7 @@ import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.asIconText
 import calebxzhou.rdi.client.ui.iconBitmap
 import calebxzhou.rdi.client.ui.loadResourceBitmap
+import calebxzhou.rdi.client.ui.roundShape
 import calebxzhou.rdi.common.model.McVersion
 
 @OptIn(ExperimentalLayoutApi::class)
@@ -47,83 +49,63 @@ fun RemoteModCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null
 ) {
-    val clickableModifier = onClick?.let { modifier.clickable(onClick = it) } ?: modifier
     Surface(
-        modifier = clickableModifier.fillMaxWidth(),
-        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth(),
+        shape = roundShape,
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 1.dp,
-        border = BorderStroke(1.dp, MaterialColor.GRAY_200.color)
+        border = BorderStroke(1.dp, MaterialColor.GRAY_200.color),
+        onClick = onClick?:{}
     ) {
         Column(
-            modifier = Modifier.padding(14.dp),
+            modifier = Modifier.padding(10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.Top
             ) {
                 RemoteModIcon(mod)
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
                             text = mod.title,
-                            style = MaterialTheme.typography.titleLarge,
+                            style = MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialColor.GRAY_900.color,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
                         RemoteModSourceIcon(mod.source)
                     }
-                    /*Text(
-                        text = "by ${mod.author}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialColor.GRAY_700.color,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )*/
                     Text(
                         text = mod.summary,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialColor.GRAY_900.color,
-                        maxLines = 2,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
-                        lineHeight = 21.sp
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RemoteModStat("\uF019", mod.downloadsText)
+                        mod.followsText?.let { RemoteModStat("\uDB80\uDED1", it) }
+                        Spacer(modifier = Modifier.weight(1f))
+                       // mod.modifiedText?.let { RemoteModStat("\uE641", it) }
+                    }
                 }
             }
-/*
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                mod.clientSide?.let { RemoteModChip(it.toSideLabel("客户端")) }
-                mod.serverSide?.let { RemoteModChip(it.toSideLabel("服务端")) }
-                RemoteModGameVersionChip(mod.gameVersions)
-                mod.loaders.take(3).forEach { RemoteModLoaderChip(it) }
-                mod.categories.take(3).forEach { RemoteModChip(it.label) }
-            }*/
 
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RemoteModStat("\uF019", mod.downloadsText)
-                mod.followsText?.let { RemoteModStat("\uDB80\uDED1", it) }
-                Spacer(modifier = Modifier.weight(1f))
-                mod.modifiedText?.let { RemoteModStat("\uE641", it) }
-            }
+
         }
     }
 }
@@ -131,8 +113,8 @@ fun RemoteModCard(
 @Composable
 private fun RemoteModIcon(mod: RemoteModCardVo) {
     Surface(
-        modifier = Modifier.size(72.dp),
-        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.size(76.dp),
+        shape = roundShape,
         color = MaterialColor.GRAY_200.color,
         shadowElevation = 1.dp
     ) {
@@ -162,7 +144,7 @@ private fun RemoteModIcon(mod: RemoteModCardVo) {
 @Composable
 fun RemoteModSourceIcon(
     source: RemoteModSource,
-    modifier: Modifier = Modifier.size(24.dp)
+    modifier: Modifier = Modifier.size(16.dp)
 ) {
     when (source) {
         RemoteModSource.MODRINTH -> Image(
@@ -278,10 +260,11 @@ private fun RemoteModStat(icon: String, text: String) {
         horizontalArrangement = Arrangement.spacedBy(6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = icon.asIconText, color = MaterialColor.GRAY_900.color)
+        Text(text = icon.asIconText, color = MaterialColor.GRAY_900.color, style = MaterialTheme.typography.bodyMedium,)
         Text(
             text = text,
             color = MaterialColor.GRAY_900.color,
+            style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

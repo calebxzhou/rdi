@@ -12,9 +12,8 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
@@ -34,7 +33,7 @@ import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.getCachedOrFetchHwSpecJson
 import calebxzhou.rdi.client.ui.screen.ModpackUpload
 import calebxzhou.rdi.client.ui.screen.ResourceRoute
-import calebxzhou.rdi.common.hwspec.HwSpec
+import calebxzhou.rdi.common.model.HwSpec
 import java.io.File
 
 /**

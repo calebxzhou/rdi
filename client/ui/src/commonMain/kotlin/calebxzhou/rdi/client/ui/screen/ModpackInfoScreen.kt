@@ -5,7 +5,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -140,7 +140,7 @@ fun ModpackInfoScreen(
     MainBox {
         MainColumn {
             TitleRow(title, onBack) {
-                errorMessage?.let { Text(it, color = MaterialTheme.colors.error) }
+                errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
                 pack?.let { pack->
                     HeadButton(pack.authorId)
@@ -192,7 +192,7 @@ fun ModpackInfoScreen(
                     "Mod列表(${pack.modCount})",
                     "\uF019 下载版本(${pack.versions.size})"
                 )
-                TabRow(selectedTabIndex = selectedTab, backgroundColor = Color.White) {
+                TabRow(selectedTabIndex = selectedTab, containerColor = Color.White) {
                     tabTitles.forEachIndexed { index, title ->
                         Tab(
                             selected = selectedTab == index,
@@ -324,7 +324,7 @@ fun ModpackInfoScreen(
                         onErr = { errorMessage = "删除失败: ${it.message}" }
                     )
                 }) {
-                    Text("删除", color = MaterialTheme.colors.error)
+                    Text("删除", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {
@@ -453,7 +453,7 @@ fun ModpackInfoScreen(
                         onErr = { errorMessage = "删除失败: ${it.message}" }
                     )
                 }) {
-                    Text("删除", color = MaterialTheme.colors.error)
+                    Text("删除", color = MaterialTheme.colorScheme.error)
                 }
             },
             dismissButton = {

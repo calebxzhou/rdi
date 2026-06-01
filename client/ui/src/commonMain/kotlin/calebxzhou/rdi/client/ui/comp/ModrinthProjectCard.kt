@@ -15,9 +15,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -32,6 +32,7 @@ import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.asIconText
+import calebxzhou.rdi.client.ui.roundShape
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -43,9 +44,9 @@ fun ModrinthProjectCard(
     val clickableModifier = onClick?.let { modifier.clickable(onClick = it) } ?: modifier
     Surface(
         modifier = clickableModifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
+        shape = roundShape,
         color = Color.White,
-        elevation = 2.dp
+        shadowElevation = 2.dp
     ) {
         Column {
             ModrinthProjectBanner(project)
@@ -59,49 +60,19 @@ fun ModrinthProjectCard(
                     verticalAlignment = Alignment.Top
                 ) {
                     ModrinthProjectIcon(project)
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = project.title,
-                                style = MaterialTheme.typography.h6,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialColor.GRAY_900.color,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            /*Text(
-                                text = "by ${shader.author}",
-                                style = MaterialTheme.typography.subtitle1,
-                                color = MaterialColor.GRAY_700.color,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )*/
-                        }
+                    Column {
+                        Text(
+                            text = project.title,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                         Text(
                             text = project.description,
-                            style = MaterialTheme.typography.subtitle1,
-                            color = MaterialColor.GRAY_900.color,
+                            style = MaterialTheme.typography.bodyMedium,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
-                            lineHeight = 22.sp
                         )
-                    }
-                }
-
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    project.categories.forEach { category ->
-                        ModrinthProjectChip(category.label)
                     }
                 }
 
@@ -112,8 +83,6 @@ fun ModrinthProjectCard(
                 ) {
                     ModrinthProjectStat("\uF019", project.downloadsText)
                     ModrinthProjectStat("\uDB80\uDED1", project.followsText)
-                    Spacer(modifier = Modifier.weight(1f))
-                    ModrinthProjectStat("\uE641", project.modifiedText)
                 }
             }
         }
@@ -157,7 +126,7 @@ private fun ModrinthProjectIcon(project: ModrinthProjectCardVo) {
         modifier = Modifier.size(64.dp),
         shape = RoundedCornerShape(16.dp),
         color = MaterialColor.GRAY_200.color,
-        elevation = 1.dp
+        shadowElevation = 1.dp
     ) {
         project.iconUrl?.takeIf(String::isNotBlank)?.let { url ->
             HttpImage(
@@ -175,7 +144,7 @@ private fun ModrinthProjectIcon(project: ModrinthProjectCardVo) {
         ) {
             Text(
                 text = project.title.firstOrNull()?.uppercaseChar()?.toString() ?: "M",
-                style = MaterialTheme.typography.h5,
+                style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 color = MaterialColor.GRAY_800.color
             )
@@ -193,7 +162,7 @@ private fun ModrinthProjectChip(text: String) {
         Text(
             text = text,
             color = MaterialColor.GRAY_800.color,
-            style = MaterialTheme.typography.body2,
+            style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
         )
     }

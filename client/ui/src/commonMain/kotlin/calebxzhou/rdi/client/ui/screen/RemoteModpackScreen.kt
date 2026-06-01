@@ -270,14 +270,15 @@ fun RemoteModpackScreen(
                     }
             )
             CircleIconButton(
-                icon = "\uE721",
-                tooltip = "搜索"
+                icon = "\uF002",
+                tooltip = "搜索",
+                showText = false
             ) {
                 submitSearch()
             }
             CircleIconButton(
                 icon = if (miniCardMode) "\uF03A" else "\uDB80\uDEC1",
-                tooltip = if (miniCardMode) "普通列表" else "迷你列表",
+                tooltip = if (miniCardMode) "普通" else "简略",
                 bgColor = if (miniCardMode) MaterialColor.GRAY_700.color else MaterialColor.BLUE_700.color
             ) {
                 miniCardMode = !miniCardMode

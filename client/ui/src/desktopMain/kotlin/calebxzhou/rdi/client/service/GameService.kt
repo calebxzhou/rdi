@@ -696,7 +696,7 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
         *utf8LoggingJvmArgs.toTypedArray(),
     ).apply {
         when (mcVer) {
-            McVersion.V182,
+            //McVersion.V182,
             McVersion.V192,
             McVersion.V201,
             McVersion.V211 -> {
@@ -704,7 +704,7 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
                 this += "%*"
             }
 
-            McVersion.V165 -> {
+            /*McVersion.V165 -> {
                 if (loaderVer.loader == ModLoader.forge) {
                     McVersion.V165.plusJvmArgs.forEach { this += it }
                     val jarFileName = "forge-${loaderVer.id}.jar"
@@ -712,7 +712,7 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
                     this += jarFileName
                     linkServerRuntimeFile(workDir.resolve(jarFileName), ClientDirs.mcDir.resolve(jarFileName))
                 }
-            }
+            }*/
 
             McVersion.V122 -> {
                 if (loaderVer.loader == ModLoader.forge || loaderVer.loader == ModLoader.cleanroom) {
@@ -851,7 +851,6 @@ private fun resolveDesktopJavaPath(mcVersion: McVersion): String {
         javaExePath.takeIf { mcVersion.supportsCurrentJava(Runtime.version().feature()) }
 
     fun configuredJavaPath(major: Int): String? = when (major) {
-        8 -> CONF.jre8Path
         21 -> CONF.jre21Path
         25 -> CONF.jre25Path
         else -> null

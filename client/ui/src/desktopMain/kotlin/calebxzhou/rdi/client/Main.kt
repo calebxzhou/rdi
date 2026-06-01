@@ -1,9 +1,8 @@
 package calebxzhou.rdi.client
 
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,7 +32,7 @@ import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.ui.AppNavigation
-import calebxzhou.rdi.client.ui.AppTypography
+import calebxzhou.rdi.client.ui.RdiTheme
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.DEBUG
@@ -111,16 +110,8 @@ fun main() {
             LaunchedEffect(Unit) {
                 window.extendedState = window.extendedState or Frame.MAXIMIZED_BOTH
             }
-            MaterialTheme(typography = AppTypography) {
-                val initScreenName = System.getProperty("rdi.init.screen")?.trim()
-                val startDestination: Any = when (initScreenName) {
-                    "wd" -> Wardrobe
-                    "mail" -> HostRoute(HostTab.Mail.name)
-                    "hl" -> HostRoute(HostTab.MyHosts.name)
-                    "wl" -> HostRoute(HostTab.Worlds.name)
-                    else -> Login
-                }
-                AppNavigation(startDestination = startDestination)
+            RdiTheme {
+                AppNavigation()
                 if (showExitConfirm) {
                     AlertDialog(
                         onDismissRequest = { showExitConfirm = false },

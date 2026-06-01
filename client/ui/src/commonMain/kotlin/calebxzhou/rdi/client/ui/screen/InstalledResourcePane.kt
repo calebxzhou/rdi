@@ -6,7 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -522,10 +522,10 @@ fun InstalledResourcePane(
         ) {
             Text(
                 selected?.let { "${it.vo.name} ${it.verName}" } ?: "请选择整合包",
-                style = MaterialTheme.typography.subtitle1
+                style = MaterialTheme.typography.titleMedium
             )
             packActionMessage?.let {
-                Text(it, color = MaterialTheme.colors.primary)
+                Text(it, color = MaterialTheme.colorScheme.primary)
             }
             if (portrait) {
                 FlowRowV(
@@ -552,7 +552,7 @@ fun InstalledResourcePane(
         ) {
             Text(
                 text = "管理已安装整合包",
-                style = MaterialTheme.typography.subtitle1
+                style = MaterialTheme.typography.titleMedium
             )
             if (showPaneActions) {
                 RowV(horizontalArrangement = Arrangement.End) {
@@ -562,7 +562,7 @@ fun InstalledResourcePane(
         }
         Space8h()
         errorMessage?.let {
-            Text(it, color = MaterialTheme.colors.error)
+            Text(it, color = MaterialTheme.colorScheme.error)
             Space8h()
         }
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -625,8 +625,8 @@ fun InstalledResourcePane(
                     .fillMaxWidth(0.92f)
                     .fillMaxHeight(0.88f),
                 shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colors.surface,
-                elevation = 10.dp
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 10.dp
             ) {
                 Row(
                     modifier = Modifier
@@ -689,7 +689,7 @@ fun InstalledResourcePane(
                                     localConfigDirty -> MaterialColor.ORANGE_900.color
                                     else -> MaterialColor.GRAY_700.color
                                 },
-                                style = MaterialTheme.typography.caption,
+                                style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.widthIn(max = 420.dp)
@@ -883,11 +883,11 @@ fun InstalledResourcePane(
             Surface(
                 modifier = Modifier.fillMaxWidth(0.75f),
                 shape = MaterialTheme.shapes.medium,
-                color = MaterialTheme.colors.surface,
-                elevation = 8.dp
+                color = MaterialTheme.colorScheme.surface,
+                shadowElevation = 8.dp
             ) {
                 Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp)) {
-                    Text("复制个人数据", style = MaterialTheme.typography.h6)
+                    Text("复制个人数据", style = MaterialTheme.typography.titleLarge)
                     Spacer(modifier = Modifier.height(12.dp))
                     Text("把个人数据复制到另一个整合包，请先勾选要复制的内容，再选择目标整合包。")
                     Spacer(modifier = Modifier.height(8.dp))
@@ -904,14 +904,14 @@ fun InstalledResourcePane(
                                         if (checked) copyDataSelectedKeys - entry.key else copyDataSelectedKeys + entry.key
                                 },
                                 shape = MaterialTheme.shapes.medium,
-                                color = if (checked) MaterialTheme.colors.primary.copy(alpha = 0.08f) else MaterialTheme.colors.surface,
+                                color = if (checked) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
                                 border = BorderStroke(
                                     width = if (checked) 2.dp else 1.dp,
-                                    color = if (checked) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(
+                                    color = if (checked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(
                                         alpha = 0.18f
                                     )
                                 ),
-                                elevation = 0.dp
+                                shadowElevation = 0.dp
                             ) {
                                 Row(
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
@@ -951,14 +951,14 @@ fun InstalledResourcePane(
                                             copyDataTargetVersionId = target.versionId
                                         },
                                         shape = MaterialTheme.shapes.medium,
-                                        color = if (isSelected) MaterialTheme.colors.primary.copy(alpha = 0.08f) else MaterialTheme.colors.surface,
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else MaterialTheme.colorScheme.surface,
                                         border = BorderStroke(
                                             width = if (isSelected) 2.dp else 1.dp,
-                                            color = if (isSelected) MaterialTheme.colors.primary else MaterialTheme.colors.onSurface.copy(
+                                            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(
                                                 alpha = 0.18f
                                             )
                                         ),
-                                        elevation = 0.dp
+                                        shadowElevation = 0.dp
                                     ) {
                                         Row(
                                             modifier = Modifier.fillMaxWidth()
@@ -981,7 +981,7 @@ fun InstalledResourcePane(
                                                     text = target.verName,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis,
-                                                    color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f)
+                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                                                 )
                                             }
                                         }

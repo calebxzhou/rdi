@@ -4,7 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -158,7 +158,7 @@ fun ModpackVersionEditScreen(
             }
 
             if (!loading && currentVersion == null) {
-                Text("未找到版本信息", color = MaterialTheme.colors.error)
+                Text("未找到版本信息", color = MaterialTheme.colorScheme.error)
             }
 
             if (currentVersion != null) {
@@ -176,7 +176,7 @@ fun ModpackVersionEditScreen(
                             color = MaterialColor.GRAY_700.color
                         )
                     }
-                    TabRow(selectedTabIndex = selectedTab, backgroundColor = Color.White) {
+                    TabRow(selectedTabIndex = selectedTab, containerColor = Color.White) {
                         listOf("Mod编辑${currentVersion.mods.size}个", "文件编辑").forEachIndexed { index, title ->
                             Tab(
                                 selected = selectedTab == index,
@@ -358,7 +358,7 @@ fun ModpackVersionEditScreen(
                         .padding(24.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text("添加版本Mod", style = MaterialTheme.typography.h6)
+                    Text("添加版本Mod", style = MaterialTheme.typography.titleLarge)
                     Text(
                         "会复用房间附加Mod(extra mod)的本地jar匹配逻辑。当前会把选中的Mod一次性提交，版本只重构1次。",
                         color = MaterialColor.GRAY_700.color
@@ -612,7 +612,7 @@ private fun VersionModBatchEditDialog(
                     .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("批量编辑${editStates.size}个Mod", style = MaterialTheme.typography.h6)
+                Text("批量编辑${editStates.size}个Mod", style = MaterialTheme.typography.titleLarge)
                 localError?.let { ErrorText(it) }
                 Column(
                     modifier = Modifier

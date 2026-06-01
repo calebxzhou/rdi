@@ -2,18 +2,16 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material.*
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.*
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.BSSkinData
@@ -42,7 +40,7 @@ fun WardrobeScreen(
     val gridState = rememberLazyGridState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var keyword by remember { mutableStateOf("") }
+    val keywordState = rememberTextFieldState()
     var capeMode by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(1) }
     var loading by remember { mutableStateOf(false) }
@@ -59,6 +57,7 @@ fun WardrobeScreen(
         hasMoreData = true
         skins.clear()
         scope.launch {
+            val keyword = keywordState.text.toString()
             val newSkins = withContext(Dispatchers.IO) {
                 querySkins(urlPrefix, page, keyword, capeMode)
             }
@@ -77,6 +76,7 @@ fun WardrobeScreen(
         loading = true
         page += 1
         scope.launch {
+            val keyword = keywordState.text.toString()
             val newSkins = withContext(Dispatchers.IO) {
                 querySkins(urlPrefix, page, keyword, capeMode)
             }
@@ -110,12 +110,9 @@ fun WardrobeScreen(
     MainBox {
         MainColumn{
             TitleRow2("衣柜", onBack){
-                val interactionSource = remember { MutableInteractionSource() }
-                BasicTextField(
-                    value = keyword,
-                    onValueChange = { keyword = it.replace("\n", "").replace("\r", "") },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.body1,
+                RThinTextField(
+                    state = keywordState,
+                    label = "搜索",
                     modifier = Modifier
                         .width(200.dp)
                         .height(36.dp)
@@ -127,18 +124,7 @@ fun WardrobeScreen(
                                 false
                             }
                         }
-                ) { innerTextField ->
-                    TextFieldDefaults.OutlinedTextFieldDecorationBox(
-                        value = keyword,
-                        innerTextField = innerTextField,
-                        enabled = true,
-                        singleLine = true,
-                        visualTransformation = VisualTransformation.None,
-                        placeholder = { Text("搜索...") },
-                        interactionSource = interactionSource,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                    )
-                }
+                )
                 Checkbox(
                     checked = capeMode,
                     onCheckedChange = {
@@ -289,8 +275,8 @@ fun MojangSkinDialog(onDismiss: () -> Unit, onToast: (String) -> Unit) {
                 errorMessage?.let {
                     Text(
                         text = it,
-                        color = MaterialTheme.colors.error,
-                        style = MaterialTheme.typography.caption,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.labelSmall,
                         modifier = Modifier.padding(end = 12.dp)
                     )
                 }
@@ -328,7 +314,7 @@ private fun SkinCard(
                 color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.body2
+                style = MaterialTheme.typography.bodyMedium
             )
         }
     }

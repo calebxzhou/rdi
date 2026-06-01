@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material.*
+import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -43,6 +43,7 @@ import calebxzhou.rdi.client.ui.comp.Task2DetailDialog
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.IGNORE_MODPACK_TEST
 import calebxzhou.rdi.common.model.LoadProgress
+import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Task2Status
@@ -153,11 +154,10 @@ fun ModpackUploadScreen2(
     }
 
     fun uploadSupportedConfiguredJavaMajors(
-        mcVersion: calebxzhou.rdi.common.model.McVersion
+        mcVersion: McVersion
     ): List<Int> = mcVersion.supportedJreVers
 
     fun hasConfiguredUploadJavaPath(major: Int): Boolean = when (major) {
-        8 -> !CONF.jre8Path?.trim().isNullOrEmpty()
         21 -> !CONF.jre21Path?.trim().isNullOrEmpty()
         25 -> !CONF.jre25Path?.trim().isNullOrEmpty()
         else -> false
@@ -165,10 +165,10 @@ fun ModpackUploadScreen2(
 
     fun isCurrentJavaSupportedForUpload(
         currentMajor: Int,
-        mcVersion: calebxzhou.rdi.common.model.McVersion
+        mcVersion: McVersion
     ): Boolean = mcVersion.supportsCurrentJava(currentMajor)
 
-    fun uploadRuntimeRequirementMessageOrNull(mcVersion: calebxzhou.rdi.common.model.McVersion): String? {
+    fun uploadRuntimeRequirementMessageOrNull(mcVersion: McVersion): String? {
         if (!isDesktop) return null
         val currentMajor = currentPlatformJavaMajor()
         if (currentMajor != null && isCurrentJavaSupportedForUpload(currentMajor, mcVersion)) {
@@ -187,7 +187,7 @@ fun ModpackUploadScreen2(
         return "MC${mcVersion.mcVer}需要${javaText}。$configHint"
     }
 
-    fun ensureUploadRuntimeReady(mcVersion: calebxzhou.rdi.common.model.McVersion): Boolean {
+    fun ensureUploadRuntimeReady(mcVersion: McVersion): Boolean {
         val requirementMessage = uploadRuntimeRequirementMessageOrNull(mcVersion) ?: return true
         errorText = requirementMessage
         return false
@@ -654,7 +654,7 @@ fun ModpackUploadScreen2(
                 }
             } else {
                 Space8h()
-                TabRow(selectedTabIndex = selectedTab, backgroundColor = Color.White) {
+                TabRow(selectedTabIndex = selectedTab, containerColor = Color.White) {
                     Tab(
                         selected = selectedTab == 0,
                         onClick = { selectedTab = 0 },
@@ -682,7 +682,7 @@ fun ModpackUploadScreen2(
                     0 -> {
                         Column(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -743,7 +743,7 @@ fun ModpackUploadScreen2(
                                 )
                             }
                             Row(
-                                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 OutlinedTextField(
                                     value = modpackName,
@@ -845,29 +845,35 @@ fun ModpackUploadScreen2(
             if (loading) {
                 AlertDialog(
                     onDismissRequest = {},
-                    title = { Text("正在读取整合包") },
-                    text = {
-                        Column {
+                ) {
+                    Surface(
+                        shape = MaterialTheme.shapes.medium,
+                        color = MaterialTheme.colorScheme.surface,
+                        tonalElevation = 6.dp
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .widthIn(min = 280.dp, max = 420.dp)
+                                .padding(24.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text("正在读取整合包", style = MaterialTheme.typography.titleLarge)
                             Text(progressText ?: "正在处理...")
                             if (progressFraction != null) {
                                 LinearProgressIndicator(
                                     progress = progressFraction ?: 0f,
-                                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                                 Text(
                                     text = "${((progressFraction ?: 0f) * 100).toInt()}%",
-                                    style = MaterialTheme.typography.caption,
-                                    modifier = Modifier.padding(top = 8.dp)
+                                    style = MaterialTheme.typography.labelSmall,
                                 )
                             } else {
-                                LinearProgressIndicator(
-                                    modifier = Modifier.fillMaxWidth().padding(top = 12.dp)
-                                )
+                                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
                             }
                         }
-                    },
-                    buttons = {}
-                )
+                    }
+                }
             }
 
         }
@@ -904,7 +910,7 @@ fun ModpackUploadScreen2(
                         .fillMaxHeight(2f / 3f),
                     shape = MaterialTheme.shapes.medium,
                     color = Color.White,
-                    elevation = 8.dp
+                    shadowElevation = 8.dp
                 ) {
                     Column(
                         modifier = Modifier.fillMaxSize().padding(16.dp),

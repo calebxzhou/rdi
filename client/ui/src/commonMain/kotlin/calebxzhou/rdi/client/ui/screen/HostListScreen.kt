@@ -1,50 +1,29 @@
 package calebxzhou.rdi.client.ui.screen
 
+import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.foundation.lazy.grid.*
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.Const
-import calebxzhou.rdi.client.auth.LocalCredentials
-import calebxzhou.rdi.client.auth.updateLastPlayHost
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
-import calebxzhou.rdi.client.service.startPlay
-import calebxzhou.rdi.client.ui.CircleIconButton
-import calebxzhou.rdi.client.ui.FlowRowV
-import calebxzhou.rdi.client.ui.MainColumn
-import calebxzhou.rdi.client.ui.McPlayArgs
-import calebxzhou.rdi.client.ui.TitleTabBar
-import calebxzhou.rdi.client.ui.TitleTabItem
-import calebxzhou.rdi.client.ui.TitleRow
-import calebxzhou.rdi.client.ui.TitleRow2
+import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.isDav
-import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 
 /**
@@ -66,7 +45,10 @@ enum class HostTab(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+private const val HOST_TAB_FADE_DURATION_MS = 140
+private const val HOST_TAB_SLIDE_DURATION_MS = 180
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalAnimationApi::class)
 @Composable
 fun HostListScreen(
     onBack: (() -> Unit),
@@ -94,50 +76,69 @@ fun HostListScreen(
         }
         Spacer(modifier = Modifier.height(8.dp))
 
-        when (currentTab) {
-            HostTab.MyHosts -> HostBrowserPane(
-                title = "我的房间",
-                emptyStateText = "暂无你的房间，点击上方创建新房间或等待朋友邀请",
-                listPathForPage = { pageIndex -> "host/my/$pageIndex" },
-                onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, false) },
-                fromAllHosts = false,
-                onOpenMcVersions = onOpenMcVersions,
-                onOpenResourceMods = onOpenResourceMods,
-                onOpenMcPlay = onOpenMcPlay,
-                onOpenTaskList = onOpenTaskList
-            ) {
-                FlowRowV(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
+        AnimatedContent(
+            targetState = currentTab,
+            transitionSpec = {
+                val forward = HostTab.entries.indexOf(targetState) > HostTab.entries.indexOf(initialState)
+                val direction = if (forward) 1 else -1
+                (slideInHorizontally(
+                    animationSpec = tween(HOST_TAB_SLIDE_DURATION_MS),
+                    initialOffsetX = { it / 10 * direction }
+                ) + fadeIn(animationSpec = tween(HOST_TAB_FADE_DURATION_MS))) togetherWith
+                        (slideOutHorizontally(
+                            animationSpec = tween(HOST_TAB_SLIDE_DURATION_MS),
+                            targetOffsetX = { -it / 10 * direction }
+                        ) + fadeOut(animationSpec = tween(HOST_TAB_FADE_DURATION_MS))) using
+                        SizeTransform(clip = false)
+            },
+            modifier = Modifier.fillMaxSize(),
+            label = "HostTabContent"
+        ) { activeTab ->
+            when (activeTab) {
+                HostTab.MyHosts -> HostBrowserPane(
+                    title = "我的房间",
+                    emptyStateText = "暂无你的房间，点击上方创建新房间或等待朋友邀请",
+                    listPathForPage = { pageIndex -> "host/my/$pageIndex" },
+                    onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, false) },
+                    fromAllHosts = false,
+                    onOpenMcVersions = onOpenMcVersions,
+                    onOpenResourceMods = onOpenResourceMods,
+                    onOpenMcPlay = onOpenMcPlay,
+                    onOpenTaskList = onOpenTaskList
                 ) {
-                    Text("显示你创建/受邀的房间")
-                    CircleIconButton("\uDB81\uDC90", "创建新房间") {
-                        onOpenHostCreate()
+                    FlowRowV(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("显示你创建/受邀的房间")
+                        CircleIconButton("\uDB81\uDC90", "创建新房间") {
+                            onOpenHostCreate()
+                        }
                     }
                 }
+
+                HostTab.AllHosts -> HostBrowserPane(
+                    title = "所有房间",
+                    emptyStateText = "暂无可展示的房间",
+                    listPathForPage = { pageIndex -> "host/list/$pageIndex" },
+                    onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, true) },
+                    fromAllHosts = true,
+                    onOpenMcVersions = onOpenMcVersions,
+                    onOpenResourceMods = onOpenResourceMods,
+                    onOpenMcPlay = onOpenMcPlay,
+                    onOpenTaskList = onOpenTaskList
+                )
+
+                HostTab.Mail -> MailPane(
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                HostTab.Worlds -> WorldListPane(
+                    onOpenBirdView = onOpenBirdView,
+                    onOpenLocalBirdView = onOpenLocalBirdView,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
-
-            HostTab.AllHosts -> HostBrowserPane(
-                title = "所有房间",
-                emptyStateText = "暂无可展示的房间",
-                listPathForPage = { pageIndex -> "host/list/$pageIndex" },
-                onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, true) },
-                fromAllHosts = true,
-                onOpenMcVersions = onOpenMcVersions,
-                onOpenResourceMods = onOpenResourceMods,
-                onOpenMcPlay = onOpenMcPlay,
-                onOpenTaskList = onOpenTaskList
-            )
-
-            HostTab.Mail -> MailPane(
-                modifier = Modifier.fillMaxSize()
-            )
-
-            HostTab.Worlds -> WorldListPane(
-                onOpenBirdView = onOpenBirdView,
-                onOpenLocalBirdView = onOpenLocalBirdView,
-                modifier = Modifier.fillMaxSize()
-            )
         }
     }
 }
@@ -215,7 +216,7 @@ internal fun HostBrowserPane(
     Column(modifier = modifier.fillMaxSize()) {
         if (errorMessage != null) {
             Spacer(modifier = Modifier.height(8.dp))
-            Text(errorMessage!!, color = MaterialTheme.colors.error)
+            Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
         }
         if (headerActions != null) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -231,7 +232,7 @@ internal fun HostBrowserPane(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = emptyStateText,
-                    style = MaterialTheme.typography.h6
+                    style = MaterialTheme.typography.titleLarge
                 )
             }
         } else {
@@ -271,7 +272,7 @@ internal fun HostBrowserPane(
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(
                             "以下房间由于不在线或已启用白名单，无法游玩",
-                            style = MaterialTheme.typography.subtitle1
+                            style = MaterialTheme.typography.titleMedium
                         )
                     }
                     items(nonPlayableHosts) { host ->

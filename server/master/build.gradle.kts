@@ -2,19 +2,21 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.gradle.api.tasks.testing.Test
 
-val ktorVersion = "3.4.2"
-val nettyTcNativeVersion = "2.0.76.Final"
-
 plugins {
     application
-    kotlin("jvm") version "2.3.20"
-    kotlin("plugin.serialization") version "2.3.20"
-    id("io.ktor.plugin") version "3.4.2"
+    idea
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.ktor)
 }
 
 group = "calebxzhou.rdi"
 version = "1.0-SNAPSHOT"
-
+idea {
+    module {
+        excludeDirs = excludeDirs + file("run") + file("logs")
+    }
+}
 repositories {
     mavenLocal()
     mavenCentral()
@@ -25,46 +27,34 @@ repositories {
 }
 
 dependencies {
-    implementation(project(":common"))
-    implementation("ch.qos.logback:logback-classic:1.5.18")
-    implementation("io.ktor:ktor-server-core:$ktorVersion")
-    implementation("io.ktor:ktor-server-netty:$ktorVersion")
-    implementation("io.ktor:ktor-server-compression:$ktorVersion")
-    implementation("io.ktor:ktor-server-compression-zstd:${ktorVersion}")
-    implementation("io.ktor:ktor-server-status-pages:$ktorVersion")
-    implementation("io.ktor:ktor-server-auth:$ktorVersion")
-    implementation("io.ktor:ktor-server-auth-jwt:$ktorVersion")
-    implementation("io.ktor:ktor-server-content-negotiation:$ktorVersion")
-    implementation("io.ktor:ktor-server-sse:$ktorVersion")
-    implementation("io.ktor:ktor-server-websockets:$ktorVersion")
-    implementation("io.netty:netty-tcnative-boringssl-static:$nettyTcNativeVersion:linux-x86_64")
-    implementation("io.ktor:ktor-client-core:$ktorVersion")
-    implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
-    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
-    implementation("io.ktor:ktor-client-encoding:$ktorVersion")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-    implementation("net.peanuuutz.tomlkt:tomlkt:0.5.0")
-    implementation("io.github.oshai:kotlin-logging-jvm:7.0.6")
+    implementation(project(":misc"))
+    implementation(project(":model"))
+    implementation(project(":net"))
+    implementation(project(":archive"))
+    implementation(project(":anvilrw"))
+    implementation(project(":ai"))
+    implementation(libs.logback.classic)
+    implementation(libs.bundles.ktor.server)
+    implementation("io.netty:netty-tcnative-boringssl-static:${libs.versions.netty.tcnative.get()}:linux-x86_64")
+    implementation(libs.bundles.ktor.client)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.tomlkt)
+    implementation(libs.kotlin.logging.jvm)
     // Source: https://mvnrepository.com/artifact/org.mongodb/bson-kotlinx
-    implementation("org.mongodb:bson-kotlinx:5.6.5")
-    implementation("org.mongodb:mongodb-driver-kotlin-coroutine:5.5.1")
-    implementation("net.benwoodworth.knbt:knbt:0.11.8")
-    implementation("com.github.docker-java:docker-java:3.7.0")
-    implementation("com.github.docker-java:docker-java-transport-okhttp:3.7.0")
-    implementation("org.apache.commons:commons-compress:1.27.1")
-    implementation("org.bouncycastle:bcpkix-jdk18on:1.84")
-    implementation("org.eclipse.angus:jakarta.mail:2.0.5")
-    implementation("org.lionsoul:ip2region:3.3.7")
-    implementation("calebxzhou.mykotutils:std:0.1")
-    implementation("calebxzhou.mykotutils:log:0.1")
-    implementation("calebxzhou.mykotutils:curseforge:0.1")
-    implementation("calebxzhou.mykotutils:hwspec:0.1")
-    implementation("com.github.luben:zstd-jni:1.5.7-7")
+    implementation(libs.mongodb.bson.kotlinx)
+    implementation(libs.mongodb.driver.kotlin.coroutine)
+    implementation(libs.knbt)
+    implementation(libs.bundles.docker.java)
+    implementation(libs.commons.compress)
+    implementation(libs.bouncycastle.bcpkix)
+    implementation(libs.jakarta.mail)
+    implementation(libs.ip2region)
+    implementation(libs.bundles.mykotutils)
+    implementation(libs.zstd.jni)
 
     testImplementation(kotlin("test"))
-    testImplementation("io.mockk:mockk:1.13.12")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
 
 ktor {

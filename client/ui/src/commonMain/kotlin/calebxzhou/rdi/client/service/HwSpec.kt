@@ -1,8 +1,8 @@
 package calebxzhou.rdi.client.service
 
 
-import calebxzhou.rdi.common.hwspec.HwSpec
-import calebxzhou.rdi.common.hwspec.HwSpec.*
+import calebxzhou.rdi.common.model.HwSpec
+import calebxzhou.rdi.common.model.HwSpec.*
 import calebxzhou.rdi.common.serdesJson
 import oshi.SystemInfo
 import oshi.util.EdidUtil

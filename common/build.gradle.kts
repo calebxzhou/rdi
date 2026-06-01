@@ -1,28 +1,19 @@
 import org.gradle.api.JavaVersion
-import org.gradle.api.publish.maven.MavenPublication
-import org.gradle.api.publish.PublishingExtension
-import org.gradle.api.plugins.JavaPlugin
-import org.gradle.api.plugins.JavaPluginExtension
 import org.gradle.api.tasks.compile.JavaCompile
-import org.gradle.api.tasks.SourceSetContainer
-import org.gradle.api.tasks.bundling.Jar
-import org.gradle.api.tasks.javadoc.Javadoc
-import org.gradle.api.tasks.testing.Test
 import org.gradle.jvm.toolchain.JavaLanguageVersion
-import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
-	kotlin("jvm")
-	kotlin("plugin.serialization")
+    `java-library`
+    kotlin("jvm")
+    kotlin("plugin.serialization")
 }
 
 group = "calebxzhou.rdi.common"
 version = "0.1"
 
-val ktorVersion = "3.4.2"
-val kotlinLoggingVersion = "8.0.01"
 val commonJavaSdkVersion = 25
-val commonJvmTarget = JvmTarget.JVM_25
+
 repositories {
     mavenLocal()
     mavenCentral()
@@ -31,7 +22,7 @@ repositories {
 kotlin {
     jvmToolchain(commonJavaSdkVersion)
     compilerOptions {
-        jvmTarget.set(commonJvmTarget)
+        jvmTarget.set(JvmTarget.JVM_25)
     }
 }
 
@@ -44,33 +35,9 @@ java {
 }
 
 tasks.withType<JavaCompile>().configureEach {
-    options.release.set(25)
+    options.release.set(commonJavaSdkVersion)
 }
 
 dependencies {
-    implementation("calebxzhou.mykotutils:std:0.1")
-    implementation("calebxzhou.mykotutils:log:0.1")
-    implementation("ch.qos.logback:logback-classic:1.5.32")
-    implementation("org.jsoup:jsoup:1.22.2")
-    implementation("org.mongodb:bson:5.6.5")
-    // Source: https://mvnrepository.com/artifact/org.mongodb/bson-kotlinx
-    implementation("org.mongodb:bson-kotlinx:5.6.5")
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    implementation("net.peanuuutz.tomlkt:tomlkt:0.5.0")
-
-    implementation("io.ktor:ktor-client-core:${ktorVersion}")
-    implementation("io.ktor:ktor-client-okhttp:${ktorVersion}")
-    implementation("io.ktor:ktor-client-content-negotiation:${ktorVersion}")
-    implementation("io.ktor:ktor-client-content-negotiation:${ktorVersion}")
-    implementation("io.ktor:ktor-client-encoding:${ktorVersion}")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:${ktorVersion}")
-
-    implementation("io.github.oshai:kotlin-logging-jvm:${kotlinLoggingVersion}")
-    testImplementation("io.github.oshai:kotlin-logging-jvm:${kotlinLoggingVersion}")
-    implementation("org.apache.commons:commons-compress:1.28.0")
-    compileOnly("com.github.luben:zstd-jni:1.5.7-7")
-
-    implementation("net.benwoodworth.knbt:knbt:0.11.9")
-
-	testImplementation(kotlin("test"))
+    testImplementation(kotlin("test"))
 }

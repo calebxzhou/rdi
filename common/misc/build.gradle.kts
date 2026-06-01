@@ -1,0 +1,22 @@
+plugins {
+    `java-library`
+    kotlin("jvm")
+    kotlin("plugin.serialization")
+}
+
+group = "calebxzhou.rdi.common"
+version = "0.1"
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    api(libs.kotlinx.serialization.json)
+    api(libs.mongodb.bson)
+    api(libs.mongodb.bson.kotlinx)
+    api(libs.tomlkt)
+    implementation(libs.mykotutils.std)
+    implementation(libs.kotlinx.coroutines.core)
+}

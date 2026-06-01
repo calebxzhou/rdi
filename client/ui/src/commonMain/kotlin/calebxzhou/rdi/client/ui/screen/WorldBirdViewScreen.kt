@@ -5,9 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.ScrollableTabRow
-import androidx.compose.material.Tab
-import androidx.compose.material.Text
+import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.Tab
+import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -577,7 +577,7 @@ fun WorldBirdViewScreen(
                         modifier = Modifier.align(Alignment.Center),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        androidx.compose.material.CircularProgressIndicator()
+                        androidx.compose.material3.CircularProgressIndicator()
                         Spacer(modifier = Modifier.height(8.dp))
                         Text("并行加载 $activeLoadCount")
                         loadingChunkRanges.firstOrNull()?.let {

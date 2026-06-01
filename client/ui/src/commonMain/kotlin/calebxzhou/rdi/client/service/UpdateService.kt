@@ -6,6 +6,7 @@ import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.net.downloadFileFrom
+import calebxzhou.rdi.common.util.humanSpeed
 import java.io.File
 import java.security.MessageDigest
 
@@ -90,8 +91,7 @@ object UpdateService {
                 ?.let { String.format("%.1f%%", it) } ?: "--"
             val downloadedText = downloadedBytes.takeIf { it > 0 }?.humanFileSize ?: "0B"
             val totalText = totalBytes.takeIf { it > 0 }?.humanFileSize ?: "--"
-            val speedText = dl.speedBytesPerSecond.takeIf { it > 0 }
-                ?.let { "${it / 1000}KB/s" } ?: "--"
+            val speedText = dl.speedBytesPerSecond.humanSpeed
             onDetail("$label $percentText $downloadedText/$totalText $speedText")
         }.getOrElse {
             it.printStackTrace()

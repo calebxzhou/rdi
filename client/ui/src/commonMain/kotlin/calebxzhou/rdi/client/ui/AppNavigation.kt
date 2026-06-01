@@ -1,15 +1,15 @@
 package calebxzhou.rdi.client.ui
 
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
-import androidx.compose.material.Typography
-import androidx.compose.material3.MaterialTheme as MaterialTheme3
-import androidx.compose.material3.Typography as Typography3
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
@@ -17,7 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -26,7 +26,6 @@ import androidx.navigation.toRoute
 import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.model.BSSkinData
 import calebxzhou.rdi.client.proxy.LocalMcProxy
-import calebxzhou.rdi.client.UIFontFamily
 import calebxzhou.rdi.client.service.LOCAL_WORLD_BIRD_VIEW_ROUTE_ID
 import calebxzhou.rdi.client.service.WorldBirdViewSourceSpec
 import calebxzhou.rdi.client.service.WorldBirdViewStore
@@ -35,34 +34,7 @@ import calebxzhou.rdi.common.model.McVersion
 import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 
-/**
- * Common Typography using the cross-platform UIFontFamily.
- */
-val AppTypography: Typography
-    @Composable get() = Typography(defaultFontFamily = UIFontFamily)
-
-private fun TextStyle.withUiFontFamily() = copy(fontFamily = UIFontFamily)
-
-val AppTypography3: Typography3
-    get() = Typography3().run {
-        copy(
-            displayLarge = displayLarge.withUiFontFamily(),
-            displayMedium = displayMedium.withUiFontFamily(),
-            displaySmall = displaySmall.withUiFontFamily(),
-            headlineLarge = headlineLarge.withUiFontFamily(),
-            headlineMedium = headlineMedium.withUiFontFamily(),
-            headlineSmall = headlineSmall.withUiFontFamily(),
-            titleLarge = titleLarge.withUiFontFamily(),
-            titleMedium = titleMedium.withUiFontFamily(),
-            titleSmall = titleSmall.withUiFontFamily(),
-            bodyLarge = bodyLarge.withUiFontFamily(),
-            bodyMedium = bodyMedium.withUiFontFamily(),
-            bodySmall = bodySmall.withUiFontFamily(),
-            labelLarge = labelLarge.withUiFontFamily(),
-            labelMedium = labelMedium.withUiFontFamily(),
-            labelSmall = labelSmall.withUiFontFamily()
-        )
-    }
+private const val SCREEN_FADE_DURATION_MS = 500
 
 private inline fun <reified T : Any> NavHostController.navigateAbsolute(route: T) {
     navigate(route) {
@@ -83,8 +55,6 @@ private inline fun <reified T : Any> NavHostController.navigateAbsolute(route: T
 fun AppNavigation(
     startDestination: Any = Login,
 ) {
-    MaterialTheme(typography = AppTypography) {
-        MaterialTheme3(typography = AppTypography3) {
         val navController = rememberNavController()
         val scope = rememberCoroutineScope()
         // Android FCL launch dialog
@@ -142,10 +112,13 @@ fun AppNavigation(
         NavHost(
             navController = navController,
             startDestination = startDestination,
-            enterTransition = { EnterTransition.None },
-            exitTransition = { ExitTransition.None },
-            popEnterTransition = { EnterTransition.None },
-            popExitTransition = { ExitTransition.None }
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background),
+            enterTransition = { fadeIn(animationSpec = tween(SCREEN_FADE_DURATION_MS)) },
+            exitTransition = { fadeOut(animationSpec = tween(SCREEN_FADE_DURATION_MS)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(SCREEN_FADE_DURATION_MS)) },
+            popExitTransition = { fadeOut(animationSpec = tween(SCREEN_FADE_DURATION_MS)) }
         ) {
             composable<Login> {
                 LoginScreen(
@@ -469,8 +442,6 @@ fun AppNavigation(
             }
 
         }
-        }
-    }
 }
 
 private fun String.withGameAddr(gameAddr: String): String {

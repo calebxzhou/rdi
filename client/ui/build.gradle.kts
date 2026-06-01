@@ -1,44 +1,34 @@
 import org.gradle.api.GradleException
+import org.gradle.api.internal.artifacts.dsl.dependencies.DependenciesExtensionModule.module
 import org.gradle.jvm.tasks.Jar
 import org.gradle.jvm.toolchain.JavaToolchainService
+import org.gradle.kotlin.dsl.compileOnly
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 
-val ktorVersion = "3.4.2"
-val coroutinesVersion = "1.10.2"
-val zstdVer = "1.5.7-7"
-val desugarVersion = "2.1.5"
-val desktopJavaSdkVersion = 25
-val desktopJvmTarget = JvmTarget.JVM_25
-val version = "5.16"
+val appVersion = libs.versions.app.get()
+val appVersionCode = libs.versions.version.code.get().toInt()
+val javaVersion = libs.versions.java.get()
+val javaVersionInt = javaVersion.toInt()
+val jvmTargetVersion = JvmTarget.fromTarget(javaVersion)
 val devMode = providers.gradleProperty("rdi.devMode")
     .map(String::toBoolean)
     .orElse(true)
-project.version = version
+project.version = appVersion
 
 val javaToolchainService = project.extensions.getByType<JavaToolchainService>()
 
-val nettyVersion = "4.2.9.Final"
-val desktopNettyModules = listOf(
-    "io.netty:netty-common:$nettyVersion",
-    "io.netty:netty-buffer:$nettyVersion",
-    "io.netty:netty-transport:$nettyVersion",
-    "io.netty:netty-resolver:$nettyVersion",
-    "io.netty:netty-codec:$nettyVersion",
-    "io.netty:netty-handler:$nettyVersion"
-)
-
 plugins {
-    kotlin("multiplatform") version "2.3.20"
-    kotlin("plugin.serialization") version "2.3.20"
-    id("org.jetbrains.kotlin.plugin.compose") version "2.3.20"
-    id("org.jetbrains.compose") version "1.10.3"
-    id("com.android.application") version "8.13.2"
+    alias(libs.plugins.kotlin.multiplatform)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.compose)
+    alias(libs.plugins.android.application)
     idea
 }
 
 dependencies {
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:$desugarVersion")
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 }
 
 tasks.named<Wrapper>("wrapper") {
@@ -57,7 +47,7 @@ base {
 }
 
 kotlin {
-    jvmToolchain(desktopJavaSdkVersion)
+    jvmToolchain(javaVersionInt)
 
     sourceSets.all {
         languageSettings.optIn("androidx.compose.material3.ExperimentalMaterial3Api")
@@ -65,46 +55,43 @@ kotlin {
 
     jvm("desktop") {
         compilerOptions {
-            jvmTarget.set(desktopJvmTarget)
+            jvmTarget.set(jvmTargetVersion)
         }
     }
 
     androidTarget {
         compilerOptions {
-            jvmTarget.set(desktopJvmTarget)
+            jvmTarget.set(jvmTargetVersion)
         }
     }
-
     sourceSets {
         val commonMain by getting {
             dependencies {
-                val composeVersion = "1.10.3"
-                val markdownRendererVersion = "0.40.2"
-                implementation("org.jetbrains.compose.runtime:runtime:$composeVersion")
-                implementation("org.jetbrains.compose.foundation:foundation:$composeVersion")
-                implementation("org.jetbrains.compose.material:material:$composeVersion")
-                implementation("org.jetbrains.compose.ui:ui:$composeVersion")
-                implementation("com.mikepenz:multiplatform-markdown-renderer:$markdownRendererVersion")
-                implementation("com.mikepenz:multiplatform-markdown-renderer-m3:$markdownRendererVersion")
-                implementation("org.jetbrains.kotlinx:kotlinx-datetime:0.7.1")
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-                implementation(project(":common"))
+                implementation(libs.compose.runtime)
+                implementation(libs.compose.foundation)
+                implementation(libs.compose.ui)
+                implementation(libs.markdown.renderer)
+                implementation(libs.markdown.renderer.m3)
+                implementation(libs.kotlinx.datetime)
+                implementation(libs.kotlinx.serialization.json)
+                implementation(project(":misc"))
+                implementation(project(":model"))
+                implementation(project(":net"))
+                implementation(project(":archive"))
+                implementation(project(":ai"))
                 // Source: https://mvnrepository.com/artifact/org.joml/joml
-                implementation("org.joml:joml:1.10.8")
-                implementation("net.raphimc:MinecraftAuth:5.0.0")
-                implementation("io.ktor:ktor-client-core:$ktorVersion")
-                implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
-                implementation("io.ktor:ktor-client-encoding:$ktorVersion")
-                implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
-                implementation("io.github.oshai:kotlin-logging-jvm:8.0.01")
-                implementation("calebxzhou.mykotutils:std:0.1")
-                implementation("calebxzhou.mykotutils:log:0.1")
-                implementation("org.mongodb:bson:5.6.5")
-                implementation("org.mongodb:bson-kotlinx:5.6.5")
-                implementation("org.jetbrains.androidx.navigation:navigation-compose:2.9.2")
-                implementation("org.jetbrains.compose.material3:material3:1.10.0-alpha05")
-                implementation("net.peanuuutz.tomlkt:tomlkt:0.5.0")
-                implementation("com.github.oshi:oshi-core:6.11.1") {
+                implementation(libs.joml)
+                implementation(libs.minecraft.auth)
+                implementation(libs.bundles.ktor.common)
+                implementation(libs.bundles.ktor.json.client)
+                implementation(libs.kotlin.logging.jvm)
+                implementation(libs.mykotutils.std)
+                implementation(libs.mykotutils.log)
+                implementation(libs.bundles.mongodb)
+                implementation(libs.navigation.compose)
+                implementation(libs.compose.material3)
+                implementation(libs.tomlkt)
+                implementation("com.github.oshi:oshi-core:${libs.versions.oshi.common.get()}") {
                     exclude(group = "net.java.dev.jna")
                 }
             }
@@ -113,17 +100,17 @@ kotlin {
         val desktopMain by getting {
             dependencies {
                 implementation(compose.desktop.currentOs)
-                implementation("org.jetbrains.kotlinx:kotlinx-coroutines-swing:$coroutinesVersion")
-                implementation("org.jetbrains.androidx.navigation:navigation-compose:2.9.2")
-                implementation("org.jetbrains.compose.material3:material3-desktop:1.10.0-alpha05")
-                implementation("com.github.luben:zstd-jni:$zstdVer:win_amd64")
+                implementation(libs.kotlinx.coroutines.swing)
+                implementation(libs.navigation.compose)
+                implementation(libs.compose.material3.desktop)
+               // implementation("com.github.luben:zstd-jni:${libs.versions.zstd.get()}:win_amd64")
     
                 // JNA/Oshi dependencies (JNA excluded from commonMain)
-                implementation("net.java.dev.jna:jna:5.18.1")
-                implementation("net.java.dev.jna:jna-platform:5.18.1")
+                implementation(libs.jna)
+                implementation(libs.jna.platform)
 
 
-                val lwjglVersion = "3.4.1"
+                val lwjglVersion = libs.versions.lwjgl.get()
                 val components = listOf("", "glfw", "opengl")
                 components.forEach { component ->
                     val suffix = if (component.isNotEmpty()) "-$component" else ""
@@ -131,33 +118,36 @@ kotlin {
                     implementation("org.lwjgl:lwjgl${suffix}:$lwjglVersion:natives-windows")
                 }
 
-                desktopNettyModules.forEach(::implementation)
-                implementation(project(":common"))
+                implementation(libs.bundles.netty.desktop)
+                implementation(project(":misc"))
+                implementation(project(":model"))
+                implementation(project(":net"))
+                implementation(project(":archive"))
+                implementation(project(":anvilrw"))
+                implementation(project(":ai"))
 
 
-                runtimeOnly("org.hotswapagent:hotswap-agent-core:2.0.1")
-                implementation("com.github.oshi:oshi-core:6.11.1")
-                implementation("ch.qos.logback:logback-classic:1.5.32")
-                implementation("io.github.oshai:kotlin-logging-jvm:8.0.01")
-                implementation("org.yaml:snakeyaml:2.6")
+                //runtimeOnly(libs.hotswap.agent.core)
+                implementation(libs.oshi.core.desktop)
+                implementation(libs.logback.classic)
+                implementation(libs.kotlin.logging.jvm)
+                implementation(libs.snakeyaml)
 
 
-                implementation("calebxzhou.mykotutils:std:0.1")
-                implementation("calebxzhou.mykotutils:log:0.1")
+                implementation(libs.mykotutils.std)
+                implementation(libs.mykotutils.log)
 
-                implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
-                implementation("io.ktor:ktor-client-core:$ktorVersion")
-                implementation("io.ktor:ktor-client-auth:$ktorVersion")
-                implementation("io.ktor:ktor-client-encoding:$ktorVersion")
-                implementation("org.jsoup:jsoup:1.22.2")
-                implementation("org.mongodb:bson:5.6.5")
-                implementation("org.mongodb:bson-kotlinx:5.6.5")
-                implementation("com.github.ben-manes.caffeine:caffeine:3.2.3")
+                implementation(libs.ktor.client.okhttp)
+                implementation(libs.bundles.ktor.common)
+                implementation(libs.ktor.client.auth)
+                implementation(libs.jsoup)
+                implementation(libs.bundles.mongodb)
+                implementation(libs.caffeine)
 
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-                implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
-                implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
-                implementation("org.apache.maven:maven-artifact:3.9.14")
+                implementation(libs.kotlinx.serialization.json)
+                implementation(libs.bundles.ktor.json.client)
+                implementation(libs.maven.artifact)
+                implementation(libs.zstd.jni)
             }
         }
 
@@ -169,26 +159,29 @@ kotlin {
 
         val androidMain by getting {
             dependencies {
-                implementation(project(":common"))
-                implementation("io.ktor:ktor-client-android:$ktorVersion")
-                implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
-                implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
-                implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-                implementation("androidx.activity:activity-compose:1.12.4")
+                implementation(project(":misc"))
+                implementation(project(":model"))
+                implementation(project(":net"))
+                implementation(project(":archive"))
+                implementation(project(":ai"))
+                implementation(libs.ktor.client.android)
+                implementation(libs.bundles.ktor.json.client)
+                implementation(libs.kotlinx.serialization.json)
+                implementation(libs.activity.compose)
                 // Use slf4j-simple on Android instead of logback (logback uses Class.getModule() which doesn't exist on Android)
-                implementation("org.slf4j:slf4j-simple:2.0.17")
-                implementation("org.yaml:snakeyaml:2.6")
+                implementation(libs.slf4j.simple)
+                implementation(libs.snakeyaml)
                 // JNA AAR includes Android native .so files (regular JAR only has desktop natives)
-                implementation("net.java.dev.jna:jna:5.18.1@aar")
+                implementation("net.java.dev.jna:jna:${libs.versions.jna.get()}@aar")
                 // JNA Platform JAR (interfaces only, safe for Android if excluded JNA JAR)
-                implementation("net.java.dev.jna:jna-platform:5.18.1") {
+                implementation("net.java.dev.jna:jna-platform:${libs.versions.jna.get()}") {
                     exclude(module = "jna")
                 }
                 // oshi with JNA JAR excluded (AAR above replaces it)
-                implementation("com.github.oshi:oshi-core:6.9.3") {
+                implementation("com.github.oshi:oshi-core:${libs.versions.oshi.android.get()}") {
                     exclude(group = "net.java.dev.jna")
                 }
-                implementation("com.github.luben:zstd-jni:$zstdVer@aar")
+                implementation("com.github.luben:zstd-jni:${libs.versions.zstd.get()}@aar")
             }
             // Exclude logback from all transitive dependencies in Android
             configurations.all {
@@ -209,22 +202,22 @@ kotlin {
 
 android {
     namespace = "calebxzhou.rdi.client"
-    compileSdk = 36
+    compileSdk = libs.versions.compile.sdk.get().toInt()
 
     defaultConfig {
         applicationId = "calebxzhou.rdi.client"
-        minSdk = 26
-        targetSdk = 36
-        versionCode = 1
-        versionName = version
+        minSdk = libs.versions.min.sdk.get().toInt()
+        targetSdk = libs.versions.target.sdk.get().toInt()
+        versionCode = appVersionCode
+        versionName = appVersion
     }
 
     sourceSets["main"].assets.srcDir("src/commonMain/resources")
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_25
-        targetCompatibility = JavaVersion.VERSION_25
+        sourceCompatibility = JavaVersion.toVersion(javaVersionInt)
+        targetCompatibility = JavaVersion.toVersion(javaVersionInt)
     }
 
    /* signingConfigs {
@@ -286,22 +279,22 @@ compose.desktop {
 allprojects {
     configurations.all {
         resolutionStrategy {
-            force("org.slf4j:slf4j-api:2.0.16")
+            force("org.slf4j:slf4j-api:${libs.versions.slf4j.api.get()}")
         }
     }
 }
 
 configurations.configureEach {
     resolutionStrategy {
-        force("com.ibm.icu:icu4j:76.1")
-        force("it.unimi.dsi:fastutil:8.5.15")
+        force("com.ibm.icu:icu4j:${libs.versions.icu4j.get()}")
+        force("it.unimi.dsi:fastutil:${libs.versions.fastutil.get()}")
     }
 }
 
 tasks.withType<JavaCompile>().configureEach {
     options.encoding = "UTF-8"
     if (!name.endsWith("JavaWithJavac")) {
-        options.release.set(25)
+        options.release.set(javaVersionInt)
     }
 }
 
@@ -393,7 +386,7 @@ registerCopyTask("出core2-release", listOf("\\\\rdi\\rdi55\\ihq\\client-libs\\l
 tasks.register("makeShipPack") {
     notCompatibleWithConfigurationCache("uses project file operations and external process execution at execution time")
     val shipDir = File(System.getProperty("user.home"), "Documents/rdi5ship")
-    val filesNeed = listOf("lib", "双击启动.ps1", "fonts")
+    val filesNeed = listOf("lib", "启动.exe", "fonts")
     val archiveFile = File(shipDir, "rdi-${version}.7z")
     group = "distribution"
     description = "Create shipping 7z archive in Documents/rdi5ship with LZMA2 multi-thread compression."
@@ -425,7 +418,7 @@ tasks.register("makeShipPack") {
             archiveFile.absolutePath,
             "lib",
             "fonts",
-            "双击启动.ps1"
+            "启动.exe"
         ).directory(shipDir)
             .inheritIO()
             .start()

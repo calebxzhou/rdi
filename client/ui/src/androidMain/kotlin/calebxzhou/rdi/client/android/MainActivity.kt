@@ -14,11 +14,10 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.AlertDialog
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Surface
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -32,6 +31,7 @@ import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.ui.AppNavigation
+import calebxzhou.rdi.client.ui.RdiTheme
 import calebxzhou.rdi.client.ui.checkLauncherInstalled
 import calebxzhou.rdi.client.ui.openUrl
 import calebxzhou.rdi.client.ui.screen.Login
@@ -98,7 +98,7 @@ class MainActivity : ComponentActivity() {
         refreshNodeSettingsOnStartup()
         setContent {
             val showFclDialog = remember { mutableStateOf(!checkLauncherInstalled()) }
-            MaterialTheme {
+            RdiTheme {
                 if (showFclDialog.value) {
                     AlertDialog(
                         onDismissRequest = { showFclDialog.value = false },

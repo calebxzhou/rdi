@@ -10,7 +10,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.material.OutlinedTextField
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.RadioButton as M3RadioButton
@@ -51,9 +51,9 @@ import calebxzhou.rdi.client.service.startPlay
 import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.*
-import calebxzhou.rdi.common.extension.isAdmin
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
+import calebxzhou.rdi.common.model.isAdmin
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.TaczGunpackValidator

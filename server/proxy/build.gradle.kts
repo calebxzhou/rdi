@@ -20,7 +20,9 @@ repositories {
 
 dependencies {
     testImplementation(kotlin("test"))
-    implementation(project(":common"))
+    implementation(project(":misc"))
+    implementation(project(":model"))
+    implementation(project(":net"))
     implementation(kotlin("reflect"))
     implementation("io.ktor:ktor-client-core:$ktorVersion")
     implementation("io.ktor:ktor-client-okhttp:$ktorVersion")

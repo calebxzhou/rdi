@@ -23,10 +23,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.CircularProgressIndicator
-import androidx.compose.material.MaterialTheme
-import androidx.compose.material.Text
-import androidx.compose.material.TextButton
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -177,7 +177,7 @@ fun RemoteModScreen(
                 state = searchState,
                 placeholder = { Text("搜索模组") },
                 lineLimits = TextFieldLineLimits.SingleLine,
-                textStyle = MaterialTheme.typography.body2,
+                textStyle = MaterialTheme.typography.bodyMedium,
                 shape = RoundedCornerShape(14.dp),
                 contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
                 modifier = Modifier
@@ -194,8 +194,9 @@ fun RemoteModScreen(
             )
             Space8w()
             CircleIconButton(
-                icon = "\uE721",
-                tooltip = "搜索模组",
+                icon = "\uF002",
+                tooltip = "搜索",
+                showText = false,
                 bgColor = MaterialColor.BLUE_700.color
             ) {
                 submitSearch()
@@ -209,7 +210,7 @@ fun RemoteModScreen(
             modifier = modifier,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            RemoteModFilterSection("排序") {
+            /*RemoteModFilterSection("排序") {
                 RemoteModFilterGrid(
                     items = listOf(
                         RemoteModFilterChipItem("相关", selectedSort == ModrinthSearchIndex.RELEVANCE) {
@@ -226,8 +227,8 @@ fun RemoteModScreen(
                         }
                     )
                 )
-            }
-            RemoteModFilterSection("来源") {
+            }*/
+            /*RemoteModFilterSection("来源") {
                 RemoteModFilterGrid(
                     items = listOf(
                         RemoteModFilterChipItem("全部", selectedSourceFilter == RemoteModSourceFilter.ALL) {
@@ -247,11 +248,10 @@ fun RemoteModScreen(
                             showText = false,
                             tooltip = "CurseForge"
                         ) { selectedSourceFilter = RemoteModSourceFilter.CURSEFORGE }
-                    ),
-                    columns = 3
+                    )
                 )
-            }
-            RemoteModFilterSection("MC版本") {
+            }*/
+            RemoteModFilterSection("MC") {
                 val versions = lockedMcVer?.let(::listOf) ?: McVersion.entries.filter { it.enabled }
                 RemoteModFilterGrid(
                     items = versions.map { version ->
@@ -307,7 +307,7 @@ fun RemoteModScreen(
             }
             Text(
                 text = "共找到${if (loading) "--" else totalHits}个模组",
-                color = MaterialTheme.colors.onSurface.copy(alpha = 0.7f),
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -318,7 +318,7 @@ fun RemoteModScreen(
     fun ResultGrid(modifier: Modifier = Modifier) {
         Column(modifier = modifier.fillMaxSize()) {
             errorMessage?.let {
-                Text(it, color = MaterialTheme.colors.error)
+                Text(it, color = MaterialTheme.colorScheme.error)
                 Space8h()
             }
             if (loading) {
@@ -331,7 +331,7 @@ fun RemoteModScreen(
                 Space8h()
             }
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 430.dp),
+                columns = GridCells.Adaptive(minSize = 360.dp),
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 12.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -350,7 +350,7 @@ fun RemoteModScreen(
                     ) {
                         Text(
                             text = "没有找到符合条件的模组",
-                            color = MaterialTheme.colors.onSurface.copy(alpha = 0.65f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
                         )
                     }
                 }
@@ -405,7 +405,7 @@ fun RemoteModScreen(
             ) {
                 FilterSidebar(
                     modifier = Modifier
-                        .width(220.dp)
+                        .width(50.dp)
                         .fillMaxSize()
                         .verticalScroll(rememberScrollState())
                 )
@@ -564,7 +564,7 @@ private fun RemoteModFilterChip(
 @Composable
 private fun RemoteModFilterGrid(
     items: List<RemoteModFilterChipItem>,
-    columns: Int = 4
+    columns: Int = 1
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),

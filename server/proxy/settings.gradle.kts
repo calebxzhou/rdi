@@ -3,5 +3,6 @@ plugins {
 }
 
 rootProject.name = "s-proxy"
-include(":common")
-project(":common").projectDir = file("../../common")
+include(":model", ":net")
+project(":model").projectDir = file("../../common/model")
+project(":net").projectDir = file("../../common/net")

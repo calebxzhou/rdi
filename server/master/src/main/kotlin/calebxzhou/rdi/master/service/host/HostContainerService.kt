@@ -28,12 +28,12 @@ object HostContainerService {
         lwjgl3ifyRuntime: Lwjgl3ifyServerSupport.PreparedRuntime?
     ): MutableList<String> {
         val serverArgs = when (mcv) {
-            McVersion.V182,
+            //McVersion.V182,
             McVersion.V192,
             McVersion.V201,
             McVersion.V211 -> listOf(loaderVersion.serverArgsPath(true))
 
-            McVersion.V165 -> McVersion.V165.plusJvmArgs + listOf("-jar", loaderVersion.serverJarName)
+            //McVersion.V165 -> McVersion.V165.plusJvmArgs + listOf("-jar", loaderVersion.serverJarName)
             McVersion.V122 -> McVersion.V122.plusJvmArgs + listOf("-jar", loaderVersion.serverJarName)
             McVersion.V071 -> buildList {
                 if (lwjgl3ifyRuntime != null) {
@@ -130,7 +130,7 @@ object HostContainerService {
                         .withSource(source.absolutePath)
                         .withTarget("/opt/server/mods/${mod.fileName}")
                 }
-            if (listOf(McVersion.V165, McVersion.V122, McVersion.V071).any { it == modpack.mcVer }) {
+            if (listOf(/*McVersion.V165, */McVersion.V122, McVersion.V071).any { it == modpack.mcVer }) {
                 val loaderJar = lwjgl3ifyRuntime?.forgeUniversalJar
                     ?: sharedLibsDir.resolve(
                         if (modpack.mcVer == McVersion.V071 && modpack.modloader == ModLoader.forge) {

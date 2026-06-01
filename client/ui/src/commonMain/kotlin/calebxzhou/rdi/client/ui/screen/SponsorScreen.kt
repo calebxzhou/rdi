@@ -17,7 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import androidx.compose.material.Text
+import androidx.compose.material3.Text
 import calebxzhou.rdi.client.ui.MainBox
 import calebxzhou.rdi.client.ui.MainColumn
 import calebxzhou.rdi.client.ui.TitleRow

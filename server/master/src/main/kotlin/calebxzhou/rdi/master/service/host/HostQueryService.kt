@@ -75,7 +75,7 @@ object HostQueryService {
                     host.members.any { it.id == requesterId }
         }
         val visibleHosts = if (myOnly) {
-            memberHosts
+            memberHosts + otherHosts.filter { it.isPublic }
         } else {
             memberHosts + otherHosts
         }
