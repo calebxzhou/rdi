@@ -109,7 +109,6 @@ fun ResourceScreen(
                             InstalledResourcePane(
                                 onOpenPlay = onOpenPlay,
                                 onOpenTaskList = onOpenTaskList,
-                                showMcVersionShortcut = false,
                                 showPaneActions = true,
                                 modifier = Modifier.fillMaxSize()
                             )

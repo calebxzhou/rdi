@@ -245,7 +245,10 @@ fun Route.modpackRoutes() {
                         ?: throw RequestError("无此版本")
                 }
                 get("/client") {
-                    call.modpackGuardContext().version.clientPackFile.let { call.respondFile(it) }
+                    val ctx = call.modpackGuardContext()
+                    val file = ctx.version.clientPackFile
+                    DownloadQuotaService.reserve(ctx.player._id, file.length())
+                    call.respondFile(file)
                 }
                 get("/client/hash") {
                     call.modpackGuardContext().version.clientPackFile.let { response(data = it.sha1) }

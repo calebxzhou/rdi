@@ -78,7 +78,17 @@ object UpdateService {
         if (!parentDir.exists()) parentDir.mkdirs()
         val tempFile = File(parentDir, "${targetFile.name}.downloading.${System.currentTimeMillis()}")
 
-        tempFile.toPath().downloadFileFrom(downloadUrl) { dl ->
+        tempFile.toPath().downloadFileFrom(
+            url = downloadUrl,
+            validator = { path ->
+                val downloadedSha = path.toFile().sha1Hex()
+                if (downloadedSha.equals(expectedSha, true)) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(IllegalStateException("文件损坏了，请重下"))
+                }
+            }
+        ) { dl ->
             val totalBytes = dl.totalBytes
             val downloadedBytes = dl.bytesDownloaded.takeIf { it >= 0 } ?: 0L
             val percentValue = when {
@@ -96,14 +106,7 @@ object UpdateService {
         }.getOrElse {
             it.printStackTrace()
             tempFile.delete()
-            onDetail("下载失败，请检查网络后重试")
-            return false
-        }
-
-        val downloadedSha = tempFile.sha1Hex()
-        if (!downloadedSha.equals(expectedSha, true)) {
-            tempFile.delete()
-            onDetail("文件损坏了，请重下")
+            onDetail(it.message ?: "下载失败，请检查网络后重试")
             return false
         }
 

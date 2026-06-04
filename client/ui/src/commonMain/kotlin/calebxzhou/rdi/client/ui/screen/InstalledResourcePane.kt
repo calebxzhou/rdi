@@ -85,7 +85,6 @@ fun InstalledResourcePane(
     onOpenPlay: ((McPlayArgs) -> Unit)? = null,
     onOpenMcVersionManage: (() -> Unit)? = null,
     onOpenTaskList: ((String) -> Unit)? = null,
-    showMcVersionShortcut: Boolean = true,
     showPaneActions: Boolean = false,
     onTitleActionsChange: (ResourceScreenTitleActions?) -> Unit = {},
     modifier: Modifier = Modifier
@@ -337,7 +336,7 @@ fun InstalledResourcePane(
     }
 
     val titleActions: ResourceScreenTitleActions =
-        remember(showMcVersionShortcut, onOpenMcVersionManage, onOpenTaskList) {
+        remember( onOpenMcVersionManage, onOpenTaskList) {
             {
                 CircleIconButton(
                     "\uDB82\uDD5D",
@@ -345,19 +344,6 @@ fun InstalledResourcePane(
                     bgColor = MaterialColor.GREEN_800.color,
                 ) {
                     importRdiModpack()
-                }
-                if (showMcVersionShortcut) {
-                    Space8w()
-                    ImageIconButton("grass_block", "MC资源", bgColor = MaterialColor.GREEN_200.color) {
-                        onOpenMcVersionManage?.invoke()
-                    }
-                }
-                Space8w()
-                CircleIconButton(
-                    "\uDB86\uDDD8",
-                    "网盘备用下包"
-                ) {
-                    openUrl("https://www.123684.com/s/iWSWvd-Gjtdd")
                 }
             }
         }

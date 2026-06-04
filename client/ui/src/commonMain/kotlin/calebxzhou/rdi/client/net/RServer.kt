@@ -8,6 +8,7 @@ import calebxzhou.rdi.common.model.Response
 import calebxzhou.rdi.common.model.ServerEntry
 import calebxzhou.rdi.common.net.*
 import calebxzhou.rdi.common.serdesJson
+import calebxzhou.rdi.common.service.ModService
 import io.ktor.client.call.*
 import io.ktor.client.plugins.compression.*
 import io.ktor.client.plugins.sse.*
@@ -22,6 +23,7 @@ import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import java.nio.file.Path
 import java.nio.file.Paths
 
 private const val DEFAULT_GAME_NODE_ADDR = "rdi.calebxzhou.cn:65230"
@@ -49,6 +51,22 @@ class RServer(
     val hqUrl get() = "${if (noHttps) "http" else "https"}://${ip}:${if (noHttps) httpPort else httpsPort}"
 
     companion object {
+        init {
+            ModService.rdiModDownloadUrlProvider = { mod ->
+                "${server.hqUrl.trimEnd('/')}/mod/download/${mod.fileName.encodeURLPathPart()}"
+            }
+            ModService.rdiModDownloadHeadersProvider = { url ->
+                val baseUrl = server.hqUrl.trimEnd('/')
+                if (!url.startsWith("$baseUrl/")) {
+                    emptyMap()
+                } else {
+                    loggedAccount.jwt?.takeIf(String::isNotBlank)
+                        ?.let { mapOf(HttpHeaders.Authorization to "Bearer $it") }
+                        ?: emptyMap()
+                }
+            }
+        }
+
         val routeState = MutableStateFlow(ServerRouteState())
 
         val DBG = RServer(
@@ -127,11 +145,13 @@ class RServer(
     suspend fun download(
         path: String,
         saveTo: String,
+        validator: suspend (Path) -> Result<Unit> = { Result.success(Unit) },
         onProgress: (DownloadProgress) -> Unit
     ) {
         Paths.get(saveTo).downloadFileFrom(
             "${hqUrl}/${path}",
             headers = mapOf(HttpHeaders.Authorization to "Bearer ${loggedAccount.jwt}"),
+            validator = validator,
             onProgress = onProgress,
         ).getOrThrow()
     }

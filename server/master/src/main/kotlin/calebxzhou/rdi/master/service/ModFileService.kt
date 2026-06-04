@@ -12,7 +12,7 @@ import io.ktor.server.routing.route
 
 fun Route.modFileRoutes() = route("/mod") {
     get("/download/{filename}") {
-        call.player()
+        val player = call.player()
 
         val filename = param("filename").trim()
         if (
@@ -31,6 +31,7 @@ fun Route.modFileRoutes() = route("/mod") {
             return@get
         }
 
+        DownloadQuotaService.reserve(player._id, file.length())
         call.respondFile(file)
     }
 }

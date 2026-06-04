@@ -24,6 +24,8 @@ import kotlin.io.path.exists
 
 object ModService {
     var preferMirror = true
+    var rdiModDownloadUrlProvider: (Mod) -> String? = { null }
+    var rdiModDownloadHeadersProvider: (String) -> Map<String, String> = { emptyMap() }
     val briefInfo: List<ModBriefInfo> by lazy { loadBriefInfo() }
     private val nameSearchIgnoredChars = setOf(
         ' ', '\t', '\r', '\n',
@@ -669,105 +671,98 @@ object ModService {
         fileInfo: CurseForgeFile,
         onProgress: (DownloadProgress) -> Unit
     ): Result<Path> {
-        val targetPath = mod.targetPath
         val expectedFingerprint = fileInfo.fileFingerprint
-        // Check if file already exists with expected hash/fingerprint.
-        val existingPath = mod.downloadedFileCandidates().firstOrNull { path ->
-            path.exists() && path.murmur2 == expectedFingerprint
-        }
-        if (existingPath != null) {
-            copyExistingModFile(existingPath, targetPath)
-            lgr.info { "Mod file already exists and hash matches: $existingPath" }
-            return Result.success(targetPath)
-        }
-
-        val officialUrls = (mod.downloadUrls + fileInfo.realDownloadUrl)
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .distinct()
-        val mirrorUrls = officialUrls.map { it.ofMirrorUrl }
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .filterNot { it in officialUrls }
-            .distinct()
-        val primaryUrls = if (preferMirror) mirrorUrls else officialUrls
-        val fallbackUrls = if (preferMirror) officialUrls else mirrorUrls
-        val allCandidateUrls = primaryUrls + fallbackUrls
-
-        val finalResult = runCatching {
-            val downloadedPath = targetPath.downloadFileFrom(
-                primaryUrls = primaryUrls,
-                fallbackUrls = fallbackUrls,
-                onProgress = onProgress
-            ).getOrElse { throw it }
-            val actualFingerprint = downloadedPath.murmur2
-            if (actualFingerprint != expectedFingerprint) {
-                throw IllegalStateException(
-                    "Downloaded mod ${mod.slug} fingerprint mismatch: expected $expectedFingerprint, got $actualFingerprint"
-                )
-            }
-            downloadedPath
-        }.onFailure { err ->
-            lgr.warn { "Download failed for ${mod.slug} from ${allCandidateUrls.joinToString()}\n$err" }
-        }
-
-        finalResult.onFailure { err ->
-            lgr.error { "Failed to download mod ${mod.slug + "\n" + err}" }
-        }
-
-        return finalResult
+        return downloadSingleModFromSources(
+            mod = mod,
+            officialUrls = mod.downloadUrls + fileInfo.realDownloadUrl,
+            existingFileMatches = { path -> path.exists() && path.murmur2 == expectedFingerprint },
+            validator = { path ->
+                val actualFingerprint = path.murmur2
+                if (actualFingerprint == expectedFingerprint) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(
+                        IllegalStateException(
+                            "Downloaded mod ${mod.slug} fingerprint mismatch: expected $expectedFingerprint, got $actualFingerprint"
+                        )
+                    )
+                }
+            },
+            onProgress = onProgress
+        )
     }
 
     private suspend fun downloadSingleMRMod(
         mod: Mod,
         onProgress: (DownloadProgress) -> Unit
     ): Result<Path> {
-        val targetPath = mod.targetPath
-
-        // Check if file already exists with correct hash
         val expectedHash = mod.hash.trim().lowercase()
-        val existingPath = if (expectedHash.isNotBlank()) {
-            mod.downloadedFileCandidates().firstOrNull { path ->
-                path.exists() && path.sha1 == expectedHash
-            }
-        } else {
-            null
-        }
+        return downloadSingleModFromSources(
+            mod = mod,
+            officialUrls = mod.downloadUrls,
+            existingFileMatches = { path -> expectedHash.isNotBlank() && path.exists() && path.sha1 == expectedHash },
+            validator = { path ->
+                if (expectedHash.isBlank()) {
+                    Result.success(Unit)
+                } else {
+                    val actualHash = path.sha1
+                    if (actualHash == expectedHash) {
+                        Result.success(Unit)
+                    } else {
+                        Result.failure(
+                            IllegalStateException(
+                                "Downloaded mod ${mod.slug} SHA1 mismatch: expected $expectedHash, got $actualHash"
+                            )
+                        )
+                    }
+                }
+            },
+            onProgress = onProgress
+        )
+    }
+
+    private suspend fun downloadSingleModFromSources(
+        mod: Mod,
+        officialUrls: List<String>,
+        existingFileMatches: (Path) -> Boolean,
+        validator: suspend (Path) -> Result<Unit>,
+        onProgress: (DownloadProgress) -> Unit
+    ): Result<Path> {
+        val targetPath = mod.targetPath
+        val existingPath = mod.downloadedFileCandidates().firstOrNull(existingFileMatches)
         if (existingPath != null) {
             copyExistingModFile(existingPath, targetPath)
             lgr.debug { "Mod file already exists and hash matches: $existingPath" }
             return Result.success(targetPath)
         }
 
-        val urls = mod.downloadUrls
-        val officialUrls = urls
+        val cleanOfficialUrls = officialUrls
             .map(String::trim)
             .filter(String::isNotBlank)
             .distinct()
-        val mirrorUrls = officialUrls.map { it.ofMirrorUrl }
+        val mirrorUrls = cleanOfficialUrls.asSequence()
+            .map { it.ofMirrorUrl }
+            .map(String::trim)
             .filter(String::isNotBlank)
-            .filterNot { it in officialUrls }
+            .filterNot { it in cleanOfficialUrls }
             .distinct()
-        val primaryUrls = if (preferMirror) mirrorUrls else officialUrls
-        val fallbackUrls = if (preferMirror) officialUrls else mirrorUrls
-        val allCandidateUrls = primaryUrls + fallbackUrls
+            .toList()
+        val rdiUrls = listOfNotNull(rdiModDownloadUrlProvider(mod))
+        val allCandidateUrls = if (preferMirror) {
+            rdiUrls + mirrorUrls + cleanOfficialUrls
+        } else {
+            cleanOfficialUrls + rdiUrls
+        }.distinct()
 
         val result = runCatching {
-            val downloadedPath = targetPath.downloadFileFrom(
-                primaryUrls = primaryUrls,
-                fallbackUrls = fallbackUrls,
+            targetPath.downloadFileFrom(
+                urls = allCandidateUrls,
+                urlHeadersProvider = { url ->
+                    if (url in rdiUrls) rdiModDownloadHeadersProvider(url) else emptyMap()
+                },
+                validator = validator,
                 onProgress = onProgress
             ).getOrElse { throw it }
-
-            if (expectedHash.isNotBlank()) {
-                val actualHash = downloadedPath.sha1
-                if (actualHash != expectedHash) {
-                    throw IllegalStateException(
-                        "Downloaded mod ${mod.slug} SHA1 mismatch: expected $expectedHash, got $actualHash"
-                    )
-                }
-            }
-            downloadedPath
         }.onFailure { err ->
             lgr.warn { "Download failed for ${mod.slug} from ${allCandidateUrls.joinToString()}\n$err" }
         }

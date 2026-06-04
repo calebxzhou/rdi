@@ -1,5 +1,6 @@
 package calebxzhou.rdi.master.service
 
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.model.Request
 import calebxzhou.rdi.common.exception.RequestError
@@ -116,7 +117,7 @@ object EmailService {
                 validateOperationSender(email)
                 parseOperationReceiptId(email.subject)?.let { targetId -> email to targetId }
             }.getOrElse { error ->
-                if(_root_ide_package_.calebxzhou.rdi.common.DEBUG) error.printStackTrace()
+                if(DEBUG) error.printStackTrace()
                 lgr.warn { "skip operation email uid=${email.uid} subject=${email.subject}: ${error.message}" }
                 null
             }

@@ -149,15 +149,19 @@ object GithubExtraModService {
         onProgress("下载GitHub文件 ${asset.name}")
         target.toPath().downloadFileFrom(
             url = asset.downloadUrl,
-            knownSize = asset.size
+            knownSize = asset.size,
+            validator = { path ->
+                if (asset.size <= 0 || path.toFile().length() == asset.size) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(IllegalStateException("下载文件大小不匹配: ${asset.name}"))
+                }
+            }
         ) { progress ->
             val downloaded = progress.bytesDownloaded.takeIf { it >= 0 }?.humanFileSize ?: "0B"
             val total = progress.totalBytes.takeIf { it > 0 }?.humanFileSize ?: asset.sizeText
             onProgress("下载${asset.name} $downloaded/$total")
         }.getOrElse { throw it }
-        if (asset.size > 0 && target.length() != asset.size) {
-            throw IllegalStateException("下载文件大小不匹配: ${asset.name}")
-        }
         target
     }
 

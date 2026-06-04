@@ -407,8 +407,7 @@ object GameService {
         var currentSourcePlan = sourcePlan
         while (true) {
             val result = target.toPath().downloadFileFrom(
-                primaryUrls = currentSourcePlan.primaryUrls,
-                fallbackUrls = currentSourcePlan.fallbackUrls,
+                urls = currentSourcePlan.primaryUrls + currentSourcePlan.fallbackUrls,
                 knownSize = artifact.size
             ) { progress ->
                 onProgress(progress)
@@ -617,9 +616,15 @@ object GameService {
         var attempt = 0
         while (true) {
             val result = targetFile.toPath().downloadFileFrom(
-                primaryUrls = sourcePlan.primaryUrls,
-                fallbackUrls = sourcePlan.fallbackUrls,
-                knownSize = asset.size
+                urls = sourcePlan.primaryUrls + sourcePlan.fallbackUrls,
+                knownSize = asset.size,
+                validator = { downloadedPath ->
+                    if (downloadedPath.toFile().length() == asset.size) {
+                        Result.success(Unit)
+                    } else {
+                        Result.failure(IllegalStateException("Size mismatch for $path"))
+                    }
+                }
             ) { progress ->
                 onProgress(progress)
             }
@@ -633,10 +638,6 @@ object GameService {
             attempt++
         }
 
-        if (targetFile.length() != asset.size) {
-            targetFile.delete()
-            throw IllegalStateException("Size mismatch for $path")
-        }
         return Result.success(targetFile)
     }
 
@@ -1116,8 +1117,15 @@ object GameService {
         ctx.emit(Task2Progress("开始下载...", 0f))
         val sourcePlan = buildDownloadSourcePlan(loaderMeta.installerUrl)
         installer.toPath().downloadFileFrom(
-            primaryUrls = sourcePlan.primaryUrls,
-            fallbackUrls = sourcePlan.fallbackUrls
+            urls = sourcePlan.primaryUrls + sourcePlan.fallbackUrls,
+            validator = { path ->
+                val actualSha1 = path.sha1
+                if (actualSha1 == loaderMeta.installerSha1) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(IllegalStateException("安装器校验失败"))
+                }
+            }
         ) { progress ->
             ctx.emit(
                 Task2Progress(

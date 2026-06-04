@@ -270,7 +270,7 @@ private fun extractModInfos(document: Document): List<McmodModBriefInfo> {
             continue
         }
 
-        val logoUrl = block.selectFirst("img")?.let { img ->
+        val logoUrl = block.selectFirst("img")?.let { img: Element ->
             val dataOriginal = img.absUrl("data-original")
             val dataSrc = img.absUrl("data-src")
             val src = img.absUrl("src")

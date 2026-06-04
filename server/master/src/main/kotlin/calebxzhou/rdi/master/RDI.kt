@@ -113,6 +113,7 @@ fun main(): Unit = runBlocking {
     ModpackService.dbcl.createIndex(Indexes.ascending(Modpack::categories.name))
     ModpackService.dbcl.createIndex(Indexes.ascending(Modpack::mcVer.name))
     ModpackService.dbcl.createIndex(Indexes.descending(Modpack::playCount.name))
+    DownloadQuotaService.ensureIndexes()
 
     ModpackService.recoverUnfinishedVersionBuildsOnStartup()
     launch(Dispatchers.IO) {
@@ -246,7 +247,7 @@ private fun createKeyStoreFromPem(certFile: File, keyFile: File): KeyStore {
 private fun Application.configureServer() {
     install(StatusPages) {
         status(HttpStatusCode.NotFound) { call, status ->
-            call.response<Unit>(-404, "找不到请求的内容", null)
+            call.response<Unit>(-404, "找不到请求的内容", null, status)
         }
         //参数不全/有问题
         exception<ParamError> { call, cause ->
@@ -352,6 +353,7 @@ private fun Application.configureServer() {
             hostRoutes()
             worldRoutes()
             chatRoutes()
+            downloadQuotaRoutes()
             modpackRoutes()
             modFileRoutes()
             mailRoutes()

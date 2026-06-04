@@ -5,8 +5,6 @@ import calebxzhou.rdi.client.model.ModrinthProjectVersionFileVo
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.net.downloadFileFrom
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.nio.file.Files
 
 object ModrinthProjectDownloadService {
@@ -26,9 +24,21 @@ object ModrinthProjectDownloadService {
         }
 
         ctx.emit(Task2Progress("开始下载${filename}", 0f))
-        val downloadedPath = target.downloadFileFrom(
+        target.downloadFileFrom(
             url = file.url,
-            knownSize = file.size ?: 0L
+            knownSize = file.size ?: 0L,
+            validator = { path ->
+                if (expectedSha1 == null) {
+                    Result.success(Unit)
+                } else {
+                    val actualSha1 = path.sha1.lowercase()
+                    if (actualSha1 == expectedSha1) {
+                        Result.success(Unit)
+                    } else {
+                        Result.failure(IllegalStateException("${projectDisplayName}SHA1校验失败: $filename"))
+                    }
+                }
+            }
         ) { progress ->
             val message = if (progress.totalBytes > 0) {
                 "下载${filename} ${progress.bytesDownloaded.toFileSizeText()}/${progress.totalBytes.toFileSizeText()}"
@@ -37,11 +47,6 @@ object ModrinthProjectDownloadService {
             }
             ctx.emit(Task2Progress(message, progress.fraction.takeIf { it >= 0f }))
         }.getOrThrow()
-
-        expectedSha1?.let {
-            val actualSha1 = withContext(Dispatchers.IO) { downloadedPath.sha1.lowercase() }
-            require(actualSha1 == it) { "${projectDisplayName}SHA1校验失败: $filename" }
-        }
 
         ctx.emit(Task2Progress("已下载到${packdir.vo.name}的${targetDirName}目录", 1f))
     }

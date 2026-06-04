@@ -109,7 +109,18 @@ object ModpackService {
         findCachedClientPackFile(modpackId, verName, hash)?.let { return it }
         val tempFile = clientPackTempFile(modpackId, verName)
         if (tempFile.exists()) tempFile.delete()
-        server.download("modpack/$modpackId/version/$verName/client", tempFile.absolutePath) { prog ->
+        server.download(
+            path = "modpack/$modpackId/version/$verName/client",
+            saveTo = tempFile.absolutePath,
+            validator = { path ->
+                val actualHash = path.sha1
+                if (actualHash == hash) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(IllegalStateException("客户端包下载损坏，请重试"))
+                }
+            }
+        ) { prog ->
             val fraction = if (prog.totalBytes > 0) {
                 prog.bytesDownloaded.toFloat() / prog.totalBytes
             } else {
@@ -121,10 +132,6 @@ object ModpackService {
                 prog.bytesDownloaded.humanFileSize
             }
             onProgress(Task2Progress(msg, fraction))
-        }
-        if (tempFile.sha1 != hash) {
-            tempFile.delete()
-            throw IllegalStateException("客户端包下载损坏，请重试")
         }
         val target = when (tempFile.detectArchiveFormat()) {
             PackArchiveFormat.TAR_ZST -> clientPackTarZstFile(modpackId, verName)
@@ -149,32 +156,17 @@ object ModpackService {
         deleteIncludedMods: Boolean
     ): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
-            val currentVersion = if (deleteIncludedMods) {
-                server.makeRequest<Modpack.Version>("modpack/${packdir.vo.id}/version/${packdir.verName}").data
-                    ?: throw RequestError("未找到对应版本信息，无法删除关联Mod")
-            } else null
-            val currentModFileNames = currentVersion?.mods
-                ?.flatMap { it.fileNames }
-                ?.toSet()
-                .orEmpty()
-            val removableModFileNames = if (deleteIncludedMods && currentModFileNames.isNotEmpty()) {
-                val referencedByOthers = collectReferencedModFileNamesExcluding(
-                    packdir = packdir,
-                    fallbackPreserve = currentModFileNames
-                )
-                currentModFileNames - referencedByOthers
-            } else {
-                emptySet()
-            }
+            /*
+            TODO bug cannot del symlink target mod
+             可以复现方向基本明确。deleteLocalPack(..., deleteIncludedMods = true) 现在比不勾选多做了几件高风险事：
 
+  1. 请求当前版本信息：
+     client/ui/src/commonMain/kotlin/calebxzhou/rdi/client/service/ModpackService.kt:159
+
+     server.makeRequest<Modpack.Version>("modpack/${packdir.vo.id}/version/${packdir.verName}")
+
+     如果这个本地包对应的远程版本已经删除/改名/网络失败，会直接 throw RequestError，导致本地目录完全不删。*/
             deleteLocalPackDir(packdir.dir)
-
-            removableModFileNames.forEach { fileName ->
-                val modFile = DL_MOD_DIR.resolve(fileName)
-                if (modFile.exists() && !modFile.delete()) {
-                    throw IllegalStateException("无法删除Mod文件: ${modFile.absolutePath}")
-                }
-            }
         }
     }
 

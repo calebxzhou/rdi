@@ -14,6 +14,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.javaExePath
 import calebxzhou.rdi.client.*
 import calebxzhou.rdi.client.net.RServer
@@ -27,6 +28,7 @@ import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.RPasswordField
 import calebxzhou.rdi.common.json
+import calebxzhou.rdi.common.model.DownloadQuota
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.util.getDateTimeNow
 import io.ktor.http.*
@@ -1112,6 +1114,36 @@ fun SettingScreen(
         onUseGameBackupNode: () -> Unit,
         onUseMainNode: () -> Unit,
     ) {
+        val scope = rememberCoroutineScope()
+        var dlQuota by remember { mutableStateOf<DownloadQuota.Vo?>(null) }
+        var dlQuotaLoading by remember { mutableStateOf(false) }
+        var dlQuotaError by remember { mutableStateOf<String?>(null) }
+
+        fun loadDlQuota() {
+            if (dlQuotaLoading) return
+            dlQuotaLoading = true
+            dlQuotaError = null
+            scope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching { server.makeRequest<DownloadQuota.Vo>("download/quota") }
+                }
+                dlQuotaLoading = false
+                result.onSuccess { response ->
+                    if (response.ok) {
+                        dlQuota = response.data
+                    } else {
+                        dlQuotaError = response.msg.ifBlank { "下载额度读取失败" }
+                    }
+                }.onFailure { error ->
+                    dlQuotaError = error.message ?: "下载额度读取失败"
+                }
+            }
+        }
+
+        LaunchedEffect(Unit) {
+            loadDlQuota()
+        }
+
         RColumn {
             RRow {
                 Text("使用BMCL-API国内镜像")
@@ -1119,6 +1151,27 @@ fun SettingScreen(
                 Text("下载MC资源")
                 RSwitch(checked = preferModMirror, onCheckedChange = onPreferModMirrorChange)
                 Text("下载Mod")
+            }
+            RRow {
+                Text("RDI CDN下载额度")
+                val quotaText = when {
+                    dlQuotaLoading && dlQuota == null -> "读取中"
+                    dlQuotaError != null && dlQuota == null -> "读取失败"
+                    else -> dlQuota?.let {
+                        "今日剩余${it.remainingBytes.humanFileSize}/${it.limitBytes.humanFileSize}"
+                    } ?: "--"
+                }
+                Text(
+                    text = quotaText,
+                    color = if (dlQuotaError != null && dlQuota == null) MaterialTheme.colorScheme.error else Color.Unspecified
+                )
+                CircleIconButton(
+                    icon = "\uF021",
+                    tooltip = if (dlQuotaLoading) "刷新中" else "刷新下载额度",
+                    showText = false,
+                    enabled = !dlQuotaLoading,
+                    onClick = ::loadDlQuota
+                )
             }
             AutoRouteStatus(
                 switchingNode = switchingNode,

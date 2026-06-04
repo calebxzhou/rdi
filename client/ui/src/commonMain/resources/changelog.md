@@ -1,4 +1,7 @@
-- directly read bytecode for given class&method
+## 5.16.3 -- 25.6.4
+- 加快mod下载速度
+- 加快下包速度
+- 修复删不掉包
 ## 5.16.2 -- 25.6.1
 - 更新大量运行库
 - 如果自动更新失败可以下载新客户端， 把旧端libs文件夹删了，新的libs放进去
