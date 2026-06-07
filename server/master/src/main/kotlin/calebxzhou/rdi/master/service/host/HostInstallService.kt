@@ -51,12 +51,21 @@ object HostInstallService {
         dir.resolve("eula.txt").writeText("eula=true")
         syncAllOpMarkers()
         "server.properties".run {
-            this.jarResource(this).readAllString()
+            var txt = this.jarResource(this).readAllString()
                 .replace("#{port}", port.toString())
                 .replace("#{difficulty}", getDifficultyText(difficulty))
-                .replace("#{level-type}", levelType)
+
                 .replace("#{gamemode}", getGameModeText(gameMode))
-                .let { dir.resolve(this).writeText(it) }
+            //水星迫降
+            if (this@writeServerProperties.modpackId == ObjectId("6a211c654467027dd3ed3f1d")) {
+                txt = txt.replace(
+                    "#{gen-settings}",
+                    "3;minecraft\\:bedrock,11*minecraft\\:stained_hardened_clay\\:7,4*minecraft\\:stained_hardened_clay\\:12,4*minecraft\\:stained_hardened_clay\\:14,4*minecraft\\:stained_hardened_clay\\:1,4*minecraft\\:gravel,9*minecraft\\:sand,58*minecraft\\:water;0;"
+                ).replace("#{level-type}", "flat")
+            } else {
+                txt = txt.replace("#{gen-settings}", "{}").replace("#{level-type}", levelType)
+            }
+            dir.resolve(this).writeText(txt)
         }
         val defaultPropsFile = dir.resolve("default-server.properties")
         val serverPropsFile = dir.resolve("server.properties")
