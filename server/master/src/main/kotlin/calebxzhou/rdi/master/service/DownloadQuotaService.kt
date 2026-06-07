@@ -31,7 +31,7 @@ fun Route.downloadQuotaRoutes() = route("/download") {
 }
 
 object DownloadQuotaService {
-    private const val DAILY_LIMIT_BYTES = 2L * 1024 * 1024 * 1024
+    private const val DAILY_LIMIT_BYTES = 4L * 1024 * 1024 * 1024
     private val zoneId = ZoneId.of("Asia/Shanghai")
     private val quotaCol: MongoCollection<DownloadQuota> = DB.getCollection("dl_quota")
 
