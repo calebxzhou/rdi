@@ -5,8 +5,6 @@ import net.minecraft.nbt.CompoundTag
 import net.minecraft.nbt.ListTag
 import net.minecraft.nbt.Tag
 import net.minecraft.world.level.saveddata.SavedData
-import org.apache.logging.log4j.LogManager
-import org.apache.logging.log4j.Logger
 import java.util.UUID
 
 data class FirmSectionKey(
@@ -25,7 +23,7 @@ enum class FirmSectionAddResult {
 
 class FirmSectionSavedData : SavedData() {
     private val sectionsByPlayer = linkedMapOf<UUID, LinkedHashSet<FirmSectionKey>>()
-    private val lgr: Logger = LogManager.getLogger("rdi-firm-section")
+    private val autoSetByPlayer = linkedMapOf<UUID, Boolean>()
     fun totalCount(): Int = sectionsByPlayer.values.sumOf { it.size }
 
     fun playerCount(playerId: UUID): Int = sectionsByPlayer[playerId]?.size ?: 0
@@ -35,6 +33,24 @@ class FirmSectionSavedData : SavedData() {
 
     fun allSections(): List<FirmSectionKey> =
         sectionsByPlayer.values.flatten().distinct().sortedWith(KEY_ORDER)
+
+    fun isAutoSetEnabled(playerId: UUID): Boolean = autoSetByPlayer[playerId] ?: false
+
+    fun setAutoSetEnabled(playerId: UUID, enabled: Boolean) {
+        if (isAutoSetEnabled(playerId) == enabled) {
+            return
+        }
+        if (enabled) {
+            autoSetByPlayer[playerId] = true
+            sectionsByPlayer.getOrPut(playerId) { linkedSetOf() }
+        } else {
+            autoSetByPlayer -= playerId
+            if (sectionsByPlayer[playerId].isNullOrEmpty()) {
+                sectionsByPlayer -= playerId
+            }
+        }
+        setDirty()
+    }
 
     fun hasFirmChunk(dimensionId: String, chunkX: Int, chunkZ: Int): Boolean =
         sectionsByPlayer.values.any { sections ->
@@ -73,7 +89,7 @@ class FirmSectionSavedData : SavedData() {
         if (!sections.remove(key)) {
             return false
         }
-        if (sections.isEmpty()) {
+        if (sections.isEmpty() && !isAutoSetEnabled(playerId)) {
             sectionsByPlayer -= playerId
         }
         setDirty()
@@ -86,6 +102,7 @@ class FirmSectionSavedData : SavedData() {
             val playerTag = CompoundTag()
             playerTag.putString(UUID_TAG, playerId.toString())
             playerTag.put(SECTIONS_TAG, sections.toTag())
+            playerTag.putBoolean(AUTO_SET_TAG, isAutoSetEnabled(playerId))
             players.add(playerTag)
         }
         tag.put(PLAYERS_TAG, players)
@@ -113,6 +130,7 @@ class FirmSectionSavedData : SavedData() {
         private const val PLAYERS_TAG = "players"
         private const val UUID_TAG = "uuid"
         private const val SECTIONS_TAG = "sections"
+        private const val AUTO_SET_TAG = "autoSet"
         private const val DIMENSION_TAG = "dimensionId"
         private const val CHUNK_X_TAG = "chunkX"
         private const val SECTION_Y_TAG = "sectionY"
@@ -146,6 +164,12 @@ class FirmSectionSavedData : SavedData() {
                 }
                 if (sections.isNotEmpty()) {
                     data.sectionsByPlayer[playerId] = sections
+                }
+                if (playerTag.contains(AUTO_SET_TAG, Tag.TAG_BYTE.toInt()) && playerTag.getBoolean(AUTO_SET_TAG)) {
+                    data.autoSetByPlayer[playerId] = true
+                    if (playerId !in data.sectionsByPlayer) {
+                        data.sectionsByPlayer[playerId] = linkedSetOf()
+                    }
                 }
             }
             return data

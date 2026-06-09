@@ -1,0 +1,18 @@
+
+plugins {
+    kotlin("jvm") version "2.4.0"
+    `java-library`
+}
+
+group = "calebxzhou.rdi.mc.tui"
+version = "0.1"
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+dependencies {
+    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    testImplementation(kotlin("test"))
+}

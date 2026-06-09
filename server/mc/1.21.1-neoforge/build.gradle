@@ -3,8 +3,8 @@ plugins {
     id 'maven-publish'
     id 'idea'
     id 'net.neoforged.moddev' version '2.0.141'
-    id 'org.jetbrains.kotlin.jvm' version '2.3.21'
-    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.21'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.0'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.0'
 
 }
 
@@ -95,7 +95,6 @@ neoForge {
 }
 
 sourceSets.named('main') {
-    java.srcDir '../../../mc/rcmd/src/main/java'
     kotlin.srcDir '../../../mc/common3/1.21/src/main/kotlin'
     resources.srcDir 'src/generated/resources'
 }
@@ -121,6 +120,8 @@ dependencies {
     additionalRuntimeClasspath project(':rmcp-server')
     implementation project(':ktutils-std')
     additionalRuntimeClasspath project(':ktutils-std')
+    implementation project(':rcmd')
+    additionalRuntimeClasspath project(':rcmd')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
    // implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
@@ -210,6 +211,7 @@ evaluationDependsOn(':s-mc-common2')
 evaluationDependsOn(':rmcp-common')
 evaluationDependsOn(':rmcp-server')
 evaluationDependsOn(':ktutils-std')
+evaluationDependsOn(':rcmd')
 jar {
     // Bundle compiled outputs from shared server modules into this jar
     dependsOn project(":s-mc-common").tasks.named("classes")
@@ -217,11 +219,13 @@ jar {
     dependsOn project(":rmcp-common").tasks.named("classes")
     dependsOn project(":rmcp-server").tasks.named("classes")
     dependsOn project(":ktutils-std").tasks.named("classes")
+    dependsOn project(":rcmd").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
     from(project(":s-mc-common2").sourceSets.main.output)
     from(project(":rmcp-common").sourceSets.main.output)
     from(project(":rmcp-server").sourceSets.main.output)
     from(project(":ktutils-std").sourceSets.main.output)
+    from(project(":rcmd").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {

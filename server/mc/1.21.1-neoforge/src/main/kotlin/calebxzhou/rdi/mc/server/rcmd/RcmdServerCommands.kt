@@ -1,26 +1,20 @@
 package calebxzhou.rdi.mc.server.rcmd
 
 import calebxzhou.rdi.mc.common.RDI
-import calebxzhou.rdi.mc.common2.chat.ChatRange
-import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState
-import calebxzhou.rdi.mc.common2.home.HomeResult
-import calebxzhou.rdi.mc.common2.home.HomeService
-import calebxzhou.rdi.mc.common2.tpa.TpaResult
-import calebxzhou.rdi.mc.common2.tpa.TpaService
 import calebxzhou.rdi.mc.common3.mcs
 import calebxzhou.rdi.mc.rcmd.*
+import calebxzhou.rdi.mc.rcmd.chat.ChatRange
+import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
+import calebxzhou.rdi.mc.rcmd.home.HomeResult
+import calebxzhou.rdi.mc.rcmd.home.HomeService
+import calebxzhou.rdi.mc.rcmd.tpa.TpaResult
+import calebxzhou.rdi.mc.rcmd.tpa.TpaService
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionKey
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionSavedData
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionSetStatus
-import calebxzhou.rdi.mc.server.home.HomePlayer211
-import calebxzhou.rdi.mc.server.tpa.TpaPlayer211
-import calebxzhou.rdi.mc.server.tpa.TpaPlayerLookup211
 import net.minecraft.resources.ResourceKey
-import net.minecraft.server.MinecraftServer
-import net.minecraft.server.dedicated.DedicatedServer
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.world.entity.animal.Pig
 import net.minecraft.world.entity.item.ItemEntity
 import net.minecraft.world.item.ItemStack
 import net.minecraft.world.item.Items
@@ -34,7 +28,7 @@ import java.util.Locale
 import java.util.UUID
 
 @EventBusSubscriber(modid = "rdi")
-object RcmdServerCommands {
+object RcmdServerCommands : RcmdServerCommandHandler {
     private val DISPATCHER = RcmdDispatcher()
     private val POS_LOCKS = mutableMapOf<UUID, PosLockState>()
     private const val POS_LOCK_MAX_DISTANCE_SQR = 0.0001
@@ -42,101 +36,7 @@ object RcmdServerCommands {
     private const val TEST_ENTITY_ITEM_COUNT = 32
 
     init {
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("ping")
-                .description("Test rcmd availability")
-                .command { RcmdResult.ok("pong，rcmd正常") }
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("chat", "range")
-                .description("Set chat range")
-                .argument("range", RcmdArgumentTypes.enumOf("host", "global"))
-                .command { context ->
-                    val range = context.getString("range")
-                    val source = context.source
-                    if (!source.isPlayer()) {
-                        RcmdResult.error("此rcmd命令只能由玩家执行")
-                    } else {
-                        val chatRange = ChatRange.fromRcmdValue(range)
-                        PlayerChatRangeState.set(source.playerId(), chatRange)
-                        RcmdResult.ok("聊天范围已切换为" + chatRange.getDisplayName())
-                    }
-                }
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("tpa")
-                .description("Request teleport to another player")
-                .argument("playerName", RcmdArgumentTypes.STRING)
-                .command(::handleTpa)
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("tpok")
-                .description("Accept pending teleport request")
-                .command(::handleTpok)
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("sethome")
-                .description("Save current player position as a home")
-                .argument("name", RcmdArgumentTypes.STRING)
-                .command(::handleSetHome)
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("home")
-                .description("Teleport player to a saved home")
-                .argument("name", RcmdArgumentTypes.STRING)
-                .command(::handleHome)
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("listhome")
-                .description("List saved player homes")
-                .command(::handleListHome)
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("delhome")
-                .description("Delete a saved player home")
-                .argument("name", RcmdArgumentTypes.STRING)
-                .command(::handleDeleteHome)
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("poslock")
-                .description("Toggle current player position lock")
-                .command(::handlePosLock)
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("firmsection", "set")
-                .description("Save current player section")
-                .command(::handleFirmSectionSet)
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("firmsection", "unset")
-                .description("Forget current player section")
-                .command(::handleFirmSectionUnset)
-                .build()
-        )
-        DISPATCHER.register(
-            RcmdCommandSpec.builder("firmsection", "list")
-                .description("List saved firm sections")
-                .command(::handleFirmSectionList)
-                .build()
-        )
-        if (RDI.DEBUG) {
-            DISPATCHER.register(
-                RcmdCommandSpec.builder("testentity")
-                    .description("Generate test item entities")
-                    .command(::handleTestEntity)
-                    .build()
-            )
-        }
+        RcmdCommonServerCommands.register(DISPATCHER, this, RDI.DEBUG)
     }
 
     @JvmStatic
@@ -185,7 +85,20 @@ object RcmdServerCommands {
         }
     }
 
-    private fun handlePosLock(context: RcmdContext): RcmdResult {
+    override fun ping(context: RcmdContext): RcmdResult = RcmdResult.ok("pong，rcmd正常")
+
+    override fun setChatRange(context: RcmdContext): RcmdResult {
+        val range = context.getString("range")
+        val source = context.source
+        if (!source.isPlayer) {
+            return RcmdResult.error("此rcmd命令只能由玩家执行")
+        }
+        val chatRange = ChatRange.fromRcmdValue(range)
+        PlayerChatRangeState.set(source.playerId(), chatRange)
+        return RcmdResult.ok("聊天范围已切换为" + chatRange.displayName)
+    }
+
+    override fun togglePosLock(context: RcmdContext): RcmdResult {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val playerId = player.uuid
         val removed = POS_LOCKS.remove(playerId)
@@ -200,44 +113,44 @@ object RcmdServerCommands {
         return RcmdResult.ok("位置锁定已开启")
     }
 
-    private fun handleFirmSectionSet(context: RcmdContext): RcmdResult {
+    override fun setFirmSection(context: RcmdContext): RcmdResult {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = FirmSectionService.set(player)
         val label = firmSectionLabel(result.key)
         return when (result.status) {
             FirmSectionSetStatus.ADDED ->
-                RcmdResult.ok("已固定当前子区块：$label ${firmSectionCountLabel(result.playerCount, result.total)}")
+                RcmdResult.ok("已持久当前子区块：$label ${firmSectionCountLabel(result.playerCount, result.total)}")
 
             FirmSectionSetStatus.ALREADY_PRESENT ->
-                RcmdResult.ok("当前子区块已经固定了")
+                RcmdResult.ok("当前子区块已经持久了")
 
             FirmSectionSetStatus.PLAYER_LIMIT_REACHED ->
-                RcmdResult.error("你固定的子区块已达到个人上限${FirmSectionSavedData.MAX_SECTIONS_PERSON}个")
+                RcmdResult.error("你持久的子区块已达到个人上限${FirmSectionSavedData.MAX_SECTIONS_PERSON}个")
 
             FirmSectionSetStatus.TOTAL_LIMIT_REACHED ->
-                RcmdResult.error("固定子区块已达到全世界上限${FirmSectionSavedData.MAX_SECTIONS_TOTAL}个")
+                RcmdResult.error("持久子区块已达到全世界上限${FirmSectionSavedData.MAX_SECTIONS_TOTAL}个")
         }
     }
 
-    private fun handleFirmSectionUnset(context: RcmdContext): RcmdResult {
+    override fun unsetFirmSection(context: RcmdContext): RcmdResult {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = FirmSectionService.unset(player)
         val label = firmSectionLabel(result.key)
         return if (result.removed) {
-            RcmdResult.ok("已取消固定当前子区块：$label ${firmSectionCountLabel(result.playerCount, result.total)}")
+            RcmdResult.ok("已取消持久当前子区块：$label ${firmSectionCountLabel(result.playerCount, result.total)}")
         } else {
-            RcmdResult.ok("当前子区块尚未固定")
+            RcmdResult.ok("当前子区块尚未持久")
         }
     }
 
-    private fun handleFirmSectionList(context: RcmdContext): RcmdResult {
+    override fun listFirmSections(context: RcmdContext): RcmdResult {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = FirmSectionService.list(player)
         if (result.sections.isEmpty()) {
-            return RcmdResult.ok("你还没有固定子区块。${firmSectionCountLabel(result.playerCount, result.total)}")
+            return RcmdResult.ok("你还没有持久子区块。${firmSectionCountLabel(result.playerCount, result.total)}")
         }
         val lines = buildList {
-            add("固定子区块数量：${firmSectionCountLabel(result.playerCount, result.total)}")
+            add("持久子区块数量：${firmSectionCountLabel(result.playerCount, result.total)}")
             result.sections.groupBy { it.dimensionId }.forEach { (dimensionId, sections) ->
                 add("$dimensionId : ${sections.map { firmSectionPositionLabel(it) }}")
             }
@@ -245,44 +158,51 @@ object RcmdServerCommands {
         return RcmdResult.ok(lines.joinToString("\n"))
     }
 
-    private fun handleTpa(context: RcmdContext): RcmdResult {
+    override fun setFirmSectionAutoSet(context: RcmdContext): RcmdResult {
+        val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
+        val enabled = context.getBool("enabled")
+        FirmSectionService.setAutoSetEnabled(player, enabled)
+        return RcmdResult.ok("放置方块实体时自动设置持久子区块已${if (enabled) "开启" else "关闭"}")
+    }
+
+    override fun requestTpa(context: RcmdContext): RcmdResult {
         val requester = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val targetName = context.getString("playerName")
         val result = TpaService.request(TpaPlayer211(requester), targetName, TpaPlayerLookup211(requester.server))
         return toRcmdResult(result)
     }
 
-    private fun handleTpok(context: RcmdContext): RcmdResult {
+    override fun acceptTpa(context: RcmdContext): RcmdResult {
         val target = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = TpaService.accept(TpaPlayer211(target), TpaPlayerLookup211(target.server))
         return toRcmdResult(result)
     }
 
-    private fun handleSetHome(context: RcmdContext): RcmdResult {
+    override fun setHome(context: RcmdContext): RcmdResult {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = HomeService.setHome(HomePlayer211(player), context.getString("name"))
         return toRcmdResult(result)
     }
 
-    private fun handleHome(context: RcmdContext): RcmdResult {
+    override fun goHome(context: RcmdContext): RcmdResult {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = HomeService.goHome(HomePlayer211(player), context.getString("name"))
         return toRcmdResult(result)
     }
 
-    private fun handleListHome(context: RcmdContext): RcmdResult {
+    override fun listHome(context: RcmdContext): RcmdResult {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = HomeService.listHomes(HomePlayer211(player))
         return toRcmdResult(result)
     }
 
-    private fun handleDeleteHome(context: RcmdContext): RcmdResult {
+    override fun deleteHome(context: RcmdContext): RcmdResult {
         val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val result = HomeService.deleteHome(HomePlayer211(player), context.getString("name"))
         return toRcmdResult(result)
     }
 
-    private fun handleTestEntity(context: RcmdContext): RcmdResult {
+    override fun testEntity(context: RcmdContext): RcmdResult {
         mcs.execute {
 
 

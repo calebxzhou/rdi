@@ -1,42 +1,33 @@
-package calebxzhou.rdi.mc.server.tpa;
+package calebxzhou.rdi.mc.server.rcmd
 
-import calebxzhou.rdi.mc.common2.tpa.TpaPlayer;
-import calebxzhou.rdi.mc.common2.tpa.TpaPlayerLookup;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerPlayer;
+import calebxzhou.rdi.mc.rcmd.tpa.TpaPlayer
+import calebxzhou.rdi.mc.rcmd.tpa.TpaPlayerLookup
+import net.minecraft.server.MinecraftServer
+import net.minecraft.server.level.ServerPlayer
+import java.util.*
 
-import java.util.UUID;
+class TpaPlayerLookup211(private val server: MinecraftServer) : TpaPlayerLookup {
 
-public final class TpaPlayerLookup211 implements TpaPlayerLookup {
-    private final MinecraftServer server;
-
-    public TpaPlayerLookup211(MinecraftServer server) {
-        this.server = server;
+    public override fun findByName(name: String): TpaPlayer? {
+        val player: ServerPlayer? = server.getPlayerList().getPlayerByName(name)
+        return if (player == null) null else TpaPlayer211(player)
     }
 
-    @Override
-    public TpaPlayer findByName(String name) {
-        ServerPlayer player = server.getPlayerList().getPlayerByName(name);
-        return player == null ? null : new TpaPlayer211(player);
+    public override fun findById(id: UUID): TpaPlayer? {
+        val player: ServerPlayer? = server.getPlayerList().getPlayer(id)
+        return if (player == null) null else TpaPlayer211(player)
     }
 
-    @Override
-    public TpaPlayer findById(UUID id) {
-        ServerPlayer player = server.getPlayerList().getPlayer(id);
-        return player == null ? null : new TpaPlayer211(player);
-    }
-
-    @Override
-    public void teleportTo(TpaPlayer requester, TpaPlayer target) {
-        ServerPlayer requesterPlayer = ((TpaPlayer211) requester).unwrap();
-        ServerPlayer targetPlayer = ((TpaPlayer211) target).unwrap();
+    public override fun teleportTo(requester: TpaPlayer, target: TpaPlayer) {
+        val requesterPlayer: ServerPlayer = (requester as TpaPlayer211).unwrap()
+        val targetPlayer: ServerPlayer = (target as TpaPlayer211).unwrap()
         requesterPlayer.teleportTo(
-                targetPlayer.serverLevel(),
-                targetPlayer.getX(),
-                targetPlayer.getY(),
-                targetPlayer.getZ(),
-                targetPlayer.getYRot(),
-                targetPlayer.getXRot()
-        );
+            targetPlayer.serverLevel(),
+            targetPlayer.getX(),
+            targetPlayer.getY(),
+            targetPlayer.getZ(),
+            targetPlayer.getYRot(),
+            targetPlayer.getXRot()
+        )
     }
 }

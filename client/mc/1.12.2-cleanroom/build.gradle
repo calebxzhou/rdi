@@ -3,6 +3,7 @@ import java.nio.charset.Charset
 plugins {
     id 'java'
     id 'java-library'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.0'
     id 'maven-publish'
     id 'com.gradleup.shadow' version '9.2.2'
     id 'xyz.wagyourtail.unimined' version '1.4.9-kappa'
@@ -44,13 +45,19 @@ evaluationDependsOn(":c-mc-common2")
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
     if (propertyBool('generate_sources_jar')) {
         withSourcesJar()
     }
     if (propertyBool('generate_javadocs_jar')) {
         withJavadocJar()
+    }
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25
     }
 }
 
@@ -188,6 +195,9 @@ processResources {
 
 sourceSets {
     main {
+        kotlin {
+            srcDir '../../../mc/rcmd/src/main/kotlin'
+        }
         java {
             srcDir project(":c-mc-common").sourceSets.main.java.srcDirs
             srcDir project(":c-mc-common2").sourceSets.main.java.srcDirs

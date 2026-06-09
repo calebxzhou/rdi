@@ -2,6 +2,7 @@ package calebxzhou.rdi.mc.common2.player;
 
 import java.util.List;
 
+
 public record RGlobalPlayerList(long generatedAt, List<HostEntry> hosts) {
     public RGlobalPlayerList {
         hosts = hosts == null ? List.of() : List.copyOf(hosts);

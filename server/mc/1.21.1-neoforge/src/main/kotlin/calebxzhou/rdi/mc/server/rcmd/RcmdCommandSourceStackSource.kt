@@ -20,7 +20,7 @@ class RcmdCommandSourceStackSource(private val source: CommandSourceStack) : Rcm
         return if (player == null) RcmdSource.NO_PLAYER_ID else player.getUUID()
     }
 
-    override fun hasPermission(permission: String?): Boolean {
+    override fun hasPermission(permission: String): Boolean {
         return source.hasPermission(4)
     }
 
@@ -28,7 +28,7 @@ class RcmdCommandSourceStackSource(private val source: CommandSourceStack) : Rcm
         source.sendSuccess(Supplier { Component.literal(message) }, false)
     }
 
-    override fun sendError(message: String?) {
+    override fun sendError(message: String) {
         source.sendFailure(Component.literal("[rcmd] " + message))
     }
 }

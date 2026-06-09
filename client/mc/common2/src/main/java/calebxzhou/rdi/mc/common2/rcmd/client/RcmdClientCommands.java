@@ -11,14 +11,14 @@ public final class RcmdClientCommands {
     static {
         DISPATCHER.register(
                 RcmdCommandSpec.builder("firmsection", "display", "set")
-                        .description("切换已设置固定子区块边框")
-                        .command(context -> toggleSetFirmSections((RcmdClientBridge) context.source()))
+                        .description("开关已设置持久子区块边框")
+                        .command(context -> toggleSetFirmSections((RcmdClientBridge) context.getSource()))
                         .build()
         );
         DISPATCHER.register(
                 RcmdCommandSpec.builder("firmsection", "display", "now")
                         .description("切换当前子区块边框")
-                        .command(context -> toggleNowFirmSection((RcmdClientBridge) context.source()))
+                        .command(context -> toggleNowFirmSection((RcmdClientBridge) context.getSource()))
                         .build()
         );
     }
@@ -48,7 +48,7 @@ public final class RcmdClientCommands {
 
     private static RcmdResult toggleSetFirmSections(RcmdClientBridge bridge) {
         var visible = bridge.toggleSetFirmSectionsVisible();
-        return RcmdResult.ok("固定子区块边框：" + (visible ? "显示" : "隐藏"));
+        return RcmdResult.ok("已设定的持久子区块边框：" + (visible ? "显示" : "隐藏"));
     }
 
     private static RcmdResult toggleNowFirmSection(RcmdClientBridge bridge) {

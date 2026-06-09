@@ -1,7 +1,5 @@
 package calebxzhou.rdi.mc.common2.mcp
 
-import java.lang.classfile.Attributes.code
-
 class McpBadArgsError(detail: String) : McpError(detail)
 class McpMethodNotAllowedError : McpError("endpoint method not support read / for correct method")
 class McpNotFoundError : McpError("unknown endpoint read / for all api")

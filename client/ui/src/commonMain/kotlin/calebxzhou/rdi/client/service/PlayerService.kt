@@ -5,16 +5,14 @@ import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.model.LoginInfo
 import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.net.rdiResponse
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
-import calebxzhou.rdi.common.model.Response
 import calebxzhou.rdi.common.net.json
-import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.util.ok
-import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import net.raphimc.minecraftauth.MinecraftAuth
@@ -65,7 +63,7 @@ object PlayerService {
             method = HttpMethod.Post,
             params = mutableMapOf("usr" to usr, "pwd" to pwd, "spec" to spec)
         )
-        val account = resp.body<Response<RAccount>>().run {
+        val account = resp.rdiResponse<RAccount>().run {
             data ?: run {
                 throw RequestError(msg)
             }

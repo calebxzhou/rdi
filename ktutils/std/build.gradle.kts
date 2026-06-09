@@ -1,6 +1,6 @@
 plugins {
-    kotlin("jvm") version "2.3.21"
-    kotlin("plugin.serialization") version "2.3.21"
+    kotlin("jvm") version "2.4.0"
+    kotlin("plugin.serialization") version "2.4.0"
     `java-library`
 }
 
@@ -18,5 +18,5 @@ kotlin {
 }
 
 dependencies {
-    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.3.21")
+    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
 }

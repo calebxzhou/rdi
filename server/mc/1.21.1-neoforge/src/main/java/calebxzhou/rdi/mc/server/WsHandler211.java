@@ -3,8 +3,8 @@ package calebxzhou.rdi.mc.server;
 import calebxzhou.rdi.mc.common.WebSocketClient;
 import calebxzhou.rdi.mc.common.WsMessage;
 import calebxzhou.rdi.mc.common.WsMessageHandler;
-import calebxzhou.rdi.mc.common2.chat.RChatMessage;
 import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList;
+import calebxzhou.rdi.mc.rcmd.chat.RChatMessage;
 import calebxzhou.rdi.mc.server.network.RServerNetwork;
 import com.google.gson.JsonElement;
 import net.minecraft.network.chat.Component;
@@ -30,7 +30,7 @@ public class WsHandler211 implements WsMessageHandler {
             }
             case Chat -> {
                 var chatMessage = WebSocketClient.fromJson(msg.getData(), RChatMessage.class);
-                server.getPlayerList().broadcastSystemMessage(Component.literal("[公共] " + chatMessage.playerName() + ": " + chatMessage.content()), false);
+                server.getPlayerList().broadcastSystemMessage(Component.literal("[公共] " + chatMessage.playerName + ": " + chatMessage.content), false);
             }
             case PlayerList -> {
                 var playerList = WebSocketClient.fromJson(msg.getData(), RGlobalPlayerList.class);

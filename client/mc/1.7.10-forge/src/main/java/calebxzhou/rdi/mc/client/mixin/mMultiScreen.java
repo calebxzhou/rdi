@@ -37,7 +37,7 @@ public class mMultiScreen extends GuiScreen {
     private void RDI$AddJoinButton(CallbackInfo ci) {
         this.buttonList.add(
             RDIClientHooks.createJoinButton(
-                Math.max(5, this.width - RDIClientHooks.JOIN_BUTTON_WIDTH - 5), 6));
+                Math.max(5, (this.width - RDIClientHooks.JOIN_BUTTON_WIDTH) / 2), 6));
     }
 
     @Inject(method = "actionPerformed", at = @At("HEAD"), cancellable = true)

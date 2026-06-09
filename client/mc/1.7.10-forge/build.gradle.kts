@@ -1,9 +1,15 @@
 import groovy.lang.Closure
 import com.gtnewhorizons.retrofuturagradle.minecraft.RunMinecraftTask
+import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.jvm.tasks.Jar
 import org.gradle.api.tasks.SourceSetContainer
+import org.gradle.internal.classpath.Instrumented.systemProperty
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import kotlin.io.encoding.Base64
 
 plugins {
+    kotlin("jvm")
+    kotlin("plugin.serialization")
     id("com.gtnewhorizons.gtnhconvention")
 }
 evaluationDependsOn(":c-mc-common")
@@ -21,6 +27,49 @@ sourceSets.named("main") {
     java.srcDir(commonProject.file("src/main/java"))
     java.srcDir(file("../common2/src/main/java"))
     resources.srcDir(commonProject.file("src/main/resources"))
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget = JvmTarget.JVM_21
+    }
+    sourceSets.all {
+        languageSettings {
+            optIn("kotlinx.serialization.ExperimentalSerializationApi")
+        }
+    }
+}
+java {
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+kotlin.sourceSets.named("main") {
+    kotlin.srcDir(file("../../../mc/rcmd/src/main/kotlin"))
+    kotlin.srcDir(file("../../../mc/rmcp/common/src/main/kotlin"))
+    kotlin.srcDir(file("../../../mc/rmcp/client/src/main/kotlin"))
+    kotlin.srcDir(file("../../../ktutils/std/src/main/kotlin"))
+}
+
+val shaded = configurations.create("shaded")
+configurations.named("implementation") {
+    extendsFrom(shaded)
+}
+
+dependencies {
+    add("shaded", "io.fusionauth:java-http:1.4.0")
+    add("shaded", "org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    add("shaded", "io.heapy.kotaml:kotaml:0.108.0")
+    add("shaded", "org.slf4j:slf4j-api:2.0.16")
+}
+
+tasks.withType<Jar>().configureEach {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    from(shaded.map { if (it.isDirectory) it else zipTree(it) }) {
+        exclude("META-INF/*.SF", "META-INF/*.DSA", "META-INF/*.RSA")
+    }
 }
 
 val defaultPlayArgRaw = """
@@ -45,12 +94,13 @@ fun encodePlayArg(raw: String) = Base64.encode(raw.encodeToByteArray())
 
 val requestedTasks = gradle.startParameter.taskNames.map { it.substringAfterLast(':') }.toSet()
 val selectedPlayArg = when {
-    "runClient25Another" in requestedTasks -> anotherPlayArgRaw
+    "runClient21Another" in requestedTasks -> anotherPlayArgRaw
     else -> defaultPlayArgRaw
 }
 
-tasks.named<RunMinecraftTask>("runClient25") {
+tasks.named<RunMinecraftTask>("runClient21") {
     systemProperty("rdi.play", encodePlayArg(selectedPlayArg))
+    systemProperty("rdi.debug",true)
     systemProperty("mixin.hotSwap", "true")
 
     extraArgs.addAll(
@@ -63,10 +113,10 @@ tasks.named<RunMinecraftTask>("runClient25") {
     )
 }
 
-tasks.register("runClient25Another") {
+tasks.register("runClient21Another") {
     group = "minecraft"
     description = "Run Minecraft client with another RDI play arg"
-    dependsOn("runClient25")
+    dependsOn("runClient21")
 }
 
 @Suppress("UNCHECKED_CAST")

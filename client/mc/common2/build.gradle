@@ -10,18 +10,11 @@ repositories {
     mavenCentral()
 }
 
-java {
-    toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
-    }
-}
-
-sourceSets.named('main') {
-    java.srcDir '../../../mc/rcmd/src/main/java'
-}
 
 dependencies {
+    api project(":rcmd")
     api 'io.fusionauth:java-http:1.4.0'
+    implementation project(':rcmd')
     compileOnly 'com.google.code.gson:gson:2.11.0'
 }
 

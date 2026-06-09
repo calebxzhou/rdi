@@ -21,15 +21,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import calebxzhou.rdi.client.net.rdiResponse
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Mail
-import calebxzhou.rdi.common.model.Response
 import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.util.toFriendlyDateTime
-import io.ktor.client.call.*
 import io.ktor.client.request.*
 import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
@@ -201,7 +200,7 @@ fun MailPane(
                                 server.createRequest("mail", HttpMethod.Delete) {
                                     json()
                                     setBody(payload)
-                                }.body<Response<Unit>>()
+                                }.rdiResponse<Unit>()
                             }.getOrNull()
                         }
                         if (response == null) {

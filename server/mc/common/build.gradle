@@ -19,9 +19,7 @@ dependencies {
     implementation 'com.google.code.gson:gson:2.10'
     implementation 'com.neovisionaries:nv-websocket-client:2.14'
 }
-java {
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_1_8
-}
+
 static void registerServerCopyTask(String taskName, Project project, Boolean release) {
     project.tasks.register(taskName) {
         dependsOn project.tasks.named('build')

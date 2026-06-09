@@ -1,23 +1,21 @@
 package calebxzhou.rdi.client.ui.screen
 
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
+import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.firstLoader
 import calebxzhou.rdi.client.model.firstLoaderVersion
@@ -51,6 +49,8 @@ fun McVersionPane(
     var downloadSourceDialogAction by remember { mutableStateOf<McVersionDownloadAction?>(null) }
     var showGroupFileDialog by remember { mutableStateOf(false) }
     var selectedMcVer by rememberSaveable(requiredMcVer) { mutableStateOf(requiredMcVer) }
+    var showAdvancedActions by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
 
 
     fun submitTask(task: Task2) {
@@ -105,7 +105,37 @@ fun McVersionPane(
         }
     }
 
-    Column(modifier = modifier.fillMaxSize()) {
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .focusRequester(focusRequester)
+            .focusable()
+            .onPreviewKeyEvent { event ->
+                when {
+                    event.key == Key.ShiftLeft && event.type == KeyEventType.KeyDown -> {
+                        showAdvancedActions = true
+                        false
+                    }
+                    event.key == Key.ShiftRight && event.type == KeyEventType.KeyDown -> {
+                        showAdvancedActions = true
+                        false
+                    }
+                    event.key == Key.ShiftLeft && event.type == KeyEventType.KeyUp -> {
+                        showAdvancedActions = false
+                        false
+                    }
+                    event.key == Key.ShiftRight && event.type == KeyEventType.KeyUp -> {
+                        showAdvancedActions = false
+                        false
+                    }
+                    else -> false
+                }
+            }
+    ) {
         if (requiredMcVer != null) {
             Text(
                 text = "MC${requiredMcVer.mcVer}版本资源需要更新。请点击下载",
@@ -125,7 +155,8 @@ fun McVersionPane(
             onInstallLoader = { mcver, loader ->
                 downloadSourceDialogAction = McVersionDownloadAction.Loader(mcver, loader)
             },
-            onOpenFclGuide = ::openFclGuide
+            onOpenFclGuide = ::openFclGuide,
+            showAdvancedActions = showAdvancedActions
         )
         Space8h()
         Box(
@@ -253,7 +284,8 @@ private fun McVersionActionRow(
     onDownloadAll: (McVersion) -> Unit,
     onDownloadAssets: (McVersion) -> Unit,
     onInstallLoader: (McVersion, ModLoader) -> Unit,
-    onOpenFclGuide: (McVersion) -> Unit
+    onOpenFclGuide: (McVersion) -> Unit,
+    showAdvancedActions: Boolean
 ) {
     val selected = selectedMcVer
     val enabled = selected?.enabled == true
@@ -278,22 +310,24 @@ private fun McVersionActionRow(
                 ) {
                     selected?.let(onDownloadAll)
                 }
-                CircleIconButton(
-                    icon = "\uDB80\uDF73",
-                    tooltip = "更新音频",
-                    bgColor = MaterialColor.BLUE_700.color,
-                    enabled = enabled
-                ) {
-                    selected?.let(onDownloadAssets)
-                }
-                selected?.loaderVersions?.forEach { (loader, _) ->
+                if (showAdvancedActions) {
                     CircleIconButton(
-                        icon = "\uEEFF",
-                        tooltip = "更新${loader.name.lowercase()}",
-                        bgColor = MaterialColor.TEAL_900.color,
+                        icon = "\uDB80\uDF73",
+                        tooltip = "更新音频",
+                        bgColor = MaterialColor.BLUE_700.color,
                         enabled = enabled
                     ) {
-                        onInstallLoader(selected, loader)
+                        selected?.let(onDownloadAssets)
+                    }
+                    selected?.loaderVersions?.forEach { (loader, _) ->
+                        CircleIconButton(
+                            icon = "\uEEFF",
+                            tooltip = "更新${loader.name.lowercase()}",
+                            bgColor = MaterialColor.TEAL_900.color,
+                            enabled = enabled
+                        ) {
+                            onInstallLoader(selected, loader)
+                        }
                     }
                 }
             } else {

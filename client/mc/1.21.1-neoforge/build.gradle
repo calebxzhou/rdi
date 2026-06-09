@@ -5,8 +5,8 @@ plugins {
     id 'maven-publish'
     id 'idea'
     id 'net.neoforged.moddev' version '2.0.141'
-    id 'org.jetbrains.kotlin.jvm' version '2.3.21'
-    id 'org.jetbrains.kotlin.plugin.serialization' version '2.3.21'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.0'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.0'
 }
 
 wrapper {
@@ -73,6 +73,7 @@ jar {
     evaluationDependsOn(':rmcp-common')
     evaluationDependsOn(':rmcp-client')
     evaluationDependsOn(':ktutils-std')
+    evaluationDependsOn(':rcmd')
     // Bundle compiled classes from :c-mc-common into this jar.
     // Common resources are already added via sourceSets.main.resources above.
     dependsOn project(":c-mc-common").tasks.named("classes")
@@ -80,12 +81,14 @@ jar {
     dependsOn project(":rmcp-common").tasks.named("classes")
     dependsOn project(":rmcp-client").tasks.named("classes")
     dependsOn project(":ktutils-std").tasks.named("classes")
+    dependsOn project(":rcmd").tasks.named("classes")
     from(project(":c-mc-common").sourceSets.main.output.classesDirs)
     from(project(":c-mc-common2").sourceSets.main.output.classesDirs)
     from(project(":c-mc-common2").sourceSets.main.output.resourcesDir)
     from(project(":rmcp-common").sourceSets.main.output)
     from(project(":rmcp-client").sourceSets.main.output)
     from(project(":ktutils-std").sourceSets.main.output)
+    from(project(":rcmd").sourceSets.main.output)
     from({
         configurations.shaded.collect { it.isDirectory() ? it : zipTree(it) }
     }) {
@@ -214,6 +217,8 @@ dependencies {
     additionalRuntimeClasspath project(':rmcp-client')
     implementation project(':ktutils-std')
     additionalRuntimeClasspath project(':ktutils-std')
+    implementation project(':rcmd')
+    additionalRuntimeClasspath project(':rcmd')
     additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
     compileOnly "mezz.jei:jei-1.21.1-neoforge-api:19.21.2.313"
     // at runtime, use the full JEI jar for NeoForge
@@ -275,4 +280,5 @@ idea {
 }
 evaluationDependsOn(':c-mc-common')
 evaluationDependsOn(':c-mc-common2')
+evaluationDependsOn(':rcmd')
 project(':c-mc-common').ext.registerClientCopyTask(project)

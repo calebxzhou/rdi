@@ -14,7 +14,7 @@ class RcmdClientSource211(private val minecraft: Minecraft) : RcmdSource {
         return if (minecraft.player == null) RcmdSource.NO_PLAYER_ID else minecraft.player!!.getUUID()
     }
 
-    override fun hasPermission(permission: String?): Boolean {
+    override fun hasPermission(permission: String): Boolean {
         return true
     }
 
@@ -22,7 +22,7 @@ class RcmdClientSource211(private val minecraft: Minecraft) : RcmdSource {
         sendMessage(message)
     }
 
-    override fun sendError(message: String?) {
+    override fun sendError(message: String) {
         sendMessage("[rcmd] $message")
     }
 

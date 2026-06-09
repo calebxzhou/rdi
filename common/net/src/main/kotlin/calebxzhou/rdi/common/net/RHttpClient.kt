@@ -97,6 +97,8 @@ class DynamicProxySelector(
     private val fallback: ProxySelector? = ProxySelector.getDefault()
 ) : ProxySelector() {
     override fun select(uri: URI): List<Proxy> {
+        if (uri.isLoopbackTarget()) return listOf(Proxy.NO_PROXY)
+
         val cfg = CommonConfig.proxyConfig
         if (!cfg.enabled) return listOf(Proxy.NO_PROXY)
         if (!cfg.systemProxy) {
@@ -104,19 +106,19 @@ class DynamicProxySelector(
             return listOf(Proxy(Proxy.Type.HTTP, InetSocketAddress(cfg.host, cfg.port)))
         }
         val selector = ProxySelector.getDefault() ?: fallback ?: return listOf(Proxy.NO_PROXY)
-        val proxies = selector.select(uri) ?: return listOf(Proxy.NO_PROXY)
-        val filtered = proxies.filterNot { proxy ->
-            if (proxy.type() == Proxy.Type.DIRECT) return@filterNot false
-            val addr = proxy.address() as? InetSocketAddress ?: return@filterNot false
-            val isLoopback = addr.address?.isLoopbackAddress == true ||
-                addr.hostString.equals("localhost", ignoreCase = true)
-            isLoopback && addr.port == 80
-        }
-        return filtered.ifEmpty { listOf(Proxy.NO_PROXY) }
+        return selector.select(uri)?.ifEmpty { listOf(Proxy.NO_PROXY) } ?: listOf(Proxy.NO_PROXY)
     }
 
     override fun connectFailed(uri: URI, sa: SocketAddress, ioe: IOException) {
         if (!CommonConfig.proxyConfig.systemProxy) return
         (ProxySelector.getDefault() ?: fallback)?.connectFailed(uri, sa, ioe)
     }
+}
+
+private fun URI.isLoopbackTarget(): Boolean {
+    val targetHost = host ?: return false
+    if (targetHost.isEmpty()) return false
+    if (targetHost.equals("localhost", ignoreCase = true)) return true
+    if (!targetHost.first().isDigit() && ':' !in targetHost) return false
+    return runCatching { InetAddress.getByName(targetHost).isLoopbackAddress }.getOrDefault(false)
 }

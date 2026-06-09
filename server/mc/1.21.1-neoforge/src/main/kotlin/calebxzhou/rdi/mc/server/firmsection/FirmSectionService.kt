@@ -2,6 +2,7 @@ package calebxzhou.rdi.mc.server.firmsection
 
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.server.network.RServerNetwork
+import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
@@ -38,8 +39,28 @@ data class FirmSectionListResult(
 
 object FirmSectionService {
 
+    fun isAutoSetEnabled(player: ServerPlayer): Boolean = data(player.server).isAutoSetEnabled(player.uuid)
+
+    fun setAutoSetEnabled(player: ServerPlayer, enabled: Boolean) {
+        data(player.server).setAutoSetEnabled(player.uuid, enabled)
+    }
+
     fun set(player: ServerPlayer): FirmSectionSetResult {
         val key = target(player)
+        return set(player, player.serverLevel(), player.blockPosition(), key)
+    }
+
+    fun set(player: ServerPlayer, level: ServerLevel, pos: BlockPos): FirmSectionSetResult {
+        val key = target(level, pos)
+        return set(player, level, pos, key)
+    }
+
+    private fun set(
+        player: ServerPlayer,
+        level: ServerLevel,
+        pos: BlockPos,
+        key: FirmSectionKey
+    ): FirmSectionSetResult {
         val data = data(player.server)
         val status = when (data.add(player.uuid, key)) {
             FirmSectionAddResult.ADDED -> FirmSectionSetStatus.ADDED
@@ -48,7 +69,7 @@ object FirmSectionService {
             FirmSectionAddResult.TOTAL_LIMIT_REACHED -> FirmSectionSetStatus.TOTAL_LIMIT_REACHED
         }
         if (status == FirmSectionSetStatus.ADDED) {
-            player.level().getChunkAt(player.blockPosition()).setUnsaved(true)
+            level.getChunkAt(pos).setUnsaved(true)
             RServerNetwork.sendFirmSectionsToAll(player.server)
         }
         return FirmSectionSetResult(status, key, data.playerCount(player.uuid), data.totalCount())
@@ -100,8 +121,12 @@ object FirmSectionService {
 
     private fun target(player: ServerPlayer): FirmSectionKey {
         val pos = player.blockPosition()
+        return target(player.serverLevel(), pos)
+    }
+
+    private fun target(level: ServerLevel, pos: BlockPos): FirmSectionKey {
         return FirmSectionKey(
-            dimensionId = player.level().dimension().location().toString(),
+            dimensionId = level.dimension().location().toString(),
             chunkX = SectionPos.blockToSectionCoord(pos.x),
             sectionY = SectionPos.blockToSectionCoord(pos.y),
             chunkZ = SectionPos.blockToSectionCoord(pos.z),

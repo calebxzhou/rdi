@@ -4,7 +4,7 @@
   "package": "calebxzhou.rdi.mc.client.mixin",
   "refmap": "mixins.rdi.refmap.json",
   "target": "@env(DEFAULT)",
-  "compatibilityLevel": "JAVA_8",
+  "compatibilityLevel": "JAVA_21",
   "client": [
     "mTitleScreen",
     "mMultiScreen",
@@ -13,6 +13,7 @@
     "mUser",
     "mSkinManager",
     "mMinecraft",
+    "mRcmdChatScreen",
     "mGlobalPlayerListOverlay"
   ]
 }

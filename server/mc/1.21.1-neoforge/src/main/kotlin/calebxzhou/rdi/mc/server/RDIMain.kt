@@ -2,14 +2,16 @@ package calebxzhou.rdi.mc.server
 
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.WebSocketClient
-import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState
-import calebxzhou.rdi.mc.common2.tpa.TpaService
 import calebxzhou.rdi.mc.common3.mcs
-import calebxzhou.rdi.mc.rcmd.RcmdResult
-import calebxzhou.rdi.mc.server.firmsection.FirmSectionSavedData
+import calebxzhou.rdi.mc.common3.sendMessage
+import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
+import calebxzhou.rdi.mc.rcmd.tpa.TpaService
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
 import calebxzhou.rdi.mc.server.network.RServerNetwork
+import net.minecraft.ChatFormatting
+import net.minecraft.network.chat.ClickEvent
 import net.minecraft.network.chat.Component
+import net.minecraft.network.chat.Style
 import net.minecraft.server.dedicated.DedicatedServer
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.level.GameRules
@@ -76,11 +78,13 @@ class RDIMain {
                 player.server.playerList.op(player.gameProfile)
             }
             val range = PlayerChatRangeState.get(player.getUUID())
-            player.sendSystemMessage(Component.literal("当前聊天范围：" + range.displayName + "，输入\\chat range host或\\chat range global切换"))
-            player.sendSystemMessage(Component.literal("务必在5月31日前设置固定子区块，否则存档数据会丢失，详见群文档N章"))
             val result = FirmSectionService.list(player)
-            player.sendSystemMessage(Component.literal("此存档已设置${result.total}个"))
-
+            player.sendMessage("当前聊天范围：" + range.displayName)
+            player.sendMessage("从6月12日起 只有“持久子区块”会永久保存 其余区域将在日后随机重新生成\n" +
+                    "未来可以享受到定时定点回档、方块放置破坏日志等高级特性\n"+
+                    "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书")
+            player.sendSystemMessage(Component.literal("点此打开RDI说明书").withStyle(ChatFormatting.UNDERLINE).withStyle(
+                Style.EMPTY.withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL,"https://craftrdi.feishu.cn/wiki/U8LRwMpUliuxW5kZLvCcxonNnkd"))))
             RServerNetwork.sendLastTo(player)
             RServerNetwork.sendFirmSectionsTo(player)
         }

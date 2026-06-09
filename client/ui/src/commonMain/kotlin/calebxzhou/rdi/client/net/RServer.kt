@@ -70,7 +70,7 @@ class RServer(
         val routeState = MutableStateFlow(ServerRouteState())
 
         val DBG = RServer(
-            "localhost", 65231, 65331
+            "127.0.0.1", 65231, 65331
         )
         val OFFICIAL_NNG = RServer(
             DEFAULT_PRIMARY_HOST, 65231, 65331
@@ -137,8 +137,7 @@ class RServer(
         params: Map<String, Any> = mapOf(),
         crossinline builder: HttpRequestBuilder.() -> Unit = {}
     ): Response<T> {
-        val response = createRequest(path, method, params, builder).body<Response<T>>()
-        return response
+        return createRequest(path, method, params, builder).rdiResponse()
     }
 
 
@@ -155,6 +154,19 @@ class RServer(
             onProgress = onProgress,
         ).getOrThrow()
     }
+}
+
+suspend inline fun <reified T> HttpResponse.rdiResponse(): Response<T> {
+    if (status.value !in 200..299) {
+        bodyAsText()
+        throw RequestError("服务器请求失败: ${status.value} ${status.description}")
+    }
+    val responseContentType = contentType()
+    if (responseContentType == null || !responseContentType.match(ContentType.Application.Json)) {
+        bodyAsText()
+        throw RequestError("服务器响应格式错误: ${responseContentType ?: "无Content-Type"}")
+    }
+    return body()
 }
 
 fun HttpRequestBuilder.accountAuthHeader() {

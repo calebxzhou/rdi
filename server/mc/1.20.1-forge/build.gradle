@@ -18,9 +18,6 @@ java {
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
 }
-sourceSets.named('main') {
-    java.srcDir '../../../mc/rcmd/src/main/java'
-}
 mixin {
     add sourceSets.main, 'rdi.mixins.refmap.json'
     config "rdi.mixins.json"
@@ -74,12 +71,15 @@ dependencies {
     additionalRuntimeClasspath project(':s-mc-common')
     implementation project(':s-mc-common2')
     additionalRuntimeClasspath project(':s-mc-common2')
+    implementation project(':rcmd')
+    additionalRuntimeClasspath project(':rcmd')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
 }
 
 // Ensure the common project is evaluated before we look up its tasks/outputs
 evaluationDependsOn(':s-mc-common')
 evaluationDependsOn(':s-mc-common2')
+evaluationDependsOn(':rcmd')
 
 processResources {
     var properties = [
@@ -117,8 +117,10 @@ jar {
     // Bundle compiled outputs from shared server modules into this jar
     dependsOn project(":s-mc-common").tasks.named("classes")
     dependsOn project(":s-mc-common2").tasks.named("classes")
+    dependsOn project(":rcmd").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
     from(project(":s-mc-common2").sourceSets.main.output)
+    from(project(":rcmd").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {

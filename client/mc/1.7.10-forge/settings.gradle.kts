@@ -1,5 +1,13 @@
 
 pluginManagement {
+    resolutionStrategy {
+        eachPlugin {
+            if (requested.id.id.startsWith("org.jetbrains.kotlin.")) {
+                useVersion("2.4.0")
+            }
+        }
+    }
+
     repositories {
         maven {
             // RetroFuturaGradle
@@ -17,7 +25,7 @@ pluginManagement {
 }
 
 plugins {
-    id("com.gtnewhorizons.gtnhsettingsconvention") version("2.0.24")
+    id("com.gtnewhorizons.gtnhsettingsconvention") version("2.0.25")
 }
 rootProject.name = "c-mc710f"
 include(":c-mc-common")
