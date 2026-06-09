@@ -1,0 +1,22 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
+plugins {
+    kotlin("jvm")
+    `java-library`
+}
+
+group = "calebxzhou.rdi.mc.rcmd"
+version = "0.1"
+
+
+
+repositories {
+    mavenLocal()
+    mavenCentral()
+}
+
+
+dependencies {
+    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    testImplementation(kotlin("test"))
+}
