@@ -7,7 +7,6 @@ import calebxzhou.rdi.mc.common2.mcp.McpMethodNotAllowedError
 import calebxzhou.rdi.mc.common2.mcp.McpNotFoundError
 import io.fusionauth.http.HTTPMethod
 import io.fusionauth.http.server.*
-import org.slf4j.LoggerFactory
 import java.io.File
 import java.io.IOException
 import java.net.InetAddress
@@ -18,11 +17,9 @@ RMCP API design rule
 all response 200.
  */
 object McpServer {
-    private val lgr = LoggerFactory.getLogger("RMcpServer")
     private var server: HTTPServer? = null
     private var shutdownHookRegistered = false
     private var game: McpGameInterface? = null
-
     @Synchronized
     fun start(game: McpGameInterface, port: Int? = null): Result<Int> {
         this.game = game
@@ -38,7 +35,7 @@ object McpServer {
             )
             .start()
         File("rmcp_port.txt").writeText(port.toString())
-        lgr.info("RMCP Server started on port {}", port)
+        println("RMCP Server started on port $port")
         printRoutes()
         if (!shutdownHookRegistered) {
             Runtime.getRuntime().addShutdownHook(Thread(::stop, "rdi-mcp-http-stop"))
@@ -90,7 +87,7 @@ object McpServer {
     }
 
     private fun printRoutes() {
-        lgr.info("RMCP routes: {}", ROUTES.map { (_,it) ->"${it.method} ${it.path}" })
+        println("RMCP routes: ${ROUTES.map { (_, it) -> "${it.method} ${it.path}" }}")
     }
 
     private fun endpointListText(): String {
@@ -98,8 +95,15 @@ object McpServer {
             appendLine("""
                 Use these local HTTP APIs to read live data from the running Minecraft client. 
                 Do not guess game state when an API can read it directly.
-                Read APIs use `GET`. Action APIs use `POST`.
+               
+                Read APIs use `GET`. Action APIs use `POST`. All POST api use YAML as body.
                 
+                --
+                Only do what the player explicitly asked. Do not add extra tasks, storage, crafting, building, or travel steps unless the player requested them.
+                Example: if the player says "给我挖矿", only mine the requested ore blocks. Do not place a chest or store items.
+                Example: if the player says "给我挖矿放箱子里", mine the ore blocks and put the minerals into a chest.
+                If you want to call an API but do not know its exact parameters, call that API with no query parameters and no request body first to read its API doc.
+              
             """.trimIndent())
             ROUTES.values
                 .sortedBy { it.path }

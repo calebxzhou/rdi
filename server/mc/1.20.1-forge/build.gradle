@@ -1,5 +1,7 @@
 plugins {
     id 'net.neoforged.moddev.legacyforge' version '2.0.141'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.0'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.0'
 }
 
 base {
@@ -11,9 +13,9 @@ group = "calebxzhou.rdi"
 
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     }
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_25
 }
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
@@ -64,6 +66,7 @@ legacyForge {
 
 def shadedConfiguration = configurations.maybeCreate('shaded')
 dependencies {
+    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
     compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.5.3"))
     implementation(jarJar("io.github.llamalad7:mixinextras-forge:0.5.3"))
@@ -74,6 +77,7 @@ dependencies {
     implementation project(':rcmd')
     additionalRuntimeClasspath project(':rcmd')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 }
 
 // Ensure the common project is evaluated before we look up its tasks/outputs
@@ -101,9 +105,9 @@ processResources {
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
     javaCompiler.set(javaToolchains.compilerFor {
-        languageVersion.set(JavaLanguageVersion.of(21))
+        languageVersion.set(JavaLanguageVersion.of(25))
     })
-    options.release.set(21)
+    options.release.set(25)
 
     options.compilerArgs << "-Xlint:-deprecation"
     options.compilerArgs << "-Xlint:-removal"

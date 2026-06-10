@@ -62,7 +62,6 @@ dependencies {
     add("shaded", "io.fusionauth:java-http:1.4.0")
     add("shaded", "org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     add("shaded", "io.heapy.kotaml:kotaml:0.108.0")
-    add("shaded", "org.slf4j:slf4j-api:2.0.16")
 }
 
 tasks.withType<Jar>().configureEach {
@@ -74,18 +73,18 @@ tasks.withType<Jar>().configureEach {
 
 val defaultPlayArgRaw = """
 http://127.0.0.1:65231
-127.0.0.1:65230
+127.0.0.1:8098
 测试测试12123大世界
-25565
+8098
 68b314bb-adaf-52dd-ab96-b5ed00000000
 dev1
 """.trimIndent()
 
 val anotherPlayArgRaw = """
 http://127.0.0.1:65231
-127.0.0.1:65230
+127.0.0.1:8098
 另一个测试世界
-25565
+8098
 68b314bb-adaf-52dd-ab96-b5ee00000000
 dev2
 """.trimIndent()
@@ -110,6 +109,10 @@ tasks.named<RunMinecraftTask>("runClient21") {
         "2560",
         "--height",
         "1440",
+        "--server",
+        "127.0.0.1",
+        "--port",
+        "8098"
     )
 }
 

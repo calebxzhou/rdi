@@ -315,6 +315,8 @@ object PlayerService {
                 serdesJson.decodeFromString<HwSpec>(json)
             } catch (ex: Exception) {
                 throw ParamError("硬件信息格式错误")
+            }.let { spec ->
+                if (spec.videoMode.size > 10) spec.copy(videoMode = spec.videoMode.take(10)) else spec
             }
             authLogCol.insertOne(
                 AuthLog(

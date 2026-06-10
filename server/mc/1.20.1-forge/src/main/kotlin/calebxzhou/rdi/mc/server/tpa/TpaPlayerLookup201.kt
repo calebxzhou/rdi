@@ -1,42 +1,35 @@
-package calebxzhou.rdi.mc.server.tpa;
+package calebxzhou.rdi.mc.server.tpa
 
-import calebxzhou.rdi.mc.common2.tpa.TpaPlayer;
-import calebxzhou.rdi.mc.common2.tpa.TpaPlayerLookup;
-import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerPlayer;
+import calebxzhou.rdi.mc.common2.tpa.TpaPlayer
+import java.util.UUID
 
-import java.util.UUID;
+class TpaPlayerLookup201(server: MinecraftServer) : TpaPlayerLookup {
+    private val server: MinecraftServer
 
-public final class TpaPlayerLookup201 implements TpaPlayerLookup {
-    private final MinecraftServer server;
-
-    public TpaPlayerLookup201(MinecraftServer server) {
-        this.server = server;
+    init {
+        this.server = server
     }
 
-    @Override
-    public TpaPlayer findByName(String name) {
-        ServerPlayer player = server.getPlayerList().getPlayerByName(name);
-        return player == null ? null : new TpaPlayer201(player);
+    public override fun findByName(name: String): TpaPlayer? {
+        val player: ServerPlayer? = server.getPlayerList().getPlayerByName(name)
+        return if (player == null) null else TpaPlayer201(player)
     }
 
-    @Override
-    public TpaPlayer findById(UUID id) {
-        ServerPlayer player = server.getPlayerList().getPlayer(id);
-        return player == null ? null : new TpaPlayer201(player);
+    public override fun findById(id: UUID): TpaPlayer? {
+        val player: ServerPlayer? = server.getPlayerList().getPlayer(id)
+        return if (player == null) null else TpaPlayer201(player)
     }
 
-    @Override
-    public void teleportTo(TpaPlayer requester, TpaPlayer target) {
-        ServerPlayer requesterPlayer = ((TpaPlayer201) requester).unwrap();
-        ServerPlayer targetPlayer = ((TpaPlayer201) target).unwrap();
+    public override fun teleportTo(requester: TpaPlayer, target: TpaPlayer) {
+        val requesterPlayer: ServerPlayer = (requester as TpaPlayer201).unwrap()
+        val targetPlayer: ServerPlayer = (target as TpaPlayer201).unwrap()
         requesterPlayer.teleportTo(
-                targetPlayer.serverLevel(),
-                targetPlayer.getX(),
-                targetPlayer.getY(),
-                targetPlayer.getZ(),
-                targetPlayer.getYRot(),
-                targetPlayer.getXRot()
-        );
+            targetPlayer.serverLevel(),
+            targetPlayer.getX(),
+            targetPlayer.getY(),
+            targetPlayer.getZ(),
+            targetPlayer.getYRot(),
+            targetPlayer.getXRot()
+        )
     }
 }

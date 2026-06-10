@@ -1,42 +1,45 @@
-package calebxzhou.rdi.mc.server;
+package calebxzhou.rdi.mc.server
 
-import calebxzhou.rdi.mc.common.WebSocketClient;
-import calebxzhou.rdi.mc.common.WsMessage;
-import calebxzhou.rdi.mc.common.WsMessageHandler;
-import calebxzhou.rdi.mc.common2.chat.RChatMessage;
-import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList;
-import calebxzhou.rdi.mc.server.network.RdiServerNetwork;
-import com.google.gson.JsonElement;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.dedicated.DedicatedServer;
+import calebxzhou.rdi.mc.common.WebSocketClient
+import calebxzhou.rdi.mc.common.WsMessage
+import calebxzhou.rdi.mc.common.WsMessageHandler 
+import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList
+import calebxzhou.rdi.mc.rcmd.chat.RChatMessage
+import calebxzhou.rdi.mc.server.network.RServerNetwork
+import com.google.gson.JsonElement
+import net.minecraft.network.chat.Component
+import net.minecraft.server.dedicated.DedicatedServer
+import kotlin.jvm.java
 
 /**
  * calebxzhou @ 2026-01-12 18:08
  */
-public class WsHandler201 implements WsMessageHandler {
-    private final DedicatedServer server;
+class WsHandler201(private val server: DedicatedServer) : WsMessageHandler {
 
-    public WsHandler201(DedicatedServer server) {
-        this.server = server;
-    }
+    override fun onMessage(msg: WsMessage<JsonElement>) {
+        when (msg.channel) {
+            WsMessage.Channel.Command -> {
+                val cmd: String = msg.getData().asString
+                val resp = server.runCommand(cmd)
+                WebSocketClient.sendMessage(msg.id, WsMessage.Channel.Response, resp)
+            }
 
-    @Override
-    public void onMessage(WsMessage<JsonElement> msg) {
-        switch (msg.getChannel()){
-            case Command -> {
-                var cmd = msg.getData().getAsString();
-                var resp = server.runCommand(cmd);
-                WebSocketClient.sendMessage(msg.getId(), WsMessage.Channel.Response, resp);
+            WsMessage.Channel.Chat -> {
+                val chatMessage: RChatMessage =
+                    WebSocketClient.fromJson(msg.getData(), RChatMessage::class.java)
+                server.playerList.broadcastSystemMessage(
+                    Component.literal("[公共] " + chatMessage.playerName + ": " + chatMessage.content),
+                    false
+                )
             }
-            case Chat -> {
-                var chatMessage = WebSocketClient.fromJson(msg.getData(), RChatMessage.class);
-                server.getPlayerList().broadcastSystemMessage(Component.literal("[公共] " + chatMessage.playerName() + ": " + chatMessage.content()), false);
+
+            WsMessage.Channel.PlayerList -> {
+                val playerList: RGlobalPlayerList =
+                    WebSocketClient.fromJson(msg.getData(), RGlobalPlayerList::class.java)
+                RServerNetwork.sendToAll(server, playerList)
             }
-            case PlayerList -> {
-                var playerList = WebSocketClient.fromJson(msg.getData(), RGlobalPlayerList.class);
-                RdiServerNetwork.sendToAll(server, playerList);
-            }
-            default -> {}
+
+            else -> {}
         }
     }
 }

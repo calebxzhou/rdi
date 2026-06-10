@@ -1,87 +1,89 @@
-package calebxzhou.rdi.mc.server;
+package calebxzhou.rdi.mc.server
 
-import calebxzhou.rdi.mc.common.RDI;
-import calebxzhou.rdi.mc.common.WebSocketClient;
-import calebxzhou.rdi.mc.common2.chat.ChatRange;
-import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState;
-import calebxzhou.rdi.mc.common2.tpa.TpaService;
-import calebxzhou.rdi.mc.server.network.RdiServerNetwork;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.dedicated.DedicatedServer;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.level.GameRules;
-import net.minecraftforge.event.entity.player.PlayerEvent;
-import net.minecraftforge.event.server.ServerStartedEvent;
-import net.minecraftforge.event.server.ServerStartingEvent;
-import net.minecraftforge.event.server.ServerStoppedEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import calebxzhou.rdi.mc.common.RDI
+import calebxzhou.rdi.mc.common.WebSocketClient
+import calebxzhou.rdi.mc.rcmd.chat.ChatRange
+import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
+import calebxzhou.rdi.mc.rcmd.tpa.TpaService
+import calebxzhou.rdi.mc.server.network.RServerNetwork
+import net.minecraft.network.chat.Component
+import net.minecraft.server.dedicated.DedicatedServer
+import net.minecraft.server.level.ServerPlayer
+import net.minecraft.world.level.GameRules
+import net.minecraftforge.event.entity.player.PlayerEvent
+import net.minecraftforge.event.server.ServerStartedEvent
+import net.minecraftforge.event.server.ServerStartingEvent
+import net.minecraftforge.event.server.ServerStoppedEvent
+import net.minecraftforge.eventbus.api.SubscribeEvent
+import net.minecraftforge.fml.common.Mod
+import org.apache.logging.log4j.LogManager
+import org.apache.logging.log4j.Logger
+
 
 /**
  * calebxzhou @ 2026-01-06 13:41
  */
 @Mod("rdi")
 @Mod.EventBusSubscriber(modid = "rdi")
-public class RDIMain  {
-    private static final Logger lgr = LogManager.getLogger("rdi");
-
-    public RDIMain() {
-        RdiServerNetwork.register();
+class RDIMain {
+    init {
+        RServerNetwork.register()
     }
 
-    @SubscribeEvent
-    public static void started(ServerStartedEvent e) {
-        WebSocketClient.start(new WsHandler201((DedicatedServer)e.getServer()));
-    }
+    companion object {
+        private val lgr: Logger = LogManager.getLogger("rdi")
 
-    @SubscribeEvent
-    public static void starting(ServerStartingEvent e) {
-        var server = (DedicatedServer) e.getServer();
+        @SubscribeEvent
+        fun started(e: ServerStartedEvent) {
+            WebSocketClient.start(WsHandler201(e.getServer() as DedicatedServer))
+        }
 
-        GameRules.visitGameRuleTypes(new GameRules.GameRuleTypeVisitor() {
-            @Override
-            public <T extends GameRules.Value<T>> void visit(GameRules.Key<T> key, GameRules.Type<T> type) {
-                String gameRuleEnv = System.getenv("GAME_RULE_" + key.getId());
+        @SubscribeEvent
+        fun starting(e: ServerStartingEvent) {
+            val server: DedicatedServer = e.getServer() as DedicatedServer
 
-                if (gameRuleEnv != null) {
-                    GameRules.Value<?> rule = server.getGameRules().getRule(key);
+            GameRules.visitGameRuleTypes(object : GameRules.GameRuleTypeVisitor {
+                override fun <T : GameRules.Value<T>> visit(key: GameRules.Key<T>, type: GameRules.Type<T>) {
+                    val gameRuleEnv = System.getenv("GAME_RULE_" + key.getId())
 
-                    if (rule instanceof GameRules.BooleanValue booleanValue) {
-                        booleanValue.set(Boolean.parseBoolean(gameRuleEnv), server);
-                        lgr.info("SET GAME RULE {}={}  B", key, gameRuleEnv);
-                    } else if (rule instanceof GameRules.IntegerValue integerValue) {
-                        integerValue.set(Integer.parseInt(gameRuleEnv), server);
-                        lgr.info("SET GAME RULE {}={}  I", key, gameRuleEnv);
+                    if (gameRuleEnv != null) {
+                        val rule = server.gameRules.getRule<T>(key)
+
+                        if (rule is GameRules.BooleanValue) {
+                            rule.set(gameRuleEnv.toBoolean(), server)
+                            lgr.info("SET GAME RULE {}={}  B", key, gameRuleEnv)
+                        } else if (rule is GameRules.IntegerValue) {
+                            rule.set(gameRuleEnv.toInt(), server)
+                            lgr.info("SET GAME RULE {}={}  I", key, gameRuleEnv)
+                        }
                     }
                 }
-            }
-        });
-    }
-
-    @SubscribeEvent
-    public static void stopped(ServerStoppedEvent e) {
-        PlayerChatRangeState.clear();
-        TpaService.clear();
-        WebSocketClient.stop();
-    }
-
-    @SubscribeEvent
-    public static void onPlayerJoin(PlayerEvent.PlayerLoggedInEvent e){
-        var player = (ServerPlayer) e.getEntity();
-        if (RDI.isAllOp()) {
-            player.server.getPlayerList().op(player.getGameProfile());
+            })
         }
-        ChatRange range = PlayerChatRangeState.get(player.getUUID());
-        player.sendSystemMessage(Component.literal("当前聊天范围：" + range.getDisplayName() + "，输入\\chat range host或\\chat range global切换"));
-        RdiServerNetwork.sendLastTo(player);
-    }
 
-    @SubscribeEvent
-    public static void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent e) {
-        var player = (ServerPlayer) e.getEntity();
-        PlayerChatRangeState.remove(player.getUUID());
-        TpaService.removeRelated(player.getUUID());
+        @SubscribeEvent
+        fun stopped(e: ServerStoppedEvent) {
+            PlayerChatRangeState.clear()
+            TpaService.clear()
+            WebSocketClient.stop()
+        }
+
+        @SubscribeEvent
+        fun onPlayerJoin(e: PlayerEvent.PlayerLoggedInEvent) {
+            val player: ServerPlayer = e.entity as ServerPlayer
+            if (RDI.isAllOp()) {
+                player.server.playerList.op(player.gameProfile)
+            }
+            val range: ChatRange = PlayerChatRangeState.get(player.getUUID())
+            player.sendSystemMessage(Component.literal("当前聊天范围：" + range.displayName + "，输入\\chat range host或\\chat range global切换"))
+            RServerNetwork.sendLastTo(player)
+        }
+
+        @SubscribeEvent
+        fun onPlayerLogout(e: PlayerEvent.PlayerLoggedOutEvent) {
+            val player: ServerPlayer = e.entity as ServerPlayer
+            PlayerChatRangeState.remove(player.getUUID())
+            TpaService.removeRelated(player.getUUID())
+        }
     }
 }

@@ -27,7 +27,6 @@ dependencies {
     api project(':rmcp-common')
     implementation project(':ktutils-std')
     implementation 'io.fusionauth:java-http:1.4.0'
-    compileOnly("org.slf4j:slf4j-api:2.0.16")
     implementation("io.heapy.kotaml:kotaml:0.108.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 

@@ -185,6 +185,10 @@ object McpGameImpl : McpGameInterface {
         }
     }
 
+    override fun gameVersion(): String {
+        return "1.21.1"
+    }
+
 
     fun complete(packet: McpS2CNetPacket) {
         pendingPacketMap.remove(packet.reqId)?.complete(packet)

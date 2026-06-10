@@ -61,6 +61,7 @@ fun ModpackInfoScreen(
     var confirmDeleteVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var confirmRebuildVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var confirmRedownloadVersion by remember { mutableStateOf<Modpack.Version?>(null) }
+    var downloadMethodVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf("") }
     var editIconUrl by remember { mutableStateOf("") }
@@ -288,7 +289,7 @@ fun ModpackInfoScreen(
                                                 confirmRedownloadVersion = version
                                                 return@CircleIconButton
                                             }
-                                            startDownload(pack, version)
+                                            downloadMethodVersion = version
                                         }
                                     }
                                 }
@@ -426,12 +427,30 @@ fun ModpackInfoScreen(
                 message = "整合包版本 ${version.name} 已存在，是否重新下载？",
                 onConfirm = {
                     confirmRedownloadVersion = null
-                    startDownload(currentPack, version)
+                    downloadMethodVersion = version
                 },
                 onDismiss = { confirmRedownloadVersion = null }
             )
         } else {
             confirmRedownloadVersion = null
+        }
+    }
+
+    downloadMethodVersion?.let { version ->
+        val currentPack = pack
+        if (currentPack != null) {
+            ModpackDownloadMethodDialog(
+                packName = currentPack.name,
+                packVer = version.name,
+                onDismiss = { downloadMethodVersion = null },
+                onDirectDownload = {
+                    downloadMethodVersion = null
+                    startDownload(currentPack, version)
+                },
+                onOpenTaskList = onOpenTaskList,
+                onImportMessage = { okMessage = it },
+                onImportError = { errorMessage = it }
+            )
         }
     }
 

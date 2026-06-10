@@ -4,12 +4,10 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,6 +19,7 @@ import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HostCard
+import calebxzhou.rdi.client.ui.comp.ModpackDownloadMethodDialog
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.isDav
@@ -297,20 +296,17 @@ internal fun HostBrowserPane(
     }
 
     installConfirmTask?.let { install ->
-        AlertDialog(
-            onDismissRequest = { installConfirmTask = null },
-            title = { Text("未下载整合包") },
-            text = { Text("未下载此房间的整合包，是否立即下载？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    installConfirmTask = null
-                    val runId = ClientTaskManager.submit(install.task, dedupeKey = install.dedupeKey)
-                    onOpenTaskList(runId)
-                }) { Text("下载") }
+        ModpackDownloadMethodDialog(
+            packName = install.task.title,
+            packVer = "",
+            onDismiss = { installConfirmTask = null },
+            onDirectDownload = {
+                installConfirmTask = null
+                val runId = ClientTaskManager.submit(install.task, dedupeKey = install.dedupeKey)
+                onOpenTaskList(runId)
             },
-            dismissButton = {
-                TextButton(onClick = { installConfirmTask = null }) { Text("取消") }
-            }
+            onOpenTaskList = onOpenTaskList,
+            onImportError = { errorMessage = it }
         )
     }
 }

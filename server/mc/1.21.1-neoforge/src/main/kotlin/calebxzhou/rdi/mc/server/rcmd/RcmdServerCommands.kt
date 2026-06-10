@@ -2,6 +2,9 @@ package calebxzhou.rdi.mc.server.rcmd
 
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common3.mcs
+import calebxzhou.rdi.mc.firmsection.FirmSectionKey
+import calebxzhou.rdi.mc.firmsection.FirmSectionLimits
+import calebxzhou.rdi.mc.firmsection.FirmSectionSetStatus
 import calebxzhou.rdi.mc.rcmd.*
 import calebxzhou.rdi.mc.rcmd.chat.ChatRange
 import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
@@ -9,10 +12,7 @@ import calebxzhou.rdi.mc.rcmd.home.HomeResult
 import calebxzhou.rdi.mc.rcmd.home.HomeService
 import calebxzhou.rdi.mc.rcmd.tpa.TpaResult
 import calebxzhou.rdi.mc.rcmd.tpa.TpaService
-import calebxzhou.rdi.mc.server.firmsection.FirmSectionKey
-import calebxzhou.rdi.mc.server.firmsection.FirmSectionSavedData
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
-import calebxzhou.rdi.mc.server.firmsection.FirmSectionSetStatus
 import net.minecraft.resources.ResourceKey
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.item.ItemEntity
@@ -125,10 +125,10 @@ object RcmdServerCommands : RcmdServerCommandHandler {
                 RcmdResult.ok("当前子区块已经持久了")
 
             FirmSectionSetStatus.PLAYER_LIMIT_REACHED ->
-                RcmdResult.error("你持久的子区块已达到个人上限${FirmSectionSavedData.MAX_SECTIONS_PERSON}个")
+                RcmdResult.error("你持久的子区块已达到个人上限${FirmSectionLimits.maxPerson}个")
 
             FirmSectionSetStatus.TOTAL_LIMIT_REACHED ->
-                RcmdResult.error("持久子区块已达到全世界上限${FirmSectionSavedData.MAX_SECTIONS_TOTAL}个")
+                RcmdResult.error("持久子区块已达到全世界上限${FirmSectionLimits.maxTotal}个")
         }
     }
 
@@ -271,10 +271,10 @@ object RcmdServerCommands : RcmdServerCommandHandler {
         "${key.chunkX},${key.sectionY},${key.chunkZ}"
 
     private fun firmSectionCountLabel(playerCount: Int, total: Int): String =
-        if (FirmSectionSavedData.MAX_SECTIONS_PERSON > 0) {
-            "你：${playerCount}/${FirmSectionSavedData.MAX_SECTIONS_PERSON}，全世界：${total}/${FirmSectionSavedData.MAX_SECTIONS_TOTAL}"
+        if (FirmSectionLimits.maxPerson > 0) {
+            "你：${playerCount}/${FirmSectionLimits.maxPerson}，全世界：${total}/${FirmSectionLimits.maxTotal}"
         } else {
-            "你：${playerCount}个，全世界：${total}/${FirmSectionSavedData.MAX_SECTIONS_TOTAL}"
+            "你：${playerCount}个，全世界：${total}/${FirmSectionLimits.maxTotal}"
         }
 
     @JvmRecord

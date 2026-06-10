@@ -18,6 +18,8 @@ import calebxzhou.rdi.mc.common2.mcp.model.McpC2SNetPacket
 import calebxzhou.rdi.mc.common2.mcp.model.McpS2CNetPacket
 import calebxzhou.rdi.mc.common2.mcp.model.ModInfo
 import calebxzhou.rdi.mc.common2.mcp.model.PlayerInfo
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcess
+import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcessTextView
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeQ
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeTreeQ
 import cpw.mods.fml.common.Loader
@@ -111,7 +113,30 @@ object McpGameImpl1710 : McpGameInterface {
         )
     }
 
-    override fun recipes(req: RecipeQ): Result<String> = unsupported()
+    override fun recipes(req: RecipeQ): Result<String> = runCatching {
+        if (minecraft.thePlayer == null || minecraft.theWorld == null) {
+            throw McpNoPlayerError()
+        }
+        if (!NeiRecipeProcessCollector1710.isReady()) {
+            return@runCatching "unresolved reason=nei_not_ready"
+        }
+        val recipesByItem = req.items.associateWith { itemId ->
+            if (minecraft.func_152345_ab()) {
+                NeiRecipeProcessCollector1710.collect(itemId)
+            } else {
+                val future = CompletableFuture<List<RecipeProcess>>()
+                minecraft.func_152344_a {
+                    try {
+                        future.complete(NeiRecipeProcessCollector1710.collect(itemId))
+                    } catch (e: Throwable) {
+                        future.completeExceptionally(e)
+                    }
+                }
+                future.get(RESPONSE_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+            }
+        }
+        RecipeProcessTextView.render(req.items, recipesByItem)
+    }
 
     override fun recipeTree(req: RecipeTreeQ): Result<String> = unsupported()
 

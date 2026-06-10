@@ -1,34 +1,25 @@
-package calebxzhou.rdi.mc.server.tpa;
+package calebxzhou.rdi.mc.server.tpa
 
-import calebxzhou.rdi.mc.common2.tpa.TpaPlayer;
-import net.minecraft.network.chat.Component;
-import net.minecraft.server.level.ServerPlayer;
+import calebxzhou.rdi.mc.rcmd.tpa.TpaPlayer
+import net.minecraft.network.chat.Component
+import net.minecraft.server.level.ServerPlayer
+import java.util.UUID
 
-import java.util.UUID;
+class TpaPlayer201(private val player: ServerPlayer) : TpaPlayer {
 
-public final class TpaPlayer201 implements TpaPlayer {
-    private final ServerPlayer player;
-
-    public TpaPlayer201(ServerPlayer player) {
-        this.player = player;
+    fun unwrap(): ServerPlayer {
+        return player
     }
 
-    public ServerPlayer unwrap() {
-        return player;
+    public override fun id(): UUID {
+        return player.getUUID()
     }
 
-    @Override
-    public UUID id() {
-        return player.getUUID();
+    public override fun name(): String {
+        return player.gameProfile.name
     }
 
-    @Override
-    public String name() {
-        return player.getGameProfile().getName();
-    }
-
-    @Override
-    public void sendMessage(String message) {
-        player.sendSystemMessage(Component.literal(message));
+    public override fun sendMessage(message: String) {
+        player.sendSystemMessage(Component.literal(message))
     }
 }

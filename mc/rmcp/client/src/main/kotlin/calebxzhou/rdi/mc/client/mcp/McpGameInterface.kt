@@ -42,6 +42,8 @@ interface McpGameInterface {
     fun questChapterList(): Result<String>
 
     fun questsOfChapter(chapterId: String): Result<String>
+
+    fun gameVersion(): String
 }
 
 inline fun <reified Q : Any> McpGameInterface.send(req: Q): Result<String> {

@@ -1,37 +1,29 @@
 package calebxzhou.rdi.client.service
 
 import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
+import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.sha1
-import calebxzhou.rdi.CONF
 import calebxzhou.rdi.client.model.firstLoaderDir
-import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.RServer
+import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.isDesktop
 import calebxzhou.rdi.client.ui.loadResourceStream
-import calebxzhou.rdi.common.DEBUG
-import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.archive.PackArchiveFormat
 import calebxzhou.rdi.common.archive.detectArchiveFormat
 import calebxzhou.rdi.common.archive.extractArchiveToDir
 import calebxzhou.rdi.common.exception.RequestError
-import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.util.str
 import io.ktor.http.*
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.*
 import org.bson.types.ObjectId
 import java.io.File
 import java.nio.file.Files
-import java.util.Comparator
 import java.util.concurrent.atomic.AtomicBoolean
 
 enum class LocalModpackSourceType {
@@ -514,6 +506,16 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         return StartPlayResult.NeedMc(modpack.mcVer)
     }
 
+    val activeBaseMods = version.mods
+        .filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }
+        .filter(::isClientInstallableMod)
+    if (!ModpackService.isVersionReadyToLaunch(version, activeBaseMods)) {
+        return StartPlayResult.NeedInstall(
+            task = version.startInstallTask2(modpack.mcVer, modpack.modloader, modpack.name),
+            dedupeKey = installTaskKey
+        )
+    }
+
     val startResp = server.makeRequest<Unit>("host/${_id}/start", HttpMethod.Post)
     if (!startResp.ok) {
         throw RequestError("启动房间失败: ${startResp.msg}")
@@ -533,9 +535,6 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             "$port\n" +
             "${loggedAccount.uuid}\n" +
             loggedAccount.name
-    val activeBaseMods = version.mods
-        .filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }
-        .filter(::isClientInstallableMod)
 
     runCatching {
         server.makeRequest<Unit>("modpack/${modpack.id}/play", HttpMethod.Post)

@@ -1590,10 +1590,12 @@ fun HostInfoScreen(
     }
 
     installConfirmTask?.let { install ->
-        ConfirmDialog(
-            title = "未下载整合包",
-            message = "未下载此房间的整合包，是否立即下载？",
-            onConfirm = {
+        val currentHost = hostDetail
+        ModpackDownloadMethodDialog(
+            packName = currentHost?.modpack?.name ?: install.task.title,
+            packVer = currentHost?.packVer.orEmpty(),
+            onDismiss = { installConfirmTask = null },
+            onDirectDownload = {
                 installConfirmTask = null
                 val runId = ClientTaskManager.submit(install.task, dedupeKey = install.dedupeKey)
                 if (onOpenTaskList != null) {
@@ -1602,7 +1604,9 @@ fun HostInfoScreen(
                     okMessage = "已加入任务列表"
                 }
             },
-            onDismiss = { installConfirmTask = null }
+            onOpenTaskList = onOpenTaskList,
+            onImportMessage = { okMessage = it },
+            onImportError = { errorMessage = it }
         )
     }
 
