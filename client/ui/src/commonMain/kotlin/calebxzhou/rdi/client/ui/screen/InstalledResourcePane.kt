@@ -471,6 +471,7 @@ fun InstalledResourcePane(
                         mcVer = packdir.vo.mcVer,
                         modLoader = packdir.vo.modloader,
                         versionId = packdir.versionId,
+                        modpackName = packdir.vo.name,
                         playArg = "${server.hqUrl}\n" +
                                 "127.0.0.1:55667\n" +
                                 "test\n" +

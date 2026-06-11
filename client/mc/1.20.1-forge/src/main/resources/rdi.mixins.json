@@ -18,6 +18,7 @@
     "mHttpTexture",
     "mMultiScreen",
     "mPlayerTabOverlay",
+    "mRcmdChatScreen",
     "mSkinManager",
     "mTitleScreen",
     "mUser"

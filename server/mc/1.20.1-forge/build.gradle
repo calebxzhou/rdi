@@ -10,13 +10,13 @@ base {
 
 version = "5-mc-server-1.20.1-forge"
 group = "calebxzhou.rdi"
-
+/*
 java {
     toolchain {
-        languageVersion.set(JavaLanguageVersion.of(25))
+        languageVersion.set(JavaLanguageVersion.of(21))
     }
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_25
-}
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_21
+}*/
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
 }
@@ -36,12 +36,14 @@ repositories {
 
 }
 legacyForge {
-    version = "1.20.1-47.4.13"
+    version = "1.20.1-47.4.20"
     runs {
         server {
             server()
             systemProperty("rdi.ihq.url", "127.0.0.1:65231")
+            systemProperty("rdi.debug", "true")
             systemProperty("rdi.host.id", "695f9e5ad05510e77c09ea1a")
+            systemProperty 'rdi.onlySaveFirmSections', 'true'
             systemProperty("mixin.hotSwap", "true")
             programArguments = [
                 "--nogui",
@@ -66,7 +68,8 @@ legacyForge {
 
 def shadedConfiguration = configurations.maybeCreate('shaded')
 dependencies {
-    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
     compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.5.3"))
     implementation(jarJar("io.github.llamalad7:mixinextras-forge:0.5.3"))
@@ -76,6 +79,8 @@ dependencies {
     additionalRuntimeClasspath project(':s-mc-common2')
     implementation project(':rcmd')
     additionalRuntimeClasspath project(':rcmd')
+    implementation project(':firmsection')
+    additionalRuntimeClasspath project(':firmsection')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
 }
@@ -84,6 +89,7 @@ dependencies {
 evaluationDependsOn(':s-mc-common')
 evaluationDependsOn(':s-mc-common2')
 evaluationDependsOn(':rcmd')
+evaluationDependsOn(':firmsection')
 
 processResources {
     var properties = [
@@ -104,10 +110,10 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
-    javaCompiler.set(javaToolchains.compilerFor {
-        languageVersion.set(JavaLanguageVersion.of(25))
+   /* javaCompiler.set(javaToolchains.compilerFor {
+        languageVersion.set(JavaLanguageVersion.of(21))
     })
-    options.release.set(25)
+    options.release.set(21)*/
 
     options.compilerArgs << "-Xlint:-deprecation"
     options.compilerArgs << "-Xlint:-removal"
@@ -122,9 +128,11 @@ jar {
     dependsOn project(":s-mc-common").tasks.named("classes")
     dependsOn project(":s-mc-common2").tasks.named("classes")
     dependsOn project(":rcmd").tasks.named("classes")
+    dependsOn project(":firmsection").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
     from(project(":s-mc-common2").sourceSets.main.output)
     from(project(":rcmd").sourceSets.main.output)
+    from(project(":firmsection").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {

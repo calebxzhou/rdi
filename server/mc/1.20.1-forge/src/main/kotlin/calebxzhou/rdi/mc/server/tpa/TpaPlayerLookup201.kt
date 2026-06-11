@@ -1,14 +1,12 @@
 package calebxzhou.rdi.mc.server.tpa
 
-import calebxzhou.rdi.mc.common2.tpa.TpaPlayer
-import java.util.UUID
+import calebxzhou.rdi.mc.rcmd.tpa.TpaPlayer
+import calebxzhou.rdi.mc.rcmd.tpa.TpaPlayerLookup
+import net.minecraft.server.MinecraftServer
+import net.minecraft.server.level.ServerPlayer
+import java.util.*
 
-class TpaPlayerLookup201(server: MinecraftServer) : TpaPlayerLookup {
-    private val server: MinecraftServer
-
-    init {
-        this.server = server
-    }
+class TpaPlayerLookup201(private val server: MinecraftServer) : TpaPlayerLookup {
 
     public override fun findByName(name: String): TpaPlayer? {
         val player: ServerPlayer? = server.getPlayerList().getPlayerByName(name)

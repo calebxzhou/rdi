@@ -57,8 +57,11 @@ import calebxzhou.rdi.client.ui.Space8w
 import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.TitleRow2
 import calebxzhou.rdi.client.ui.comp.Console
+import calebxzhou.rdi.common.model.GTO_GUARD_AGENT_FILE_NAME
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Task2Progress
+import calebxzhou.rdi.common.model.isGtoModpackName
+import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -143,6 +146,12 @@ fun McPlayScreen(
 
                 val launchJvmArgs = buildList {
                     addAll(extraJvmArgs.filterNot { it.startsWith("-Drdi.play=") })
+                    if (args.modpackName.isGtoModpackName()) {
+                        val versionDir = args.versionDir?.let(::File) ?: GameService.versionListDir.resolve(args.versionId)
+                        val gtoGuardAgent = versionDir.resolve(GTO_GUARD_AGENT_FILE_NAME)
+                        require(gtoGuardAgent.isFile) { "缺少GTO启动保护文件: ${gtoGuardAgent.absolutePath}" }
+                        add("\"-javaagent:${gtoGuardAgent.absolutePath}\"")
+                    }
                     LocalMcProxy.start(McPlayStore::appendProxyLog)
                     val proxiedPlayArg = args.playArg.withGameAddr(LocalMcProxy.gameAddr)
                     add("-Drdi.play=${proxiedPlayArg.encodeBase64}")

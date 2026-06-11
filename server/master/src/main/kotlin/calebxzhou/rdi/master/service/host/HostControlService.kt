@@ -13,6 +13,7 @@ import calebxzhou.rdi.master.service.DockerService
 import calebxzhou.rdi.master.service.ModpackService
 import calebxzhou.rdi.master.service.ModpackService.getVersion
 import calebxzhou.rdi.master.service.host.HostContainerService.makeContainer
+import calebxzhou.rdi.master.service.host.HostContainerService.requireGtoGuardAgent
 import calebxzhou.rdi.master.service.host.HostInstallService.deleteTransientStartupDirs
 import calebxzhou.rdi.master.service.host.HostInstallService.refreshWorldSizeAfterStop
 import calebxzhou.rdi.master.service.host.HostInstallService.writeServerProperties
@@ -74,6 +75,7 @@ object HostControlService {
         }
         val modpack = ModpackService.getById(current.modpackId) ?: throw RequestError("无此整合包")
         val version = modpack.getVersion(current.packVer) ?: throw RequestError("无此版本")
+        current.requireGtoGuardAgent(modpack)
         DockerService.deleteContainer(current._id.str)
         current.writeServerProperties()
         current.deleteTransientStartupDirs()

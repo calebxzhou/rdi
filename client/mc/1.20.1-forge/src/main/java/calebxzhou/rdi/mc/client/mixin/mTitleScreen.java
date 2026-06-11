@@ -1,13 +1,8 @@
 package calebxzhou.rdi.mc.client.mixin;
 
-import com.google.common.net.HostAndPort;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.components.Button;
-import net.minecraft.client.gui.screens.ConnectScreen;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.TitleScreen;
-import net.minecraft.client.multiplayer.ServerData;
-import net.minecraft.client.multiplayer.resolver.ServerAddress;
 import net.minecraft.client.renderer.PanoramaRenderer;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -19,7 +14,6 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import static calebxzhou.rdi.mc.client.RDIMain.JOIN_BUTTON;
 import static calebxzhou.rdi.mc.client.RDIMain.layoutJoinButton;
-import static calebxzhou.rdi.mc.common.RDI.*;
 
 /**
  * calebxzhou @ 2025-04-15 10:32

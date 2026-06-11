@@ -22,6 +22,7 @@ data class McPlayArgs(
     val modLoader: ModLoader,
     val versionId: String,
     val playArg: String,
+    val modpackName: String = "",
     val mcpPort: Int? = null,
     val versionDir: String? = null,
     val activeBaseMods: List<Mod> = emptyList(),

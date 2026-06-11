@@ -547,6 +547,7 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             modLoader = modpack.modloader,
             versionId = versionId,
             playArg = playArg,
+            modpackName = modpack.name,
             versionDir = verDir.absolutePath,
             activeBaseMods = activeBaseMods,
             disabledBaseMods = disabledMods,

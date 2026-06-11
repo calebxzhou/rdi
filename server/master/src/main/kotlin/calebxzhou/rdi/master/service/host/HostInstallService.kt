@@ -19,6 +19,7 @@ import calebxzhou.rdi.master.service.ModpackService.installToHost
 import calebxzhou.rdi.master.service.WorldService.createWorld
 import calebxzhou.rdi.master.service.WorldService.updateWorldSize
 import calebxzhou.rdi.master.service.host.HostContainerService.makeContainer
+import calebxzhou.rdi.master.service.host.HostContainerService.requireGtoGuardAgent
 import calebxzhou.rdi.master.service.host.HostRuntimeService.listenCrashOnStart
 import calebxzhou.rdi.model.Role
 import kotlinx.coroutines.delay
@@ -232,6 +233,7 @@ object HostInstallService {
                     lgr.info { "installToHost returned. Proceeding to start Docker container for host ${host._id} (Logic Error Tracing)." }
                     ctx.emit(LoadProgress.Phase("启动房间"))
                     MailService.changeMail(mailId, runningTitle, newContent = "启动房间")
+                    host.requireGtoGuardAgent(modpack)
                     DockerService.start(host._id.str)
                     host.listenCrashOnStart()
 

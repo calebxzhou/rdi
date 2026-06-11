@@ -4,6 +4,10 @@ import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import org.bson.types.ObjectId
 
+const val GTO_GUARD_AGENT_FILE_NAME = "gto-guard-agent.jar"
+
+fun String.isGtoModpackName(): Boolean = endsWith("GTO")
+
 @Serializable
 class Modpack(
     @Contextual val _id: ObjectId = ObjectId(),

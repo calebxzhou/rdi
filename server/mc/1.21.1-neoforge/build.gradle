@@ -131,6 +131,7 @@ dependencies {
     [
             'architectury-api:13.0.8+neoforge',
             'create:6.0.10+mc1.21.1',
+            'world-pre-generator:1.21.1-5.0.1',
             /*'jade:11.13.1+forge',
             'embeddium:0.3.31+mc1.20.1',
             "architectury-api:9.2.14+forge",

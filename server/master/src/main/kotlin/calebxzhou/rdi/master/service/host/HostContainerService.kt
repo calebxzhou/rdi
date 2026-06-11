@@ -1,11 +1,13 @@
 package calebxzhou.rdi.master.service.host
 
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.model.GTO_GUARD_AGENT_FILE_NAME
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.Modpack
+import calebxzhou.rdi.common.model.isGtoModpackName
 import calebxzhou.rdi.common.model.sameMod
 import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.master.service.CLIENT_ONLY_MARK_PREFIX
@@ -25,6 +27,7 @@ object HostContainerService {
     internal fun Host.containerEnv(
         mcv: McVersion,
         loaderVersion: ModLoader.Version,
+        modpack: Modpack,
         lwjgl3ifyRuntime: Lwjgl3ifyServerSupport.PreparedRuntime?
     ): MutableList<String> {
         val serverArgs = when (mcv) {
@@ -55,6 +58,9 @@ object HostContainerService {
                 this.add("-Xmx12G")
             } else {
                 this.add("-Xmx8G")
+            }
+            if (modpack.name.isGtoModpackName()) {
+                this.add("-javaagent:/opt/server/$GTO_GUARD_AGENT_FILE_NAME")
             }
         } + serverArgs + noguiArg
         return mutableListOf(
@@ -180,9 +186,17 @@ object HostContainerService {
                 this._id.str,
                 mounts,
                 image,
-                containerEnv(modpack.mcVer, modLoaderVersion, lwjgl3ifyRuntime)
+                containerEnv(modpack.mcVer, modLoaderVersion, modpack, lwjgl3ifyRuntime)
             )
         } ?: throw RequestError("不支持的mod加载器")
+    }
+
+    internal fun Host.requireGtoGuardAgent(modpack: Modpack) {
+        if (!modpack.name.isGtoModpackName()) return
+        val agentFile = dir.resolve(GTO_GUARD_AGENT_FILE_NAME)
+        if (!agentFile.isFile) {
+            throw RequestError("缺少GTO服务端启动保护文件: ${agentFile.absolutePath}")
+        }
     }
 
     internal fun isServerInstalledMod(mod: Mod): Boolean =

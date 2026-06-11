@@ -1,6 +1,6 @@
 package calebxzhou.rdi.mc.client.mixin;
 
-import calebxzhou.rdi.mc.client.gui.RdiTabRow;
+import calebxzhou.rdi.mc.client.gui.RTabRow;
 import calebxzhou.rdi.mc.client.network.GlobalPlayerListState;
 import calebxzhou.rdi.mc.client.skin.GlobalPlayerSkinCache;
 import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList;
@@ -40,15 +40,15 @@ public class mPlayerTabOverlay {
         if (hosts.isEmpty()) {
             return;
         }
-        var rows = new ArrayList<RdiTabRow>();
-        rows.add(new RdiTabRow("RDI在线玩家", null, 0xFFFFD86B));
+        var rows = new ArrayList<RTabRow>();
+        rows.add(new RTabRow("RDI在线玩家", null, 0xFFFFD86B));
         for (RGlobalPlayerList.HostEntry host : hosts) {
             if (host.players().isEmpty()) {
                 continue;
             }
-            rows.add(new RdiTabRow(host.hostName() + " · " + host.modpackName() + " " + host.packVer(), null, 0xFFEFEFEF));
+            rows.add(new RTabRow(host.hostName() + " · " + host.modpackName() + " " + host.packVer(), null, 0xFFEFEFEF));
             for (RGlobalPlayerList.PlayerEntry player : host.players()) {
-                rows.add(new RdiTabRow(player.playerName(), parseUuid(player.playerId()), 0xFFEFEFEF));
+                rows.add(new RTabRow(player.playerName(), parseUuid(player.playerId()), 0xFFEFEFEF));
             }
         }
         if (rows.size() <= 1) {
@@ -56,8 +56,8 @@ public class mPlayerTabOverlay {
         }
         var font = Minecraft.getInstance().font;
         int maxTextWidth = 0;
-        for (RdiTabRow row : rows) {
-            maxTextWidth = Math.max(maxTextWidth, font.width(row.text()) + (row.isPlayer() ? 12 : 0));
+        for (RTabRow row : rows) {
+            maxTextWidth = Math.max(maxTextWidth, font.width(row.text) + (row.isPlayer() ? 12 : 0));
         }
         int panelWidth = Math.min(maxTextWidth + 12, 260);
         int lineHeight = 10;
@@ -70,10 +70,10 @@ public class mPlayerTabOverlay {
             int rowY = y + i * lineHeight;
             int textX = x;
             if (row.isPlayer()) {
-                PlayerFaceRenderer.draw(guiGraphics, GlobalPlayerSkinCache.skin(row.playerId(), row.text()), x, rowY, 8);
+                PlayerFaceRenderer.draw(guiGraphics, GlobalPlayerSkinCache.skin(row.playerId, row.text), x, rowY, 8);
                 textX += 11;
             }
-            guiGraphics.drawString(font, row.text(), textX, rowY, row.color(), false);
+            guiGraphics.drawString(font, row.text, textX, rowY, row.color, false);
         }
     }
 

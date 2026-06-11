@@ -2,14 +2,15 @@ import java.nio.charset.StandardCharsets
 import java.util.Base64
 
 plugins {
-    id 'net.neoforged.moddev.legacyforge' version '2.0.124'
-    id "org.jetbrains.kotlin.jvm" version "2.2.21"
+    id 'net.neoforged.moddev.legacyforge' version '2.0.141'
+    id "org.jetbrains.kotlin.jvm" version "2.4.0"
 }
 
 // Ensure the common project is configured before we read its outputs
 evaluationDependsOn(":c-mc-common")
 evaluationDependsOn(":c-mc-common2")
 evaluationDependsOn(":rcmd")
+evaluationDependsOn(":firmsection")
 
 base {
     archivesName = "rdi"
@@ -31,15 +32,15 @@ def playArg = [
         selectedPlayerName
 ].join("\n")
 
-java {
+/*java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_25
 }
 kotlin {
-    jvmToolchain(21)
-}
+    jvmToolchain(25)
+}*/
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
     // Make shared assets available in IDE/dev runs (runClient).
@@ -62,14 +63,17 @@ repositories {
     }
 
 }
+def shadedConfiguration = configurations.maybeCreate('shaded')
+
 legacyForge {
-    version = "1.20.1-47.4.13"
+    version = "1.20.1-47.4.20"
     runs {
         client {
             client()
             systemProperty("rdi.play", Base64.encoder.encodeToString(playArg.getBytes(StandardCharsets.UTF_8)))
-            systemProperty("mixin.hotSwap", "true")
+            //systemProperty("mixin.hotSwap", "true")
             programArguments = [
+                    "--enable-native-access=ALL",
                     "-mixin.config=rdi.mixins.json",
                     "--width",
                     "2560",
@@ -101,13 +105,15 @@ legacyForge {
 dependencies {
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
     // https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-stdlib
-    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.2.21")
+    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     implementation(project(":c-mc-common"))
     additionalRuntimeClasspath(project(":c-mc-common"))
     implementation(project(":c-mc-common2"))
     additionalRuntimeClasspath(project(":c-mc-common2"))
     implementation(project(":rcmd"))
     additionalRuntimeClasspath(project(":rcmd"))
+    implementation(project(":firmsection"))
+    additionalRuntimeClasspath(project(":firmsection"))
     //jarjar(project(":c-mc-common"))
 }
 
@@ -130,10 +136,10 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = "UTF-8"
-    javaCompiler.set(javaToolchains.compilerFor {
-        languageVersion.set(JavaLanguageVersion.of(21))
+   /* javaCompiler.set(javaToolchains.compilerFor {
+        languageVersion.set(JavaLanguageVersion.of(25))
     })
-    options.release.set(21)
+    options.release.set(25)*/
 
     options.compilerArgs << "-Xlint:-deprecation"
     options.compilerArgs << "-Xlint:-removal"
@@ -151,9 +157,16 @@ jar {
     dependsOn project(":c-mc-common").tasks.named("classes")
     dependsOn project(":c-mc-common2").tasks.named("classes")
     dependsOn project(":rcmd").tasks.named("classes")
+    dependsOn project(":firmsection").tasks.named("classes")
     from(project(":c-mc-common").sourceSets.main.output.classesDirs)
     from(project(":c-mc-common2").sourceSets.main.output.classesDirs)
     from(project(":rcmd").sourceSets.main.output)
+    from(project(":firmsection").sourceSets.main.output)
+    from({
+        shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
+    }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
 
     manifest {
         attributes([
