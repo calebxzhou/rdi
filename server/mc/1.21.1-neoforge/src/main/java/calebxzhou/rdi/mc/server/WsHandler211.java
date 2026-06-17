@@ -3,7 +3,7 @@ package calebxzhou.rdi.mc.server;
 import calebxzhou.rdi.mc.common.WebSocketClient;
 import calebxzhou.rdi.mc.common.WsMessage;
 import calebxzhou.rdi.mc.common.WsMessageHandler;
-import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList;
+import calebxzhou.rdi.mc.common.RGlobalPlayerList;
 import calebxzhou.rdi.mc.rcmd.chat.RChatMessage;
 import calebxzhou.rdi.mc.server.network.RServerNetwork;
 import com.google.gson.JsonElement;

@@ -2,11 +2,11 @@ package calebxzhou.rdi.mc.server.mixin;
 
 import calebxzhou.rdi.mc.common.WebSocketClient;
 import calebxzhou.rdi.mc.common.WsMessage;
-import calebxzhou.rdi.mc.common2.chat.PlayerChatRangeState;
-import calebxzhou.rdi.mc.common2.chat.RChatMessage;
 import calebxzhou.rdi.mc.rcmd.Rcmd;
 import calebxzhou.rdi.mc.rcmd.RcmdResult;
 import calebxzhou.rdi.mc.rcmd.RcmdSource;
+import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState;
+import calebxzhou.rdi.mc.rcmd.chat.RChatMessage;
 import calebxzhou.rdi.mc.server.rcmd.RcmdServerCommands;
 import calebxzhou.rdi.mc.server.rcmd.RcmdServerSource112;
 import net.minecraft.entity.player.EntityPlayerMP;

@@ -1,44 +1,37 @@
-package calebxzhou.rdi.mc.client.skin;
+package calebxzhou.rdi.mc.client.skin
 
-import com.mojang.authlib.GameProfile;
-import com.mojang.authlib.minecraft.MinecraftProfileTexture;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.resources.DefaultPlayerSkin;
-import net.minecraft.util.ResourceLocation;
+import com.mojang.authlib.GameProfile
+import com.mojang.authlib.minecraft.MinecraftProfileTexture
+import net.minecraft.client.Minecraft
+import net.minecraft.client.resources.DefaultPlayerSkin
+import net.minecraft.client.resources.SkinManager.SkinAvailableCallback
+import net.minecraft.util.ResourceLocation
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+object GlobalPlayerSkinCache {
+    private val skins = ConcurrentHashMap<UUID, ResourceLocation>()
+    private val loading = ConcurrentHashMap.newKeySet<UUID>()
 
-public final class GlobalPlayerSkinCache {
-    private static final Map<UUID, ResourceLocation> SKINS = new ConcurrentHashMap<>();
-    private static final Set<UUID> LOADING = ConcurrentHashMap.newKeySet();
-
-    private GlobalPlayerSkinCache() {
+    @JvmStatic
+    fun skin(playerId: UUID, playerName: String?): ResourceLocation? {
+        skins[playerId]?.let { return it }
+        load(playerId, playerName)
+        return DefaultPlayerSkin.getDefaultSkin(playerId)
     }
 
-    public static ResourceLocation skin(UUID playerId, String playerName) {
-        ResourceLocation skin = SKINS.get(playerId);
-        if (skin != null) {
-            return skin;
+    private fun load(playerId: UUID, playerName: String?) {
+        if (!loading.add(playerId)) {
+            return
         }
-        load(playerId, playerName);
-        return DefaultPlayerSkin.getDefaultSkin(playerId);
-    }
-
-    private static void load(UUID playerId, String playerName) {
-        if (!LOADING.add(playerId)) {
-            return;
-        }
-        Minecraft.getMinecraft().getSkinManager().loadProfileTextures(
-                new GameProfile(playerId, playerName),
-                (type, location, texture) -> {
-                    if (type == MinecraftProfileTexture.Type.SKIN) {
-                        SKINS.put(playerId, location);
-                    }
-                },
-                true
-        );
+        Minecraft.getMinecraft().skinManager.loadProfileTextures(
+            GameProfile(playerId, playerName),
+            SkinAvailableCallback { type, location, _ ->
+                if (type == MinecraftProfileTexture.Type.SKIN && location != null) {
+                    skins[playerId] = location
+                }
+            },
+            true
+        )
     }
 }

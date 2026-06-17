@@ -50,6 +50,12 @@ object HostContainerService {
         }
         val noguiArg = if (mcv == McVersion.V071) "nogui" else "--nogui"
         val totalArg = mutableListOf("").apply {
+            if(modpack.mcVer == McVersion.V211){
+                this.add("-Drdi.onlySaveFirmSections=true")
+            }
+            if(modpack.mcVer == McVersion.V071 || modpack.mcVer == McVersion.V122){
+                this.add("-Dfml.queryResult=confirm")
+            }
             if (this@containerEnv.isPublic) {
                 this.add("-Drdi.firmSectionTotalMax=65536")
                 this.add("-Drdi.firmSectionPersonMax=80")
@@ -62,6 +68,7 @@ object HostContainerService {
             if (modpack.name.isGtoModpackName()) {
                 this.add("-javaagent:/opt/server/$GTO_GUARD_AGENT_FILE_NAME")
             }
+
         } + serverArgs + noguiArg
         return mutableListOf(
             "HOST_ID=${_id.str}",

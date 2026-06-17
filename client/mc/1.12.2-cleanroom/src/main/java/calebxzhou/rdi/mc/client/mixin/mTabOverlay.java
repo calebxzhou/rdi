@@ -1,6 +1,6 @@
 package calebxzhou.rdi.mc.client.mixin;
 
-import calebxzhou.rdi.mc.client.gui.RdiTabRow;
+import calebxzhou.rdi.mc.client.gui.RTabRow;
 import calebxzhou.rdi.mc.client.network.GlobalPlayerListState;
 import calebxzhou.rdi.mc.client.skin.GlobalPlayerSkinCache;
 import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList;
@@ -43,15 +43,15 @@ public class mTabOverlay {
         if (hosts.isEmpty()) {
             return;
         }
-        ArrayList<RdiTabRow> rows = new ArrayList<>();
-        rows.add(new RdiTabRow("RDI在线玩家", null, TITLE_COLOR));
+        ArrayList<RTabRow> rows = new ArrayList<>();
+        rows.add(new RTabRow("RDI在线玩家", null, TITLE_COLOR));
         for (RGlobalPlayerList.HostEntry host : hosts) {
             if (host.players().isEmpty()) {
                 continue;
             }
-            rows.add(new RdiTabRow(host.hostName() + " · " + host.modpackName() + " " + host.packVer(), null, TEXT_COLOR));
+            rows.add(new RTabRow(host.hostName() + " · " + host.modpackName() + " " + host.packVer(), null, TEXT_COLOR));
             for (RGlobalPlayerList.PlayerEntry player : host.players()) {
-                rows.add(new RdiTabRow(player.playerName(), parseUuid(player.playerId()), TEXT_COLOR));
+                rows.add(new RTabRow(player.playerName(), parseUuid(player.playerId()), TEXT_COLOR));
             }
         }
         if (rows.size() <= 1) {
@@ -59,8 +59,8 @@ public class mTabOverlay {
         }
         Minecraft mc = Minecraft.getMinecraft();
         int maxTextWidth = 0;
-        for (RdiTabRow row : rows) {
-            maxTextWidth = Math.max(maxTextWidth, mc.fontRenderer.getStringWidth(row.text()) + (row.isPlayer() ? 12 : 0));
+        for (RTabRow row : rows) {
+            maxTextWidth = Math.max(maxTextWidth, mc.fontRenderer.getStringWidth(row.text) + (row.isPlayer() ? 12 : 0));
         }
         int panelWidth = Math.min(maxTextWidth + 12, 260);
         int lineHeight = 10;
@@ -69,14 +69,14 @@ public class mTabOverlay {
         int panelHeight = rows.size() * lineHeight + 8;
         Gui.drawRect(x - 4, y - 4, x + panelWidth + 4, y + panelHeight, 0x90000000);
         for (int i = 0; i < rows.size(); i++) {
-            RdiTabRow row = rows.get(i);
+            RTabRow row = rows.get(i);
             int rowY = y + i * lineHeight;
             int textX = x;
             if (row.isPlayer()) {
-                drawPlayerFace(mc, row.playerId(), row.text(), x, rowY);
+                drawPlayerFace(mc, row.playerId, row.text, x, rowY);
                 textX += 11;
             }
-            mc.fontRenderer.drawStringWithShadow(row.text(), textX, rowY, row.color());
+            mc.fontRenderer.drawStringWithShadow(row.text, textX, rowY, row.color);
         }
     }
 

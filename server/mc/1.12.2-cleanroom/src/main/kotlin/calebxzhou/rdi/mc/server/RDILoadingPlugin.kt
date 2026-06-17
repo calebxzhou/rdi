@@ -1,35 +1,29 @@
-package calebxzhou.rdi.mc.server;
+package calebxzhou.rdi.mc.server
 
-import net.minecraftforge.fml.relauncher.IFMLLoadingPlugin;
-import org.jetbrains.annotations.Nullable;
-
-import java.util.Map;
+import net.minecraftforge.fml.relauncher.IFMLLoadingPlugin
+import net.minecraftforge.fml.relauncher.IFMLLoadingPlugin.MCVersion
+import net.minecraftforge.fml.relauncher.IFMLLoadingPlugin.TransformerExclusions
 
 @IFMLLoadingPlugin.Name("rdi")
-@IFMLLoadingPlugin.MCVersion("1.12.2")
-@IFMLLoadingPlugin.TransformerExclusions("calebxzhou.rdi.mc.server")
-public class RDILoadingPlugin implements IFMLLoadingPlugin {
-    @Override
-    public @Nullable String[] getASMTransformerClass() {
-        return null;
+@MCVersion("1.12.2")
+@TransformerExclusions("calebxzhou.rdi.mc.server")
+class RDILoadingPlugin : IFMLLoadingPlugin {
+    override fun getASMTransformerClass(): Array<String?>? {
+        return null
     }
 
-    @Override
-    public @Nullable String getModContainerClass() {
-        return null;
+    override fun getModContainerClass(): String? {
+        return null
     }
 
-    @Override
-    public @Nullable String getSetupClass() {
-        return null;
+    override fun getSetupClass(): String? {
+        return null
     }
 
-    @Override
-    public void injectData(Map<String, Object> data) {
+    override fun injectData(data: MutableMap<String?, Any?>?) {
     }
 
-    @Override
-    public @Nullable String getAccessTransformerClass() {
-        return null;
+    override fun getAccessTransformerClass(): String? {
+        return null
     }
 }

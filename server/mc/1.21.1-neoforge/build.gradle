@@ -113,8 +113,6 @@ configurations.named('implementation') {
 dependencies {
     implementation project(':s-mc-common')
     additionalRuntimeClasspath project(':s-mc-common')
-    implementation project(':s-mc-common2')
-    additionalRuntimeClasspath project(':s-mc-common2')
     implementation project(':rmcp-common')
     additionalRuntimeClasspath project(':rmcp-common')
     implementation project(':rmcp-server')
@@ -131,7 +129,7 @@ dependencies {
     [
             'architectury-api:13.0.8+neoforge',
             'create:6.0.10+mc1.21.1',
-            'world-pre-generator:1.21.1-5.0.1',
+      //      'world-pre-generator:1.21.1-5.0.1',
             /*'jade:11.13.1+forge',
             'embeddium:0.3.31+mc1.20.1',
             "architectury-api:9.2.14+forge",
@@ -209,7 +207,6 @@ idea {
     }
 }
 evaluationDependsOn(':s-mc-common')
-evaluationDependsOn(':s-mc-common2')
 evaluationDependsOn(':rmcp-common')
 evaluationDependsOn(':rmcp-server')
 evaluationDependsOn(':ktutils-std')
@@ -217,13 +214,11 @@ evaluationDependsOn(':rcmd')
 jar {
     // Bundle compiled outputs from shared server modules into this jar
     dependsOn project(":s-mc-common").tasks.named("classes")
-    dependsOn project(":s-mc-common2").tasks.named("classes")
     dependsOn project(":rmcp-common").tasks.named("classes")
     dependsOn project(":rmcp-server").tasks.named("classes")
     dependsOn project(":ktutils-std").tasks.named("classes")
     dependsOn project(":rcmd").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
-    from(project(":s-mc-common2").sourceSets.main.output)
     from(project(":rmcp-common").sourceSets.main.output)
     from(project(":rmcp-server").sourceSets.main.output)
     from(project(":ktutils-std").sourceSets.main.output)

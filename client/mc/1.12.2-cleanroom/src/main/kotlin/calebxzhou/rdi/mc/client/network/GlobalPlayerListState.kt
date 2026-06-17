@@ -1,22 +1,16 @@
-package calebxzhou.rdi.mc.client.network;
+package calebxzhou.rdi.mc.client.network
 
-import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList;
+import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList
+import kotlin.concurrent.Volatile
 
-import java.util.List;
+object GlobalPlayerListState {
+    @Volatile
+    private var current = RGlobalPlayerList(0L, emptyList())
 
-public final class GlobalPlayerListState {
-    private static volatile RGlobalPlayerList current = new RGlobalPlayerList(0L, List.of());
+    @JvmStatic
+    fun current(): RGlobalPlayerList = current
 
-    private GlobalPlayerListState() {
-    }
-
-    public static RGlobalPlayerList current() {
-        return current;
-    }
-
-    public static void update(RGlobalPlayerList playerList) {
-        if (playerList != null) {
-            current = playerList;
-        }
+    fun update(playerList: RGlobalPlayerList?) {
+        playerList?.let { current = it }
     }
 }

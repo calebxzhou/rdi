@@ -1,4 +1,4 @@
-package calebxzhou.rdi.mc.common2.player;
+package calebxzhou.rdi.mc.common;
 
 import java.util.List;
 

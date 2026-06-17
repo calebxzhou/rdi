@@ -1,111 +1,105 @@
-package calebxzhou.rdi.mc.server.home;
+package calebxzhou.rdi.mc.server.home
 
-import calebxzhou.rdi.mc.common2.home.HomeLocation;
-import calebxzhou.rdi.mc.common2.home.HomePlayer;
-import calebxzhou.rdi.mc.common2.home.HomeResult;
-import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.nbt.NBTTagCompound;
-import net.minecraft.world.WorldServer;
+import calebxzhou.rdi.mc.rcmd.home.HomeLocation
+import calebxzhou.rdi.mc.rcmd.home.HomePlayer
+import calebxzhou.rdi.mc.rcmd.home.HomeResult
+import net.minecraft.entity.Entity
+import net.minecraft.entity.player.EntityPlayer
+import net.minecraft.entity.player.EntityPlayerMP
+import net.minecraft.nbt.NBTTagCompound
+import net.minecraft.world.World
+import net.minecraftforge.common.util.ITeleporter
 
-import java.util.LinkedHashMap;
-import java.util.Map;
+class HomePlayer112(private val player: EntityPlayerMP) : HomePlayer {
+    override fun currentLocation(): HomeLocation =
+        HomeLocation(
+            player.dimension.toString(),
+            player.posX,
+            player.posY,
+            player.posZ,
+            player.rotationYaw,
+            player.rotationPitch
+        )
 
-public final class HomePlayer112 implements HomePlayer {
-    private static final String RDI_TAG = "rdi";
-    private static final String HOMES_TAG = "homes";
-    private static final String DIMENSION_TAG = "dimension";
-    private static final String X_TAG = "x";
-    private static final String Y_TAG = "y";
-    private static final String Z_TAG = "z";
-    private static final String YAW_TAG = "yaw";
-    private static final String PITCH_TAG = "pitch";
-
-    private final EntityPlayerMP player;
-
-    public HomePlayer112(EntityPlayerMP player) {
-        this.player = player;
-    }
-
-    @Override
-    public HomeLocation currentLocation() {
-        return new HomeLocation(
-                Integer.toString(player.dimension),
-                player.posX,
-                player.posY,
-                player.posZ,
-                player.rotationYaw,
-                player.rotationPitch
-        );
-    }
-
-    @Override
-    public Map<String, HomeLocation> loadHomes() {
-        var result = new LinkedHashMap<String, HomeLocation>();
-        var homesTag = homesTag();
-        for (var homeName : homesTag.getKeySet()) {
-            var homeTag = homesTag.getCompoundTag(homeName);
-            result.put(homeName, new HomeLocation(
-                    homeTag.getString(DIMENSION_TAG),
-                    homeTag.getDouble(X_TAG),
-                    homeTag.getDouble(Y_TAG),
-                    homeTag.getDouble(Z_TAG),
-                    homeTag.getFloat(YAW_TAG),
-                    homeTag.getFloat(PITCH_TAG)
-            ));
+    override fun loadHomes(): MutableMap<String, HomeLocation> {
+        val result = linkedMapOf<String, HomeLocation>()
+        val homesTag = homesTag()
+        for (homeName in homesTag.keySet) {
+            val homeTag = homesTag.getCompoundTag(homeName)
+            result[homeName] = HomeLocation(
+                homeTag.getString(DIMENSION_TAG),
+                homeTag.getDouble(X_TAG),
+                homeTag.getDouble(Y_TAG),
+                homeTag.getDouble(Z_TAG),
+                homeTag.getFloat(YAW_TAG),
+                homeTag.getFloat(PITCH_TAG)
+            )
         }
-        return result;
+        return result
     }
 
-    @Override
-    public void saveHomes(Map<String, HomeLocation> homes) {
-        var homesTag = new NBTTagCompound();
-        homes.forEach((homeName, location) -> {
-            var homeTag = new NBTTagCompound();
-            homeTag.setString(DIMENSION_TAG, location.dimension());
-            homeTag.setDouble(X_TAG, location.x());
-            homeTag.setDouble(Y_TAG, location.y());
-            homeTag.setDouble(Z_TAG, location.z());
-            homeTag.setFloat(YAW_TAG, location.yaw());
-            homeTag.setFloat(PITCH_TAG, location.pitch());
-            homesTag.setTag(homeName, homeTag);
-        });
-
-        var persistedTag = persistedTag();
-        var rdiTag = persistedTag.getCompoundTag(RDI_TAG);
-        rdiTag.setTag(HOMES_TAG, homesTag);
-        persistedTag.setTag(RDI_TAG, rdiTag);
-        player.getEntityData().setTag(EntityPlayer.PERSISTED_NBT_TAG, persistedTag);
-    }
-
-    @Override
-    public HomeResult teleportTo(HomeLocation location) {
-        int dimension;
-        try {
-            dimension = Integer.parseInt(location.dimension());
-        } catch (NumberFormatException e) {
-            return HomeResult.error("家的维度无效：" + location.dimension());
+    override fun saveHomes(homes: MutableMap<String, HomeLocation>) {
+        val homesTag = NBTTagCompound()
+        homes.forEach { (homeName, location) ->
+            val homeTag = NBTTagCompound()
+            homeTag.setString(DIMENSION_TAG, location.dimension)
+            homeTag.setDouble(X_TAG, location.x)
+            homeTag.setDouble(Y_TAG, location.y)
+            homeTag.setDouble(Z_TAG, location.z)
+            homeTag.setFloat(YAW_TAG, location.yaw)
+            homeTag.setFloat(PITCH_TAG, location.pitch)
+            homesTag.setTag(homeName, homeTag)
         }
 
-        WorldServer world = player.server.getWorld(dimension);
+        val persistedTag = persistedTag()
+        val rdiTag = persistedTag.getCompoundTag(RDI_TAG)
+        rdiTag.setTag(HOMES_TAG, homesTag)
+        persistedTag.setTag(RDI_TAG, rdiTag)
+        player.entityData.setTag(EntityPlayer.PERSISTED_NBT_TAG, persistedTag)
+    }
+
+    override fun teleportTo(location: HomeLocation): HomeResult {
+        val dimension = location.dimension.toIntOrNull()
+            ?: return HomeResult.error("家的维度无效：${location.dimension}")
+
+        val world = player.server.getWorld(dimension)
         if (world == null) {
-            return HomeResult.error("家的维度不存在：" + location.dimension());
+            return HomeResult.error("家的维度不存在：${location.dimension}")
         }
 
         if (player.dimension != dimension) {
-            player.server.getPlayerList().transferPlayerToDimension(player, dimension, (targetWorld, entity, yaw) ->
-                    entity.setLocationAndAngles(location.x(), location.y(), location.z(), location.yaw(), location.pitch())
-            );
+            player.server.playerList.transferPlayerToDimension(
+                player,
+                dimension,
+                ITeleporter { _: World?, entity: Entity?, _: Float ->
+                    entity?.setLocationAndAngles(
+                        location.x,
+                        location.y,
+                        location.z,
+                        location.yaw,
+                        location.pitch
+                    )
+                }
+            )
         }
-        player.connection.setPlayerLocation(location.x(), location.y(), location.z(), location.yaw(), location.pitch());
-        return HomeResult.ok("OK");
+        player.connection.setPlayerLocation(location.x, location.y, location.z, location.yaw, location.pitch)
+        return HomeResult.ok("OK")
     }
 
-    private NBTTagCompound homesTag() {
-        return persistedTag().getCompoundTag(RDI_TAG).getCompoundTag(HOMES_TAG);
-    }
+    private fun homesTag(): NBTTagCompound =
+        persistedTag().getCompoundTag(RDI_TAG).getCompoundTag(HOMES_TAG)
 
-    private NBTTagCompound persistedTag() {
-        return player.getEntityData().getCompoundTag(EntityPlayer.PERSISTED_NBT_TAG);
+    private fun persistedTag(): NBTTagCompound =
+        player.entityData.getCompoundTag(EntityPlayer.PERSISTED_NBT_TAG)
+
+    companion object {
+        private const val RDI_TAG = "rdi"
+        private const val HOMES_TAG = "homes"
+        private const val DIMENSION_TAG = "dimension"
+        private const val X_TAG = "x"
+        private const val Y_TAG = "y"
+        private const val Z_TAG = "z"
+        private const val YAW_TAG = "yaw"
+        private const val PITCH_TAG = "pitch"
     }
 }

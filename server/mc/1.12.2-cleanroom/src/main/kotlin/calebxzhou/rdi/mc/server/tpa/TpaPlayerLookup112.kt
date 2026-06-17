@@ -1,42 +1,47 @@
-package calebxzhou.rdi.mc.server.tpa;
+package calebxzhou.rdi.mc.server.tpa
 
-import calebxzhou.rdi.mc.common2.tpa.TpaPlayer;
-import calebxzhou.rdi.mc.common2.tpa.TpaPlayerLookup;
-import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.server.MinecraftServer;
+import calebxzhou.rdi.mc.rcmd.tpa.TpaPlayer
+import calebxzhou.rdi.mc.rcmd.tpa.TpaPlayerLookup
+import net.minecraft.entity.Entity
+import net.minecraft.server.MinecraftServer
+import net.minecraft.world.World
+import net.minecraftforge.common.util.ITeleporter
+import java.util.UUID
 
-import java.util.UUID;
+class TpaPlayerLookup112(private val server: MinecraftServer) : TpaPlayerLookup {
+    override fun findByName(name: String): TpaPlayer? =
+        server.playerList.getPlayerByUsername(name)?.let(::TpaPlayer112)
 
-public final class TpaPlayerLookup112 implements TpaPlayerLookup {
-    private final MinecraftServer server;
+    override fun findById(id: UUID): TpaPlayer? =
+        server.playerList.getPlayerByUUID(id)?.let(::TpaPlayer112)
 
-    public TpaPlayerLookup112(MinecraftServer server) {
-        this.server = server;
-    }
-
-    @Override
-    public TpaPlayer findByName(String name) {
-        EntityPlayerMP player = server.getPlayerList().getPlayerByUsername(name);
-        return player == null ? null : new TpaPlayer112(player);
-    }
-
-    @Override
-    public TpaPlayer findById(UUID id) {
-        EntityPlayerMP player = server.getPlayerList().getPlayerByUUID(id);
-        return player == null ? null : new TpaPlayer112(player);
-    }
-
-    @Override
-    public void teleportTo(TpaPlayer requester, TpaPlayer target) {
-        if (requester instanceof TpaPlayer112 requester112 && target instanceof TpaPlayer112 target112) {
-            EntityPlayerMP requesterPlayer = requester112.unwrap();
-            EntityPlayerMP targetPlayer = target112.unwrap();
-            if (requesterPlayer.dimension != targetPlayer.dimension) {
-                requesterPlayer.server.getPlayerList().transferPlayerToDimension(requesterPlayer, targetPlayer.dimension, (world, entity, yaw) ->
-                        entity.setLocationAndAngles(targetPlayer.posX, targetPlayer.posY, targetPlayer.posZ, targetPlayer.rotationYaw, targetPlayer.rotationPitch)
-                );
-            }
-            requesterPlayer.connection.setPlayerLocation(targetPlayer.posX, targetPlayer.posY, targetPlayer.posZ, targetPlayer.rotationYaw, targetPlayer.rotationPitch);
+    override fun teleportTo(requester: TpaPlayer, target: TpaPlayer) {
+        if (requester !is TpaPlayer112 || target !is TpaPlayer112) {
+            return
         }
+        val requesterPlayer = requester.unwrap()
+        val targetPlayer = target.unwrap()
+        if (requesterPlayer.dimension != targetPlayer.dimension) {
+            requesterPlayer.server.playerList.transferPlayerToDimension(
+                requesterPlayer,
+                targetPlayer.dimension,
+                ITeleporter { _: World, entity: Entity, _: Float ->
+                    entity.setLocationAndAngles(
+                        targetPlayer.posX,
+                        targetPlayer.posY,
+                        targetPlayer.posZ,
+                        targetPlayer.rotationYaw,
+                        targetPlayer.rotationPitch
+                    )
+                }
+            )
+        }
+        requesterPlayer.connection.setPlayerLocation(
+            targetPlayer.posX,
+            targetPlayer.posY,
+            targetPlayer.posZ,
+            targetPlayer.rotationYaw,
+            targetPlayer.rotationPitch
+        )
     }
 }

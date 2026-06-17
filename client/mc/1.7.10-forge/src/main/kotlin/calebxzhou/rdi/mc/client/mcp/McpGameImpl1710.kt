@@ -200,6 +200,10 @@ object McpGameImpl1710 : McpGameInterface {
         }
     }
 
+    override fun gameVersion(): String {
+        return "1.7.10"
+    }
+
     private fun slot(id: Int, stack: ItemStack?): ContainerSlot {
         return stack?.takeIf { it.stackSize > 0 }?.let {
             ContainerSlot(id, itemId(it), it.stackSize)

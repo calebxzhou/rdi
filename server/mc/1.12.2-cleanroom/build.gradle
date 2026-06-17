@@ -1,11 +1,13 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
     id 'java'
     id 'java-library'
     id 'org.jetbrains.kotlin.jvm' version '2.4.0'
     id 'maven-publish'
-    id 'com.gradleup.shadow' version '9.2.2'
-    id 'xyz.wagyourtail.unimined' version '1.4.9-kappa'
-    id 'net.kyori.blossom' version '2.1.0'
+    id 'com.gradleup.shadow' version '9.4.1'
+    id 'xyz.wagyourtail.unimined' version '1.4.18-kappa'
+    id 'net.kyori.blossom' version '2.2.0'
 }
 
 apply from: 'gradle/scripts/helpers.gradle'
@@ -31,7 +33,15 @@ base {
     archivesName.set('rdi')
 }
 evaluationDependsOn(":s-mc-common")
-evaluationDependsOn(":s-mc-common2")
+evaluationDependsOn(":rcmd")
+evaluationDependsOn(":firmsection")
+def rcmdJarTask = project(":rcmd").tasks.named("jar")
+def rcmdJar = rcmdJarTask.flatMap { it.archiveFile }
+def rcmdFiles = files(rcmdJar).builtBy(rcmdJarTask)
+def firmsectionJarTask = project(":firmsection").tasks.named("jar")
+def firmsectionJar = firmsectionJarTask.flatMap { it.archiveFile }
+def firmsectionFiles = files(firmsectionJar).builtBy(firmsectionJarTask)
+def remapTaskName = propertyBool('enable_shadow') ? "remapShadowJar" : "remapJar"
 
 java {
     toolchain {
@@ -47,7 +57,7 @@ java {
 
 kotlin {
     compilerOptions {
-        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25
+        jvmTarget = JvmTarget.JVM_25
     }
 }
 
@@ -73,7 +83,7 @@ unimined.minecraft {
         if (propertyBool('use_access_transformer')) {
             accessTransformer "${rootProject.projectDir}/src/main/resources/${propertyString('access_transformer_locations')}"
         }
-        loader "0.3.31-alpha"
+        loader "0.5.12-alpha"
         runs.auth.username = minecraft_username
         runs.all {
             jvmArgs(
@@ -99,21 +109,12 @@ unimined.minecraft {
 
     defaultRemapJar = false
 
-    if (propertyBool('enable_shadow')) {
-        remap(tasks.shadowJar) {
-            mixinRemap {
-                enableBaseMixin()
-                enableMixinExtra()
-               // disableRefmap()
-            }
-        }
-    } else {
-        remap(tasks.jar) {
-            mixinRemap {
-                enableBaseMixin()
-                enableMixinExtra()
-               // disableRefmap()
-            }
+    def jarTaskName = propertyBool('enable_shadow') ? "shadowJar" : "jar"
+    remap(tasks.named(jarTaskName).get()) {
+        mixinRemap {
+            enableBaseMixin()
+            enableMixinExtra()
+            disableRefmap()
         }
     }
 
@@ -128,11 +129,14 @@ dependencies {
         implementation "com.cleanroommc:assetmover:${propertyString('asset_mover_version')}"
     }
     if (propertyBool('enable_junit_testing')) {
-        testImplementation 'org.junit.jupiter:junit-jupiter:5.7.1'
+        testImplementation 'org.junit.jupiter:junit-jupiter:6.0.3'
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
     implementation(project(":s-mc-common"))
-    implementation(project(":s-mc-common2"))
+    compileOnly rcmdFiles
+    runtimeOnly rcmdFiles
+    compileOnly firmsectionFiles
+    runtimeOnly firmsectionFiles
     // Use contain so Cleanroom bundles the non-mod library into the built jar.
     contain 'com.neovisionaries:nv-websocket-client:2.14'
 }
@@ -173,12 +177,8 @@ processResources {
 
 sourceSets {
     main {
-        kotlin {
-            srcDir '../../../mc/rcmd/src/main/kotlin'
-        }
         java {
             srcDir project(":s-mc-common").sourceSets.main.java.srcDirs
-            srcDir project(":s-mc-common2").sourceSets.main.java.srcDirs
         }
         resources {
             srcDir project(":s-mc-common").sourceSets.main.resources.srcDirs
@@ -201,6 +201,14 @@ if (!propertyBool('enable_shadow')) {
 jar {
     archiveVersion = ''
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn rcmdJarTask
+    dependsOn firmsectionJarTask
+    from({ zipTree(rcmdJar.get().asFile) }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
+    from({ zipTree(firmsectionJar.get().asFile) }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
     if (configurations.contain.size() > 0) {
         into('/') {
             from configurations.contain
@@ -227,14 +235,20 @@ jar {
             attributes(attribute_map)
         }
     }
-    if (propertyBool('enable_shadow')) {
-        finalizedBy(tasks.named("remapShadowJar"))
-    } else {
-        finalizedBy(tasks.named("remapJar"))
-    }
+    finalizedBy(tasks.named(remapTaskName).get())
     from(sourceSets.main.output) {
         include "*.refmap.json"
     }
+}
+
+tasks.named("compileJava") {
+    dependsOn rcmdJarTask
+    dependsOn firmsectionJarTask
+}
+
+tasks.named("compileKotlin") {
+    dependsOn rcmdJarTask
+    dependsOn firmsectionJarTask
 }
 
 
@@ -243,7 +257,7 @@ shadowJar {
     archiveClassifier = "shadow"
 }
 
-remapJar {
+tasks.named(remapTaskName).configure {
     notCompatibleWithConfigurationCache("Unimined remapJar task is not compatible with configuration cache")
     doFirst {
         logging.captureStandardOutput LogLevel.INFO
@@ -252,14 +266,11 @@ remapJar {
         logging.captureStandardOutput LogLevel.QUIET
     }
 }
-compileTestJava {
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_21
-}
 
 test {
     useJUnitPlatform()
     javaLauncher.set(javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     })
     if (propertyBool('show_testing_output')) {
         testLogging {

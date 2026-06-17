@@ -112,6 +112,11 @@ class RDIMain {
         @JvmStatic
         fun onClientJoinServer(event: ClientPlayerNetworkEvent.LoggingIn) {
             McpServer.start(McpGameImpl,if(RDI.DEBUG)25565 else null).onFailure { it.printStackTrace() }
+            Minecraft.getInstance().gui.apply {
+                setTimes(10, 200, 20)
+                setSubtitle(Component.literal("请设定“持久子区块”  见说明书"))
+                setTitle(Component.empty())
+            }
         }
 
         @SubscribeEvent

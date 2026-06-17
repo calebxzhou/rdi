@@ -27,6 +27,6 @@ pluginManagement {
 plugins {
     id("com.gtnewhorizons.gtnhsettingsconvention") version("2.0.25")
 }
-rootProject.name = "c-mc710f"
+rootProject.name = "c7"
 include(":c-mc-common")
 project(":c-mc-common").projectDir = file("../common")

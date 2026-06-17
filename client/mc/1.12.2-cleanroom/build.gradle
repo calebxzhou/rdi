@@ -5,9 +5,9 @@ plugins {
     id 'java-library'
     id 'org.jetbrains.kotlin.jvm' version '2.4.0'
     id 'maven-publish'
-    id 'com.gradleup.shadow' version '9.2.2'
-    id 'xyz.wagyourtail.unimined' version '1.4.9-kappa'
-    id 'net.kyori.blossom' version '2.1.0'
+    id 'com.gradleup.shadow' version '9.4.1'
+    id 'xyz.wagyourtail.unimined' version '1.4.18-kappa'
+    id 'net.kyori.blossom' version '2.2.0'
 }
 
 apply from: 'gradle/scripts/helpers.gradle'
@@ -42,6 +42,15 @@ base {
 }
 evaluationDependsOn(":c-mc-common")
 evaluationDependsOn(":c-mc-common2")
+evaluationDependsOn(":rcmd")
+evaluationDependsOn(":firmsection")
+def rcmdJarTask = project(":rcmd").tasks.named("jar")
+def rcmdJar = rcmdJarTask.flatMap { it.archiveFile }
+def rcmdFiles = files(rcmdJar).builtBy(rcmdJarTask)
+def firmsectionJarTask = project(":firmsection").tasks.named("jar")
+def firmsectionJar = firmsectionJarTask.flatMap { it.archiveFile }
+def firmsectionFiles = files(firmsectionJar).builtBy(firmsectionJarTask)
+def remapTaskName = propertyBool('enable_shadow') ? "remapShadowJar" : "remapJar"
 
 java {
     toolchain {
@@ -83,7 +92,7 @@ unimined.minecraft {
         if (propertyBool('use_access_transformer')) {
             accessTransformer "${rootProject.projectDir}/src/main/resources/${propertyString('access_transformer_locations')}"
         }
-        loader "0.3.31-alpha"
+        loader "0.5.12-alpha"
         runs.auth.username = selectedPlayerName
         def playArg = [
                 "http://127.0.0.1:65231",
@@ -110,7 +119,7 @@ unimined.minecraft {
                 systemProperty("fml.coreMods.load", propertyString('coremod_plugin_class_name'))
             }
             args("--width", "2560", "--height", "1440", "--username", selectedPlayerName,
-                    "--uuid", selectedPlayerUuid.replace("-", ""))
+                    "--uuid", selectedPlayerUuid.replace("-", ""), "--server","127.0.0.1","--port","50975")
             return
         }
         runs.config("client") {
@@ -122,21 +131,12 @@ unimined.minecraft {
 
     defaultRemapJar = false
 
-    if (propertyBool('enable_shadow')) {
-        remap(tasks.shadowJar) {
-            mixinRemap {
-                enableBaseMixin()
-                enableMixinExtra()
-               // disableRefmap()
-            }
-        }
-    } else {
-        remap(tasks.jar) {
-            mixinRemap {
-                enableBaseMixin()
-                enableMixinExtra()
-              //  disableRefmap()
-            }
+    def jarTaskName = propertyBool('enable_shadow') ? "shadowJar" : "jar"
+    remap(tasks.named(jarTaskName).get()) {
+        mixinRemap {
+            enableBaseMixin()
+            enableMixinExtra()
+            disableRefmap()
         }
     }
 
@@ -151,11 +151,15 @@ dependencies {
         implementation "com.cleanroommc:assetmover:${propertyString('asset_mover_version')}"
     }
     if (propertyBool('enable_junit_testing')) {
-        testImplementation 'org.junit.jupiter:junit-jupiter:5.7.1'
+        testImplementation 'org.junit.jupiter:junit-jupiter:6.0.3'
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
     implementation(project(":c-mc-common"))
     implementation(project(":c-mc-common2"))
+    compileOnly rcmdFiles
+    runtimeOnly rcmdFiles
+    compileOnly firmsectionFiles
+    runtimeOnly firmsectionFiles
 }
 
 apply from: 'gradle/scripts/dependencies.gradle'
@@ -195,9 +199,6 @@ processResources {
 
 sourceSets {
     main {
-        kotlin {
-            srcDir '../../../mc/rcmd/src/main/kotlin'
-        }
         java {
             srcDir project(":c-mc-common").sourceSets.main.java.srcDirs
             srcDir project(":c-mc-common2").sourceSets.main.java.srcDirs
@@ -224,6 +225,14 @@ if (!propertyBool('enable_shadow')) {
 jar {
     archiveVersion = ''
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn rcmdJarTask
+    dependsOn firmsectionJarTask
+    from({ zipTree(rcmdJar.get().asFile) }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
+    from({ zipTree(firmsectionJar.get().asFile) }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
     if (configurations.contain.size() > 0) {
         into('/') {
             from configurations.contain
@@ -250,11 +259,17 @@ jar {
             attributes(attribute_map)
         }
     }
-    if (propertyBool('enable_shadow')) {
-        finalizedBy(tasks.named("remapShadowJar"))
-    } else {
-        finalizedBy(tasks.named("remapJar"))
-    }
+    finalizedBy(tasks.named(remapTaskName).get())
+}
+
+tasks.named("compileJava") {
+    dependsOn rcmdJarTask
+    dependsOn firmsectionJarTask
+}
+
+tasks.named("compileKotlin") {
+    dependsOn rcmdJarTask
+    dependsOn firmsectionJarTask
 }
 
 
@@ -263,7 +278,7 @@ shadowJar {
     archiveClassifier = "shadow"
 }
 
-remapJar {
+tasks.named(remapTaskName).configure {
     notCompatibleWithConfigurationCache("Unimined remapJar task is not compatible with configuration cache")
     doFirst {
         logging.captureStandardOutput LogLevel.INFO
@@ -275,6 +290,20 @@ remapJar {
 
 tasks.named('preRunClient') {
     notCompatibleWithConfigurationCache("Unimined preRunClient task is not compatible with configuration cache")
+    dependsOn("copyResourcesToDevClasses")
+}
+
+tasks.register("copyResourcesToDevClasses", Copy) {
+    dependsOn(tasks.named("processResources"))
+    dependsOn(tasks.named("compileKotlin"))
+    from(layout.buildDirectory.dir("resources/main")) {
+        include("assets/**")
+    }
+    from(layout.buildDirectory.dir("classes/kotlin/main")) {
+        include("**/*.class")
+        include("META-INF/**")
+    }
+    into(layout.buildDirectory.dir("classes/java/main"))
 }
 
 tasks.register("runClientAnother") {
@@ -284,13 +313,13 @@ tasks.register("runClientAnother") {
 }
 
 compileTestJava {
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_21
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_25
 }
 
 test {
     useJUnitPlatform()
     javaLauncher.set(javaToolchains.launcherFor {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     })
     if (propertyBool('show_testing_output')) {
         testLogging {

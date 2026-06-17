@@ -35,8 +35,12 @@ plugins {
 
 // Due to an IntelliJ bug, this has to be done
 // rootProject.name = archives_base_name
-rootProject.name = "s-mc122c"
+rootProject.name = "s12"
 include(":s-mc-common")
 project(":s-mc-common").projectDir = file("../common")
-include(":s-mc-common2")
-project(":s-mc-common2").projectDir = file("../common2")
+include(":ktutils-std")
+project(":ktutils-std").projectDir = file("../../../ktutils/std")
+include(":rcmd")
+project(":rcmd").projectDir = file("../../../mc/rcmd")
+include(":firmsection")
+project(":firmsection").projectDir = file("../../../mc/firmsection")

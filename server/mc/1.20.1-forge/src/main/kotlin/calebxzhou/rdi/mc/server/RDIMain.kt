@@ -2,7 +2,6 @@ package calebxzhou.rdi.mc.server
 
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.WebSocketClient
-import calebxzhou.rdi.mc.rcmd.chat.ChatRange
 import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
 import calebxzhou.rdi.mc.rcmd.tpa.TpaService
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
@@ -22,6 +21,8 @@ import net.minecraftforge.eventbus.api.SubscribeEvent
 import net.minecraftforge.fml.common.Mod
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.TimeUnit
 
 
 /**
@@ -80,17 +81,33 @@ class RDIMain {
             if (RDI.isAllOp()) {
                 player.server.playerList.op(player.gameProfile)
             }
-            val range: ChatRange = PlayerChatRangeState.get(player.getUUID())
-            val result = FirmSectionService.list(player)
-            player.sendSystemMessage(Component.literal("当前聊天范围：" + range.displayName + "，输入\\chat range host或\\chat range global切换"))
-            player.sendSystemMessage(Component.literal("从6月16日起 只有“持久子区块”会永久保存 其余区域将在日后随机重新生成\n" +
-                    "未来可以享受到定时定点回档、方块放置破坏日志等高级特性\n"+
-                    "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书"))
-            player.sendSystemMessage(Component.literal("点此打开RDI说明书").withStyle(ChatFormatting.UNDERLINE).withStyle(
-                Style.EMPTY.withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL,"https://craftrdi.feishu.cn/wiki/U8LRwMpUliuxW5kZLvCcxonNnkd"))))
-
+            val server = player.server
+            val playerId = player.uuid
+            CompletableFuture.delayedExecutor(3, TimeUnit.SECONDS).execute {
+                server.execute {
+                    val onlinePlayer = server.playerList.getPlayer(playerId)
+                    if (onlinePlayer != null) {
+                        sendJoinMessages(onlinePlayer)
+                    }
+                }
+            }
             RServerNetwork.sendLastTo(player)
             RServerNetwork.sendFirmSectionsTo(player)
+        }
+
+        private fun sendJoinMessages(player: ServerPlayer) {
+            val range = PlayerChatRangeState.get(player.getUUID())
+            val result = FirmSectionService.list(player)
+            player.sendSystemMessage(Component.literal("当前聊天范围：" + range.displayName))
+            player.sendSystemMessage(
+                Component.literal(
+                    "为了实现随时回档、方块日志等高级特性 \n" +
+                        "6月18日起 只有“持久子区块”会永久保存 其余区域将在日后随机重新生成\n" +
+                        "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书"
+                )
+            )
+            player.sendSystemMessage(Component.literal("点此打开RDI说明书").withStyle(ChatFormatting.UNDERLINE).withStyle(
+                Style.EMPTY.withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL,"https://craftrdi.feishu.cn/wiki/U8LRwMpUliuxW5kZLvCcxonNnkd"))))
         }
 
         @SubscribeEvent @JvmStatic

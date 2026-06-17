@@ -10,6 +10,9 @@ import net.minecraft.client.gui.screens.TitleScreen
 import net.minecraft.client.multiplayer.ServerData
 import net.minecraft.client.multiplayer.resolver.ServerAddress
 import net.minecraft.network.chat.Component
+import net.minecraftforge.api.distmarker.Dist
+import net.minecraftforge.client.event.ClientPlayerNetworkEvent
+import net.minecraftforge.eventbus.api.SubscribeEvent
 import net.minecraftforge.fml.common.Mod
 import org.apache.logging.log4j.LogManager
 
@@ -17,6 +20,7 @@ import org.apache.logging.log4j.LogManager
  * calebxzhou @ 2026-01-06 19:19
  */
 @Mod("rdi")
+@Mod.EventBusSubscriber(modid = "rdi", value = [Dist.CLIENT])
 class RDIMain {
     init {
         RClientNetwork.register()
@@ -44,5 +48,15 @@ class RDIMain {
             JOIN_BUTTON.width = 200
             JOIN_BUTTON.height = 20
         }
+        @SubscribeEvent
+        @JvmStatic
+        fun onClientJoinServer(event: ClientPlayerNetworkEvent.LoggingIn) {
+            Minecraft.getInstance().gui.apply {
+                setTimes(10, 200, 20)
+                setSubtitle(Component.literal("请设定“持久子区块”  见说明书"))
+                setTitle(Component.empty())
+            }
+        }
+
     }
 }

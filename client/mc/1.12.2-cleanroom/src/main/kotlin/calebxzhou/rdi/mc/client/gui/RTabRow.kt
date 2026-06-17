@@ -1,9 +1,9 @@
-package calebxzhou.rdi.mc.client.gui;
+package calebxzhou.rdi.mc.client.gui
 
-import java.util.UUID;
+import java.util.UUID
 
-public record RdiTabRow(String text, UUID playerId, int color) {
-    public boolean isPlayer() {
-        return playerId != null;
-    }
+@JvmRecord
+data class RTabRow(@JvmField val text: String, @JvmField val playerId: UUID?, @JvmField val color: Int) {
+    val isPlayer: Boolean
+        get() = playerId != null
 }

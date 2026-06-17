@@ -10,12 +10,10 @@ plugins {
     id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-rootProject.name = "s-mc211n"
+rootProject.name = "s21"
 
 include(":s-mc-common")
 project(":s-mc-common").projectDir = file("../common")
-include(":s-mc-common2")
-project(":s-mc-common2").projectDir = file("../common2")
 include(":rmcp-common")
 project(":rmcp-common").projectDir = file("../../../mc/rmcp/common")
 include(":rmcp-server")

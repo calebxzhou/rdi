@@ -4,6 +4,10 @@ repositories {
     // Other repositories described by default:
     // CleanroomMC: https://maven.cleanroommc.com
     maven {
+        name 'CleanroomMC'
+        url 'https://maven.cleanroommc.com'
+    }
+    maven {
         name 'CurseMaven'
         url 'https://curse.cleanroommc.com'
     }
@@ -19,6 +23,7 @@ dependencies {
     if (propertyBool('enable_lwjglx')) {
         compileOnly "com.cleanroommc:lwjglx:1.0.0"
     }
+    modImplementation 'io.github.chaosunity.forgelin:Forgelin-Continuous:2.4.0.0'
     modImplementation 'curse.maven:hei-557549:6187146' // Use for mod Mixin example
 
     // Example - Dependency descriptor:

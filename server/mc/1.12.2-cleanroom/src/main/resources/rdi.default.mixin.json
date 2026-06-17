@@ -6,6 +6,8 @@
   "mixins": [
     "mAllowChineseNameLogin",
     "mChatMsg",
+    "mOnlySaveFirmSectionEntities112",
+    "mOnlySaveFirmSections112",
     "mRcmdCommandInput",
     "mServerLoginPacketListener"
   ],

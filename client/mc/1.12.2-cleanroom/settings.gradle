@@ -36,8 +36,12 @@ plugins {
 // Due to an IntelliJ bug, this has to be done
 // rootProject.name = archives_base_name
 rootProject.name = rootProject.projectDir.getName()
-rootProject.name = "c-mc122c"
+rootProject.name = "c12"
 include(":c-mc-common")
 project(":c-mc-common").projectDir = file("../common")
 include(":c-mc-common2")
 project(":c-mc-common2").projectDir = file("../common2")
+include(":rcmd")
+project(":rcmd").projectDir = file("../../../mc/rcmd")
+include(":firmsection")
+project(":firmsection").projectDir = file("../../../mc/firmsection")

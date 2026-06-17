@@ -1,6 +1,6 @@
 package calebxzhou.rdi.mc.server.network;
 
-import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList;
+import calebxzhou.rdi.mc.common.RGlobalPlayerList;
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService;
 import com.google.gson.Gson;
 import net.minecraft.server.MinecraftServer;
