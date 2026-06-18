@@ -82,6 +82,9 @@ fun HostNewCreateScreen(
     var currentMcVersion by remember { mutableStateOf<McVersion?>(null) }
     var levelType by remember { mutableStateOf("minecraft:normal") }
     var levelChoice by remember { mutableStateOf(0) }
+    var customLevelTypeText by remember { mutableStateOf("") }
+    var showCustomLevelTypeDialog by remember { mutableStateOf(false) }
+    var customLevelTypeError by remember { mutableStateOf<String?>(null) }
     var whitelist by remember { mutableStateOf(true) }
     var allowCheats by remember { mutableStateOf(false) }
 
@@ -106,9 +109,15 @@ fun HostNewCreateScreen(
                 levelType = "minecraft:flat"
             }
 
-            else -> {
+            type == "minecraft:normal" || type.isBlank() -> {
                 levelChoice = 0
                 levelType = "minecraft:normal"
+            }
+
+            else -> {
+                levelChoice = 3
+                levelType = type
+                customLevelTypeText = type
             }
         }
     }
@@ -287,6 +296,54 @@ fun HostNewCreateScreen(
             onErr = { statusMessage = "创建失败: ${it.message}" },
             onOk = { showResult = "已提交创建请求 请等半分钟 完成后信箱通知你" },
             onDone = { submitting = false }
+        )
+    }
+
+    if (showCustomLevelTypeDialog) {
+        AlertDialog(
+            onDismissRequest = { showCustomLevelTypeDialog = false },
+            title = { Text("自定义地形") },
+            text = {
+                OutlinedTextField(
+                    value = customLevelTypeText,
+                    onValueChange = {
+                        customLevelTypeText = it
+                        customLevelTypeError = null
+                    },
+                    singleLine = true,
+                    isError = customLevelTypeError != null,
+                    label = { Text("level type") },
+                    supportingText = { customLevelTypeError?.let { Text(it) } }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmed = customLevelTypeText.trim()
+                        if (trimmed.isBlank()) {
+                            customLevelTypeError = "请输入地形ID"
+                            return@TextButton
+                        }
+                        levelChoice = 3
+                        levelType = trimmed
+                        customLevelTypeText = trimmed
+                        customLevelTypeError = null
+                        showCustomLevelTypeDialog = false
+                    }
+                ) {
+                    Text("确定")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        customLevelTypeError = null
+                        showCustomLevelTypeDialog = false
+                    }
+                ) {
+                    Text("取消")
+                }
+            }
         )
     }
 
@@ -549,6 +606,20 @@ fun HostNewCreateScreen(
                                                         onClick = {
                                                             levelChoice = 2
                                                             levelType = skyblockLevelType(currentMcVersion)
+                                                        }
+                                                    )
+                                                    ImageCard(
+                                                        title = "自定义",
+                                                        iconPath = "assets/icons/worldtype_normal.png",
+                                                        selected = levelChoice == 3,
+                                                        onClick = {
+                                                            customLevelTypeText = if (levelChoice == 3) {
+                                                                levelType
+                                                            } else {
+                                                                customLevelTypeText
+                                                            }
+                                                            customLevelTypeError = null
+                                                            showCustomLevelTypeDialog = true
                                                         }
                                                     )
                                                 }

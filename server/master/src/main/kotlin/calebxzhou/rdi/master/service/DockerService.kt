@@ -81,6 +81,7 @@ object DockerService {
     fun createContainer(
         port: Int,
         containerName: String,
+        cpu: Int,
         mounts: List<Mount>,
         image: String,
         env: List<String>,
@@ -89,8 +90,8 @@ object DockerService {
 
         val hostConfig = HostConfig.newHostConfig()
             .withPortBindings(parse("$port:$port"))
-            .withCpuCount(4L)
-            .withPidsLimit(512L)
+            .withCpuCount(cpu.toLong())
+            .withPidsLimit(2048L)
             .withExtraHosts("host.docker.internal:host-gateway")
             .withMounts(mounts)
             .withCapAdd(Capability.NET_ADMIN)

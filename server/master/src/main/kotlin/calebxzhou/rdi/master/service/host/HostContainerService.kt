@@ -22,6 +22,7 @@ import com.github.dockerjava.api.model.MountType
 import com.github.dockerjava.api.model.TmpfsOptions
 import org.bson.types.ObjectId
 import java.io.File
+import java.nio.file.Files
 
 object HostContainerService {
     internal fun Host.containerEnv(
@@ -50,7 +51,9 @@ object HostContainerService {
         }
         val noguiArg = if (mcv == McVersion.V071) "nogui" else "--nogui"
         val totalArg = mutableListOf("").apply {
-            if(modpack.mcVer == McVersion.V211){
+            if(modpack.mcVer == McVersion.V211
+                || modpack.mcVer == McVersion.V201
+            ){
                 this.add("-Drdi.onlySaveFirmSections=true")
             }
             if(modpack.mcVer == McVersion.V071 || modpack.mcVer == McVersion.V122){
@@ -58,7 +61,7 @@ object HostContainerService {
             }
             if (this@containerEnv.isPublic) {
                 this.add("-Drdi.firmSectionTotalMax=65536")
-                this.add("-Drdi.firmSectionPersonMax=80")
+                this.add("-Drdi.firmSectionPersonMax=256")
             }
             if (this@containerEnv._id == ObjectId("69da4ec7015319d405bbb3be")) {
                 this.add("-Xmx12G")
@@ -89,6 +92,7 @@ object HostContainerService {
     ) {
         DockerService.deleteContainer(_id.str)
         ensureWorkdirQuota()
+        cleanupDisabledModFilesBeforeContainerCreate(version)
 
         val sharedLibsDir = modpack.libsDir.canonicalFile.also { it.mkdirs() }
         val loaderVer = modpack.mcVer.loaderVersions[modpack.modloader] ?: throw RequestError("找不到对应版本的运行库")
@@ -187,10 +191,15 @@ object HostContainerService {
             }
         }
         val image = if (lwjgl3ifyRuntime != null) "rdi:j25" else "rdi:j${modpack.mcVer.jreSupport}"
+        val cpu = when(modpack.mcVer){
+            McVersion.V071, McVersion.V122 -> 2
+            else -> 4
+        }
         modpack.mcVer.loaderVersions[modpack.modloader]?.let { modLoaderVersion ->
             DockerService.createContainer(
                 port,
                 this._id.str,
+                cpu,
                 mounts,
                 image,
                 containerEnv(modpack.mcVer, modLoaderVersion, modpack, lwjgl3ifyRuntime)
@@ -213,4 +222,39 @@ object HostContainerService {
 
     internal fun Host.isDisabledMod(mod: Mod): Boolean =
         disabledMods.any { sameMod(it, mod) }
+
+    private fun Host.cleanupDisabledModFilesBeforeContainerCreate(version: Modpack.Version) {
+        val modsDir = dir.resolve("mods")
+        if (!modsDir.exists() || !modsDir.isDirectory || disabledMods.isEmpty()) return
+        val disabledServerMods = version.mods
+            .filter(::isServerInstalledMod)
+            .filter { isDisabledMod(it) }
+        if (disabledServerMods.isEmpty()) return
+
+        disabledServerMods
+            .flatMap { it.fileNames }
+            .distinct()
+            .forEach { fileName ->
+                deleteDisabledHostModFile(modsDir.resolve(fileName))
+            }
+
+        val disabledSlugs = disabledServerMods.map { it.slug.trim().lowercase() }
+            .filter { it.isNotBlank() }
+        val disabledHashes = disabledServerMods.map { it.hash.trim().lowercase() }
+            .filter { it.isNotBlank() }
+        modsDir.listFiles()
+            ?.filter { it.isFile && it.length() == 0L && it.extension.equals("jar", ignoreCase = true) }
+            ?.filter { file ->
+                val lowerName = file.name.lowercase()
+                disabledSlugs.any(lowerName::contains) || disabledHashes.any(lowerName::contains)
+            }
+            ?.forEach(::deleteDisabledHostModFile)
+    }
+
+    private fun deleteDisabledHostModFile(file: File) {
+        runCatching { Files.deleteIfExists(file.toPath()) }
+            .getOrElse { err ->
+                throw RequestError("已禁用Mod文件清理失败: ${file.name} ${err.message ?: ""}".trim())
+            }
+    }
 }

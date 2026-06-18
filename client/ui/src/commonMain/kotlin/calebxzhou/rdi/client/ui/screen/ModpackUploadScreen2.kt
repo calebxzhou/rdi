@@ -459,7 +459,7 @@ fun ModpackUploadScreen2(
                 finishLoading()
                 lgr.error { error }
                 error.printStackTrace()
-                errorText = error.message ?: "读取整合包失败"
+                errorText = error.message ?: "读取整合包失败:${error.cause},${error.message}"
                 return@launch
             }
             if (!ensureUploadRuntimeReady(loadResult.mcVersion)) {

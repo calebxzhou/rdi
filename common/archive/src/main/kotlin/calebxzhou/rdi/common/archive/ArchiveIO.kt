@@ -63,9 +63,10 @@ fun listArchiveEntries(file: File): List<ArchiveEntryMeta> {
     when (file.detectArchiveFormat()) {
         PackArchiveFormat.ZIP -> file.openChineseZip().use { zip ->
             zip.entries().asSequence().forEach { entry ->
+                val path = entry.name.replace('\\', '/').trimStart('/')
                 entries += ArchiveEntryMeta(
-                    path = entry.name.replace('\\', '/').trimStart('/'),
-                    isDirectory = entry.isDirectory,
+                    path = path,
+                    isDirectory = entry.isDirectory || path.endsWith('/'),
                     size = entry.size.takeIf { it >= 0L },
                     time = entry.time
                 )
@@ -93,8 +94,9 @@ fun forEachArchiveEntry(file: File, onEntry: (ArchiveEntryData) -> Unit) {
             zip.entries().asSequence().forEach { entry ->
                 val path = entry.name.replace('\\', '/').trimStart('/')
                 if (path.isBlank()) return@forEach
-                val bytes = if (entry.isDirectory) null else zip.getInputStream(entry).use(InputStream::readBytes)
-                onEntry(ArchiveEntryData(path, entry.isDirectory, entry.size.takeIf { it >= 0L }, entry.time, bytes))
+                val isDirectory = entry.isDirectory || path.endsWith('/')
+                val bytes = if (isDirectory) null else zip.getInputStream(entry).use(InputStream::readBytes)
+                onEntry(ArchiveEntryData(path, isDirectory, entry.size.takeIf { it >= 0L }, entry.time, bytes))
             }
         }
 
