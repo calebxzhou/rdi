@@ -42,5 +42,5 @@ public class RDI {
     public static boolean SHOW_SET_FIRM_SECTIONS=false;
     public static boolean SHOW_NOW_FIRM_SECTION=false;
     //维度id与永久子区块
-    public static Map<String, List<SectionPos>> FIRM_CHUNKS = new HashMap<>();
+    public static Map<String, List<calebxzhou.rdi.mc.common.SectionPos>> FIRM_CHUNKS = new HashMap<>();
 }

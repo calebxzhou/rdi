@@ -43,7 +43,7 @@ data class FirmSectionListResult(
 )
 
 object FirmSectionLimits {
-    val maxTotal: Int = Integer.getInteger("rdi.firmSectionTotalMax", 160)
+    val maxTotal: Int = Integer.getInteger("rdi.firmSectionTotalMax", 256)
     val maxPerson: Int = Integer.getInteger("rdi.firmSectionPersonMax", 0)
 }
 

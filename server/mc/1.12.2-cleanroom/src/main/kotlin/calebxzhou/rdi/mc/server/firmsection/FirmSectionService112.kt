@@ -13,6 +13,9 @@ import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.MathHelper
 import net.minecraft.world.World
 import net.minecraft.world.chunk.Chunk
+import com.feed_the_beast.ftbutilities.data.ClaimedChunks
+import com.feed_the_beast.ftblib.lib.math.ChunkDimPos
+import java.util.OptionalInt
 
 object FirmSectionService112 {
     fun isEnabled(): Boolean = RDI.ONLY_SAVE_FIRM_SECTIONS
@@ -47,12 +50,19 @@ object FirmSectionService112 {
     fun list(player: EntityPlayerMP): FirmSectionListResult =
         data(player.server).list(player.uniqueID)
 
-    fun shouldSaveChunk(world: World, chunk: Chunk): Boolean =
-        !RDI.ONLY_SAVE_FIRM_SECTIONS || data(world.minecraftServer!!).hasFirmChunk(
+    fun shouldSaveChunk(world: World, chunk: Chunk): Boolean {
+        if (!RDI.ONLY_SAVE_FIRM_SECTIONS) {
+            return true
+        }
+        if (data(world.minecraftServer!!).hasFirmChunk(
             dimensionId(world),
             chunk.x,
             chunk.z
-        )
+        )) {
+            return true
+        }
+        return isFtbUtilitiesClaimedChunk(world, chunk)
+    }
 
     fun shouldSaveEntityPosition(world: World, x: Double, y: Double, z: Double): Boolean =
         !RDI.ONLY_SAVE_FIRM_SECTIONS || data(world.minecraftServer!!).hasFirmSection(
@@ -85,4 +95,16 @@ object FirmSectionService112 {
     private fun dimensionId(world: World): String = "legacy:${world.provider.dimension}"
 
     private fun blockToSectionCoord(value: Double): Int = MathHelper.floor(value) shr 4
+
+    private fun isFtbUtilitiesClaimedChunk(world: World, chunk: Chunk): Boolean {
+        if (!ClaimedChunks.isActive()) {
+            return false
+        }
+        val pos = ChunkDimPos(chunk.x, chunk.z, world.provider.dimension)
+        return ClaimedChunks.instance.universe.teams.any { team ->
+            ClaimedChunks.instance.getTeamChunks(team, OptionalInt.of(pos.dim), true).any {
+                it.pos.equalsChunkDimPos(pos)
+            }
+        }
+    }
 }

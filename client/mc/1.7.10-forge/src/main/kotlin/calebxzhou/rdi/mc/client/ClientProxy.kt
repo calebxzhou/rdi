@@ -17,6 +17,8 @@ class ClientProxy : CommonProxy() {
         McpClientNetwork1710.register()
         FMLCommonHandler.instance().bus().register(McpLifecycle1710)
         FMLCommonHandler.instance().bus().register(FirmSectionRenderer1710)
+        FMLCommonHandler.instance().bus().register(JoinServerSubtitle1710)
         MinecraftForge.EVENT_BUS.register(FirmSectionRenderer1710)
+        MinecraftForge.EVENT_BUS.register(JoinServerSubtitle1710)
     }
 }

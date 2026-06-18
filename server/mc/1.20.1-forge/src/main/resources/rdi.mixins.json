@@ -9,6 +9,7 @@
   "minVersion": "0.7",
   "mixins": [
     "AServerEntity",
+    "mFTBLibraryBaseValue",
     "mAllowChineseNameLogin",
     "mBoundTickingBlockEntityGuard",
     "mChatMsg",

@@ -1,5 +1,12 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
 
 plugins {
     id 'net.neoforged.moddev.legacyforge' version '2.0.141'
@@ -42,6 +49,7 @@ kotlin {
     jvmToolchain(25)
 }*/
 sourceSets.main {
+    kotlin.srcDir '../../../mc/common/2021/src/main/kotlin'
     ext["refMap"] = "rdi.mixins.refmap.json"
     // Make shared assets available in IDE/dev runs (runClient).
     resources {
@@ -56,14 +64,86 @@ mixin {
 repositories {
     mavenLocal()
     mavenCentral()
+    //CurseForge
+    exclusiveContent {
+        forRepository {
+            maven {
+                url "https://cursemaven.com"
+            }
+        }
+        filter {
+            includeGroup "curse.maven"
+        }
+    }
+    //Modrinth
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
 
     maven {
         name = "Forge Maven"
         url = "https://maven.minecraftforge.net/"
     }
+    maven {
+        name = "Architectury Maven"
+        url = "https://maven.architectury.dev/"
+    }
+    maven {
+        name = "FTB Maven"
+        url = "https://maven.ftb.dev/releases"
+    }
 
 }
 def shadedConfiguration = configurations.maybeCreate('shaded')
+def architecturyApiConfiguration = configurations.maybeCreate('architecturyApi')
+tasks.register('patchArchitecturyMixin') {
+    inputs.files(architecturyApiConfiguration)
+    outputs.upToDateWhen { false }
+
+    doLast {
+        def sourceJar = architecturyApiConfiguration.files.find { it.name.endsWith('.jar') }
+        if (sourceJar == null) {
+            throw new GradleException('architectury-api jar not found')
+        }
+        def patchedJar = new File(sourceJar.parentFile, "${sourceJar.name}.rdi-patched")
+        def changed = false
+
+        new ZipFile(sourceJar).withCloseable { zip ->
+            new ZipOutputStream(new BufferedOutputStream(new FileOutputStream(patchedJar))).withCloseable { out ->
+                zip.entries().each { entry ->
+                    out.putNextEntry(new ZipEntry(entry.name))
+                    if (!entry.directory) {
+                        if (entry.name == 'architectury.mixins.json') {
+                            def json = new JsonSlurper().parse(zip.getInputStream(entry))
+                            def mixins = json.mixins.findAll { it != 'MixinFallingBlockEntity' }
+                            changed = changed || mixins.size() != json.mixins.size()
+                            json.mixins = mixins
+                            out.write(JsonOutput.prettyPrint(JsonOutput.toJson(json)).getBytes(StandardCharsets.UTF_8))
+                        } else {
+                            zip.getInputStream(entry).withCloseable { input ->
+                                input.transferTo(out)
+                            }
+                        }
+                    }
+                    out.closeEntry()
+                }
+            }
+        }
+        if (changed) {
+            Files.move(patchedJar.toPath(), sourceJar.toPath(), StandardCopyOption.REPLACE_EXISTING)
+        } else {
+            patchedJar.delete()
+        }
+    }
+}
 
 legacyForge {
     version = "1.20.1-47.4.20"
@@ -114,7 +194,27 @@ dependencies {
     additionalRuntimeClasspath(project(":rcmd"))
     implementation(project(":firmsection"))
     additionalRuntimeClasspath(project(":firmsection"))
+    add('architecturyApi', 'dev.architectury:architectury-forge:9.1.12')
+    //>>>Modrinth Mods<<<
+    [
+    ].each { dep ->
+        implementation "maven.modrinth:$dep"
+    }
+    //>>>Official FTB Mods<<<
+    [
+            "dev.architectury:architectury-forge:9.1.12",
+            "dev.ftb.mods:ftb-library-forge:2001.2.9",
+            "dev.ftb.mods:ftb-teams-forge:2001.3.1",
+            "dev.ftb.mods:ftb-quests-forge:2001.4.22",
+            "dev.ftb.mods:ftb-chunks-forge:2001.3.8",
+    ].each { dep ->
+        modImplementation dep
+    }
     //jarjar(project(":c-mc-common"))
+}
+
+tasks.matching { it.name == 'runClient' || it.name == 'runClientAnother' }.configureEach {
+    dependsOn tasks.named('patchArchitecturyMixin')
 }
 
 processResources {

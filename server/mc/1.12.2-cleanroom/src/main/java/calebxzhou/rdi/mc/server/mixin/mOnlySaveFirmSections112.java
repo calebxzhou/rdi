@@ -16,7 +16,6 @@ public class mOnlySaveFirmSections112 {
         if (FirmSectionService112.INSTANCE.shouldSaveChunk(world, chunk)) {
             return;
         }
-        chunk.setModified(false);
         ci.cancel();
     }
 }

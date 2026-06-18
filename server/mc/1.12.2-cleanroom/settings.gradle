@@ -38,9 +38,3 @@ plugins {
 rootProject.name = "s12"
 include(":s-mc-common")
 project(":s-mc-common").projectDir = file("../common")
-include(":ktutils-std")
-project(":ktutils-std").projectDir = file("../../../ktutils/std")
-include(":rcmd")
-project(":rcmd").projectDir = file("../../../mc/rcmd")
-include(":firmsection")
-project(":firmsection").projectDir = file("../../../mc/firmsection")

@@ -10,7 +10,7 @@ import calebxzhou.rdi.mc.common2.mcp.model.BlockFindQ
 import calebxzhou.rdi.mc.common2.mcp.model.BlockRange
 import calebxzhou.rdi.mc.common2.mcp.model.RBlockAABB
 import calebxzhou.rdi.mc.common2.mcp.model.RBlockPos
-import calebxzhou.rdi.mc.common3.mc
+import calebxzau.mc.common2021.mc
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.core.registries.BuiltInRegistries

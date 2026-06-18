@@ -6,7 +6,7 @@ import calebxzhou.rdi.mc.common2.mcp.model.RecipeItemTag
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcess
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeShape
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeStack
-import calebxzhou.rdi.mc.common3.resId
+import calebxzau.mc.common2021.resId
 import mezz.jei.api.gui.builder.IIngredientAcceptor
 import mezz.jei.api.gui.builder.IRecipeLayoutBuilder
 import mezz.jei.api.gui.builder.IRecipeSlotBuilder

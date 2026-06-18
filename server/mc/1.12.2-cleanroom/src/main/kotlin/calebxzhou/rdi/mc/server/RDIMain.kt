@@ -12,8 +12,11 @@ import calebxzhou.rdi.mc.server.network.RServerNetwork.register
 import calebxzhou.rdi.mc.server.network.RServerNetwork.sendFirmSectionsTo
 import calebxzhou.rdi.mc.server.network.RServerNetwork.sendLastTo
 import net.minecraft.entity.player.EntityPlayerMP
+import net.minecraft.network.play.server.SPacketTitle
 import net.minecraft.server.dedicated.DedicatedServer
 import net.minecraft.util.text.TextComponentString
+import net.minecraft.util.text.TextFormatting
+import net.minecraft.util.text.event.ClickEvent
 import net.minecraftforge.common.DimensionManager
 import net.minecraftforge.common.MinecraftForge
 import net.minecraftforge.event.world.BlockEvent
@@ -65,6 +68,7 @@ class RDIMain {
         }
         sendLastTo(player)
         sendFirmSectionsTo(player)
+        sendJoinMessages(player)
     }
 
     @SubscribeEvent
@@ -91,6 +95,32 @@ class RDIMain {
     companion object {
         private val lgr: Logger = LogManager.getLogger("rdi")
         private var server: DedicatedServer? = null
+        private const val MANUAL_URL = "https://craftrdi.feishu.cn/wiki/U8LRwMpUliuxW5kZLvCcxonNnkd"
+
+        private fun sendJoinMessages(player: EntityPlayerMP) {
+            val range = PlayerChatRangeState.get(player.uniqueID)
+            val result = FirmSectionService112.list(player)
+            player.connection.sendPacket(SPacketTitle(10, 200, 20))
+            player.connection.sendPacket(
+                SPacketTitle(
+                    SPacketTitle.Type.SUBTITLE,
+                    TextComponentString("设定“持久子区块” 否则丢数据 见说明书")
+                )
+            )
+            player.connection.sendPacket(SPacketTitle(SPacketTitle.Type.TITLE, TextComponentString("")))
+            player.sendMessage(TextComponentString("当前聊天范围：${range.displayName}"))
+            player.sendMessage(
+                TextComponentString(
+                    "6月22日开始 只有“持久子区块”会永久保存 其余区域不会保存\n" +
+                        "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书"
+                )
+            )
+            player.sendMessage(TextComponentString("点此打开RDI说明书").also {
+                it.style.setUnderlined(true)
+                    .setColor(TextFormatting.AQUA)
+                    .setClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, MANUAL_URL))
+            })
+        }
 
         private fun applyGameRules() {
             for (world in DimensionManager.getWorlds()) {

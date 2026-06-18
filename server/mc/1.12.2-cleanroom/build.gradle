@@ -33,14 +33,6 @@ base {
     archivesName.set('rdi')
 }
 evaluationDependsOn(":s-mc-common")
-evaluationDependsOn(":rcmd")
-evaluationDependsOn(":firmsection")
-def rcmdJarTask = project(":rcmd").tasks.named("jar")
-def rcmdJar = rcmdJarTask.flatMap { it.archiveFile }
-def rcmdFiles = files(rcmdJar).builtBy(rcmdJarTask)
-def firmsectionJarTask = project(":firmsection").tasks.named("jar")
-def firmsectionJar = firmsectionJarTask.flatMap { it.archiveFile }
-def firmsectionFiles = files(firmsectionJar).builtBy(firmsectionJarTask)
 def remapTaskName = propertyBool('enable_shadow') ? "remapShadowJar" : "remapJar"
 
 java {
@@ -58,6 +50,13 @@ java {
 kotlin {
     compilerOptions {
         jvmTarget = JvmTarget.JVM_25
+    }
+    sourceSets {
+        main {
+            kotlin.srcDir(file("../../../ktutils/std/src/main/kotlin"))
+            kotlin.srcDir(file("../../../mc/rcmd/src/main/kotlin"))
+            kotlin.srcDir(file("../../../mc/firmsection/src/main/kotlin"))
+        }
     }
 }
 
@@ -87,6 +86,7 @@ unimined.minecraft {
         runs.auth.username = minecraft_username
         runs.all {
             jvmArgs(
+                    "-Drdi.onlySaveFirmSections=true",
                 "-Drdi.ihq.url=127.0.0.1:65231",
                 "-Drdi.host.id=697b7a8cb7f12c8ac09c65ae",
                     "-Dcrl.dev.mixin=${mod_id}.default.mixin.json,${mod_id}.mod.mixin.json"
@@ -133,10 +133,6 @@ dependencies {
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
     implementation(project(":s-mc-common"))
-    compileOnly rcmdFiles
-    runtimeOnly rcmdFiles
-    compileOnly firmsectionFiles
-    runtimeOnly firmsectionFiles
     // Use contain so Cleanroom bundles the non-mod library into the built jar.
     contain 'com.neovisionaries:nv-websocket-client:2.14'
 }
@@ -201,14 +197,6 @@ if (!propertyBool('enable_shadow')) {
 jar {
     archiveVersion = ''
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    dependsOn rcmdJarTask
-    dependsOn firmsectionJarTask
-    from({ zipTree(rcmdJar.get().asFile) }) {
-        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
-    }
-    from({ zipTree(firmsectionJar.get().asFile) }) {
-        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
-    }
     if (configurations.contain.size() > 0) {
         into('/') {
             from configurations.contain
@@ -240,17 +228,6 @@ jar {
         include "*.refmap.json"
     }
 }
-
-tasks.named("compileJava") {
-    dependsOn rcmdJarTask
-    dependsOn firmsectionJarTask
-}
-
-tasks.named("compileKotlin") {
-    dependsOn rcmdJarTask
-    dependsOn firmsectionJarTask
-}
-
 
 shadowJar {
     configurations = [project.configurations.shadow]

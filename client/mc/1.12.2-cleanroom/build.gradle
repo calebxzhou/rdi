@@ -41,15 +41,6 @@ base {
     archivesName.set('rdi')
 }
 evaluationDependsOn(":c-mc-common")
-evaluationDependsOn(":c-mc-common2")
-evaluationDependsOn(":rcmd")
-evaluationDependsOn(":firmsection")
-def rcmdJarTask = project(":rcmd").tasks.named("jar")
-def rcmdJar = rcmdJarTask.flatMap { it.archiveFile }
-def rcmdFiles = files(rcmdJar).builtBy(rcmdJarTask)
-def firmsectionJarTask = project(":firmsection").tasks.named("jar")
-def firmsectionJar = firmsectionJarTask.flatMap { it.archiveFile }
-def firmsectionFiles = files(firmsectionJar).builtBy(firmsectionJarTask)
 def remapTaskName = propertyBool('enable_shadow') ? "remapShadowJar" : "remapJar"
 
 java {
@@ -67,6 +58,11 @@ java {
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_25
+    }
+    sourceSets {
+        main {
+            kotlin.srcDir(file("../../../mc/rcmd/src/main/kotlin"))
+        }
     }
 }
 
@@ -155,18 +151,14 @@ dependencies {
         testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     }
     implementation(project(":c-mc-common"))
-    implementation(project(":c-mc-common2"))
-    compileOnly rcmdFiles
-    runtimeOnly rcmdFiles
-    compileOnly firmsectionFiles
-    runtimeOnly firmsectionFiles
+    implementation 'io.fusionauth:java-http:1.4.0'
+    compileOnly 'com.google.code.gson:gson:2.11.0'
 }
 
 apply from: 'gradle/scripts/dependencies.gradle'
 
 processResources {
     dependsOn project(":c-mc-common").tasks.processResources
-    dependsOn project(":c-mc-common2").tasks.processResources
 
     inputs.property 'mod_id', propertyString('mod_id')
     inputs.property 'mod_name', propertyString('mod_name')
@@ -201,11 +193,11 @@ sourceSets {
     main {
         java {
             srcDir project(":c-mc-common").sourceSets.main.java.srcDirs
-            srcDir project(":c-mc-common2").sourceSets.main.java.srcDirs
+            srcDir file("../common2/src/main/java")
         }
         resources {
             srcDir project(":c-mc-common").sourceSets.main.resources.srcDirs
-            srcDir project(":c-mc-common2").sourceSets.main.resources.srcDirs
+            srcDir file("../common2/src/main/resources")
         }
         blossom {
             javaSources {
@@ -225,14 +217,6 @@ if (!propertyBool('enable_shadow')) {
 jar {
     archiveVersion = ''
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    dependsOn rcmdJarTask
-    dependsOn firmsectionJarTask
-    from({ zipTree(rcmdJar.get().asFile) }) {
-        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
-    }
-    from({ zipTree(firmsectionJar.get().asFile) }) {
-        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
-    }
     if (configurations.contain.size() > 0) {
         into('/') {
             from configurations.contain
@@ -262,17 +246,6 @@ jar {
     finalizedBy(tasks.named(remapTaskName).get())
 }
 
-tasks.named("compileJava") {
-    dependsOn rcmdJarTask
-    dependsOn firmsectionJarTask
-}
-
-tasks.named("compileKotlin") {
-    dependsOn rcmdJarTask
-    dependsOn firmsectionJarTask
-}
-
-
 shadowJar {
     configurations = [project.configurations.shadow]
     archiveClassifier = "shadow"
@@ -290,20 +263,6 @@ tasks.named(remapTaskName).configure {
 
 tasks.named('preRunClient') {
     notCompatibleWithConfigurationCache("Unimined preRunClient task is not compatible with configuration cache")
-    dependsOn("copyResourcesToDevClasses")
-}
-
-tasks.register("copyResourcesToDevClasses", Copy) {
-    dependsOn(tasks.named("processResources"))
-    dependsOn(tasks.named("compileKotlin"))
-    from(layout.buildDirectory.dir("resources/main")) {
-        include("assets/**")
-    }
-    from(layout.buildDirectory.dir("classes/kotlin/main")) {
-        include("**/*.class")
-        include("META-INF/**")
-    }
-    into(layout.buildDirectory.dir("classes/java/main"))
 }
 
 tasks.register("runClientAnother") {

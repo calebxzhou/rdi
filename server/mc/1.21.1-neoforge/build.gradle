@@ -97,6 +97,8 @@ neoForge {
 sourceSets.named('main') {
     kotlin.srcDir '../../../mc/common3/1.21/src/main/kotlin'
     kotlin.srcDir '../../../mc/firmsection/src/main/kotlin'
+    kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
+    kotlin.srcDir '../../../mc/rmcp/server/src/main/kotlin'
     resources.srcDir 'src/generated/resources'
 }
 
@@ -115,16 +117,9 @@ dependencies {
     additionalRuntimeClasspath project(':s-mc-common')
     implementation project(':rmcp-common')
     additionalRuntimeClasspath project(':rmcp-common')
-    implementation project(':rmcp-server')
-    additionalRuntimeClasspath project(':rmcp-server')
-    implementation project(':ktutils-std')
-    additionalRuntimeClasspath project(':ktutils-std')
-    implementation project(':rcmd')
-    additionalRuntimeClasspath project(':rcmd')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-   // implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
-
+    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     //>>>Modrinth Mods<<<
     [
             'architectury-api:13.0.8+neoforge',
@@ -142,6 +137,7 @@ dependencies {
         "ftb-library-forge-404465:7746959",
         "ftb-quests-forge-289412:7878289",
         "ftb-teams-forge-404468:7878281",
+            'ftb-chunks-forge-314906:8241176',
     ].each { dep ->
         implementation "curse.maven:$dep-deobf"
     }
@@ -208,21 +204,12 @@ idea {
 }
 evaluationDependsOn(':s-mc-common')
 evaluationDependsOn(':rmcp-common')
-evaluationDependsOn(':rmcp-server')
-evaluationDependsOn(':ktutils-std')
-evaluationDependsOn(':rcmd')
 jar {
     // Bundle compiled outputs from shared server modules into this jar
     dependsOn project(":s-mc-common").tasks.named("classes")
     dependsOn project(":rmcp-common").tasks.named("classes")
-    dependsOn project(":rmcp-server").tasks.named("classes")
-    dependsOn project(":ktutils-std").tasks.named("classes")
-    dependsOn project(":rcmd").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
     from(project(":rmcp-common").sourceSets.main.output)
-    from(project(":rmcp-server").sourceSets.main.output)
-    from(project(":ktutils-std").sourceSets.main.output)
-    from(project(":rcmd").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {

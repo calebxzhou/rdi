@@ -49,20 +49,20 @@ class mTickInvertServer {
     public abstract void tickChildren(BooleanSupplier hasTimeLeft);
 
 
-    @Redirect(method = "tickServer",
+    @WrapOperation(method = "tickServer",
             at = @At(value = "INVOKE", target = "Lnet/minecraft/server/MinecraftServer;tickChildren(Ljava/util/function/BooleanSupplier;)V"))
-    private void tickServerChildrenNoCrash(MinecraftServer instance, BooleanSupplier bs) {
+    private void tickServerChildrenNoCrash(MinecraftServer instance, BooleanSupplier bs, Operation<Void> original) {
         try {
-            tickChildren(bs);
+            original.call(instance, bs);
         } catch (Exception e) {
             e.printStackTrace();
         }
     }
 
-    @Redirect(method = "tickChildren", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerLevel;tick(Ljava/util/function/BooleanSupplier;)V"))
-    private void RDI$OnTickLevel(ServerLevel serverlevel, BooleanSupplier hasTimeLeft) {
+    @WrapOperation(method = "tickChildren", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerLevel;tick(Ljava/util/function/BooleanSupplier;)V"))
+    private void RDI$OnTickLevel(ServerLevel serverlevel, BooleanSupplier hasTimeLeft, Operation<Void> original) {
         try {
-            serverlevel.tick(hasTimeLeft);
+            original.call(serverlevel, hasTimeLeft);
         } catch (Throwable throwable) {
             throwable.printStackTrace();
         }

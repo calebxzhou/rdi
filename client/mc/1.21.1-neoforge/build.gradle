@@ -69,26 +69,16 @@ jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     evaluationDependsOn(':c-mc-common')
-    evaluationDependsOn(':c-mc-common2')
     evaluationDependsOn(':rmcp-common')
     evaluationDependsOn(':rmcp-client')
-    evaluationDependsOn(':ktutils-std')
-    evaluationDependsOn(':rcmd')
     // Bundle compiled classes from :c-mc-common into this jar.
     // Common resources are already added via sourceSets.main.resources above.
     dependsOn project(":c-mc-common").tasks.named("classes")
-    dependsOn project(":c-mc-common2").tasks.named("classes")
     dependsOn project(":rmcp-common").tasks.named("classes")
     dependsOn project(":rmcp-client").tasks.named("classes")
-    dependsOn project(":ktutils-std").tasks.named("classes")
-    dependsOn project(":rcmd").tasks.named("classes")
     from(project(":c-mc-common").sourceSets.main.output.classesDirs)
-    from(project(":c-mc-common2").sourceSets.main.output.classesDirs)
-    from(project(":c-mc-common2").sourceSets.main.output.resourcesDir)
     from(project(":rmcp-common").sourceSets.main.output)
     from(project(":rmcp-client").sourceSets.main.output)
-    from(project(":ktutils-std").sourceSets.main.output)
-    from(project(":rcmd").sourceSets.main.output)
     from({
         configurations.shaded.collect { it.isDirectory() ? it : zipTree(it) }
     }) {
@@ -195,13 +185,15 @@ tasks.register('generateModMetadata', ProcessResources) {
 }
 
 sourceSets.named('main') {
-    kotlin.srcDir '../../../mc/common3/1.21/src/main/kotlin'
+    kotlin.srcDir '../../../mc/common/2021/src/main/kotlin'
+    kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
+    java.srcDir '../common2/src/main/java'
     resources.srcDir 'src/generated/resources'
     resources.srcDir metadataOutput
     // Make common assets visible in IDE dev runs (textures, lang, etc.)
     // without merging common Java packages into this module.
     resources.srcDir project(':c-mc-common').file('src/main/resources')
-    resources.srcDir project(':c-mc-common2').file('src/main/resources')
+    resources.srcDir '../common2/src/main/resources'
 }
 
 neoForge.ideSyncTask(tasks.named('generateModMetadata'))
@@ -209,16 +201,10 @@ neoForge.ideSyncTask(tasks.named('generateModMetadata'))
 dependencies {
     implementation project(':c-mc-common')
     additionalRuntimeClasspath project(':c-mc-common')
-    implementation project(':c-mc-common2')
-    additionalRuntimeClasspath project(':c-mc-common2')
     implementation project(':rmcp-common')
     additionalRuntimeClasspath project(':rmcp-common')
     implementation project(':rmcp-client')
     additionalRuntimeClasspath project(':rmcp-client')
-    implementation project(':ktutils-std')
-    additionalRuntimeClasspath project(':ktutils-std')
-    implementation project(':rcmd')
-    additionalRuntimeClasspath project(':rcmd')
     additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
     compileOnly "mezz.jei:jei-1.21.1-neoforge-api:19.21.2.313"
     // at runtime, use the full JEI jar for NeoForge
@@ -231,7 +217,6 @@ dependencies {
     jarJar("net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0")
 
     runtimeOnly "dev.emi:emi-neoforge:1.1.24+1.21.1"
-    // implementation 'thedarkcolour:kotlinforforge-neoforge:5.11.0'
     shaded('io.fusionauth:java-http:1.4.0') {
         transitive = false
     }
@@ -248,7 +233,7 @@ dependencies {
     [
             "ftb-library-forge-404465:7746959",
             "ftb-quests-forge-289412:7878289",
-            "ftb-teams-forge-404468:7878281",
+            "ftb-teams-forge-404468:7878281",   'ftb-chunks-forge-314906:8241176',
     ].each { dep ->
         implementation "curse.maven:$dep-deobf"
     }
@@ -279,6 +264,4 @@ idea {
     }
 }
 evaluationDependsOn(':c-mc-common')
-evaluationDependsOn(':c-mc-common2')
-evaluationDependsOn(':rcmd')
 project(':c-mc-common').ext.registerClientCopyTask(project)

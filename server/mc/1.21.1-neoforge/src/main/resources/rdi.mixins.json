@@ -15,6 +15,7 @@
     "mBoundTickingBlockEntityGuard",
     "mChatMsg",
     "mChinesePlayerName",
+    "mFTBChunksWorldConfig",
     "mGuardChunkTick",
     "mGuardLevelTick",
     "mGuardServerLevelTick",

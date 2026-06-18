@@ -5,7 +5,7 @@ import calebxzhou.rdi.mc.common2.mcp.model.RecipeItemTag
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeProcess
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeShape
 import calebxzhou.rdi.mc.common2.mcp.model.RecipeStack
-import calebxzhou.rdi.mc.common3.resId
+import calebxzau.mc.common2021.resId
 import net.minecraft.client.Minecraft
 import net.minecraft.core.registries.BuiltInRegistries
 import net.minecraft.world.item.ItemStack

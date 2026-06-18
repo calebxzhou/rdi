@@ -11,6 +11,8 @@ import java.util.Set;
 public final class RdiMixinPlugin implements IMixinConfigPlugin {
     private static final String ARS_ALAKARKINOS_SYNC_MIXIN = "calebxzhou.rdi.mc.server.mixin.mArsNouveauAlakarkinosRecipeSync";
     private static final String ARS_ALAKARKINOS_SERIALIZER = "com.hollingsworth.arsnouveau.common.crafting.recipes.AlakarkinosRecipe$Serializer";
+    private static final String FTB_CHUNKS_WORLD_CONFIG_MIXIN = "calebxzhou.rdi.mc.server.mixin.mFTBChunksWorldConfig";
+    private static final String FTB_CHUNKS_WORLD_CONFIG = "dev.ftb.mods.ftbchunks.FTBChunksWorldConfig";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -25,6 +27,9 @@ public final class RdiMixinPlugin implements IMixinConfigPlugin {
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         if (ARS_ALAKARKINOS_SYNC_MIXIN.equals(mixinClassName)) {
             return classExists(ARS_ALAKARKINOS_SERIALIZER);
+        }
+        if (FTB_CHUNKS_WORLD_CONFIG_MIXIN.equals(mixinClassName)) {
+            return classExists(FTB_CHUNKS_WORLD_CONFIG);
         }
         return true;
     }

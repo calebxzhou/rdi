@@ -101,8 +101,7 @@ class RDIMain {
             player.sendSystemMessage(Component.literal("当前聊天范围：" + range.displayName))
             player.sendSystemMessage(
                 Component.literal(
-                    "为了实现随时回档、方块日志等高级特性 \n" +
-                        "6月18日起 只有“持久子区块”会永久保存 其余区域将在日后随机重新生成\n" +
+                        "6月18日起 只有“持久子区块”会永久保存 其余区域不会保存\n" +
                         "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书"
                 )
             )

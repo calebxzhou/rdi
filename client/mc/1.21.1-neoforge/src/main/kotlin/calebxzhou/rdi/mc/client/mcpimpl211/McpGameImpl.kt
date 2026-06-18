@@ -1,5 +1,10 @@
 package calebxzhou.rdi.mc.client.mcpimpl211
 
+import calebxzau.mc.common2021.makeItemTagKey
+import calebxzau.mc.common2021.mc
+import calebxzau.mc.common2021.parseResId
+import calebxzau.mc.common2021.resId
+import calebxzau.mc.common2021.tagItemIds
 import calebxzhou.rdi.mc.client.RDIMain
 import calebxzhou.rdi.mc.client.mcp.McpGameInterface
 import calebxzhou.rdi.mc.common2.mcp.McpBadRequestError
@@ -7,7 +12,6 @@ import calebxzhou.rdi.mc.common2.mcp.McpBadSlotError
 import calebxzhou.rdi.mc.common2.mcp.McpError
 import calebxzhou.rdi.mc.common2.mcp.McpNoPlayerError
 import calebxzhou.rdi.mc.common2.mcp.model.*
-import calebxzhou.rdi.mc.common3.*
 import com.mojang.blaze3d.pipeline.RenderCall
 import com.mojang.blaze3d.systems.RenderSystem
 import net.minecraft.client.Screenshot

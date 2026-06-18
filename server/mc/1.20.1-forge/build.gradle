@@ -1,3 +1,12 @@
+import groovy.json.JsonOutput
+import groovy.json.JsonSlurper
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.zip.ZipOutputStream
+
 plugins {
     id 'net.neoforged.moddev.legacyforge' version '2.0.141'
     id 'org.jetbrains.kotlin.jvm' version '2.4.0'
@@ -28,10 +37,41 @@ mixin {
 repositories {
     mavenLocal()
     mavenCentral()
+    //CurseForge
+    exclusiveContent {
+        forRepository {
+            maven {
+                url "https://cursemaven.com"
+            }
+        }
+        filter {
+            includeGroup "curse.maven"
+        }
+    }
+    //Modrinth
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = "Modrinth"
+                url = "https://api.modrinth.com/maven"
+            }
+        }
+        filter {
+            includeGroup "maven.modrinth"
+        }
+    }
 
     maven {
         name = "Forge Maven"
         url = "https://maven.minecraftforge.net/"
+    }
+    maven {
+        name = "Architectury Maven"
+        url = "https://maven.architectury.dev/"
+    }
+    maven {
+        name = "FTB Maven"
+        url = "https://maven.ftb.dev/releases"
     }
 
 }
@@ -67,6 +107,7 @@ legacyForge {
 }
 
 def shadedConfiguration = configurations.maybeCreate('shaded')
+
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
@@ -81,7 +122,23 @@ dependencies {
     additionalRuntimeClasspath project(':firmsection')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    //>>>Modrinth Mods<<<
+    [
+    ].each { dep ->
+        implementation "maven.modrinth:$dep"
+    }
+    //>>>Official FTB Mods<<<
+    [
+            "dev.architectury:architectury-forge:9.1.12",
+            "dev.ftb.mods:ftb-library-forge:2001.2.9",
+            "dev.ftb.mods:ftb-teams-forge:2001.3.1",
+            "dev.ftb.mods:ftb-quests-forge:2001.4.22",
+            "dev.ftb.mods:ftb-chunks-forge:2001.3.8",
+    ].each { dep ->
+        modImplementation dep
+    }
 }
+
 
 // Ensure the common project is evaluated before we look up its tasks/outputs
 evaluationDependsOn(':s-mc-common')

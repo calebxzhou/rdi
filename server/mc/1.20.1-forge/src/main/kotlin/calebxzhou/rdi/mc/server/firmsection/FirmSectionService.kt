@@ -6,6 +6,8 @@ import calebxzhou.rdi.mc.firmsection.FirmSectionListResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetStatus
 import calebxzhou.rdi.mc.server.network.RServerNetwork
+import dev.ftb.mods.ftbchunks.api.FTBChunksAPI
+import dev.ftb.mods.ftblibrary.math.ChunkDimPos
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.server.MinecraftServer
@@ -45,12 +47,19 @@ object FirmSectionService {
     fun list(player: ServerPlayer): FirmSectionListResult =
         data(player.server).list(player.uuid)
 
-    fun shouldSaveChunk(level: ServerLevel, chunkPos: ChunkPos): Boolean =
-        !RDI.ONLY_SAVE_FIRM_SECTIONS || data(level.server).hasFirmChunk(
+    fun shouldSaveChunk(level: ServerLevel, chunkPos: ChunkPos): Boolean {
+        if (!RDI.ONLY_SAVE_FIRM_SECTIONS) {
+            return true
+        }
+        if (data(level.server).hasFirmChunk(
             level.dimension().location().toString(),
             chunkPos.x,
             chunkPos.z
-        )
+        )) {
+            return true
+        }
+        return isFtbClaimedChunk(level, chunkPos)
+    }
 
     fun shouldSaveEntity(level: ServerLevel, entity: Entity): Boolean {
         if (!RDI.ONLY_SAVE_FIRM_SECTIONS) {
@@ -80,4 +89,9 @@ object FirmSectionService {
         SectionPos.blockToSectionCoord(pos.y),
         SectionPos.blockToSectionCoord(pos.z)
     )
+
+    private fun isFtbClaimedChunk(level: ServerLevel, chunkPos: ChunkPos): Boolean {
+        val api = FTBChunksAPI.api()
+        return api.isManagerLoaded && api.manager.getChunk(ChunkDimPos(level.dimension(), chunkPos)) != null
+    }
 }

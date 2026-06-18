@@ -2,6 +2,7 @@ package calebxzhou.rdi.mc.client
 
 import calebxzhou.rdi.mc.client.mcpimpl211.McpGameImpl
 import calebxzhou.rdi.mc.client.mcp.McpServer
+import calebxzhou.rdi.mc.client.mcp.standard.StandardMcpServer
 import calebxzhou.rdi.mc.client.mcpimpl211.Search
 import calebxzhou.rdi.mc.client.rcmd.RcmdClientCommands
 import calebxzhou.rdi.mc.common.RDI
@@ -112,9 +113,10 @@ class RDIMain {
         @JvmStatic
         fun onClientJoinServer(event: ClientPlayerNetworkEvent.LoggingIn) {
             McpServer.start(McpGameImpl,if(RDI.DEBUG)25565 else null).onFailure { it.printStackTrace() }
+            StandardMcpServer.start(McpGameImpl).onFailure { it.printStackTrace() }
             Minecraft.getInstance().gui.apply {
                 setTimes(10, 200, 20)
-                setSubtitle(Component.literal("请设定“持久子区块”  见说明书"))
+                setSubtitle(Component.literal("设定“持久子区块” 否则丢数据 见说明书"))
                 setTitle(Component.empty())
             }
         }
@@ -123,6 +125,7 @@ class RDIMain {
         @JvmStatic
         fun onClientLeaveServer(event: ClientPlayerNetworkEvent.LoggingOut) {
             McpServer.stop()
+            StandardMcpServer.stop()
             RDI.FIRM_CHUNKS.clear()
         }
 
