@@ -129,18 +129,16 @@ object BlockFetchBoxHandler : McpTypedHandler {
 object BlockHarvestResultHandler : McpTypedHandler {
     override val method = HTTPMethod.GET
     override val helpDoc = """
-        Preview what items a block would drop if harvested with a tool.
+        Preview what items a block would drop if harvested with a tool from a player inventory slot.
         Query params:
         pos: required block position in "x y z" format, such as "-215 140 234".
-        invSlot: optional player inventory slot id used as the harvesting tool. Omit to use the main hand item.
-        This does not break the block. It only returns harvestability and expected drops.
+        invSlot: required player inventory slot id used as the harvesting tool.
+        This does not break the block. It returns harvestability and expected drops for the given slot.
     """.trimIndent()
 
     override fun handle(ctx: McpHttpContext): Result<Any?> {
         val pos = ctx.param("pos").toRBlockPos()
-        val invSlot = ctx.paramNull("invSlot")?.trim()?.takeIf { it.isNotEmpty() }?.let {
-            it.toIntOrNull() ?: throw McpBadRequestError("invSlot must be integer")
-        }
+        val invSlot = ctx.param("invSlot").trim().toIntOrNull() ?: throw McpBadRequestError("invSlot must be integer")
         return ctx.game.send(BlockHarvestResultQ(pos, invSlot))
     }
 }

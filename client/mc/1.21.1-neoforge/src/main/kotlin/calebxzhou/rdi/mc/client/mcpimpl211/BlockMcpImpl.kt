@@ -23,7 +23,7 @@ import java.util.function.Supplier
 object BlockMcpImpl {
     private const val BLOCK_FIND_HORIZONTAL_SIZE = 256
     private const val BLOCK_FIND_LIMIT_PER_ID = 128
-    private const val BLOCK_FETCH_BOX_LIMIT = 1024
+    private const val BLOCK_FETCH_BOX_LIMIT = 256*256*256
 
     fun find(req: BlockFindQ): Result<BlockFindP> = runCatching {
         mc.submit(Supplier { scanBlocks(req) }).get()

@@ -16,22 +16,33 @@ enum class BlockActionForm {BOX,RING}
  */
 @Serializable
 data class BlockPlaceBoxQ(
+    @McpParam("Exact block id, such as minecraft:dirt.")
     val blockId: String,
+    @McpParam("Block state properties. Use {} when no state is needed.")
     val state: Map<String,String>,
+    @McpParam("Start block position in \"x y z\" format.")
     val startPos: RBlockPos,
+    @McpParam("Offset from startPos to the opposite corner in \"dx dy dz\" format.")
     val deltaPos: RBlockPos,
+    @McpParam("BOX fills the whole area, RING places only the border.")
     val form: BlockActionForm,
+    @McpParam("true previews result without changing the world.")
     val test: Boolean = false,
 )
 @Serializable
 data class BlockPlaceDiscreteQ(
+    @McpParam("Exact block id, such as minecraft:dirt.")
     val blockId: String,
+    @McpParam("Target entries. Each target has pos and optional state.", minItems = 1)
     val targets: List<Target>,
+    @McpParam("true previews result without changing the world.")
     val test: Boolean = false,
 ) {
     @Serializable
     data class Target(
+        @McpParam("Block position in \"x y z\" format.")
         val pos: RBlockPos,
+        @McpParam("Block state properties. Use {} or omit when no state is needed.")
         val state: Map<String, String> = emptyMap(),
     )
 }
@@ -39,34 +50,52 @@ data class BlockPlaceDiscreteQ(
 
 @Serializable
 data class BlockBreakBoxQ(
+    @McpParam("Start block position in \"x y z\" format.")
     val startPos: RBlockPos,
+    @McpParam("Offset from startPos to the opposite corner in \"dx dy dz\" format.")
     val deltaPos: RBlockPos,
+    @McpParam("BOX breaks the whole area, RING breaks only the border.")
     val form: BlockActionForm,
+    @McpParam("Player inventory slot id used as tool. Omit to use server/default behavior.", minimum = 0)
     val toolInvSlot: Int? = null,
+    @McpParam("true means do not pick up drops.")
     val noPickup: Boolean = false,
+    @McpParam("true previews result without changing the world.")
     val test: Boolean = false,
 )
 @Serializable
 data class BlockBreakDiscreteQ(
+    @McpParam("Block positions. Each position uses \"x y z\" format.", minItems = 1)
     val poses: List<RBlockPos>,
+    @McpParam("Player inventory slot id used as tool. Omit to use server/default behavior.", minimum = 0)
     val toolInvSlot: Int? = null,
+    @McpParam("true means do not pick up drops.")
     val noPickup: Boolean = false,
+    @McpParam("true previews result without changing the world.")
     val test: Boolean = false,
 )
 
 @Serializable
 data class BlockHarvestResultQ(
+    @McpParam("Block position in \"x y z\" format.")
     val pos: RBlockPos,
-    val invSlot: Int? = null,
+    @McpParam("Player inventory slot id used as the harvesting tool.", minimum = 0)
+    val invSlot: Int,
 )
 
 @Serializable
 data class BlockUseItemQ(
+    @McpParam("Target block position in \"x y z\" format.")
     val pos: RBlockPos,
+    @McpParam("Player inventory slot id containing the item to use.", minimum = 0)
     val invSlot: Int,
+    @McpParam("Clicked face. Default is up.", enumValues = ["up", "down", "north", "south", "east", "west"])
     val face: String = "up",
+    @McpParam("Hit location X inside the block from 0.0 to 1.0. Default is 0.5.")
     val hitX: Double = 0.5,
+    @McpParam("Hit location Y inside the block from 0.0 to 1.0. Default is 0.5.")
     val hitY: Double = 0.5,
+    @McpParam("Hit location Z inside the block from 0.0 to 1.0. Default is 0.5.")
     val hitZ: Double = 0.5,
 )
 
@@ -94,14 +123,14 @@ data class BlockHarvestResultP(
     val pos: RBlockPos,
     val blockId: String,
     val tool: HarvestStack,
-    val toolSlot: Int? = null,
+    val toolSlot: Int,
     val harvestable: Boolean,
     val drops: List<HarvestStack>,
 ) {
     override fun toString() = buildString {
         appendLine("block $blockId $pos")
         append("tool ").append(tool)
-        if (toolSlot != null) append(" slot ").append(toolSlot)
+        append(" slot ").append(toolSlot)
         appendLine()
         appendLine("harvestable $harvestable")
         append("drops ")
@@ -140,12 +169,15 @@ search blocks by given ids, in 256x256 player-centered area
  */
 @Serializable
 data class BlockFindQ(
+    @McpParam("Exact block ids, such as minecraft:oak_log and minecraft:chest.", minItems = 1)
     val ids: List<String>,
 )
 
 @Serializable
 data class BlockFetchBoxQ(
+    @McpParam("First corner block position in \"x y z\" format.")
     val from: RBlockPos,
+    @McpParam("Opposite corner block position in \"x y z\" format.")
     val to: RBlockPos,
 )
 

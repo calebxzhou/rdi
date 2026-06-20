@@ -1,8 +1,16 @@
 package calebxzhou.rdi.mc.common2.mcp.model
 
+import kotlinx.serialization.Serializable
+
 /**
  * calebxzhou @ 2026-05-10 11:23
  */
+@Serializable
+data class QuestOfChapterQ(
+    @McpParam("Chapter id from the chapter list response.")
+    val id: String,
+)
+
 data class QuestChapter(
     val id: String,
     val title: String,

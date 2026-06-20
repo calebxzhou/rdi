@@ -212,13 +212,13 @@ fun McPlayScreen(
             TitleRow2("MC控制台", onBack) {
                 selectedSession?.let { session ->
                     //if(Const.AI_TEST){
-                        CircleIconButton(
+                        /*CircleIconButton(
                             icon = "\uE0CA",
                             tooltip = "AI陪玩",
                             bgColor = MaterialColor.PURPLE_700.color
                         ) {
                             onOpenAiChat(session.args.mcpPort, session.args.versionDir)
-                        }
+                        }*/
                     //}
                     CircleIconButton("\uEAD2", "重启MC") {
                         session.requestStop()

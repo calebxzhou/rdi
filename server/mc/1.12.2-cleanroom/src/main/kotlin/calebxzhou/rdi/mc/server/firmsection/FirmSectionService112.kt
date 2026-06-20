@@ -13,9 +13,6 @@ import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.MathHelper
 import net.minecraft.world.World
 import net.minecraft.world.chunk.Chunk
-import com.feed_the_beast.ftbutilities.data.ClaimedChunks
-import com.feed_the_beast.ftblib.lib.math.ChunkDimPos
-import java.util.OptionalInt
 
 object FirmSectionService112 {
     fun isEnabled(): Boolean = RDI.ONLY_SAVE_FIRM_SECTIONS
@@ -61,7 +58,7 @@ object FirmSectionService112 {
         )) {
             return true
         }
-        return isFtbUtilitiesClaimedChunk(world, chunk)
+        return false
     }
 
     fun shouldSaveEntityPosition(world: World, x: Double, y: Double, z: Double): Boolean =
@@ -96,15 +93,4 @@ object FirmSectionService112 {
 
     private fun blockToSectionCoord(value: Double): Int = MathHelper.floor(value) shr 4
 
-    private fun isFtbUtilitiesClaimedChunk(world: World, chunk: Chunk): Boolean {
-        if (!ClaimedChunks.isActive()) {
-            return false
-        }
-        val pos = ChunkDimPos(chunk.x, chunk.z, world.provider.dimension)
-        return ClaimedChunks.instance.universe.teams.any { team ->
-            ClaimedChunks.instance.getTeamChunks(team, OptionalInt.of(pos.dim), true).any {
-                it.pos.equalsChunkDimPos(pos)
-            }
-        }
-    }
 }

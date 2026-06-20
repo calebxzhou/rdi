@@ -10,6 +10,7 @@ import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.isGtoModpackName
 import calebxzhou.rdi.common.model.sameMod
 import calebxzhou.rdi.common.util.str
+import calebxzhou.rdi.master.WORLD_CACHE_DIR
 import calebxzhou.rdi.master.service.CLIENT_ONLY_MARK_PREFIX
 import calebxzhou.rdi.master.service.DockerService
 import calebxzhou.rdi.master.service.Lwjgl3ifyServerSupport
@@ -29,7 +30,8 @@ object HostContainerService {
         mcv: McVersion,
         loaderVersion: ModLoader.Version,
         modpack: Modpack,
-        lwjgl3ifyRuntime: Lwjgl3ifyServerSupport.PreparedRuntime?
+        lwjgl3ifyRuntime: Lwjgl3ifyServerSupport.PreparedRuntime?,
+        worldId: ObjectId?
     ): MutableList<String> {
         val serverArgs = when (mcv) {
             //McVersion.V182,
@@ -52,7 +54,7 @@ object HostContainerService {
         val noguiArg = if (mcv == McVersion.V071) "nogui" else "--nogui"
         val totalArg = mutableListOf("").apply {
             if(modpack.mcVer == McVersion.V211
-                || modpack.mcVer == McVersion.V201
+                || modpack.mcVer == McVersion.V201 || modpack.mcVer == McVersion.V071
             ){
                 this.add("-Drdi.onlySaveFirmSections=true")
             }
@@ -70,6 +72,9 @@ object HostContainerService {
             }
             if (modpack.name.isGtoModpackName()) {
                 this.add("-javaagent:/opt/server/$GTO_GUARD_AGENT_FILE_NAME")
+            }
+            if (worldId != null) {
+                this.add("-Drdi.terrain.cache.path=/data/world/cache")
             }
 
         } + serverArgs + noguiArg
@@ -179,10 +184,15 @@ object HostContainerService {
             }
 
             if (worldId != null) {
+                val worldCacheDir = prepareWorldCacheDir(worldId)
                 this += Mount()
                     .withType(MountType.BIND)
                     .withSource(WorldService.getLevelDir(worldId).absolutePath)
                     .withTarget("/opt/server/world")
+                this += Mount()
+                    .withType(MountType.BIND)
+                    .withSource(worldCacheDir.absolutePath)
+                    .withTarget("/data/world/cache")
             } else {
                 this += Mount()
                     .withType(MountType.TMPFS)
@@ -195,16 +205,31 @@ object HostContainerService {
             McVersion.V071, McVersion.V122 -> 2
             else -> 4
         }
+        val memory = if(isPublic) 12*1024*1024*1024L else 8*1024*1024*1024L
+        val memorySwap = if(isPublic) 30*1024*1024*1024L else 16*1024*1024*1024L
+
         modpack.mcVer.loaderVersions[modpack.modloader]?.let { modLoaderVersion ->
             DockerService.createContainer(
                 port,
                 this._id.str,
                 cpu,
+                memory,memorySwap,
                 mounts,
                 image,
-                containerEnv(modpack.mcVer, modLoaderVersion, modpack, lwjgl3ifyRuntime)
+                containerEnv(modpack.mcVer, modLoaderVersion, modpack, lwjgl3ifyRuntime, worldId)
             )
         } ?: throw RequestError("不支持的mod加载器")
+    }
+
+    private fun prepareWorldCacheDir(worldId: ObjectId): File {
+        val dir = WORLD_CACHE_DIR.resolve(worldId.str).canonicalFile
+        if (!dir.exists() && !dir.mkdirs()) {
+            throw RequestError("世界缓存目录创建失败: ${dir.absolutePath}")
+        }
+        if (!dir.isDirectory) {
+            throw RequestError("世界缓存路径不是目录: ${dir.absolutePath}")
+        }
+        return dir
     }
 
     internal fun Host.requireGtoGuardAgent(modpack: Modpack) {

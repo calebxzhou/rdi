@@ -5,9 +5,8 @@ import calebxzhou.rdi.mc.firmsection.FirmSectionKey
 import calebxzhou.rdi.mc.firmsection.FirmSectionListResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetStatus
+import calebxzhou.rdi.mc.server.compat.FTBChunksCompat
 import calebxzhou.rdi.mc.server.network.RServerNetwork
-import dev.ftb.mods.ftbchunks.api.FTBChunksAPI
-import dev.ftb.mods.ftblibrary.math.ChunkDimPos
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.server.MinecraftServer
@@ -15,6 +14,7 @@ import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.ChunkPos
+import net.minecraftforge.fml.ModList
 
 object FirmSectionService {
     fun isAutoSetEnabled(player: ServerPlayer): Boolean =
@@ -58,7 +58,7 @@ object FirmSectionService {
         )) {
             return true
         }
-        return isFtbClaimedChunk(level, chunkPos)
+        return ModList.get().isLoaded("ftbchunks") && FTBChunksCompat.isClaimedChunk(level, chunkPos)
     }
 
     fun shouldSaveEntity(level: ServerLevel, entity: Entity): Boolean {
@@ -90,8 +90,4 @@ object FirmSectionService {
         SectionPos.blockToSectionCoord(pos.z)
     )
 
-    private fun isFtbClaimedChunk(level: ServerLevel, chunkPos: ChunkPos): Boolean {
-        val api = FTBChunksAPI.api()
-        return api.isManagerLoaded && api.manager.getChunk(ChunkDimPos(level.dimension(), chunkPos)) != null
-    }
 }

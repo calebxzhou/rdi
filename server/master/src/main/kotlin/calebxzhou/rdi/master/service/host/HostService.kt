@@ -162,6 +162,7 @@ object HostService {
         return HostContext(host, player(), reqMem, tarMem)
     }
 
+
     // ---------- Streaming Helper (still needs ApplicationCall for SSE) ----------
     suspend fun HostContext.listenLogs(session: ServerSSESession) {
         val hostId = host._id

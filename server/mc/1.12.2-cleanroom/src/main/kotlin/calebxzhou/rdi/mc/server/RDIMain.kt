@@ -27,8 +27,10 @@ import net.minecraftforge.fml.common.event.FMLServerStoppedEvent
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent
 import net.minecraftforge.fml.common.gameevent.PlayerEvent.PlayerLoggedInEvent
 import net.minecraftforge.fml.common.gameevent.PlayerEvent.PlayerLoggedOutEvent
+import net.minecraftforge.fml.common.gameevent.TickEvent
 import org.apache.logging.log4j.LogManager
 import org.apache.logging.log4j.Logger
+import java.util.UUID
 
 /**
  * calebxzhou @ 2026-04-18 17:47
@@ -57,6 +59,7 @@ class RDIMain {
         WebSocketClient.stop()
         PlayerChatRangeState.clear()
         TpaService.clear()
+        pendingJoinMessages.clear()
         server = null
     }
 
@@ -68,13 +71,31 @@ class RDIMain {
         }
         sendLastTo(player)
         sendFirmSectionsTo(player)
-        sendJoinMessages(player)
+        pendingJoinMessages[player.uniqueID] = player.server.getTickCounter() + JOIN_MESSAGE_DELAY_TICKS
     }
 
     @SubscribeEvent
     fun onPlayerLogout(e: PlayerLoggedOutEvent) {
         remove(e.player.getUniqueID())
         removeRelated(e.player.getUniqueID())
+        pendingJoinMessages.remove(e.player.getUniqueID())
+    }
+
+    @SubscribeEvent
+    fun onServerTick(event: TickEvent.ServerTickEvent) {
+        if (event.phase != TickEvent.Phase.END) {
+            return
+        }
+        val currentServer = server ?: return
+        val iterator = pendingJoinMessages.iterator()
+        while (iterator.hasNext()) {
+            val entry = iterator.next()
+            if (currentServer.getTickCounter() < entry.value) {
+                continue
+            }
+            iterator.remove()
+            currentServer.playerList.getPlayerByUUID(entry.key)?.let(::sendJoinMessages)
+        }
     }
 
     @SubscribeEvent
@@ -96,6 +117,8 @@ class RDIMain {
         private val lgr: Logger = LogManager.getLogger("rdi")
         private var server: DedicatedServer? = null
         private const val MANUAL_URL = "https://craftrdi.feishu.cn/wiki/U8LRwMpUliuxW5kZLvCcxonNnkd"
+        private const val JOIN_MESSAGE_DELAY_TICKS = 100
+        private val pendingJoinMessages = mutableMapOf<UUID, Int>()
 
         private fun sendJoinMessages(player: EntityPlayerMP) {
             val range = PlayerChatRangeState.get(player.uniqueID)

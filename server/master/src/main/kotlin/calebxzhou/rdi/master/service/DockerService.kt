@@ -82,6 +82,8 @@ object DockerService {
         port: Int,
         containerName: String,
         cpu: Int,
+        memory: Long,
+        memorySwap: Long,
         mounts: List<Mount>,
         image: String,
         env: List<String>,
@@ -95,13 +97,9 @@ object DockerService {
             .withExtraHosts("host.docker.internal:host-gateway")
             .withMounts(mounts)
             .withCapAdd(Capability.NET_ADMIN)
-        if(containerName == "69da4ec7015319d405bbb3be"){
-            hostConfig.withMemory(12*1024*1024*1024L)
-                .withMemorySwap(16L * 1024 * 1024 * 1024)
-        }else{
-            hostConfig.withMemory(8*1024*1024*1024L)
-                .withMemorySwap(12L * 1024 * 1024 * 1024)
-        }
+       .withMemory(memory)
+                .withMemorySwap(memorySwap)
+
 
         val createCmd = client.createContainerCmd(image)
             .withName(containerName)

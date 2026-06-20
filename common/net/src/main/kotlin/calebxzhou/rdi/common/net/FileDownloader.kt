@@ -1,12 +1,14 @@
 package calebxzhou.rdi.common.net
 
 import calebxzhou.mykotutils.log.Loggers
+import calebxzhou.rdi.common.serdesJson
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.*
 import io.ktor.utils.io.*
 import kotlinx.coroutines.*
@@ -16,6 +18,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.ConnectionPool
 import okhttp3.Dispatcher
 import java.io.RandomAccessFile
@@ -662,10 +667,10 @@ private suspend fun downloadSingleStream(
                 if (shouldResume && response.status != HttpStatusCode.PartialContent) {
                     throw ResumeMismatchException("Resume download failed: expected 206, got ${response.status} for ${url}")
                 }
+                rejectJsonDownloadResponse(url, response)
                 if (!shouldResume && !response.status.isSuccess()) {
                     throw IOException("Download failed: ${response.status} for ${url}")
                 }
-                rejectJsonDownloadResponse(url, response)
 
                 val contentRange = if (shouldResume) {
                     parseContentRange(response.headers[HttpHeaders.ContentRange])
@@ -1186,12 +1191,24 @@ private fun ensureNotRateLimited(url: String, response: HttpResponse) {
     )
 }
 
-private fun rejectJsonDownloadResponse(url: String, response: HttpResponse) {
+private suspend fun rejectJsonDownloadResponse(url: String, response: HttpResponse) {
     val contentType = response.contentType() ?: return
-    if (contentType.match(ContentType.Application.Json)) {
-        throw IOException("Download source returned JSON instead of file: ${response.status} for $url")
-    }
+    if (!contentType.match(ContentType.Application.Json)) return
+    val responseText = response.bodyAsText()
+    val apiMessage = responseText.apiResponseMessageOrNull()
+    throw IOException(apiMessage ?: "Download source returned JSON instead of file: ${response.status} for $url")
 }
+
+private fun String.apiResponseMessageOrNull(): String? =
+    runCatching {
+        serdesJson.parseToJsonElement(this)
+            .jsonObject["msg"]
+            ?.jsonPrimitive
+            ?.contentOrNull
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+    }.getOrNull()
+
 
 private fun parseRetryAfterMillis(raw: String?): Long? {
     val seconds = raw?.trim()?.toLongOrNull() ?: return null

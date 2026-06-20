@@ -6,31 +6,6 @@ import io.fusionauth.http.server.HTTPRequest
 import io.fusionauth.http.server.HTTPResponse
 import kotlinx.serialization.KSerializer
 
-/**
- * calebxzhou @ 2026-05-19 0:02
- */
-
-val ROUTES = HANDLERS
-    .sortedBy { it.javaClass.simpleName }
-    .map { typedHandler ->
-        McpRoute(
-            method = typedHandler.method,
-            path = "/${typedHandler.javaClass.simpleName.removeSuffix("Handler").toKebabCase()}",
-            handler = typedHandler,
-        )
-    }
-    .associateBy { it.path }
-
-private fun String.toKebabCase(): String {
-    return replace(Regex("(?<=.)(?=\\p{Upper})"), "-").lowercase()
-}
-
-data class McpRoute(
-    val method: HTTPMethod,
-    val path: String,
-    val handler: McpTypedHandler,
-)
-
 class McpHttpContext(
     val request: HTTPRequest,
     val response: HTTPResponse,

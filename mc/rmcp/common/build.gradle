@@ -28,8 +28,10 @@ kotlin {
         }
     }
 }
+sourceSets.named('main') {
+    kotlin.srcDir '../../../ktutils/std/src/main/kotlin'
+}
 dependencies{
-    implementation project(':ktutils-std')
     //implementation("de.brudaswen.kotlinx.serialization:kotlinx-serialization-csv:3.2.1")
     implementation 'io.fusionauth:java-http:1.4.0'
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")

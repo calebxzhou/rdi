@@ -6,7 +6,6 @@
   "mixins": [
     "mAllowChineseNameLogin",
     "mChatMsg",
-    "mFTBUtilitiesTeamData112",
     "mOnlySaveFirmSectionEntities112",
     "mOnlySaveFirmSections112",
     "mRcmdCommandInput",

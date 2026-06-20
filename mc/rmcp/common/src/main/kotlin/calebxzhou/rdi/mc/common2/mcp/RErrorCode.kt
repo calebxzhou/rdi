@@ -27,5 +27,5 @@ class McpBadSlotError : McpError("an inventory slot reference is invalid.")
 
 class McpBadShapeError : McpError("/craft shape or symbol-to-slot mapping is missing or invalid.")
 
-open class McpError(val detail: String, override var cause: Throwable?= null) : RuntimeException(cause) {
+open class McpError(val detail: String, override var cause: Throwable?= null) : RuntimeException(detail, cause) {
 }

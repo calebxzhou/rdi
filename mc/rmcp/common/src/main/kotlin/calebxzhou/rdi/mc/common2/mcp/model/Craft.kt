@@ -4,9 +4,13 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class CraftQ(
+    @McpParam("Crafting grid rows separated by \"|\". Use letters for ingredients.")
     val pattern: String,
+    @McpParam("Map from pattern letter to player inventory slot id, such as {\"A\": 5}.")
     val key: Map<String, Int>,
+    @McpParam("Number of crafting batches. Default is 1 and must be positive.", minimum = 1)
     val times: Int = 1,
+    @McpParam("true previews consumed slots and result without changing inventory.")
     val test: Boolean = false,
 )
 

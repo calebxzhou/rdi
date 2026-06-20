@@ -93,14 +93,8 @@ object BlockHandler {
             throw McpBlockError("block is air")
         }
 
-        val tool = req.invSlot?.let { slot ->
-            player.inventory.items.getOrNull(slot) ?: throw McpBadSlotError()
-        } ?: player.mainHandItem
-        val harvestable = if (req.invSlot == null) {
-            state.canHarvestBlock(level, blockPos, player)
-        } else {
-            !state.requiresCorrectToolForDrops() || tool.isCorrectToolForDrops(state)
-        }
+        val tool = player.inventory.items.getOrNull(req.invSlot) ?: throw McpBadSlotError()
+        val harvestable = !state.requiresCorrectToolForDrops() || tool.isCorrectToolForDrops(state)
         val drops = if (harvestable) {
             val blockEntity = if (state.hasBlockEntity()) level.getBlockEntity(blockPos) else null
             Block.getDrops(state, level, blockPos, blockEntity, player, tool.copy()).harvestStacks()

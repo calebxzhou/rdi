@@ -127,7 +127,9 @@ data class RecipeResolution(
 
 @Serializable
 data class RecipeQ(
+    @McpParam("Exact output item ids.", minItems = 1)
     val items: List<String>,
+    @McpParam("Default false.")
     val includeHidden: Boolean = false,
 )
 
@@ -145,6 +147,24 @@ data class RecipeTreeQ(
     val includeAlternatives: Boolean = false,
     val useInventory: Boolean = true,
     val resolutions: List<RecipeResolution> = emptyList(),
+)
+
+@Serializable
+data class RecipeTreeToolQ(
+    @McpParam("Exact item id to craft.")
+    val outputItemId: String,
+    @McpParam("Target count. Default 1 and must be positive.", minimum = 1)
+    val outputCount: Int = 1,
+    @McpParam("Recursion depth from 0 to 32. Default 8.", minimum = 0, maximum = 32)
+    val maxDepth: Int = 8,
+    @McpParam("Default false.")
+    val includeAlternatives: Boolean = false,
+    @McpParam("Default true, allowing current inventory to satisfy needed materials.")
+    val useInventory: Boolean = true,
+    @McpParam("Selected recipe id for this output when multiple recipes exist.")
+    val recipeId: String? = null,
+    @McpParam("Selected ingredient item id for this output when a recipe input accepts alternatives.")
+    val ingredientItemId: String? = null,
 )
 
 @Serializable

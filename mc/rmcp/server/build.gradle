@@ -26,7 +26,7 @@ kotlin {
 
 dependencies {
     api project(':rmcp-common')
-    implementation project(':ktutils-std')
+    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
 }
 
 tasks.withType(JavaCompile).configureEach {

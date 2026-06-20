@@ -96,6 +96,7 @@ neoForge {
 
 sourceSets.named('main') {
     kotlin.srcDir '../../../mc/common3/1.21/src/main/kotlin'
+    kotlin.srcDir '../../../mc/common/all/src/main/kotlin'
     kotlin.srcDir '../../../mc/firmsection/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
     kotlin.srcDir '../../../mc/rmcp/server/src/main/kotlin'
@@ -137,10 +138,10 @@ dependencies {
         "ftb-library-forge-404465:7746959",
         "ftb-quests-forge-289412:7878289",
         "ftb-teams-forge-404468:7878281",
-            'ftb-chunks-forge-314906:8241176',
     ].each { dep ->
         implementation "curse.maven:$dep-deobf"
     }
+    implementation "curse.maven:ftb-chunks-forge-314906:8241176-deobf"
 
 
 }

@@ -3,6 +3,12 @@ package calebxzhou.rdi.mc.common2.mcp.model
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class ModInfoQ(
+    @McpParam("Exact mod id, such as minecraft, neoforge, create, or jei.")
+    val id: String,
+)
+
+@Serializable
 data class ModInfo(
     val id: String,
     val name: String,

@@ -6,12 +6,17 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.HostStatus
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.isDav
+import calebxzhou.rdi.common.model.normalizedSlug
 import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.master.model.WsMessage
 import calebxzhou.rdi.master.service.DockerService
 import calebxzhou.rdi.master.service.ModpackService
 import calebxzhou.rdi.master.service.ModpackService.getVersion
+import calebxzhou.rdi.master.service.host.HostContainerService.isDisabledMod
+import calebxzhou.rdi.master.service.host.HostContainerService.isServerInstalledMod
 import calebxzhou.rdi.master.service.host.HostContainerService.makeContainer
 import calebxzhou.rdi.master.service.host.HostContainerService.requireGtoGuardAgent
 import calebxzhou.rdi.master.service.host.HostInstallService.deleteTransientStartupDirs
@@ -75,6 +80,7 @@ object HostControlService {
         }
         val modpack = ModpackService.getById(current.modpackId) ?: throw RequestError("无此整合包")
         val version = modpack.getVersion(current.packVer) ?: throw RequestError("无此版本")
+        current.requireRequiredStartupMods(modpack, version)
         current.requireGtoGuardAgent(modpack)
         DockerService.deleteContainer(current._id.str)
         current.writeServerProperties()
@@ -148,6 +154,30 @@ object HostControlService {
             }
             return status
         }
+
+    private fun Host.requireRequiredStartupMods(modpack: Modpack, version: Modpack.Version) {
+        if (modpack.mcVer != McVersion.V201 && modpack.mcVer != McVersion.V211) return
+        val installedSlugs = (version.mods
+            .filter(::isServerInstalledMod)
+            .filterNot { isDisabledMod(it) } + extraMods.filter(::isServerInstalledMod))
+            .map { it.normalizedSlug }
+            .toSet()
+        val missingMods = REQUIRED_MODERN_HOST_MODS.filter { it.slug !in installedSlugs }
+        if (missingMods.isEmpty()) return
+        throw RequestError(
+            "MC${modpack.mcVer.mcVer}房间必须安装${missingMods.joinToString("、") { it.name }}后才能启动"
+        )
+    }
+
+    private data class RequiredStartupMod(
+        val slug: String,
+        val name: String
+    )
+
+    private val REQUIRED_MODERN_HOST_MODS = listOf(
+        //RequiredStartupMod("ftb-chunks", "FTB Chunks"),
+        RequiredStartupMod("kotlin-for-forge", "Kotlin for Forge")
+    )
 
     val Host.playable get() = status == HostStatus.PLAYABLE
 }

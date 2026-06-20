@@ -88,6 +88,7 @@ val MODPACK_DATA_DIR = storageDir(CONF.storage.modpackDir, "modpack")
 val HOSTS_DIR = storageDir(CONF.storage.hostsDir, "hosts")
 val GAME_LIBS_DIR = storageDir(CONF.storage.gameLibsDir, "game-libs")
 val WORLDS_DIR = storageDir(CONF.storage.worldsDir, "worlds")
+val WORLD_CACHE_DIR = storageDir(CONF.storage.worldCacheDir, "world-cache")
 
 class RDI {}
 
@@ -104,7 +105,9 @@ fun main(): Unit = runBlocking {
     HOSTS_DIR.mkdirs()
     GAME_LIBS_DIR.mkdirs()
     WORLDS_DIR.mkdirs()
+    WORLD_CACHE_DIR.mkdirs()
     lgr.info { "worlds: ${WORLDS_DIR.absolutePath}" }
+    lgr.info { "world cache: ${WORLD_CACHE_DIR.absolutePath}" }
     lgr.info { "init db" }
 
     accountCol.createIndex(Indexes.ascending("qq"), IndexOptions().unique(true))

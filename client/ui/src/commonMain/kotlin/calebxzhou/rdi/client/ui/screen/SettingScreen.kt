@@ -218,15 +218,15 @@ fun SettingScreen(
                         }
 
                         val aiConfig = buildAiConfig()
-                        val requireActiveAiProfile = category == SettingCategory.AI
+                       // val requireActiveAiProfile = category == SettingCategory.AI
 
                         // Save settings
-                        val aiValidation = svc.validateAiConfig(aiConfig, requireActiveAiProfile)
+                        /*val aiValidation = svc.validateAiConfig(aiConfig, requireActiveAiProfile)
                         if (!aiValidation.success) {
                             errorMessage = aiValidation.errorMessage
                             saving = false
                             return@launch
-                        }
+                        }*/
                         svc.saveSettings(
                             preferModMirror = preferModMirror,
                             preferMcMirror = preferMcMirror,
@@ -240,7 +240,7 @@ fun SettingScreen(
                             proxyUsr = proxyUsr,
                             proxyPwd = proxyPwd,
                             aiConfig = aiConfig,
-                            requireActiveAiProfile = requireActiveAiProfile
+                            requireActiveAiProfile = false//requireActiveAiProfile
                         ).onSuccess {
                             errorMessage = null
                             saving = false
@@ -349,7 +349,7 @@ fun SettingScreen(
                                         )
                                     }
 
-                                    SettingCategory.AI -> {
+                                    /*SettingCategory.AI -> {
                                         val currentAiProfile = selectedAiProfile()
                                         AiSettings(
                                             profiles = aiProfiles.toList(),
@@ -533,7 +533,7 @@ fun SettingScreen(
                                                 }
                                             }
                                         )
-                                    }
+                                    }*/
                                 }
                                 errorMessage?.let {
                                     Text(
@@ -572,8 +572,8 @@ fun SettingScreen(
         Account("\uEB99", "账号"),
         Java("\uEDAF", "Java"),
         Network("\uEF09", "网络"),
-        AI("\uDB84\uDECA", "AI");
-
+        //AI("\uDB84\uDECA", "AI");
+;
         /** Whether this category is visible on the current platform */
         val visible: Boolean
             get() = when (this) {
@@ -1253,7 +1253,7 @@ fun SettingScreen(
             Text(if (routeState.useBackupNode) "加速入口" else "主入口")
             CircleIconButton(
                 "\uDB80\uDC02",
-                if (switchingNode) "已切换节点" else "切换最快节点",
+                if (switchingNode) "已切换节点" else "自动节点",
                 bgColor = MaterialColor.TEAL_900.color,
                 enabled = !switchingNode,
                 onClick = onAutoSwitchFastestNode

@@ -9,6 +9,8 @@
   },
   "minVersion": "0.7",
   "mixins": [
+    "mFTBLibraryBaseValue",
+    "mFTBChunksWorldConfig"
   ],
   "client": [
   ]

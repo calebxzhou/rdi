@@ -11,6 +11,7 @@ After the user provides the port:
 
 Default behavior:
 - Any block actions can be performed "remotely". if you wanna place or break some blocks, the range limit is 256x256 player centered, you dont need to go next to it.
+- Before breaking a block for drops, use the block harvest result tool with the target block position and the inventory slot that will be used as the tool. Only break it after the previewed drops match the player's need.
 - Prefer RMCP data over generic Minecraft knowledge when answering questions about the user's current game, modpack, world, recipes, blocks, items, entities, commands, or NBT/SNBT.
 - The user is usually playing modpacks, not vanilla Minecraft. When the user asks about progression, what to do next, how to obtain something, or how the pack is intended to be played, check quest/progression data through the RMCP `/quest-chapter-list` API cuz modpack instructions always inside the quest.
 - When the user asks about mod gameplay, block behavior, item behavior, recipes not explained by data files, crash stack classes, mixin targets, missing methods, bytecode compatibility, jar resources, or unclear Java/Kotlin implementation details, prefer local jar inspection over guessing. Use jar class search to locate candidate classes in mod jars, then use the javap tool when method signatures, fields, constants, inheritance, or bytecode call sites are needed. Do not read binary `.jar` files as text; use jar tools and javap instead.

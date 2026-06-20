@@ -10,6 +10,7 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class ContainerRef(
+    @McpParam("Container block position in \"x y z\" format. Omit for player inventory.")
     val pos: RBlockPos? = null,
 ) {
     val isPlayerInventory get() = pos == null
@@ -17,8 +18,10 @@ data class ContainerRef(
 
 @Serializable
 data class ContainerSlotRef(
+    @McpParam("Container block position in \"x y z\" format. Omit for player inventory.")
     val pos: RBlockPos? = null,
     // as target, -1 means auto find
+    @McpParam("Source slot id.", minimum = 0)
     val slotId: Int,
 ) {
     val isPlayerInventory get() = pos == null
@@ -74,6 +77,7 @@ private fun List<Int>.toRangeText(): String {
 
 @Serializable
 data class ContainerSlotListQ(
+    @McpParam("Block container positions. Each position uses \"x y z\" format.", minItems = 1)
     val poses: List<RBlockPos>,
 )
 
@@ -114,20 +118,28 @@ data class ContainerSlotListP(
 
 @Serializable
 data class ContainerMoveQ(
+    @McpParam("Move groups. Each group has from, to, and moves.", minItems = 1)
     val groups: List<Group>,
+    @McpParam("true previews result without changing inventory/container contents.")
     val test: Boolean = false,
 ) {
     @Serializable
     data class Group(
+        @McpParam("Source container. Omit pos for player inventory.")
         val from: ContainerRef,
+        @McpParam("Target container. Omit pos for player inventory.")
         val to: ContainerRef,
+        @McpParam("Moves inside this group.", minItems = 1)
         val moves: List<Move>,
     )
 
     @Serializable
     data class Move(
+        @McpParam("Source slot id.", minimum = 0)
         val fromSlotId: Int,
+        @McpParam("Target slot id. Omit to auto-find a target slot.", minimum = 0)
         val toSlotId: Int? = null,
+        @McpParam("Amount to move. Omit to move the whole source stack.", minimum = 1)
         val count: Int? = null,
     ) {
         val targetAutoFind get() = toSlotId == null
@@ -164,10 +176,15 @@ data class ContainerMoveP(
 
 @Serializable
 data class ContainerDropItemQ(
+    @McpParam("Source container slot. Omit source.pos for player inventory.")
     val source: ContainerSlotRef,
+    @McpParam("Positive item amount to take from the source slot.", minimum = 1)
     val count: Int,
+    @McpParam("World X coordinate where the item entity should spawn.")
     val x: Double,
+    @McpParam("World Y coordinate where the item entity should spawn.")
     val y: Double,
+    @McpParam("World Z coordinate where the item entity should spawn.")
     val z: Double,
 )
 
@@ -190,7 +207,12 @@ data class ContainerDropItemP(
 enum class InventoryCompart{ INV,ARMOR,OFFHAND }
 
 @Serializable
-data class InventorySlotQ(val compart: InventoryCompart,val slotId: Int)
+data class InventorySlotQ(
+    @McpParam("Inventory section. Defaults to INV.", enumValues = ["INV", "ARMOR", "OFFHAND"])
+    val compart: InventoryCompart = InventoryCompart.INV,
+    @McpParam("Slot id inside the selected inventory section.", minimum = 0)
+    val slotId: Int,
+)
 
 @Serializable
 data class InventoryListP(

@@ -206,10 +206,10 @@ dependencies {
             "dev.ftb.mods:ftb-library-forge:2001.2.9",
             "dev.ftb.mods:ftb-teams-forge:2001.3.1",
             "dev.ftb.mods:ftb-quests-forge:2001.4.22",
-            "dev.ftb.mods:ftb-chunks-forge:2001.3.8",
     ].each { dep ->
         modImplementation dep
     }
+    compileOnly "dev.ftb.mods:ftb-chunks-forge:2001.3.8"
     //jarjar(project(":c-mc-common"))
 }
 

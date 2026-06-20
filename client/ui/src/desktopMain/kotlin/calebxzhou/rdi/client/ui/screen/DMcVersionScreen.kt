@@ -12,6 +12,7 @@ import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
 import calebxzhou.rdi.client.ui.pickAwtSaveFile
+import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Progress
 import kotlinx.coroutines.Dispatchers
@@ -175,7 +176,7 @@ actual suspend fun exportRdiModpack(
             processed += 1
             onProgress("导出整合包 ${processed}/${total}")
 
-            version.mods.forEach { mod ->
+            version.mods.filterNot { it.side== Mod.Side.SERVER }.forEach { mod ->
                 val modFile = mod.candidateFiles.firstOrNull { it.exists() }
                 if (modFile == null) {
                     missingMods += mod.fileName

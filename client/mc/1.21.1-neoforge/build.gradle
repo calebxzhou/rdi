@@ -233,10 +233,11 @@ dependencies {
     [
             "ftb-library-forge-404465:7746959",
             "ftb-quests-forge-289412:7878289",
-            "ftb-teams-forge-404468:7878281",   'ftb-chunks-forge-314906:8241176',
+            "ftb-teams-forge-404468:7878281",
     ].each { dep ->
         implementation "curse.maven:$dep-deobf"
     }
+    implementation "curse.maven:ftb-chunks-forge-314906:8241176-deobf"
 
 
 }
@@ -261,6 +262,7 @@ idea {
     module {
         downloadSources = true
         downloadJavadoc = true
+        excludeDirs += file('run')
     }
 }
 evaluationDependsOn(':c-mc-common')

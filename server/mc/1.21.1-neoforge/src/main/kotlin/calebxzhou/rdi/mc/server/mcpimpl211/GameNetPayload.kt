@@ -25,6 +25,7 @@ import net.neoforged.bus.api.SubscribeEvent
 import net.neoforged.fml.common.EventBusSubscriber
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent
 import net.neoforged.neoforge.network.handling.IPayloadContext
+import kotlin.getOrThrow
 
 private const val MAX_JSON_LENGTH = 2_097_152
 
@@ -156,6 +157,7 @@ object GameNetPayloadRegistry {
         return runCatching {
             json.decodeFromString<T>(reqJson)
         }.getOrElse {
+            it.printStackTrace()
             throw McpBadRequestError("C2S request decode Error ${it.message}")
         }
     }

@@ -1,7 +1,7 @@
 package calebxzhou.rdi.mc.client
 
+import calebxzau.mc.common2021.mc
 import calebxzhou.rdi.mc.client.mcpimpl211.McpGameImpl
-import calebxzhou.rdi.mc.client.mcp.McpServer
 import calebxzhou.rdi.mc.client.mcp.standard.StandardMcpServer
 import calebxzhou.rdi.mc.client.mcpimpl211.Search
 import calebxzhou.rdi.mc.client.rcmd.RcmdClientCommands
@@ -12,16 +12,19 @@ import com.mojang.blaze3d.vertex.DefaultVertexFormat
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import com.mojang.blaze3d.vertex.VertexFormat
+import net.minecraft.ChatFormatting
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.screens.ConnectScreen
 import net.minecraft.client.gui.screens.TitleScreen
 import net.minecraft.client.multiplayer.ServerData
 import net.minecraft.client.multiplayer.resolver.ServerAddress
+import net.minecraft.client.player.LocalPlayer
 import net.minecraft.client.renderer.LevelRenderer
 import net.minecraft.client.renderer.RenderStateShard
 import net.minecraft.client.renderer.RenderType
 import net.minecraft.core.SectionPos
+import net.minecraft.network.chat.ClickEvent
 import net.minecraft.network.chat.Component
 import net.minecraft.server.packs.resources.ResourceManagerReloadListener
 import net.neoforged.api.distmarker.Dist
@@ -112,8 +115,10 @@ class RDIMain {
         @SubscribeEvent
         @JvmStatic
         fun onClientJoinServer(event: ClientPlayerNetworkEvent.LoggingIn) {
-            McpServer.start(McpGameImpl,if(RDI.DEBUG)25565 else null).onFailure { it.printStackTrace() }
-            StandardMcpServer.start(McpGameImpl).onFailure { it.printStackTrace() }
+            StandardMcpServer.start(McpGameImpl, null)
+                .onSuccess { port -> sendMcpUrlMessage(event.player, port) }
+                .onFailure { it.printStackTrace() }
+
             Minecraft.getInstance().gui.apply {
                 setTimes(10, 200, 20)
                 setSubtitle(Component.literal("设定“持久子区块” 否则丢数据 见说明书"))
@@ -121,10 +126,20 @@ class RDIMain {
             }
         }
 
+        private fun sendMcpUrlMessage(player: LocalPlayer, port: Int) {
+            val url = "http://127.0.0.1:$port/mcp"
+            player.displayClientMessage(
+                Component.literal("点此复制AI MCP URL").withStyle(ChatFormatting.UNDERLINE)
+                    .withStyle { style ->
+                        style.withClickEvent(ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD, url))
+                    },
+                false,
+            )
+        }
+
         @SubscribeEvent
         @JvmStatic
         fun onClientLeaveServer(event: ClientPlayerNetworkEvent.LoggingOut) {
-            McpServer.stop()
             StandardMcpServer.stop()
             RDI.FIRM_CHUNKS.clear()
         }

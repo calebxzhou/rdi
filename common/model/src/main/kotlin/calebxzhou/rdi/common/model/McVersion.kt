@@ -91,9 +91,9 @@ enum class McVersion(
         mapOf(
             ModLoader.cleanroom to ModLoader.Version(
                 ModLoader.cleanroom,
-                "cleanroom-0.5.11-alpha",
-                "https://repo.cleanroommc.com/releases/com/cleanroommc/cleanroom/0.5.11-alpha/cleanroom-0.5.11-alpha-installer.jar",
-                "d4c23d77d222e7896d6a8f6a266544119ee3e90b"
+                "cleanroom-0.5.14-alpha",
+                "https://repo.cleanroommc.com/releases/com/cleanroommc/cleanroom/0.5.14-alpha/cleanroom-0.5.14-alpha-installer.jar",
+                "5709de37641ab1bd218a1c27e1940cc197e75b55"
             )
         ),enabled = true
     ),
