@@ -5,16 +5,13 @@ import calebxzhou.rdi.mc.firmsection.FirmSectionKey
 import calebxzhou.rdi.mc.firmsection.FirmSectionListResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetStatus
-import calebxzhou.rdi.mc.server.compat.FTBChunksCompat
 import calebxzhou.rdi.mc.server.network.RServerNetwork
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
 import net.minecraft.server.MinecraftServer
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.server.level.ServerPlayer
-import net.minecraft.world.entity.Entity
 import net.minecraft.world.level.ChunkPos
-import net.minecraftforge.fml.ModList
 
 object FirmSectionService {
     fun isAutoSetEnabled(player: ServerPlayer): Boolean =
@@ -51,26 +48,10 @@ object FirmSectionService {
         if (!RDI.ONLY_SAVE_FIRM_SECTIONS) {
             return true
         }
-        if (data(level.server).hasFirmChunk(
+        return data(level.server).hasFirmChunk(
             level.dimension().location().toString(),
             chunkPos.x,
             chunkPos.z
-        )) {
-            return true
-        }
-        return ModList.get().isLoaded("ftbchunks") && FTBChunksCompat.isClaimedChunk(level, chunkPos)
-    }
-
-    fun shouldSaveEntity(level: ServerLevel, entity: Entity): Boolean {
-        if (!RDI.ONLY_SAVE_FIRM_SECTIONS) {
-            return true
-        }
-        val pos = entity.blockPosition()
-        return data(level.server).hasFirmSection(
-            level.dimension().location().toString(),
-            SectionPos.blockToSectionCoord(pos.x),
-            SectionPos.blockToSectionCoord(pos.y),
-            SectionPos.blockToSectionCoord(pos.z)
         )
     }
 

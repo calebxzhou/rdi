@@ -17,7 +17,7 @@ import java.util.stream.Stream;
 @Mixin(EntitySection.class)
 public abstract class mLimitEntitiesInSection<T extends EntityAccess> {
     @Unique
-    private static final int RDI$MAX_ENTITIES_PER_SECTION = 512;
+    private static final int RDI$MAX_ENTITIES_PER_SECTION = Integer.getInteger("rdi.maxEntitiesPerSection", 1024);
 
     @Shadow
     public abstract int size();

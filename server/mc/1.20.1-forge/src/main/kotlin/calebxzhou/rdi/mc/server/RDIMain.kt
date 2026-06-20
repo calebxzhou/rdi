@@ -6,10 +6,14 @@ import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
 import calebxzhou.rdi.mc.rcmd.tpa.TpaService
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
 import calebxzhou.rdi.mc.server.network.RServerNetwork
+import calebxzhou.rdi.mc.server.world.TerrainCache201
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.ClickEvent
 import net.minecraft.network.chat.Component
 import net.minecraft.network.chat.Style
+import net.minecraft.network.protocol.game.ClientboundSetSubtitleTextPacket
+import net.minecraft.network.protocol.game.ClientboundSetTitleTextPacket
+import net.minecraft.network.protocol.game.ClientboundSetTitlesAnimationPacket
 import net.minecraft.server.dedicated.DedicatedServer
 import net.minecraft.server.level.ServerPlayer
 import net.minecraft.world.level.GameRules
@@ -70,6 +74,7 @@ class RDIMain {
 
         @SubscribeEvent @JvmStatic
         fun stopped(e: ServerStoppedEvent) {
+            TerrainCache201.closeAll()
             PlayerChatRangeState.clear()
             TpaService.clear()
             WebSocketClient.stop()
@@ -93,6 +98,13 @@ class RDIMain {
             }
             RServerNetwork.sendLastTo(player)
             RServerNetwork.sendFirmSectionsTo(player)
+            sendJoinSubtitle(player)
+        }
+
+        private fun sendJoinSubtitle(player: ServerPlayer) {
+            player.connection.send(ClientboundSetTitlesAnimationPacket(10, 200, 20))
+            player.connection.send(ClientboundSetSubtitleTextPacket(Component.literal("设定“持久子区块” 否则丢数据 见说明书")))
+            player.connection.send(ClientboundSetTitleTextPacket(Component.empty()))
         }
 
         private fun sendJoinMessages(player: ServerPlayer) {
@@ -101,7 +113,7 @@ class RDIMain {
             player.sendSystemMessage(Component.literal("当前聊天范围：" + range.displayName))
             player.sendSystemMessage(
                 Component.literal(
-                        "6月18日起 只有“持久子区块”会永久保存 其余区域不会保存\n" +
+                        "6月18日起 只有“持久子区块”会永久保存 其余区域有随时被清除的可能\n" +
                         "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书"
                 )
             )

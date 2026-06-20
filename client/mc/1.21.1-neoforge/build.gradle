@@ -108,8 +108,8 @@ neoForge {
     }
 
     validateAccessTransformers = true
-    def playArg = "http://127.0.0.1:65231\n127.0.0.1:65230\n测试测试12123大世界\n25565\n68b314bb-adaf-52dd-ab96-b5ed00000000\ndev1"
-    def playArg2 = "http://127.0.0.1:65231\n127.0.0.1:65230\n测试测试12123大世界\n25565\n68b314bb-adaf-52dd-ab96-e5ed00000000\ndev2"
+    def playArg = "http://127.0.0.1:65231\n127.0.0.1:56370\n测试测试12123大世界\n56370\n68b314bb-adaf-52dd-ab96-b5ed00000000\ndev1"
+    def playArg2 = "http://127.0.0.1:65231\n127.0.0.1:56370\n测试测试12123大世界\n56370\n68b314bb-adaf-52dd-ab96-e5ed00000000\ndev2"
     runs {
         client {
             client()

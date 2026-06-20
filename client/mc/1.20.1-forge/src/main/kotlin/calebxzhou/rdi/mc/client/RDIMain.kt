@@ -11,8 +11,6 @@ import net.minecraft.client.multiplayer.ServerData
 import net.minecraft.client.multiplayer.resolver.ServerAddress
 import net.minecraft.network.chat.Component
 import net.minecraftforge.api.distmarker.Dist
-import net.minecraftforge.client.event.ClientPlayerNetworkEvent
-import net.minecraftforge.eventbus.api.SubscribeEvent
 import net.minecraftforge.fml.common.Mod
 import org.apache.logging.log4j.LogManager
 
@@ -48,15 +46,5 @@ class RDIMain {
             JOIN_BUTTON.width = 200
             JOIN_BUTTON.height = 20
         }
-        @SubscribeEvent
-        @JvmStatic
-        fun onClientJoinServer(event: ClientPlayerNetworkEvent.LoggingIn) {
-            Minecraft.getInstance().gui.apply {
-                setTimes(10, 200, 20)
-                setSubtitle(Component.literal("设定“持久子区块” 否则丢数据 见说明书"))
-                setTitle(Component.empty())
-            }
-        }
-
     }
 }

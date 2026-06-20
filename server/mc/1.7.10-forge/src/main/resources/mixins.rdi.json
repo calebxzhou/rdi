@@ -1,0 +1,20 @@
+{
+  "required": true,
+  "minVersion": "0.8.5-GTNH",
+  "package": "calebxzhou.rdi.mc.server.mixin",
+  "refmap": "mixins.rdi.refmap.json",
+  "target": "@env(DEFAULT)",
+  "compatibilityLevel": "JAVA_8",
+  "mixins": [
+    "AAnvilChunkLoader1710",
+    "mAllowChineseNameLogin",
+    "mLimitTerrainGenerationThreads1710",
+    "mOnlySaveFirmSections1710",
+    "mTerrainCacheChunkLoad1710",
+    "mServerUtilitiesClaimedChunksUpdate1710",
+    "mServerUtilitiesTeamData1710",
+    "mServerLoginPacketListener"
+  ],
+  "client": [],
+  "server": []
+}

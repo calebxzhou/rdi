@@ -32,9 +32,9 @@ def selectedPlayerName = findProperty(useAnotherPlayer ? 'minecraft_username_ano
 def selectedPlayerUuid = findProperty(useAnotherPlayer ? 'minecraft_uuid_another' : 'minecraft_uuid') ?: '68b314bb-adaf-52dd-ab96-b5ed00000000'
 def playArg = [
         "http://127.0.0.1:65231",
-        "127.0.0.1:65230",
+        "127.0.0.1:51468",
         "测试测试12123主机",
-        "25565",
+        "51468",
         selectedPlayerUuid,
         selectedPlayerName
 ].join("\n")
@@ -162,7 +162,9 @@ legacyForge {
                     "--username",
                     selectedPlayerName,
                     "--uuid",
-                    selectedPlayerUuid.replace("-", "")
+                    selectedPlayerUuid.replace("-", ""),
+                    "--quickPlayMultiplayer",
+                    "localhost:51468"
             ]
             gameDirectory = project.file('run')
         }

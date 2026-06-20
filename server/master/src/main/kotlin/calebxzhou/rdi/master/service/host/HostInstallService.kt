@@ -162,7 +162,7 @@ object HostInstallService {
         if (host.name.contains("公共") && !isDav) {
             throw RequestError("无权创建公共房间")
         }
-        if (HostQueryService.findByOwnerAndModpack(playerId, host.modpackId) != null) {
+        if (HostQueryService.findByOwnerAndModpack(playerId, host.modpackId) != null && !this.isDav) {
             throw RequestError("同一个整合包只能创建一张房间")
         }
         val world = resolveWorld(host.saveWorld, host.worldId, host.modpackId)
