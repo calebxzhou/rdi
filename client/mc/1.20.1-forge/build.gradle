@@ -11,6 +11,7 @@ import java.util.zip.ZipOutputStream
 plugins {
     id 'net.neoforged.moddev.legacyforge' version '2.0.141'
     id "org.jetbrains.kotlin.jvm" version "2.4.0"
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.0'
 }
 
 // Ensure the common project is configured before we read its outputs
@@ -18,6 +19,8 @@ evaluationDependsOn(":c-mc-common")
 evaluationDependsOn(":c-mc-common2")
 evaluationDependsOn(":rcmd")
 evaluationDependsOn(":firmsection")
+evaluationDependsOn(":rmcp-common")
+evaluationDependsOn(":rmcp-client")
 
 base {
     archivesName = "rdi"
@@ -32,9 +35,9 @@ def selectedPlayerName = findProperty(useAnotherPlayer ? 'minecraft_username_ano
 def selectedPlayerUuid = findProperty(useAnotherPlayer ? 'minecraft_uuid_another' : 'minecraft_uuid') ?: '68b314bb-adaf-52dd-ab96-b5ed00000000'
 def playArg = [
         "http://127.0.0.1:65231",
-        "127.0.0.1:65230",
+        "127.0.0.1:51468",
         "测试测试12123主机",
-        "25565",
+        "51468",
         selectedPlayerUuid,
         selectedPlayerName
 ].join("\n")
@@ -162,7 +165,9 @@ legacyForge {
                     "--username",
                     selectedPlayerName,
                     "--uuid",
-                    selectedPlayerUuid.replace("-", "")
+                    selectedPlayerUuid.replace("-", ""),
+                    "--quickPlayMultiplayer",
+                    "localhost:51468"
             ]
             gameDirectory = project.file('run')
         }
@@ -194,6 +199,19 @@ dependencies {
     additionalRuntimeClasspath(project(":rcmd"))
     implementation(project(":firmsection"))
     additionalRuntimeClasspath(project(":firmsection"))
+    implementation(project(":rmcp-common"))
+    additionalRuntimeClasspath(project(":rmcp-common"))
+    implementation(project(":rmcp-client"))
+    additionalRuntimeClasspath(project(":rmcp-client"))
+    additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    implementation(jarJar("io.heapy.kotaml:kotaml-jvm:0.108.0"))
+    jarJar("com.squareup.okio:okio-jvm:3.17.0")
+    jarJar("it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1")
+    jarJar("net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0")
+    shaded('io.fusionauth:java-http:1.4.0') {
+        transitive = false
+    }
     add('architecturyApi', 'dev.architectury:architectury-forge:9.1.12')
     //>>>Modrinth Mods<<<
     [
@@ -215,6 +233,19 @@ dependencies {
 
 tasks.matching { it.name == 'runClient' || it.name == 'runClientAnother' }.configureEach {
     dependsOn tasks.named('patchArchitecturyMixin')
+}
+
+jar {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    dependsOn project(":rmcp-common").tasks.named("classes")
+    dependsOn project(":rmcp-client").tasks.named("classes")
+    from(project(":rmcp-common").sourceSets.main.output)
+    from(project(":rmcp-client").sourceSets.main.output)
+    from({
+        shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
+    }) {
+        exclude 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA'
+    }
 }
 
 processResources {

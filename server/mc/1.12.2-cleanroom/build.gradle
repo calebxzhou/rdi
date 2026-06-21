@@ -82,13 +82,14 @@ unimined.minecraft {
         if (propertyBool('use_access_transformer')) {
             accessTransformer "${rootProject.projectDir}/src/main/resources/${propertyString('access_transformer_locations')}"
         }
-        loader "0.5.12-alpha"
+        loader "0.5.14-alpha"
         runs.auth.username = minecraft_username
         runs.all {
             jvmArgs(
                     "-Drdi.onlySaveFirmSections=true",
                 "-Drdi.ihq.url=127.0.0.1:65231",
                 "-Drdi.host.id=697b7a8cb7f12c8ac09c65ae",
+                    "-Drdi.terrain.cache.path=C:\\Users\\calebxzhou\\Documents\\chunkcachetest\\12",
                     "-Dcrl.dev.mixin=${mod_id}.default.mixin.json,${mod_id}.mod.mixin.json"
             )
             def extraArgs = propertyString('extra_jvm_args')

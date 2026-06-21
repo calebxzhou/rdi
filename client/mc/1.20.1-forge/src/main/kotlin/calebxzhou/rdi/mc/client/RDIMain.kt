@@ -1,14 +1,20 @@
 package calebxzhou.rdi.mc.client
 
 import calebxzhou.rdi.mc.client.network.RClientNetwork
+import calebxzhou.rdi.mc.client.mcp.standard.StandardMcpServer
+import calebxzhou.rdi.mc.client.mcpimpl.McpGameImpl
+import calebxzhou.rdi.mc.client.mcpimpl.McpNetwork
 import calebxzhou.rdi.mc.common.RDI
 import com.google.common.net.HostAndPort
+import net.minecraft.ChatFormatting
 import net.minecraft.client.Minecraft
 import net.minecraft.client.gui.components.Button
 import net.minecraft.client.gui.screens.ConnectScreen
 import net.minecraft.client.gui.screens.TitleScreen
 import net.minecraft.client.multiplayer.ServerData
 import net.minecraft.client.multiplayer.resolver.ServerAddress
+import net.minecraft.client.player.LocalPlayer
+import net.minecraft.network.chat.ClickEvent
 import net.minecraft.network.chat.Component
 import net.minecraftforge.api.distmarker.Dist
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent
@@ -24,6 +30,7 @@ import org.apache.logging.log4j.LogManager
 class RDIMain {
     init {
         RClientNetwork.register()
+        McpNetwork.register()
         LogManager.getLogger("rdi").info("❄❄❄❄❄❄❄❄RDI客户端核心模块已加载❄❄❄❄❄❄❄❄")
     }
 
@@ -48,15 +55,30 @@ class RDIMain {
             JOIN_BUTTON.width = 200
             JOIN_BUTTON.height = 20
         }
+
         @SubscribeEvent
         @JvmStatic
         fun onClientJoinServer(event: ClientPlayerNetworkEvent.LoggingIn) {
-            Minecraft.getInstance().gui.apply {
-                setTimes(10, 200, 20)
-                setSubtitle(Component.literal("设定“持久子区块” 否则丢数据 见说明书"))
-                setTitle(Component.empty())
-            }
+            StandardMcpServer.start(McpGameImpl, null)
+                .onSuccess { port -> sendMcpUrlMessage(event.player, port) }
+                .onFailure { it.printStackTrace() }
         }
 
+        @SubscribeEvent
+        @JvmStatic
+        fun onClientLeaveServer(event: ClientPlayerNetworkEvent.LoggingOut) {
+            StandardMcpServer.stop()
+        }
+
+        private fun sendMcpUrlMessage(player: LocalPlayer, port: Int) {
+            val url = "http://127.0.0.1:$port/mcp"
+            player.displayClientMessage(
+                Component.literal("点此复制AI MCP URL").withStyle(ChatFormatting.UNDERLINE)
+                    .withStyle { style ->
+                        style.withClickEvent(ClickEvent(ClickEvent.Action.COPY_TO_CLIPBOARD, url))
+                    },
+                false,
+            )
+        }
     }
 }

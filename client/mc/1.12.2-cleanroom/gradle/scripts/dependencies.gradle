@@ -23,7 +23,7 @@ dependencies {
     if (propertyBool('enable_lwjglx')) {
         compileOnly "com.cleanroommc:lwjglx:1.0.0"
     }
-    contain 'org.jetbrains.kotlin:kotlin-reflect:2.4.0'
+    runtimeOnly 'org.jetbrains.kotlin:kotlin-reflect:2.4.0'
     modImplementation 'io.github.chaosunity.forgelin:Forgelin-Continuous:2.4.0.0'
     modImplementation 'curse.maven:hei-557549:6187146' // Use for mod Mixin example
     // Example - Dependency descriptor:

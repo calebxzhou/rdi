@@ -4,12 +4,13 @@
   "compatibilityLevel": "JAVA_8",
   "target": "@env(DEFAULT)",
   "mixins": [
+    "AAnvilChunkLoader112",
     "mAllowChineseNameLogin",
     "mChatMsg",
-    "mOnlySaveFirmSectionEntities112",
     "mOnlySaveFirmSections112",
     "mRcmdCommandInput",
-    "mServerLoginPacketListener"
+    "mServerLoginPacketListener",
+    "mTerrainCacheChunkLoad112"
   ],
   "client": [],
   "server": [],

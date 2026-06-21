@@ -8,6 +8,7 @@ import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
 import calebxzhou.rdi.mc.rcmd.tpa.TpaService
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
 import calebxzhou.rdi.mc.server.network.RServerNetwork
+import calebxzhou.rdi.mc.server.world.TerrainCache211
 import net.minecraft.ChatFormatting
 import net.minecraft.network.chat.ClickEvent
 import net.minecraft.network.chat.Component
@@ -45,6 +46,7 @@ class RDIMain {
 
         @SubscribeEvent @JvmStatic
         fun stopped(e: ServerStoppedEvent) {
+            TerrainCache211.closeAll()
             PlayerChatRangeState.clear()
             TpaService.clear()
             WebSocketClient.stop()
@@ -99,7 +101,7 @@ class RDIMain {
             val result = FirmSectionService.list(player)
             player.sendMessage("当前聊天范围：" + range.displayName)
             player.sendMessage(
-                    "6月12日起 只有“持久子区块”会保存 其余区域不会保存\n" +
+                    "6月12日起 只有“持久子区块”会保存 其余区域有随时被清除的可能\n" +
                     "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书")
             player.sendSystemMessage(Component.literal("点此打开RDI说明书").withStyle(ChatFormatting.UNDERLINE).withStyle(
                 Style.EMPTY.withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL,"https://craftrdi.feishu.cn/wiki/U8LRwMpUliuxW5kZLvCcxonNnkd"))))

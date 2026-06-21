@@ -32,7 +32,6 @@ sourceSets.main {
 mixin {
     add sourceSets.main, 'rdi.mixins.refmap.json'
     config "rdi.mixins.json"
-    config "rdi-ftbchunks.mixins.json"
 }
 
 repositories {
@@ -78,6 +77,7 @@ repositories {
 }
 legacyForge {
     version = "1.20.1-47.4.20"
+    validateAccessTransformers = true
     runs {
         server {
             server()
@@ -85,11 +85,12 @@ legacyForge {
             systemProperty("rdi.debug", "true")
             systemProperty("rdi.host.id", "695f9e5ad05510e77c09ea1a")
             systemProperty 'rdi.onlySaveFirmSections', 'true'
+            systemProperty "rdi.terrain.cache.path","C:\\Users\\calebxzhou\\Documents\\chunkcachetest\\20"
+
             systemProperty("mixin.hotSwap", "true")
             programArguments = [
                 "--nogui",
                     "-mixin.config=rdi.mixins.json",
-                    "-mixin.config=rdi-ftbchunks.mixins.json",
             ]
         }
     }
@@ -122,6 +123,8 @@ dependencies {
     additionalRuntimeClasspath project(':rcmd')
     implementation project(':firmsection')
     additionalRuntimeClasspath project(':firmsection')
+    implementation project(':rmcp-common')
+    additionalRuntimeClasspath project(':rmcp-common')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     //>>>Modrinth Mods<<<
@@ -138,7 +141,6 @@ dependencies {
     ].each { dep ->
         modImplementation dep
     }
-    compileOnly "dev.ftb.mods:ftb-chunks-forge:2001.3.8"
 }
 
 
@@ -146,6 +148,7 @@ dependencies {
 evaluationDependsOn(':s-mc-common')
 evaluationDependsOn(':rcmd')
 evaluationDependsOn(':firmsection')
+evaluationDependsOn(':rmcp-common')
 
 processResources {
     var properties = [
@@ -184,9 +187,11 @@ jar {
     dependsOn project(":s-mc-common").tasks.named("classes")
     dependsOn project(":rcmd").tasks.named("classes")
     dependsOn project(":firmsection").tasks.named("classes")
+    dependsOn project(":rmcp-common").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
     from(project(":rcmd").sourceSets.main.output)
     from(project(":firmsection").sourceSets.main.output)
+    from(project(":rmcp-common").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {
@@ -201,7 +206,7 @@ jar {
                 "Implementation-Version"  : version,
                 "Implementation-Vendor"   : mod_authors,
                 "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
-                "MixinConfigs": "rdi.mixins.json,rdi-ftbchunks.mixins.json"
+                "MixinConfigs": "rdi.mixins.json"
         ])
     }
 }

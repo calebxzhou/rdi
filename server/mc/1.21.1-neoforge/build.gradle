@@ -77,6 +77,7 @@ neoForge {
             programArgument '--nogui'
             systemProperty 'rdi.debug', 'true'
             systemProperty 'rdi.onlySaveFirmSections', 'true'
+            systemProperty "rdi.terrain.cache.path","C:\\Users\\calebxzhou\\Documents\\chunkcachetest\\21"
             systemProperty 'neoforge.enabledGameTestNamespaces', 'rdi'
         }
 
@@ -141,7 +142,6 @@ dependencies {
     ].each { dep ->
         implementation "curse.maven:$dep-deobf"
     }
-    implementation "curse.maven:ftb-chunks-forge-314906:8241176-deobf"
 
 
 }

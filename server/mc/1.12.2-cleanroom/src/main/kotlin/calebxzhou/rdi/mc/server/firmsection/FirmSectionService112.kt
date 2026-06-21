@@ -61,14 +61,6 @@ object FirmSectionService112 {
         return false
     }
 
-    fun shouldSaveEntityPosition(world: World, x: Double, y: Double, z: Double): Boolean =
-        !RDI.ONLY_SAVE_FIRM_SECTIONS || data(world.minecraftServer!!).hasFirmSection(
-            dimensionId(world),
-            blockToSectionCoord(x),
-            blockToSectionCoord(y),
-            blockToSectionCoord(z)
-        )
-
     fun all(server: MinecraftServer): List<FirmSectionKey> = data(server).allSections()
 
     private fun data(server: MinecraftServer): FirmSectionSavedData112 {

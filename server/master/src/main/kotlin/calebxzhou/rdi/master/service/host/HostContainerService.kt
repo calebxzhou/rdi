@@ -63,7 +63,10 @@ object HostContainerService {
             }
             if (this@containerEnv.isPublic) {
                 this.add("-Drdi.firmSectionTotalMax=65536")
-                this.add("-Drdi.firmSectionPersonMax=256")
+                this.add("-Drdi.firmSectionPersonMax=512")
+            }else{
+                this.add("-Drdi.firmSectionTotalMax=512")
+                this.add("-Drdi.firmSectionPersonMax=512")
             }
             if (this@containerEnv._id == ObjectId("69da4ec7015319d405bbb3be")) {
                 this.add("-Xmx12G")
@@ -205,8 +208,8 @@ object HostContainerService {
             McVersion.V071, McVersion.V122 -> 2
             else -> 4
         }
-        val memory = if(isPublic) 12*1024*1024*1024L else 8*1024*1024*1024L
-        val memorySwap = if(isPublic) 30*1024*1024*1024L else 16*1024*1024*1024L
+        val memory = if(isPublic) 16*1024*1024*1024L else 8*1024*1024*1024L
+        val memorySwap = if(isPublic) 32*1024*1024*1024L else 16*1024*1024*1024L
 
         modpack.mcVer.loaderVersions[modpack.modloader]?.let { modLoaderVersion ->
             DockerService.createContainer(

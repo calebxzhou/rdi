@@ -88,13 +88,13 @@ unimined.minecraft {
         if (propertyBool('use_access_transformer')) {
             accessTransformer "${rootProject.projectDir}/src/main/resources/${propertyString('access_transformer_locations')}"
         }
-        loader "0.5.12-alpha"
+        loader "0.5.14-alpha"
         runs.auth.username = selectedPlayerName
         def playArg = [
                 "http://127.0.0.1:65231",
-                "127.0.0.1:65230",
+                "127.0.0.1:50975",
                 "测试测试12123大世界",
-                "25565",
+                "50975",
                 selectedPlayerUuid,
                 selectedPlayerName
         ].join("\n")
@@ -197,7 +197,7 @@ sourceSets {
         }
         resources {
             srcDir project(":c-mc-common").sourceSets.main.resources.srcDirs
-            srcDir file("../common2/src/main/resources")
+         //   srcDir file("../common2/src/main/resources")
         }
         blossom {
             javaSources {

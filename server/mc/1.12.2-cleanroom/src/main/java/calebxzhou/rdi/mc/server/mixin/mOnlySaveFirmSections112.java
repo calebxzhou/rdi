@@ -1,6 +1,7 @@
 package calebxzhou.rdi.mc.server.mixin;
 
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService112;
+import calebxzhou.rdi.mc.server.world.TerrainCache112;
 import net.minecraft.world.World;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.chunk.storage.AnvilChunkLoader;
@@ -16,6 +17,10 @@ public class mOnlySaveFirmSections112 {
         if (FirmSectionService112.INSTANCE.shouldSaveChunk(world, chunk)) {
             return;
         }
+        if (TerrainCache112.INSTANCE.isEnabled()) {
+            TerrainCache112.saveChunk(world, chunk);
+        }
+        chunk.setModified(false);
         ci.cancel();
     }
 }

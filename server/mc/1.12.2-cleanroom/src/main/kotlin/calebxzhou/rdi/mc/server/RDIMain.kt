@@ -11,6 +11,7 @@ import calebxzhou.rdi.mc.server.firmsection.FirmSectionService112
 import calebxzhou.rdi.mc.server.network.RServerNetwork.register
 import calebxzhou.rdi.mc.server.network.RServerNetwork.sendFirmSectionsTo
 import calebxzhou.rdi.mc.server.network.RServerNetwork.sendLastTo
+import calebxzhou.rdi.mc.server.world.TerrainCache112
 import net.minecraft.entity.player.EntityPlayerMP
 import net.minecraft.network.play.server.SPacketTitle
 import net.minecraft.server.dedicated.DedicatedServer
@@ -56,6 +57,7 @@ class RDIMain {
 
     @Mod.EventHandler
     fun stopped(e: FMLServerStoppedEvent?) {
+        TerrainCache112.closeAll()
         WebSocketClient.stop()
         PlayerChatRangeState.clear()
         TpaService.clear()
@@ -134,7 +136,7 @@ class RDIMain {
             player.sendMessage(TextComponentString("当前聊天范围：${range.displayName}"))
             player.sendMessage(
                 TextComponentString(
-                    "6月22日开始 只有“持久子区块”会永久保存 其余区域不会保存\n" +
+                    "6月22日开始 只有“持久子区块”会永久保存 其余区域有随时被清除的可能\n" +
                         "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书"
                 )
             )
@@ -150,13 +152,13 @@ class RDIMain {
                 if (world == null) {
                     continue
                 }
-                for (key in world.getGameRules().getRules()) {
-                    val envValue = System.getenv("GAME_RULE_" + key)
+                for (key in world.gameRules.getRules()) {
+                    val envValue = System.getenv("GAME_RULE_$key")
                     if (envValue == null || envValue.isEmpty()) {
                         continue
                     }
-                    world.getGameRules().setOrCreateGameRule(key, envValue)
-                    lgr.info("SET GAME RULE {}={} dim={}", key, envValue, world.provider.getDimension())
+                    world.gameRules.setOrCreateGameRule(key, envValue)
+                    lgr.info("SET GAME RULE {}={} dim={}", key, envValue, world.provider.dimension)
                 }
             }
         }
