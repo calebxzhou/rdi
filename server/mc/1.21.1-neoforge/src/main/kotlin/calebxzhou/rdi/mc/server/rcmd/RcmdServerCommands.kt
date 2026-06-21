@@ -124,6 +124,9 @@ object RcmdServerCommands : RcmdServerCommandHandler {
             FirmSectionSetStatus.ALREADY_PRESENT ->
                 RcmdResult.ok("当前子区块已经持久了")
 
+            FirmSectionSetStatus.OCCUPIED_BY_OTHER ->
+                RcmdResult.error("当前子区块已被其他玩家持久了")
+
             FirmSectionSetStatus.PLAYER_LIMIT_REACHED ->
                 RcmdResult.error("你持久的子区块已达到个人上限${FirmSectionLimits.maxPerson}个")
 

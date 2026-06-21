@@ -1,5 +1,6 @@
 package calebxzhou.rdi.mc.server.mixin;
 
+import calebxzhou.rdi.mc.server.firmsection.FirmSectionService112;
 import calebxzhou.rdi.mc.server.world.TerrainCache112;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import net.minecraft.util.math.ChunkPos;
@@ -40,6 +41,10 @@ public abstract class mTerrainCacheChunkLoad112 {
         Chunk loaded = getLoadedChunk(chunkX, chunkZ);
         if (loaded != null) {
             cir.setReturnValue(loaded);
+            return;
+        }
+
+        if (FirmSectionService112.INSTANCE.hasFirmChunk(world, chunkX, chunkZ)) {
             return;
         }
 

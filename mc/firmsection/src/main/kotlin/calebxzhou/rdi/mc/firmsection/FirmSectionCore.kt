@@ -18,6 +18,7 @@ data class FirmSectionPlayerData(
 enum class FirmSectionSetStatus {
     ADDED,
     ALREADY_PRESENT,
+    OCCUPIED_BY_OTHER,
     PLAYER_LIMIT_REACHED,
     TOTAL_LIMIT_REACHED,
 }
@@ -70,8 +71,12 @@ class FirmSectionState(
         }
 
     fun loadPlayer(playerId: UUID, sections: Collection<FirmSectionKey>, autoSet: Boolean) {
-        if (sections.isNotEmpty() || autoSet) {
-            sectionsByPlayer[playerId] = LinkedHashSet(sections)
+        sectionsByPlayer -= playerId
+        val ownedSections = sections.filterTo(linkedSetOf()) { section ->
+            ownerOf(section) == null
+        }
+        if (ownedSections.isNotEmpty() || autoSet) {
+            sectionsByPlayer[playerId] = ownedSections
         }
         if (autoSet) {
             autoSetPlayers += playerId
@@ -107,6 +112,7 @@ class FirmSectionState(
         val existingSections = sectionsByPlayer[playerId]
         val status = when {
             existingSections != null && key in existingSections -> FirmSectionSetStatus.ALREADY_PRESENT
+            ownerOf(key) != null -> FirmSectionSetStatus.OCCUPIED_BY_OTHER
             maxPerson > 0 && (existingSections?.size ?: 0) >= maxPerson ->
                 FirmSectionSetStatus.PLAYER_LIMIT_REACHED
             totalCount() >= maxTotal -> FirmSectionSetStatus.TOTAL_LIMIT_REACHED
@@ -144,6 +150,9 @@ class FirmSectionState(
                     it.chunkZ == chunkZ
             }
         }
+
+    private fun ownerOf(key: FirmSectionKey): UUID? =
+        sectionsByPlayer.entries.firstOrNull { key in it.value }?.key
 
     companion object {
         private val KEY_ORDER = compareBy<FirmSectionKey>(

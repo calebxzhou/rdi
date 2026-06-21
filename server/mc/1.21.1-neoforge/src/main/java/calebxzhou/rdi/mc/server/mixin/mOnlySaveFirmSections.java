@@ -84,8 +84,11 @@ public abstract class mOnlySaveFirmSections {
             return;
         }
 
+        boolean firmChunk = FirmSectionService.INSTANCE.hasFirmChunk(level, pos);
         cir.setReturnValue(((ChunkStorage) (Object) this).read(pos).thenApplyAsync(original -> {
-            Optional<CompoundTag> tag = original.isPresent() ? original : TerrainCache211.read(level, rdi$dimensionPath, pos);
+            Optional<CompoundTag> tag = original.isPresent() || firmChunk
+                    ? original
+                    : TerrainCache211.read(level, rdi$dimensionPath, pos);
             return tag.map(this::upgradeChunkTag);
         }, Util.backgroundExecutor()));
     }

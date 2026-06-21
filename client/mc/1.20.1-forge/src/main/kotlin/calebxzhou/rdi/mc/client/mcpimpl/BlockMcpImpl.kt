@@ -13,6 +13,7 @@ import net.minecraft.world.level.block.Block
 import net.minecraft.world.level.chunk.LevelChunk
 import java.util.concurrent.ExecutionException
 import java.util.function.Supplier
+import kotlin.runCatching
 
 object BlockMcpImpl {
     private const val BLOCK_FIND_HORIZONTAL_SIZE = 256

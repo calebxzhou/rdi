@@ -7,6 +7,7 @@
   "compatibilityLevel": "JAVA_8",
   "mixins": [
     "AAnvilChunkLoader1710",
+    "AChunkProviderServer1710",
     "mAllowChineseNameLogin",
     "mLimitTerrainGenerationThreads1710",
     "mOnlySaveFirmSections1710",

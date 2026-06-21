@@ -38,7 +38,7 @@ import java.util.concurrent.TimeUnit
 class RDIMain {
     init {
         RServerNetwork.register()
-        McpNetwork.register()
+        //McpNetwork.register()
     }
 
     companion object {

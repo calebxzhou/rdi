@@ -28,6 +28,8 @@ java {
 }*/
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
+    kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
+    kotlin.srcDir '../../../mc/rmcp/server/src/main/kotlin'
 }
 mixin {
     add sourceSets.main, 'rdi.mixins.refmap.json'
@@ -119,8 +121,6 @@ dependencies {
     implementation(jarJar("io.github.llamalad7:mixinextras-forge:0.5.3"))
     implementation project(':s-mc-common')
     additionalRuntimeClasspath project(':s-mc-common')
-    implementation project(':rcmd')
-    additionalRuntimeClasspath project(':rcmd')
     implementation project(':firmsection')
     additionalRuntimeClasspath project(':firmsection')
     implementation project(':rmcp-common')
@@ -146,7 +146,6 @@ dependencies {
 
 // Ensure the common project is evaluated before we look up its tasks/outputs
 evaluationDependsOn(':s-mc-common')
-evaluationDependsOn(':rcmd')
 evaluationDependsOn(':firmsection')
 evaluationDependsOn(':rmcp-common')
 
@@ -185,11 +184,9 @@ java {
 jar {
     // Bundle compiled outputs from shared server modules into this jar
     dependsOn project(":s-mc-common").tasks.named("classes")
-    dependsOn project(":rcmd").tasks.named("classes")
     dependsOn project(":firmsection").tasks.named("classes")
     dependsOn project(":rmcp-common").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
-    from(project(":rcmd").sourceSets.main.output)
     from(project(":firmsection").sourceSets.main.output)
     from(project(":rmcp-common").sourceSets.main.output)
     from({

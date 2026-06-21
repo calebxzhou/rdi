@@ -1,7 +1,10 @@
 package calebxzhou.rdi.mc.client.mcpimpl
 
 import calebxzau.mc.common2021.mc
+import calebxzau.mc.common2021.makeItemTagKey
+import calebxzau.mc.common2021.parseResId
 import calebxzau.mc.common2021.resId
+import calebxzau.mc.common2021.tagItemIds
 import calebxzhou.rdi.mc.client.mcp.McpGameInterface
 import calebxzhou.rdi.mc.common2.mcp.McpBadRequestError
 import calebxzhou.rdi.mc.common2.mcp.McpBadSlotError
@@ -87,7 +90,12 @@ object McpGameImpl : McpGameInterface {
     }
 
     override fun recipes(req: RecipeQ): Result<String> = runCatching {
-        "unsupported reason=not_implemented_1_20"
+        if (!RecipeProcessIndex.isReady()) {
+            return@runCatching "unresolved reason=jei_not_ready"
+        }
+        val recipesByItem = req.items.associateWith { RecipeProcessIndex.recipesByOutputItem(it) }
+        val processes = recipesByItem.values.flatten()
+        RecipeProcessTextView.render(req.items, recipesByItem, processes.tagInventoryMatches())
     }
 
     override fun recipeTree(req: RecipeTreeQ): Result<String> = runCatching {
@@ -144,7 +152,7 @@ object McpGameImpl : McpGameInterface {
                 ModDependency(
                     id = dep.modId,
                     versionRange = dep.versionRange.toString(),
-                    type = dep.type.name.lowercase(),
+                    type = if (dep.isMandatory) "mandatory" else "optional",
                     ordering = dep.ordering.name.lowercase(),
                     side = dep.side.name.lowercase(),
                 )
@@ -172,5 +180,36 @@ object McpGameImpl : McpGameInterface {
         } else {
             ContainerSlot(id, stack.item.resId.toString(), stack.count)
         }
+    }
+
+    private fun Iterable<RecipeProcess>.tagInventoryMatches(): Map<String, List<String>> {
+        val player = mc.player ?: return emptyMap()
+        val inventoryItemIds = (player.inventory.items + player.inventory.armor + player.inventory.offhand)
+            .asSequence()
+            .filterNot { it.isEmpty }
+            .map { it.item.resId.toString() }
+            .distinct()
+            .toList()
+        if (inventoryItemIds.isEmpty()) return emptyMap()
+
+        val tagIds = linkedSetOf<String>()
+        forEach { it.collectTagIds(tagIds) }
+        if (tagIds.isEmpty()) return emptyMap()
+
+        return tagIds.associateWith { tagId ->
+            val ids = tagId.parseResId()?.makeItemTagKey()?.tagItemIds ?: return@associateWith emptyList()
+            inventoryItemIds.filter { it in ids }
+        }
+    }
+
+    private fun RecipeProcess.collectTagIds(tagIds: MutableSet<String>) {
+        inputs.forEach { it.collectTagIds(tagIds) }
+        catalysts.forEach { it.collectTagIds(tagIds) }
+        renderOnly.forEach { it.collectTagIds(tagIds) }
+        shape?.key?.values?.forEach { it.collectTagIds(tagIds) }
+    }
+
+    private fun RecipeIngredient.collectTagIds(tagIds: MutableSet<String>) {
+        tags.forEach { tagIds += it.tagId }
     }
 }

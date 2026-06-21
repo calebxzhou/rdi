@@ -16,8 +16,6 @@ plugins {
 
 // Ensure the common project is configured before we read its outputs
 evaluationDependsOn(":c-mc-common")
-evaluationDependsOn(":c-mc-common2")
-evaluationDependsOn(":rcmd")
 evaluationDependsOn(":firmsection")
 evaluationDependsOn(":rmcp-common")
 evaluationDependsOn(":rmcp-client")
@@ -42,21 +40,24 @@ def playArg = [
         selectedPlayerName
 ].join("\n")
 
-/*java {
+java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
+        languageVersion = JavaLanguageVersion.of(21)
     }
-    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_25
+    sourceCompatibility = targetCompatibility = JavaVersion.VERSION_21
 }
 kotlin {
-    jvmToolchain(25)
-}*/
+    jvmToolchain(21)
+}
 sourceSets.main {
     kotlin.srcDir '../../../mc/common/2021/src/main/kotlin'
+    kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
+    java.srcDir '../common2/src/main/java'
     ext["refMap"] = "rdi.mixins.refmap.json"
     // Make shared assets available in IDE/dev runs (runClient).
     resources {
         srcDir project(":c-mc-common").file("src/main/resources")
+     //   srcDir '../common2/src/main/resources'
     }
 }
 mixin {
@@ -103,7 +104,19 @@ repositories {
         name = "FTB Maven"
         url = "https://maven.ftb.dev/releases"
     }
+    maven {
+        name = "Jared"
+        url = "https://maven.blamejared.com"
+    }
+    maven {
+        name = 'Kotlin for Forge'
+        url = 'https://thedarkcolour.github.io/KotlinForForge/'
+    }
 
+    maven {
+        name = "TerraformersMC"
+        url = "https://maven.terraformersmc.com/"
+    }
 }
 def shadedConfiguration = configurations.maybeCreate('shaded')
 def architecturyApiConfiguration = configurations.maybeCreate('architecturyApi')
@@ -188,15 +201,14 @@ legacyForge {
 }
 
 dependencies {
+    //java21 compatible
+    runtimeOnly("org.lwjgl:lwjgl:3.3.2")
+    runtimeOnly("org.lwjgl:lwjgl-opengl:3.3.2")
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
     // https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-stdlib
     additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     implementation(project(":c-mc-common"))
     additionalRuntimeClasspath(project(":c-mc-common"))
-    implementation(project(":c-mc-common2"))
-    additionalRuntimeClasspath(project(":c-mc-common2"))
-    implementation(project(":rcmd"))
-    additionalRuntimeClasspath(project(":rcmd"))
     implementation(project(":firmsection"))
     additionalRuntimeClasspath(project(":firmsection"))
     implementation(project(":rmcp-common"))
@@ -206,6 +218,10 @@ dependencies {
     additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation(jarJar("io.heapy.kotaml:kotaml-jvm:0.108.0"))
+    compileOnly "mezz.jei:jei-1.20.1-forge-api:15.20.0.132"
+    // at runtime, use the full JEI jar for NeoForge
+    modImplementation("mezz.jei:jei-1.20.1-forge:15.20.0.132")
+
     jarJar("com.squareup.okio:okio-jvm:3.17.0")
     jarJar("it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1")
     jarJar("net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0")
@@ -286,12 +302,8 @@ jar {
     // Bundle compiled classes from :c-mc-common into this jar.
     // Common resources are already added via sourceSets.main.resources above.
     dependsOn project(":c-mc-common").tasks.named("classes")
-    dependsOn project(":c-mc-common2").tasks.named("classes")
-    dependsOn project(":rcmd").tasks.named("classes")
     dependsOn project(":firmsection").tasks.named("classes")
     from(project(":c-mc-common").sourceSets.main.output.classesDirs)
-    from(project(":c-mc-common2").sourceSets.main.output.classesDirs)
-    from(project(":rcmd").sourceSets.main.output)
     from(project(":firmsection").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }

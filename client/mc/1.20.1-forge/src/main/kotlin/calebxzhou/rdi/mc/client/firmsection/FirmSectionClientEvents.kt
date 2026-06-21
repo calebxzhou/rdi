@@ -2,16 +2,17 @@ package calebxzhou.rdi.mc.client.firmsection
 
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.SectionPos as RdiSectionPos
+import com.mojang.blaze3d.systems.RenderSystem
 import com.mojang.blaze3d.vertex.PoseStack
 import com.mojang.blaze3d.vertex.VertexConsumer
 import net.minecraft.client.Minecraft
-import net.minecraft.client.renderer.LevelRenderer
 import net.minecraft.core.SectionPos
 import net.minecraftforge.api.distmarker.Dist
 import net.minecraftforge.client.event.ClientPlayerNetworkEvent
 import net.minecraftforge.client.event.RenderLevelStageEvent
 import net.minecraftforge.eventbus.api.SubscribeEvent
 import net.minecraftforge.fml.common.Mod
+import org.joml.Matrix4f
 
 @Mod.EventBusSubscriber(modid = "rdi", value = [Dist.CLIENT])
 object FirmSectionClientEvents {
@@ -38,42 +39,45 @@ object FirmSectionClientEvents {
         val bufferSource = minecraft.renderBuffers().bufferSource()
         val vertexConsumer = bufferSource.getBuffer(renderType)
         val poseStack = event.poseStack
-        poseStack.pushPose()
-        poseStack.setIdentity()
-        try {
-            if (RDI.SHOW_SET_FIRM_SECTIONS) {
-                addFirmSectionOutlines(
-                    poseStack,
-                    vertexConsumer,
-                    cameraPos.x,
-                    cameraPos.y,
-                    cameraPos.z,
-                    RDI.FIRM_CHUNKS[dimensionId].orEmpty(),
-                    0.0f,
-                    1.0f,
-                    0.0f
-                )
-            }
-            if (RDI.SHOW_NOW_FIRM_SECTION) {
-                val currentSection = SectionPos.of(cameraEntity)
-                addSectionBox(
-                    poseStack,
-                    vertexConsumer,
-                    cameraPos.x,
-                    cameraPos.y,
-                    cameraPos.z,
-                    currentSection.minBlockX(),
-                    currentSection.minBlockY(),
-                    currentSection.minBlockZ(),
-                    1.0f,
-                    1.0f,
-                    0.0f
-                )
-            }
-        } finally {
-            poseStack.popPose()
+        if (RDI.SHOW_SET_FIRM_SECTIONS) {
+            addFirmSectionOutlines(
+                poseStack,
+                vertexConsumer,
+                cameraPos.x,
+                cameraPos.y,
+                cameraPos.z,
+                RDI.FIRM_CHUNKS[dimensionId].orEmpty(),
+                0.0f,
+                1.0f,
+                0.0f
+            )
         }
-        bufferSource.endBatch(renderType)
+        if (RDI.SHOW_NOW_FIRM_SECTION) {
+            val currentSection = SectionPos.of(cameraEntity)
+            addSectionBox(
+                poseStack,
+                vertexConsumer,
+                cameraPos.x,
+                cameraPos.y,
+                cameraPos.z,
+                currentSection.minBlockX(),
+                currentSection.minBlockY(),
+                currentSection.minBlockZ(),
+                1.0f,
+                1.0f,
+                0.0f
+            )
+        }
+        val modelViewStack = RenderSystem.getModelViewStack()
+        modelViewStack.pushPose()
+        modelViewStack.setIdentity()
+        RenderSystem.applyModelViewMatrix()
+        try {
+            bufferSource.endBatch(renderType)
+        } finally {
+            modelViewStack.popPose()
+            RenderSystem.applyModelViewMatrix()
+        }
     }
 
     private fun addFirmSectionOutlines(
@@ -87,88 +91,24 @@ object FirmSectionClientEvents {
         green: Float,
         blue: Float
     ) {
-        val sectionKeys = sections.mapTo(mutableSetOf()) { FirmSectionRenderKey(it.chunkX, it.index, it.chunkZ) }
-        val lines = linkedSetOf<FirmSectionLine>()
-        for (section in sectionKeys) {
-            addCandidateLines(section, lines)
-        }
-        lines.asSequence()
-            .filter { it.isOuterLine(sectionKeys) }
-            .forEach { line ->
-                addSectionGridLine(poseStack, vertexConsumer, cameraX, cameraY, cameraZ, line, red, green, blue)
+        sections.asSequence()
+            .map { FirmSectionRenderKey(it.chunkX, it.index, it.chunkZ) }
+            .distinct()
+            .forEach { section ->
+                addSectionBox(
+                    poseStack,
+                    vertexConsumer,
+                    cameraX,
+                    cameraY,
+                    cameraZ,
+                    section.x * 16,
+                    section.y * 16,
+                    section.z * 16,
+                    red,
+                    green,
+                    blue
+                )
             }
-    }
-
-    private fun addCandidateLines(section: FirmSectionRenderKey, lines: MutableSet<FirmSectionLine>) {
-        val x = section.x
-        val y = section.y
-        val z = section.z
-        lines += FirmSectionLine.of(x, y, z, x + 1, y, z)
-        lines += FirmSectionLine.of(x, y + 1, z, x + 1, y + 1, z)
-        lines += FirmSectionLine.of(x, y, z + 1, x + 1, y, z + 1)
-        lines += FirmSectionLine.of(x, y + 1, z + 1, x + 1, y + 1, z + 1)
-        lines += FirmSectionLine.of(x, y, z, x, y + 1, z)
-        lines += FirmSectionLine.of(x + 1, y, z, x + 1, y + 1, z)
-        lines += FirmSectionLine.of(x, y, z + 1, x, y + 1, z + 1)
-        lines += FirmSectionLine.of(x + 1, y, z + 1, x + 1, y + 1, z + 1)
-        lines += FirmSectionLine.of(x, y, z, x, y, z + 1)
-        lines += FirmSectionLine.of(x + 1, y, z, x + 1, y, z + 1)
-        lines += FirmSectionLine.of(x, y + 1, z, x, y + 1, z + 1)
-        lines += FirmSectionLine.of(x + 1, y + 1, z, x + 1, y + 1, z + 1)
-    }
-
-    private fun FirmSectionLine.isOuterLine(sections: Set<FirmSectionRenderKey>): Boolean {
-        val around = when {
-            x1 != x2 -> booleanArrayOf(
-                FirmSectionRenderKey(x1, y1 - 1, z1 - 1) in sections,
-                FirmSectionRenderKey(x1, y1, z1 - 1) in sections,
-                FirmSectionRenderKey(x1, y1 - 1, z1) in sections,
-                FirmSectionRenderKey(x1, y1, z1) in sections
-            )
-            y1 != y2 -> booleanArrayOf(
-                FirmSectionRenderKey(x1 - 1, y1, z1 - 1) in sections,
-                FirmSectionRenderKey(x1, y1, z1 - 1) in sections,
-                FirmSectionRenderKey(x1 - 1, y1, z1) in sections,
-                FirmSectionRenderKey(x1, y1, z1) in sections
-            )
-            else -> booleanArrayOf(
-                FirmSectionRenderKey(x1 - 1, y1 - 1, z1) in sections,
-                FirmSectionRenderKey(x1, y1 - 1, z1) in sections,
-                FirmSectionRenderKey(x1 - 1, y1, z1) in sections,
-                FirmSectionRenderKey(x1, y1, z1) in sections
-            )
-        }
-        val occupiedCount = around.count { it }
-        return occupiedCount == 1 ||
-            occupiedCount == 3 ||
-            occupiedCount == 2 && ((around[0] && around[3]) || (around[1] && around[2]))
-    }
-
-    private fun addSectionGridLine(
-        poseStack: PoseStack,
-        vertexConsumer: VertexConsumer,
-        cameraX: Double,
-        cameraY: Double,
-        cameraZ: Double,
-        line: FirmSectionLine,
-        red: Float,
-        green: Float,
-        blue: Float
-    ) {
-        val pose = poseStack.last()
-        val x1 = (line.x1 * 16 - cameraX).toFloat()
-        val y1 = (line.y1 * 16 - cameraY).toFloat()
-        val z1 = (line.z1 * 16 - cameraZ).toFloat()
-        val x2 = (line.x2 * 16 - cameraX).toFloat()
-        val y2 = (line.y2 * 16 - cameraY).toFloat()
-        val z2 = (line.z2 * 16 - cameraZ).toFloat()
-        val normalX = if (line.x1 != line.x2) 1.0f else 0.0f
-        val normalY = if (line.y1 != line.y2) 1.0f else 0.0f
-        val normalZ = if (line.z1 != line.z2) 1.0f else 0.0f
-        vertexConsumer.vertex(pose.pose(), x1, y1, z1).color(red, green, blue, 1.0f)
-            .normal(pose.normal(), normalX, normalY, normalZ).endVertex()
-        vertexConsumer.vertex(pose.pose(), x2, y2, z2).color(red, green, blue, 1.0f)
-            .normal(pose.normal(), normalX, normalY, normalZ).endVertex()
     }
 
     private fun addSectionBox(
@@ -187,44 +127,69 @@ object FirmSectionClientEvents {
         val minX = minBlockX - cameraX
         val minY = minBlockY - cameraY
         val minZ = minBlockZ - cameraZ
-        LevelRenderer.renderLineBox(
-            poseStack,
-            vertexConsumer,
-            minX,
-            minY,
-            minZ,
-            minX + 16.0,
-            minY + 16.0,
-            minZ + 16.0,
-            red,
-            green,
-            blue,
-            1.0f
-        )
+        val maxX = minX + 16.0
+        val maxY = minY + 16.0
+        val maxZ = minZ + 16.0
+        val pose = poseStack.last().pose()
+        addVerticalStrip(vertexConsumer, pose, minX, minY, minZ, maxY, red, green, blue)
+        addVerticalStrip(vertexConsumer, pose, minX, minY, maxZ, maxY, red, green, blue)
+        addVerticalStrip(vertexConsumer, pose, maxX, minY, minZ, maxY, red, green, blue)
+        addVerticalStrip(vertexConsumer, pose, maxX, minY, maxZ, maxY, red, green, blue)
+        addHorizontalLoop(vertexConsumer, pose, minX, minY, minZ, maxX, maxZ, red, green, blue)
+        addHorizontalLoop(vertexConsumer, pose, minX, maxY, minZ, maxX, maxZ, red, green, blue)
+    }
+
+    private fun addVerticalStrip(
+        vertexConsumer: VertexConsumer,
+        pose: Matrix4f,
+        x1: Double,
+        y1: Double,
+        z1: Double,
+        y2: Double,
+        red: Float,
+        green: Float,
+        blue: Float
+    ) {
+        addVertex(vertexConsumer, pose, x1, y1, z1, red, green, blue, 0.0f)
+        addVertex(vertexConsumer, pose, x1, y1, z1, red, green, blue, 1.0f)
+        addVertex(vertexConsumer, pose, x1, y2, z1, red, green, blue, 1.0f)
+        addVertex(vertexConsumer, pose, x1, y2, z1, red, green, blue, 0.0f)
+    }
+
+    private fun addHorizontalLoop(
+        vertexConsumer: VertexConsumer,
+        pose: Matrix4f,
+        minX: Double,
+        y: Double,
+        minZ: Double,
+        maxX: Double,
+        maxZ: Double,
+        red: Float,
+        green: Float,
+        blue: Float
+    ) {
+        addVertex(vertexConsumer, pose, minX, y, minZ, red, green, blue, 0.0f)
+        addVertex(vertexConsumer, pose, minX, y, minZ, red, green, blue, 1.0f)
+        addVertex(vertexConsumer, pose, minX, y, maxZ, red, green, blue, 1.0f)
+        addVertex(vertexConsumer, pose, maxX, y, maxZ, red, green, blue, 1.0f)
+        addVertex(vertexConsumer, pose, maxX, y, minZ, red, green, blue, 1.0f)
+        addVertex(vertexConsumer, pose, minX, y, minZ, red, green, blue, 1.0f)
+        addVertex(vertexConsumer, pose, minX, y, minZ, red, green, blue, 0.0f)
+    }
+
+    private fun addVertex(
+        vertexConsumer: VertexConsumer,
+        pose: Matrix4f,
+        x: Double,
+        y: Double,
+        z: Double,
+        red: Float,
+        green: Float,
+        blue: Float,
+        alpha: Float
+    ) {
+        vertexConsumer.vertex(pose, x.toFloat(), y.toFloat(), z.toFloat()).color(red, green, blue, alpha).endVertex()
     }
 
     private data class FirmSectionRenderKey(val x: Int, val y: Int, val z: Int)
-
-    private data class FirmSectionLine(
-        val x1: Int,
-        val y1: Int,
-        val z1: Int,
-        val x2: Int,
-        val y2: Int,
-        val z2: Int
-    ) {
-        companion object {
-            fun of(x1: Int, y1: Int, z1: Int, x2: Int, y2: Int, z2: Int): FirmSectionLine {
-                return if (
-                    x1 < x2 ||
-                    x1 == x2 && y1 < y2 ||
-                    x1 == x2 && y1 == y2 && z1 <= z2
-                ) {
-                    FirmSectionLine(x1, y1, z1, x2, y2, z2)
-                } else {
-                    FirmSectionLine(x2, y2, z2, x1, y1, z1)
-                }
-            }
-        }
-    }
 }

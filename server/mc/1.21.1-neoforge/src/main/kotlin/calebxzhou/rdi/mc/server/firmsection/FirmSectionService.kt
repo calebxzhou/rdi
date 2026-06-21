@@ -5,6 +5,7 @@ import calebxzhou.rdi.mc.firmsection.FirmSectionKey
 import calebxzhou.rdi.mc.firmsection.FirmSectionListResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetStatus
+import calebxzhou.rdi.mc.server.mixin.AChunkMap
 import calebxzhou.rdi.mc.server.network.RServerNetwork
 import net.minecraft.core.BlockPos
 import net.minecraft.core.SectionPos
@@ -40,7 +41,8 @@ object FirmSectionService {
         val data = data(player.server)
         val result = data.set(player.uuid, key)
         if (result.status == FirmSectionSetStatus.ADDED) {
-            level.getChunkAt(pos).isUnsaved = true
+            saveFirmChunkNow(level, pos)
+            saveFirmSectionDataNow(player.server)
             RServerNetwork.sendFirmSectionsToAll(player.server)
         }
         return result
@@ -61,12 +63,15 @@ object FirmSectionService {
         if (!RDI.ONLY_SAVE_FIRM_SECTIONS) {
             return true
         }
-        return data(level.server).hasFirmChunk(
+        return hasFirmChunk(level, chunkPos)
+    }
+
+    fun hasFirmChunk(level: ServerLevel, chunkPos: ChunkPos): Boolean =
+        data(level.server).hasFirmChunk(
             dimensionId = level.dimension().location().toString(),
             chunkX = chunkPos.x,
             chunkZ = chunkPos.z,
         )
-    }
 
     fun all(server: MinecraftServer): List<FirmSectionKey> = data(server).allSections()
 
@@ -85,6 +90,16 @@ object FirmSectionService {
             sectionY = SectionPos.blockToSectionCoord(pos.y),
             chunkZ = SectionPos.blockToSectionCoord(pos.z),
         )
+    }
+
+    private fun saveFirmChunkNow(level: ServerLevel, pos: BlockPos) {
+        val chunk = level.getChunkAt(pos)
+        chunk.isUnsaved = true
+        (level.chunkSource.chunkMap as AChunkMap).`rdi$saveChunk`(chunk)
+    }
+
+    private fun saveFirmSectionDataNow(server: MinecraftServer) {
+        server.overworld().dataStorage.save()
     }
 
 }

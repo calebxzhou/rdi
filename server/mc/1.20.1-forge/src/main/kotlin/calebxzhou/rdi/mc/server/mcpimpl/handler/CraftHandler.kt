@@ -54,16 +54,15 @@ object CraftHandler {
         repeat(times) { i ->
             runCatching {
                 val input = shape.input(simulatedInventory)
-                val holder = level.recipeManager.getRecipeFor(RecipeType.CRAFTING, input.craftingInput, level)
+                val recipe = level.recipeManager.getRecipeFor(RecipeType.CRAFTING, input.craftingInput, level)
                     .orElse(null) ?: throw McpCraftError("no matching crafting recipe for pattern input")
-                if (recipeId != null && recipeId != holder.id()) {
-                    throw McpCraftError("recipe changed across repeated crafts: first=$recipeId current=${holder.id()}")
+                if (recipeId != null && recipeId != recipe.id) {
+                    throw McpCraftError("recipe changed across repeated crafts: first=$recipeId current=${recipe.id}")
                 }
-                recipeId = holder.id()
-                val recipe = holder.value()
-                val result = recipe.assemble(input.craftingInput, player.registryAccess())
+                recipeId = recipe.id
+                val result = recipe.assemble(input.craftingInput, level.registryAccess())
                 if (result.isEmpty) {
-                    throw McpCraftError("recipe ${holder.id()} assembled empty result")
+                    throw McpCraftError("recipe ${recipe.id} assembled empty result")
                 }
                 val remainingItems = recipe.getRemainingItems(input.craftingInput).filterNot { it.isEmpty }.map(ItemStack::copy)
 

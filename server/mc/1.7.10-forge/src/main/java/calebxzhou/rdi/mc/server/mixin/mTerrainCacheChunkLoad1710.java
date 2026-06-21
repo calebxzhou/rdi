@@ -1,5 +1,6 @@
 package calebxzhou.rdi.mc.server.mixin;
 
+import calebxzhou.rdi.mc.server.firmsection.FirmSectionService1710;
 import calebxzhou.rdi.mc.server.world.TerrainCache1710;
 import net.minecraft.world.WorldServer;
 import net.minecraft.world.chunk.Chunk;
@@ -39,6 +40,9 @@ public abstract class mTerrainCacheChunkLoad1710 {
         }
 
         if (!TerrainCache1710.INSTANCE.isEnabled()) {
+            return null;
+        }
+        if (FirmSectionService1710.INSTANCE.hasFirmChunk(worldObj, chunkX, chunkZ)) {
             return null;
         }
 

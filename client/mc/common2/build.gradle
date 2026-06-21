@@ -12,9 +12,9 @@ repositories {
 
 
 dependencies {
-    api project(":rcmd")
+//    api project(":rcmd")
     api 'io.fusionauth:java-http:1.4.0'
-    implementation project(':rcmd')
+  //  implementation project(':rcmd')
     compileOnly 'com.google.code.gson:gson:2.11.0'
 }
 

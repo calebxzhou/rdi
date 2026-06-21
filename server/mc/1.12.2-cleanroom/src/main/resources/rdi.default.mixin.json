@@ -5,6 +5,7 @@
   "target": "@env(DEFAULT)",
   "mixins": [
     "AAnvilChunkLoader112",
+    "AChunkProviderServer112",
     "mAllowChineseNameLogin",
     "mChatMsg",
     "mOnlySaveFirmSections112",

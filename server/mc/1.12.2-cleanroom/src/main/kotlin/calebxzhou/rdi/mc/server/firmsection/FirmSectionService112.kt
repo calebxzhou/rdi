@@ -6,6 +6,7 @@ import calebxzhou.rdi.mc.firmsection.FirmSectionListResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetStatus
 import calebxzhou.rdi.mc.firmsection.FirmSectionUnsetResult
+import calebxzhou.rdi.mc.server.mixin.AChunkProviderServer112
 import calebxzhou.rdi.mc.server.network.RServerNetwork
 import net.minecraft.entity.player.EntityPlayerMP
 import net.minecraft.server.MinecraftServer
@@ -13,6 +14,7 @@ import net.minecraft.util.math.BlockPos
 import net.minecraft.util.math.MathHelper
 import net.minecraft.world.World
 import net.minecraft.world.chunk.Chunk
+import net.minecraft.world.gen.ChunkProviderServer
 
 object FirmSectionService112 {
     fun isEnabled(): Boolean = RDI.ONLY_SAVE_FIRM_SECTIONS
@@ -31,7 +33,8 @@ object FirmSectionService112 {
         val key = target(world, pos)
         val result = data(player.server).set(player.uniqueID, key)
         if (result.status == FirmSectionSetStatus.ADDED) {
-            world.getChunk(key.chunkX, key.chunkZ).markDirty()
+            saveFirmChunkNow(world, key.chunkX, key.chunkZ)
+            saveFirmSectionDataNow(player.server)
             RServerNetwork.sendFirmSectionsToAll(player.server)
         }
         return result
@@ -51,15 +54,15 @@ object FirmSectionService112 {
         if (!RDI.ONLY_SAVE_FIRM_SECTIONS) {
             return true
         }
-        if (data(world.minecraftServer!!).hasFirmChunk(
-            dimensionId(world),
-            chunk.x,
-            chunk.z
-        )) {
-            return true
-        }
-        return false
+        return hasFirmChunk(world, chunk.x, chunk.z)
     }
+
+    fun hasFirmChunk(world: World, chunkX: Int, chunkZ: Int): Boolean =
+        data(world.minecraftServer!!).hasFirmChunk(
+            dimensionId(world),
+            chunkX,
+            chunkZ
+        )
 
     fun all(server: MinecraftServer): List<FirmSectionKey> = data(server).allSections()
 
@@ -84,5 +87,19 @@ object FirmSectionService112 {
     private fun dimensionId(world: World): String = "legacy:${world.provider.dimension}"
 
     private fun blockToSectionCoord(value: Double): Int = MathHelper.floor(value) shr 4
+
+    private fun saveFirmChunkNow(world: World, chunkX: Int, chunkZ: Int) {
+        val chunk = world.getChunk(chunkX, chunkZ)
+        chunk.markDirty()
+        val provider = world.chunkProvider
+        if (provider is ChunkProviderServer) {
+            (provider as AChunkProviderServer112).`rdi$saveChunkData`(chunk)
+            chunk.setModified(false)
+        }
+    }
+
+    private fun saveFirmSectionDataNow(server: MinecraftServer) {
+        server.getWorld(0).mapStorage!!.saveAllData()
+    }
 
 }
