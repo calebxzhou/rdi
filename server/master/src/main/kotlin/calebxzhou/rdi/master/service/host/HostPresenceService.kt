@@ -237,7 +237,7 @@ object HostPresenceService {
             }
             val players = McServerPinger.ping(port, timeoutMillis = 1_000).players
             val playerIds = players?.let { players ->
-                lgr.info { "get online players for ${this.name} = ${players}" }
+                lgr.info { "get online players for ${this.name} = $players" }
                 players.sample.map { UUID.fromString(it.id).objectId }
             } ?: emptyList()
             onlinePlayersCache[_id] = OnlinePlayersCacheEntry(playerIds, System.currentTimeMillis())

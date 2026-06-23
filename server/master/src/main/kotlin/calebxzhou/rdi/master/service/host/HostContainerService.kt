@@ -52,11 +52,12 @@ object HostContainerService {
             }
         }
         val noguiArg = if (mcv == McVersion.V071) "nogui" else "--nogui"
-        val totalArg = mutableListOf("").apply {
-            if(modpack.mcVer == McVersion.V211
-                || modpack.mcVer == McVersion.V201 || modpack.mcVer == McVersion.V071
-            ){
-                this.add("-Drdi.onlySaveFirmSections=true")
+        val totalArg = mutableListOf(
+
+            "-Drdi.onlySaveFirmSections=true",
+        ).apply {
+            if(modpack.mcVer != McVersion.V192){
+                this.add("-XX:+UseCompactObjectHeaders")
             }
             if(modpack.mcVer == McVersion.V071 || modpack.mcVer == McVersion.V122){
                 this.add("-Dfml.queryResult=confirm")
@@ -105,19 +106,14 @@ object HostContainerService {
         val sharedLibsDir = modpack.libsDir.canonicalFile.also { it.mkdirs() }
         val loaderVer = modpack.mcVer.loaderVersions[modpack.modloader] ?: throw RequestError("找不到对应版本的运行库")
         val lwjgl3ifyRuntime = if (Lwjgl3ifyServerSupport.shouldEnable(modpack)) {
-            Lwjgl3ifyServerSupport.prepare(modpack)
+            Lwjgl3ifyServerSupport.prepare(modpack, dir)
         } else {
             null
         }
         val rdiCore = "rdi-5-mc-server-${modpack.mcVer.mcVer}-${modpack.modloader}.jar"
         val sharedRdiCore = sharedLibsDir.resolve("mods").resolve(rdiCore)
         val rdiCoreSource = sharedRdiCore.takeIf { it.exists() }
-            ?: lwjgl3ifyRuntime?.modsDir?.resolve(rdiCore)?.takeIf { it.exists() }
-            ?: if (lwjgl3ifyRuntime != null) {
-                throw RequestError("GTNH服务端运行库缺少RDI核心Mod: ${lwjgl3ifyRuntime.modsDir.resolve(rdiCore).absolutePath}")
-            } else {
-                sharedRdiCore
-            }
+            ?: sharedRdiCore
         val librariesSource = lwjgl3ifyRuntime?.librariesDir ?: sharedLibsDir.resolve("libraries")
         val mounts = mutableListOf(
             Mount()
@@ -175,17 +171,6 @@ object HostContainerService {
                     .withSource(serverJar.absolutePath)
                     .withTarget("/opt/server/${serverJar.name}")
             }
-            lwjgl3ifyRuntime?.let { runtime ->
-                this += Mount()
-                    .withType(MountType.BIND)
-                    .withSource(runtime.launcherJar.absolutePath)
-                    .withTarget("/opt/server/${runtime.launcherJar.name}")
-                this += Mount()
-                    .withType(MountType.BIND)
-                    .withSource(runtime.java9ArgsFile.absolutePath)
-                    .withTarget("/opt/server/${runtime.java9ArgsFile.name}")
-            }
-
             if (worldId != null) {
                 val worldCacheDir = prepareWorldCacheDir(worldId)
                 this += Mount()
@@ -225,7 +210,7 @@ object HostContainerService {
     }
 
     private fun prepareWorldCacheDir(worldId: ObjectId): File {
-        val dir = WORLD_CACHE_DIR.resolve(worldId.str).canonicalFile
+        val dir = WorldService.getCacheDir(worldId).canonicalFile
         if (!dir.exists() && !dir.mkdirs()) {
             throw RequestError("世界缓存目录创建失败: ${dir.absolutePath}")
         }

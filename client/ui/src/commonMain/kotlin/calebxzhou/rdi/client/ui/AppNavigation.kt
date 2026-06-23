@@ -136,7 +136,7 @@ fun AppNavigation(
                     onOpenResources = { navController.navigate(ResourceRoute(ResourceTab.All.name)) },
                     onOpenMcmod = { navController.navigate(Mcmod) },
                     onOpenSponsor = { navController.navigate(Sponsor) },
-                    onOpenAiChat = { mcpPort, versionDir -> navController.navigate(AiChat(mcpPort, versionDir)) },
+                    onOpenAiChat = { mcpPort, versionDir -> /*navController.navigate(AiChat(mcpPort, versionDir))*/ },
                     onOpenTaskList = { navController.navigate(TaskList()) },
                     onOpenMcConsole = {
                         McPlayStore.openConsoleOnly = true
@@ -165,7 +165,7 @@ fun AppNavigation(
                     onBack = { navController.navigateAbsolute(Menu) }
                 )
             }
-            composable<AiChat> {
+            /*composable<AiChat> {
                 val route = it.toRoute<AiChat>()
                 AiChatScreen(
                     mcpPort = route.mcpPort,
@@ -178,7 +178,7 @@ fun AppNavigation(
                     },
                     onOpenSettings = { navController.navigate(Setting) }
                 )
-            }
+            }*/
             composable<Register> {
                 val route = it.toRoute<Register>()
                 RegisterScreen(
@@ -261,15 +261,15 @@ fun AppNavigation(
                         )
                     },
                     onOpenBirdView = { worldId ->
-                        WorldBirdViewStore.current = WorldBirdViewSourceSpec.Remote(worldId)
-                        navController.navigate(WorldBirdView(worldId))
+                        /*WorldBirdViewStore.current = WorldBirdViewSourceSpec.Remote(worldId)
+                        navController.navigate(WorldBirdView(worldId))*/
                     },
                     onOpenLocalBirdView = {
-                        scope.launch {
+                        /*scope.launch {
                             val rootPath = pickLocalMinecraftWorldDir() ?: return@launch
                             WorldBirdViewStore.current = WorldBirdViewSourceSpec.Local(rootPath)
                             navController.navigate(WorldBirdView(LOCAL_WORLD_BIRD_VIEW_ROUTE_ID))
-                        }
+                        }*/
                     },
                     onOpenTaskList = { runId ->
                         navController.navigate(TaskList(runId))
@@ -327,7 +327,7 @@ fun AppNavigation(
                     }
                 )
             }
-            composable<WorldBirdView> {
+            /*composable<WorldBirdView> {
                 val route = it.toRoute<WorldBirdView>()
                 val sourceSpec = when (route.worldId) {
                     LOCAL_WORLD_BIRD_VIEW_ROUTE_ID -> {
@@ -340,7 +340,7 @@ fun AppNavigation(
                     sourceSpec = sourceSpec,
                     onBack = { navController.navigateAbsolute(HostRoute(HostTab.Worlds.name)) }
                 )
-            }
+            }*/
             composable<TaskList> {
                 val route = it.toRoute<TaskList>()
                 TaskListScreen(

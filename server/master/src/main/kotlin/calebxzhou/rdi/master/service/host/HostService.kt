@@ -78,10 +78,12 @@ object HostService {
             }
         }
         HostPresenceService.startGlobalPlayerListPoll()
+        HostPlayerDataBackupService.start()
     }
 
     fun shutdown() {
         lgr.info { "Shutting down HostService..." }
+        HostPlayerDataBackupService.shutdown()
         HostPresenceService.shutdown()
         staleCleanupJob.cancel()
         idleMonitorScope.cancel()

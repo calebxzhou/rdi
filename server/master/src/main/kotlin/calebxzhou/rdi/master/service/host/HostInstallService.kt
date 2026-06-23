@@ -213,10 +213,6 @@ object HostInstallService {
                     }
                     host.dir.mkdir()
 
-                    ctx.emit(LoadProgress.Phase("准备运行库"))
-                    MailService.changeMail(mailId, runningTitle, newContent = "准备运行库")
-                    host.makeContainer(host.worldId, modpack, version)
-
                     modpack.installToHost(host.packVer, host) {
                         MailService.changeMail(mailId, runningTitle, newContent = it)
                         ctx.emit(LoadProgress.Phase(it))
@@ -229,6 +225,10 @@ object HostInstallService {
                     ctx.emit(LoadProgress.Phase("清理启动前缓存"))
                     MailService.changeMail(mailId, runningTitle, newContent = "清理启动前缓存")
                     host.deleteTransientStartupDirs()
+
+                    ctx.emit(LoadProgress.Phase("准备运行库"))
+                    MailService.changeMail(mailId, runningTitle, newContent = "准备运行库")
+                    host.makeContainer(host.worldId, modpack, version)
 
                     lgr.info { "installToHost returned. Proceeding to start Docker container for host ${host._id} (Logic Error Tracing)." }
                     ctx.emit(LoadProgress.Phase("启动房间"))

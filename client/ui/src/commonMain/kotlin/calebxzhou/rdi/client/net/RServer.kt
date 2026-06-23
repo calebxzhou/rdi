@@ -19,6 +19,7 @@ import io.ktor.http.*
 import io.ktor.sse.ServerSentEvent
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.builtins.MapSerializer
 import kotlinx.serialization.builtins.serializer
 import kotlinx.serialization.json.JsonElement
@@ -158,7 +159,12 @@ class RServer(
 
 suspend inline fun <reified T> HttpResponse.rdiResponse(): Response<T> {
     if (status.value !in 200..299) {
-        bodyAsText()
+        val responseText = bodyAsText()
+        runCatching {
+            serdesJson.decodeFromString<Response<JsonElement>>(responseText)
+        }.getOrNull()?.msg?.takeIf(String::isNotBlank)?.let {
+            throw RequestError(it)
+        }
         throw RequestError("服务器请求失败: ${status.value} ${status.description}")
     }
     val responseContentType = contentType()

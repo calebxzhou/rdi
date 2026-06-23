@@ -2,6 +2,7 @@
   "required": true,
   "minVersion": "0.8.5-GTNH",
   "package": "calebxzhou.rdi.mc.client.mixin",
+  "plugin": "calebxzhou.rdi.mc.client.mixin.RdiClientMixinPlugin",
   "refmap": "mixins.rdi.refmap.json",
   "target": "@env(DEFAULT)",
   "compatibilityLevel": "JAVA_21",
@@ -14,6 +15,11 @@
     "mSkinManager",
     "mMinecraft",
     "mRcmdChatScreen",
-    "mGlobalPlayerListOverlay"
+    "mGlobalPlayerListOverlay",
+    "mMCLibUpdateCheckAPI",
+    "mMCLibAssetDirectorAPI",
+    "mMCLibAssetDirector",
+    "mMCLibSloppyDepLoaderAPI",
+    "mMCLibSloppyDepLoader"
   ]
 }

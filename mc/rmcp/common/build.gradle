@@ -14,14 +14,16 @@ repositories {
     mavenCentral()
 }
 
+/*
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
 }
+*/
 
 kotlin {
-    jvmToolchain(25)
+    //jvmToolchain(25)
     sourceSets.all {
         languageSettings {
             optIn("kotlinx.serialization.ExperimentalSerializationApi")

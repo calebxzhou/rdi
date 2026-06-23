@@ -13,6 +13,7 @@ import net.minecraft.util.MathHelper
 import net.minecraft.world.World
 import net.minecraft.world.chunk.Chunk
 import net.minecraft.world.gen.ChunkProviderServer
+import net.minecraftforge.common.DimensionManager
 
 object FirmSectionService1710 {
     fun isEnabled(): Boolean = RDI.ONLY_SAVE_FIRM_SECTIONS
@@ -53,13 +54,19 @@ object FirmSectionService1710 {
     }
 
     fun hasFirmChunk(world: World, chunkX: Int, chunkZ: Int): Boolean =
-        data(MinecraftServer.getServer()).hasFirmChunk(
+        existingData()?.hasFirmChunk(
             dimensionId = dimensionId(world),
             chunkX = chunkX,
             chunkZ = chunkZ,
-        )
+        ) ?: false
 
     fun all(server: MinecraftServer): List<FirmSectionKey> = data(server).allSections()
+
+    private fun existingData(): FirmSectionSavedData1710? {
+        val overworld = DimensionManager.getWorld(0) ?: return null
+        val existing = overworld.mapStorage.loadData(FirmSectionSavedData1710::class.java, FirmSectionSavedData1710.FILE_ID)
+        return existing as? FirmSectionSavedData1710
+    }
 
     private fun data(server: MinecraftServer): FirmSectionSavedData1710 {
         val storage = server.worldServerForDimension(0).mapStorage

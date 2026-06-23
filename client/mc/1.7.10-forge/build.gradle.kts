@@ -60,8 +60,12 @@ configurations.named("implementation") {
 
 dependencies {
     add("shaded", "io.fusionauth:java-http:1.4.0")
-    add("shaded", "org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    add("shaded", "io.heapy.kotaml:kotaml:0.108.0")
+    implementation( "org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
+    add("shaded", "io.heapy.kotaml:kotaml:0.108.0") {
+        exclude(group = "org.jetbrains.kotlin")
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-core")
+        exclude(group = "org.jetbrains.kotlinx", module = "kotlinx-serialization-json")
+    }
 }
 
 tasks.withType<Jar>().configureEach {

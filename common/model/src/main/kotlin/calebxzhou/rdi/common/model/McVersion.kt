@@ -5,7 +5,7 @@ import calebxzhou.rdi.common.DEBUG
 //https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json
 enum class McVersion(
     val mcVer: String,
-    val icon: String,
+    val iconName: String,
     val jreSupport: Int,
     val alterJreVer: Int = jreSupport,
     //预留多loader支持
@@ -16,7 +16,7 @@ enum class McVersion(
 
     V211(
         "1.21.1",
-        "assets/icons/mace.png",
+        "mace",
         25,
         25,
         // "https://piston-meta.mojang.com/v1/packages/a56257b4bc475ecac33571b51b68b33ac046fc72/1.21.1.json",
@@ -31,7 +31,7 @@ enum class McVersion(
     ),
     V201(
         "1.20.1",
-        "assets/icons/brush.png", 25,25,
+        "brush", 25,25,
         // "https://piston-meta.mojang.com/v1/packages/9318a951bbc903b54a21463a7eb8c4d451f7b132/1.20.1.json",
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -44,7 +44,7 @@ enum class McVersion(
     ),
     V192(
         "1.19.2",
-        "assets/icons/frog.png", 21,21,
+        "frog", 21,21,
         mapOf(
             ModLoader.forge to ModLoader.Version(
                 ModLoader.forge,
@@ -57,7 +57,7 @@ enum class McVersion(
     ),
     /*V182(
         "1.18.2",
-        "assets/icons/copper.png", 21,21,
+        "copper.png", 21,21,
         //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -70,7 +70,7 @@ enum class McVersion(
     ),*/
     /*V165(
         "1.16.5",
-        "assets/icons/zoglin.webp", 8,8,
+        "zoglin.webp", 8,8,
         mapOf(
             ModLoader.forge to ModLoader.Version(
                 ModLoader.forge,
@@ -87,7 +87,7 @@ enum class McVersion(
     ),*/
     V122(
         "1.12.2",
-        "assets/icons/terracotta.png", 25,25,
+        "terracotta", 25,25,
         mapOf(
             ModLoader.cleanroom to ModLoader.Version(
                 ModLoader.cleanroom,
@@ -100,7 +100,7 @@ enum class McVersion(
     //GTNH only
     V071(
         "1.7.10",
-        "assets/icons/acacia_log.webp", 25,25,
+        "acacia_log", 25,25,
         //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -124,6 +124,7 @@ enum class McVersion(
             add(alterJreVer)
         }
     }
+    val icon = "assets/icons/${iconName}.png"
     val vMajor get() = mcVer.split(".")[0]
     val vMinor get() = mcVer.split(".")[1]
     val vPatch get() = mcVer.split(".")[2]

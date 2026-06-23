@@ -46,11 +46,15 @@ import calebxzhou.rdi.common.model.McVersion
 @Composable
 fun RemoteModCard(
     mod: RemoteModCardVo,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier.fillMaxWidth(),
+    compact: Boolean = false,
     onClick: (() -> Unit)? = null
 ) {
+    val iconSize = if (compact) 48.dp else 76.dp
+    val contentPadding = if (compact) 8.dp else 10.dp
+    val itemGap = if (compact) 8.dp else 10.dp
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier,
         shape = roundShape,
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 1.dp,
@@ -58,18 +62,18 @@ fun RemoteModCard(
         onClick = onClick?:{}
     ) {
         Column(
-            modifier = Modifier.padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
+            modifier = Modifier.padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(itemGap)
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                horizontalArrangement = Arrangement.spacedBy(itemGap),
                 verticalAlignment = Alignment.Top
             ) {
-                RemoteModIcon(mod)
+                RemoteModIcon(mod, iconSize)
                 Column(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                    verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -78,7 +82,7 @@ fun RemoteModCard(
                     ) {
                         Text(
                             text = mod.title,
-                            style = MaterialTheme.typography.bodyLarge,
+                            style = if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.bodyLarge,
                             fontWeight = FontWeight.Bold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -88,17 +92,17 @@ fun RemoteModCard(
                     }
                     Text(
                         text = mod.summary,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(18.dp),
+                        horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RemoteModStat("\uF019", mod.downloadsText)
-                        mod.followsText?.let { RemoteModStat("\uDB80\uDED1", it) }
+                        RemoteModStat("\uF019", mod.downloadsText, compact)
+                        mod.followsText?.let { RemoteModStat("\uDB80\uDED1", it, compact) }
                         Spacer(modifier = Modifier.weight(1f))
                        // mod.modifiedText?.let { RemoteModStat("\uE641", it) }
                     }
@@ -111,9 +115,9 @@ fun RemoteModCard(
 }
 
 @Composable
-private fun RemoteModIcon(mod: RemoteModCardVo) {
+private fun RemoteModIcon(mod: RemoteModCardVo, size: androidx.compose.ui.unit.Dp = 76.dp) {
     Surface(
-        modifier = Modifier.size(76.dp),
+        modifier = Modifier.size(size),
         shape = roundShape,
         color = MaterialColor.GRAY_200.color,
         shadowElevation = 1.dp
@@ -255,16 +259,20 @@ private fun RemoteModChip(text: String) {
 }
 
 @Composable
-private fun RemoteModStat(icon: String, text: String) {
+private fun RemoteModStat(icon: String, text: String, compact: Boolean = false) {
     Row(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(text = icon.asIconText, color = MaterialColor.GRAY_900.color, style = MaterialTheme.typography.bodyMedium,)
+        Text(
+            text = icon.asIconText,
+            color = MaterialColor.GRAY_900.color,
+            style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
+        )
         Text(
             text = text,
             color = MaterialColor.GRAY_900.color,
-            style = MaterialTheme.typography.bodyMedium,
+            style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

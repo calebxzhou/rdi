@@ -89,6 +89,7 @@ val HOSTS_DIR = storageDir(CONF.storage.hostsDir, "hosts")
 val GAME_LIBS_DIR = storageDir(CONF.storage.gameLibsDir, "game-libs")
 val WORLDS_DIR = storageDir(CONF.storage.worldsDir, "worlds")
 val WORLD_CACHE_DIR = storageDir(CONF.storage.worldCacheDir, "world-cache")
+val WORLD_BACKUP_DIR = storageDir(CONF.storage.worldBackupDir, "world-backup").also { it.mkdirs() }
 
 class RDI {}
 
@@ -108,6 +109,7 @@ fun main(): Unit = runBlocking {
     WORLD_CACHE_DIR.mkdirs()
     lgr.info { "worlds: ${WORLDS_DIR.absolutePath}" }
     lgr.info { "world cache: ${WORLD_CACHE_DIR.absolutePath}" }
+    lgr.info { "world bkup: ${WORLD_BACKUP_DIR.absolutePath}" }
     lgr.info { "init db" }
 
     accountCol.createIndex(Indexes.ascending("qq"), IndexOptions().unique(true))

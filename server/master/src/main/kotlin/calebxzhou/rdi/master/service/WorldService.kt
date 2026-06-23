@@ -18,8 +18,11 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.common.model.world.RChunkPos
 import calebxzhou.rdi.common.util.ioScope
+import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.master.WORLDS_DIR
+import calebxzhou.rdi.master.WORLD_BACKUP_DIR
+import calebxzhou.rdi.master.WORLD_CACHE_DIR
 import calebxzhou.rdi.master.service.host.HostControlService.status
 import calebxzhou.rdi.master.service.WorldService.getDimensions
 import calebxzhou.rdi.master.service.WorldService.readSurfaceCacheOnly
@@ -157,6 +160,9 @@ object WorldService {
     fun getDir(worldId: ObjectId) = WORLDS_DIR.resolve(worldId.toHexString())
     fun getDataDir(worldId: ObjectId) = getDir(worldId).resolve("data").also { it.mkdir() }
     fun getLevelDir(worldId: ObjectId) = getDataDir(worldId).resolve("world").also { it.mkdir() }
+    fun getCacheDir(worldId: ObjectId) = WORLD_CACHE_DIR.resolve(worldId.str)
+    fun getBackupDir(worldId: ObjectId) = WORLD_BACKUP_DIR.resolve(worldId.str)
+
     val World.dir get() = getDir(_id)
     val World.dataDir get() = getDataDir(_id)
     suspend fun getById(id: ObjectId): World? = dbcl.find(eq("_id", id)).firstOrNull()
@@ -246,9 +252,13 @@ object WorldService {
             }
         }
         val dataDir = world.dir.resolve("data")
-        if (dataDir.exists()) {
-            dataDir.deleteRecursivelyNoSymlink()
+        if (dataDir.isDirectory) {
+            dataDir.listFiles()?.forEach { it.deleteRecursivelyNoSymlink() }
+        } else {
+            dataDir.mkdirs()
         }
+        getCacheDir(worldId).takeIf { it.exists() }?.deleteRecursivelyNoSymlink()
+        WorldService.getBackupDir(worldId).takeIf { it.exists() }?.deleteRecursivelyNoSymlink()
         worldSurfaceCol.deleteMany(eq("worldId", worldId))
         updateWorldSize(worldId)
     }
@@ -263,6 +273,8 @@ object WorldService {
         if (dir.exists()) {
             dir.deleteRecursivelyNoSymlink()
         }
+        getCacheDir(worldId).takeIf { it.exists() }?.deleteRecursivelyNoSymlink()
+        WorldService.getBackupDir(worldId).takeIf { it.exists() }?.deleteRecursivelyNoSymlink()
     }
 
     private data class SurfaceSection(
@@ -1349,7 +1361,7 @@ object WorldService {
         val root = chunk.getNbtData() ?: return emptyList()
         val sectionTags = root["sections"]?.nbtList ?: return emptyList()
         return sectionTags.mapNotNull { sectionTag ->
-            val section = sectionTag.nbtCompound ?: return@mapNotNull null
+            val section = sectionTag.nbtCompound
             val sectionY = section["Y"]?.nbtByte?.value?.toInt()
                 ?: section["Y"]?.nbtInt?.value
                 ?: return@mapNotNull null

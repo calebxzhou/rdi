@@ -3,6 +3,7 @@ package calebxzhou.rdi.client.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,6 +26,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.IconFontFamily
 import androidx.compose.material3.OutlinedTextField as M3OutlinedTextField
 
@@ -88,6 +90,26 @@ fun MainBox(content: @Composable (BoxScope.() -> Unit)) {
     Box(modifier = Modifier.fillMaxSize()) { content() }
 }
 
+@Composable
+fun TinyClickCopyText(
+    label: String,
+    value: String?,
+    onCopied: () -> Unit = {}
+) {
+    Text(
+        text = "$label ${value ?: "-"}",
+        modifier = Modifier.clickable(enabled = value != null) {
+            value?.let {
+                copyToClipboard(it)
+                onCopied()
+            }
+        },
+        fontSize = 8.sp,
+        lineHeight = 8.sp,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis
+    )
+}
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RThinTextField(

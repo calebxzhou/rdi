@@ -50,7 +50,6 @@ object HostMemberService {
         val current = HostQueryService.getById(host._id) ?: throw RequestError("无此房间")
         val recipient = targetMember
         if (current.ownerId == recipient.id) throw RequestError("不能转给自己")
-        if (!getTargetPlayer().hasMsid) throw RequestError("找不到对方的微软账号")
         val previousOwner = current.members.find { it.id == current.ownerId }
             ?: throw RequestError("当前拥有者不在成员列表")
         val hasRecipient = current.members.any { it.id == recipient.id }

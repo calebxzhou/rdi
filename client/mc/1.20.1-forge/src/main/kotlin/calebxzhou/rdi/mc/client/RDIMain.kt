@@ -30,7 +30,7 @@ import org.apache.logging.log4j.LogManager
 class RDIMain {
     init {
         RClientNetwork.register()
-        //McpNetwork.register()
+        McpNetwork.register()
         LogManager.getLogger("rdi").info("❄❄❄❄❄❄❄❄RDI客户端核心模块已加载❄❄❄❄❄❄❄❄")
     }
 

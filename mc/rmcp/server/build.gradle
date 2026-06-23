@@ -14,7 +14,7 @@ repositories {
     mavenCentral()
 }
 
-java {
+/*java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
     }
@@ -22,7 +22,7 @@ java {
 
 kotlin {
     jvmToolchain(25)
-}
+}*/
 
 dependencies {
     api project(':rmcp-common')

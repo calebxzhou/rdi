@@ -10,14 +10,7 @@ import calebxzhou.mykotutils.std.readAllString
 import calebxzhou.rdi.RDIClient
 import calebxzhou.rdi.client.service.getCachedOrFetchHwSpecJson
 import calebxzhou.rdi.client.ui.comp.DesktopWebViewHost
-import calebxzhou.rdi.client.ui.screen.AiChat
-import calebxzhou.rdi.client.ui.screen.HostRoute
-import calebxzhou.rdi.client.ui.screen.HostTab
-import calebxzhou.rdi.client.ui.screen.McPlayView
-import calebxzhou.rdi.client.ui.screen.ModpackUpload
-import calebxzhou.rdi.client.ui.screen.ResourceRoute
-import calebxzhou.rdi.client.ui.screen.ResourceTab
-import calebxzhou.rdi.client.ui.screen.TaskList
+import calebxzhou.rdi.client.ui.screen.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.awt.Desktop
@@ -383,7 +376,7 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
             launchArgs = launchArgs,
             autoStart = launchArgs != null,
             onOpenAiChat = { mcpPort, versionDir ->
-                navController.navigate(AiChat(mcpPort, versionDir))
+                //navController.navigate(AiChat(mcpPort, versionDir))
             },
             onBack = {
                 val callback = McPlayStore.onBack

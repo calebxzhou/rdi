@@ -144,7 +144,8 @@ fun ModpackInfoScreen(
                 errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
 
                 pack?.let { pack->
-                    HeadButton(pack.authorId)
+                    TinyClickCopyText("mid",pack._id.toString())
+                    HeadButton(pack.authorId, showName = false)
                     Space8w()
                     ImageIconButton("grass_block")
                     Text(pack.mcVer.mcVer)

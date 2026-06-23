@@ -26,46 +26,43 @@ object CurseForgeProjectInfoService {
             ?: error("找不到CurseForge项目")
         val description = async { CurseForgeService.getModDescription(modId) }
         val files = async {
-            CurseForgeService.getModFiles(
-                modId = modId,
-                mcVersion = mcVersion,
-                loader = loader,
-                limit = 50
-            ).data
-                .filter { it.isAvailable }
-                .sortedByDescending { it.fileDate.orEmpty() }
+            loadAvailableFiles(modId, mcVersion, loader)
         }
         project.toModrinthProjectInfoVo(
             description = description.await().takeIf(String::isNotBlank) ?: project.summary.orEmpty(),
             files = files.await()
         )
     }
+
+    suspend fun loadProjectVersions(
+        projectId: String,
+        mcVersion: String,
+        loader: String
+    ): List<ModrinthProjectVersionVo> {
+        val modId = projectId.toIntOrNull() ?: error("CurseForge项目ID无效")
+        return loadAvailableFiles(modId, mcVersion, loader).toModrinthProjectVersionVos(modId)
+    }
+
+    private suspend fun loadAvailableFiles(
+        modId: Int,
+        mcVersion: String?,
+        loader: String?
+    ): List<CurseForgeFile> =
+        CurseForgeService.getModFiles(
+            modId = modId,
+            mcVersion = mcVersion,
+            loader = loader,
+            limit = 50
+        ).data
+            .filter { it.isAvailable }
+            .sortedByDescending { it.fileDate.orEmpty() }
 }
 
 private suspend fun CurseForgeModInfo.toModrinthProjectInfoVo(
     description: String,
     files: List<CurseForgeFile>
 ): ModrinthProjectInfoVo = coroutineScope {
-    val fileChangelogs = files.map { file ->
-        async {
-            file.id to runCatching {
-                CurseForgeService.getModFileChangelog(id, file.id)
-            }.getOrDefault("")
-        }
-    }.awaitAll().toMap()
-    val fileDownloadUrls = files.map { file ->
-        async {
-            file.id to runCatching {
-                CurseForgeService.getModFileDownloadUrl(id, file.id)
-            }.getOrNull()
-        }
-    }.awaitAll().toMap()
-    val versions = files.map { file ->
-        file.toModrinthProjectVersionVo(
-            changelog = fileChangelogs[file.id].orEmpty(),
-            downloadUrl = fileDownloadUrls[file.id]
-        )
-    }
+    val versions = files.toModrinthProjectVersionVos(id)
     val fallbackSummary = summary?.takeIf(String::isNotBlank) ?: "暂无简介"
     val localizedSummary = RemoteModLocalization.introByCurseForgeSlug(slug, fallbackSummary)
     val localizedDescription = RemoteModLocalization.introByCurseForgeSlug(
@@ -98,6 +95,30 @@ private suspend fun CurseForgeModInfo.toModrinthProjectInfoVo(
         versions = versions,
         sourceUrl = sourceUrl
     )
+}
+
+private suspend fun List<CurseForgeFile>.toModrinthProjectVersionVos(modId: Int): List<ModrinthProjectVersionVo> = coroutineScope {
+    val sourceFiles = this@toModrinthProjectVersionVos
+    val fileChangelogs = sourceFiles.map { file ->
+        async {
+            file.id to runCatching {
+                CurseForgeService.getModFileChangelog(modId, file.id)
+            }.getOrDefault("")
+        }
+    }.awaitAll().toMap()
+    val fileDownloadUrls = sourceFiles.map { file ->
+        async {
+            file.id to runCatching {
+                CurseForgeService.getModFileDownloadUrl(modId, file.id)
+            }.getOrNull()
+        }
+    }.awaitAll().toMap()
+    sourceFiles.map { file ->
+        file.toModrinthProjectVersionVo(
+            changelog = fileChangelogs[file.id].orEmpty(),
+            downloadUrl = fileDownloadUrls[file.id]
+        )
+    }
 }
 
 private fun CurseForgeFile.toModrinthProjectVersionVo(

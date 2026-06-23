@@ -499,8 +499,19 @@ fun HostInfoScreen(
         MainColumn {
             TitleRow2(title = host?.name ?: "房间详情", onBack = onBack) {
                     host?.let { host ->
-                        CopyButton(hostId.toString())
-                        Text("HID=${hostId}", fontSize = 8.sp)
+
+                        Column {
+
+                            TinyClickCopyText("hid", hostId.toHexString()) {
+                                okMessage = "已复制hid"
+                            }
+                            TinyClickCopyText("mid", host.modpack.id.toHexString()) {
+                                okMessage = "已复制mid"
+                            }
+                            TinyClickCopyText("wid", host.worldId?.toHexString()) {
+                                okMessage = "已复制wid"
+                            }
+                        }
                         HeadButton(host.ownerId)
                         CircleIconButton(
                             icon = "\uF04B",
@@ -1776,6 +1787,7 @@ fun HostInfoScreen(
         )
     }
 }
+
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

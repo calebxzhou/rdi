@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -62,6 +63,7 @@ import calebxzhou.rdi.client.service.RemoteModLocalization
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.BottomSnakebarM3
 import calebxzhou.rdi.client.ui.CircleIconButton
+import calebxzhou.rdi.client.ui.ImageIconButton
 import calebxzhou.rdi.client.ui.MainColumn
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.Space8h
@@ -101,6 +103,7 @@ fun RemoteModInfoScreen(
     var okMessage by remember { mutableStateOf<String?>(null) }
     var selectedTab by rememberSaveable { mutableStateOf(0) }
     var downloadVersion by remember { mutableStateOf<ModrinthProjectVersionVo?>(null) }
+    var loadingCurseForgeVersionFilterKey by remember { mutableStateOf<String?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(mod.source, mod.projectId) {
@@ -154,55 +157,34 @@ fun RemoteModInfoScreen(
     val activeTab = tabs[activeTabIndex]
     val versions = project?.versions.orEmpty()
     val lockedGameVersion = targetHostMcVer?.mcVer
-    val supportedGameVersions = remember(versions) {
-        McVersion.entries.filter { mcVersion ->
-            if (!mcVersion.enabled) return@filter false
-            val matchedVersions = versions.filter { mcVersion.mcVer in it.gameVersions }
-            val projectLoaders = matchedVersions.flatMap { it.loaders }
-            matchedVersions.isNotEmpty() && (projectLoaders.isEmpty() ||
-                    mcVersion.supportedRdiRemoteModLoaders().any { loader ->
-                        projectLoaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
-                    }
-            )
-        }
+    val supportedGameVersions = remember {
+        McVersion.entries.filter { it.enabled }
     }
     val visibleGameVersions = remember(supportedGameVersions, lockedGameVersion) {
         lockedGameVersion?.let { locked ->
             supportedGameVersions.filter { it.mcVer == locked }
         } ?: supportedGameVersions
     }
-    fun projectLoadersForGameVersion(gameVersion: String?): List<String> =
-        versions
-            .filter { version -> gameVersion?.let { it in version.gameVersions } != false }
-            .flatMap { it.loaders }
-
-    fun shouldFilterByLoader(gameVersion: String?): Boolean =
-        projectLoadersForGameVersion(gameVersion).isNotEmpty()
 
     fun ModrinthProjectVersionVo.supportsSelectedLoader(
-        gameVersion: String?,
         loader: ModLoader
     ): Boolean =
-        !shouldFilterByLoader(gameVersion) ||
-                loaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
+        loaders.isEmpty() || loaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
 
     fun versionMatchesDownloadFilter(
         version: ModrinthProjectVersionVo,
         gameVersion: String,
         loader: ModLoader
     ): Boolean =
-        gameVersion in version.gameVersions && version.supportsSelectedLoader(gameVersion, loader)
+        gameVersion in version.gameVersions && version.supportsSelectedLoader(loader)
 
     var selectedGameVersion by rememberSaveable(project?.projectId) { mutableStateOf<String?>(null) }
     var selectedLoader by rememberSaveable(project?.projectId) { mutableStateOf<ModLoader?>(null) }
-    val availableLoaders = remember(versions, selectedGameVersion, visibleGameVersions) {
-        val mcVersion = visibleGameVersions.firstOrNull { it.mcVer == selectedGameVersion }
-        val projectLoaders = projectLoadersForGameVersion(selectedGameVersion)
-        mcVersion?.supportedRdiRemoteModLoaders().orEmpty()
-            .filter { loader ->
-                projectLoaders.isEmpty() ||
-                        projectLoaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
-            }
+    val availableLoaders = remember(selectedGameVersion, visibleGameVersions) {
+        visibleGameVersions
+            .firstOrNull { it.mcVer == selectedGameVersion }
+            ?.supportedRdiRemoteModLoaders()
+            .orEmpty()
     }
 
     LaunchedEffect(project?.projectId, visibleGameVersions, lockedGameVersion) {
@@ -218,6 +200,34 @@ fun RemoteModInfoScreen(
             ?: availableLoaders.firstOrNull { it == ModLoader.neoforge }
             ?: availableLoaders.firstOrNull()
     }
+    var loadedCurseForgeVersionFilterKey by rememberSaveable(mod.source.name, mod.projectId) { mutableStateOf<String?>(null) }
+    LaunchedEffect(mod.source, mod.projectId, selectedGameVersion, selectedLoader) {
+        if (mod.source != RemoteModSource.CURSEFORGE) return@LaunchedEffect
+        val gameVersion = selectedGameVersion ?: return@LaunchedEffect
+        val loader = selectedLoader ?: return@LaunchedEffect
+        if (project == null) return@LaunchedEffect
+        val filterKey = "$gameVersion:${loader.name}"
+        if (loadedCurseForgeVersionFilterKey == filterKey) return@LaunchedEffect
+        loadingCurseForgeVersionFilterKey = filterKey
+        runCatching {
+            CurseForgeProjectInfoService.loadProjectVersions(
+                projectId = mod.projectId,
+                mcVersion = gameVersion,
+                loader = loader.toModrinthLoader()
+            )
+        }.onSuccess { loadedVersions ->
+            project = project?.withMergedVersions(loadedVersions)
+            loadedCurseForgeVersionFilterKey = filterKey
+        }.onFailure {
+            snackbarHostState.showSnackbar(
+                it.message ?: "版本列表加载失败",
+                duration = SnackbarDuration.Short
+            )
+        }
+        if (loadingCurseForgeVersionFilterKey == filterKey) {
+            loadingCurseForgeVersionFilterKey = null
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         MainColumn {
@@ -230,26 +240,19 @@ fun RemoteModInfoScreen(
                 if (activeTab == RemoteModInfoTab.Download && supportedGameVersions.isNotEmpty()) {
                     selectedGameVersion?.let { gameVersion ->
                         Space8w()
-                        if (lockedGameVersion != null) {
-                            Text("MC$gameVersion", color = MaterialColor.GRAY_700.color)
-                        } else {
-                            RemoteModTitleFilterChip(
-                                label = "MC",
-                                text = gameVersion,
-                                options = visibleGameVersions.map { it.mcVer },
-                                onSelect = { selectedGameVersion = it }
-                            )
-                        }
+                        McVersionIconSelector(
+                            versions = visibleGameVersions,
+                            selectedGameVersion = gameVersion,
+                            enabled = lockedGameVersion == null,
+                            onSelect = { selectedGameVersion = it.mcVer }
+                        )
                     }
                     selectedLoader?.let { loader ->
                         Space8w()
-                        RemoteModTitleFilterChip(
-                            label = "加载器",
-                            text = loader.displayName,
-                            options = availableLoaders.map { it.displayName },
-                            onSelect = { label ->
-                                availableLoaders.firstOrNull { it.displayName == label }?.let { selectedLoader = it }
-                            }
+                        ModLoaderIconSelector(
+                            loaders = availableLoaders,
+                            selectedLoader = loader,
+                            onSelect = { selectedLoader = it }
                         )
                     }
                 }
@@ -292,6 +295,7 @@ fun RemoteModInfoScreen(
                     project = project,
                     selectedGameVersion = selectedGameVersion,
                     selectedLoader = selectedLoader,
+                    versionsLoading = loadingCurseForgeVersionFilterKey != null,
                     versionFilter = { version, gameVersion, loader ->
                         versionMatchesDownloadFilter(version, gameVersion, loader)
                     },
@@ -324,6 +328,54 @@ private enum class RemoteModInfoTab(val label: String) {
     Description("描述"),
     Mcmod("百科"),
     Versions("版本")
+}
+
+@Composable
+private fun McVersionIconSelector(
+    versions: List<McVersion>,
+    selectedGameVersion: String,
+    enabled: Boolean,
+    onSelect: (McVersion) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        versions.forEach { version ->
+            val selected = version.mcVer == selectedGameVersion
+            ImageIconButton(
+                icon = version.iconName,
+                tooltip = "MC${version.mcVer}",
+                size = 36,
+                contentPadding = PaddingValues(0.dp),
+                bgColor = if (selected) MaterialTheme.colorScheme.primary else MaterialColor.PURPLE_100.color,
+                enabled = enabled || selected,
+                showText = false
+            ) {
+                if (enabled) onSelect(version)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModLoaderIconSelector(
+    loaders: List<ModLoader>,
+    selectedLoader: ModLoader,
+    onSelect: (ModLoader) -> Unit
+) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        loaders.forEach { loader ->
+            val selected = loader == selectedLoader
+            ImageIconButton(
+                icon = loader.name,
+                tooltip = loader.name,
+                size = 36,
+                contentPadding = PaddingValues(0.dp),
+                bgColor = if (selected) MaterialTheme.colorScheme.primary else MaterialColor.PURPLE_100.color,
+                showText = false
+            ) {
+                onSelect(loader)
+            }
+        }
+    }
 }
 
 @Composable
@@ -438,6 +490,21 @@ private fun RemoteModCardVo.defaultSourceUrl(): String? =
             ?.let { "https://www.curseforge.com/minecraft/mc-mods/$it" }
     }
 
+private fun ModrinthProjectInfoVo.withMergedVersions(
+    newVersions: List<ModrinthProjectVersionVo>
+): ModrinthProjectInfoVo {
+    if (newVersions.isEmpty()) return this
+    val mergedVersions = (newVersions + versions)
+        .distinctBy { it.id }
+        .sortedByDescending { it.rawPublished }
+    return copy(
+        gameVersions = (gameVersions + newVersions.flatMap { it.gameVersions }).distinct(),
+        loaders = (loaders + newVersions.flatMap { it.loaders }).distinct(),
+        versionIds = mergedVersions.map { it.id },
+        versions = mergedVersions
+    )
+}
+
 @Composable
 private fun RemoteModVersionsTab(project: ModrinthProjectInfoVo?, lockedGameVersion: String?) {
     val allVersions = project?.versions.orEmpty()
@@ -534,6 +601,7 @@ private fun RemoteModDownloadTab(
     project: ModrinthProjectInfoVo?,
     selectedGameVersion: String?,
     selectedLoader: ModLoader?,
+    versionsLoading: Boolean,
     versionFilter: (ModrinthProjectVersionVo, String, ModLoader) -> Boolean,
     onOpenDependencyMod: (RemoteModCardVo) -> Unit,
     onDownload: (ModrinthProjectVersionVo) -> Unit
@@ -553,6 +621,12 @@ private fun RemoteModDownloadTab(
 
     when {
         project == null -> Text("正在载入下载版本...", color = MaterialColor.GRAY_700.color)
+        versionsLoading -> Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.Center
+        ) {
+            CircularProgressIndicator()
+        }
         versions.isEmpty() -> Text("暂无可下载版本", color = MaterialColor.GRAY_700.color)
         else -> LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -633,10 +707,15 @@ private fun RemoteModDependenciesPane(
 
                 errorMessage != null -> Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
                 dependencies.isEmpty() -> Text("当前版本没有必需前置Mod", color = MaterialColor.GRAY_700.color)
-                else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                else -> FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     dependencies.forEach { dependency ->
                         RemoteModCard(
                             mod = dependency,
+                            modifier = Modifier.width(260.dp),
+                            compact = true,
                             onClick = { onOpenDependencyMod(dependency) }
                         )
                     }
@@ -659,14 +738,6 @@ private fun ModLoader.toModrinthLoader(): String =
         ModLoader.cleanroom -> "forge"
         else -> name
     }
-
-private val ModLoader.displayName: String
-    get() = when (this) {
-        ModLoader.forge -> "Forge"
-        ModLoader.neoforge -> "NeoForge"
-        ModLoader.cleanroom -> "Cleanroom"
-    }
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun RemoteModDownloadVersionCard(
