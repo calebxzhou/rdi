@@ -89,7 +89,6 @@ fun HostInfoScreen(
     onOpenModpackInfo: (String) -> Unit,
     onOpenMcPlay: (McPlayArgs) -> Unit,
     onOpenMcVersions: (McVersion?) -> Unit,
-    onOpenResourceMods: (McVersion?) -> Unit,
     onOpenHostEdit: (Host.DetailVo) -> Unit,
     onOpenTaskList: (String) -> Unit
 ) {

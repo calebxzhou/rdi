@@ -3,8 +3,6 @@ import org.jetbrains.kotlin.gradle.internal.builtins.StandardNames.FqNames.targe
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-val ktorVersion = "3.4.2"
-
 plugins {
     kotlin("jvm") version "2.3.20"
     kotlin("plugin.serialization") version "2.3.20" apply false
@@ -22,18 +20,23 @@ dependencies {
     testImplementation(kotlin("test"))
     implementation(project(":misc"))
     implementation(project(":model"))
-    implementation(project(":net"))
+//    implementation(project(":net"))
     implementation(kotlin("reflect"))
-    implementation("io.ktor:ktor-client-core:$ktorVersion")
-    implementation("io.ktor:ktor-client-okhttp:$ktorVersion")
-    implementation("io.ktor:ktor-client-content-negotiation:$ktorVersion")
-    implementation("io.ktor:ktor-client-encoding:$ktorVersion")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:$ktorVersion")
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.client.encoding)
+    implementation(libs.ktor.serialization.kotlinx.json)
 
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
-    implementation("ch.qos.logback:logback-classic:1.5.32")
-    implementation("io.github.oshai:kotlin-logging-jvm:7.0.13")
-    implementation("io.netty:netty-all:4.2.13.Final")
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.logback.classic)
+    implementation(libs.kotlin.logging.jvm)
+    implementation(libs.netty.buffer)
+    implementation(libs.netty.codec)
+    implementation(libs.netty.common)
+    implementation(libs.netty.handler)
+    implementation(libs.netty.transport)
+    implementation(libs.zstd.jni)
 }
 
 tasks.named<Jar>("jar") {
@@ -52,10 +55,7 @@ base {
 }
 tasks.named<Jar>("jar") {
     archiveClassifier.set("plain")
-}
-kotlin {
-    jvmToolchain(21)
-}
+} 
 tasks.register("出core") {
     notCompatibleWithConfigurationCache("uses project file operations at execution time")
     dependsOn(tasks.named("build"))
@@ -66,7 +66,7 @@ tasks.register("出core") {
         if (!jarFile.exists()) {
             throw GradleException("未找到构建产物: $jarFile")
         }
-            val targetDir = layout.projectDirectory.dir("\\\\rdi\\rdi55\\prox\\").asFile
+            val targetDir = layout.projectDirectory.dir("\\\\rdi\\rdi55\\prox2\\").asFile
             val destFile = targetDir.resolve(jarFile.name)
             Files.copy(
                 jarFile.toPath(),

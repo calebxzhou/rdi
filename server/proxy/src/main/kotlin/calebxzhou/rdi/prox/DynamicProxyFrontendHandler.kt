@@ -3,18 +3,12 @@ package calebxzhou.rdi.prox
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.Response
-import calebxzhou.rdi.common.net.ktorClient
-import io.ktor.client.call.body
-import io.ktor.client.request.get
+import io.ktor.client.call.*
+import io.ktor.client.request.*
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
-import io.netty.channel.Channel
-import io.netty.channel.ChannelFutureListener
-import io.netty.channel.ChannelHandlerContext
-import io.netty.channel.ChannelInboundHandlerAdapter
-import io.netty.channel.ChannelOption
-import io.netty.channel.EventLoopGroup
+import io.netty.channel.*
 import io.netty.channel.socket.nio.NioSocketChannel
 import io.netty.util.AttributeKey
 import io.netty.util.ReferenceCountUtil
@@ -22,8 +16,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeoutOrNull
 import java.io.File
 import java.net.InetSocketAddress
-import java.util.Base64
-import java.util.UUID
+import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -119,10 +112,10 @@ class DynamicProxyFrontendHandler(
             ktorClient.get("$MASTER_URL/host/status?port=$port").body<Response<HostStatus?>>().run {
                 data ?: run {
                     lgr.info { "host $port status fail: ${msg}" }
-                    throw RequestError("无法获取地图状态：$msg")
+                    throw RequestError("无法获取房间状态：$msg")
                 }
             }
-        } ?: throw RequestError("无法获取地图状态：请求超时")
+        } ?: throw RequestError("无法获取房间状态：请求超时")
     }
 
     private fun handleHandshake(ctx: ChannelHandlerContext, buffer: ByteBuf) {

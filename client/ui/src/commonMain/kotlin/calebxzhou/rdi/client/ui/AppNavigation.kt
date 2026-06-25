@@ -26,12 +26,8 @@ import androidx.navigation.toRoute
 import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.model.BSSkinData
 import calebxzhou.rdi.client.proxy.LocalMcProxy
-import calebxzhou.rdi.client.service.LOCAL_WORLD_BIRD_VIEW_ROUTE_ID
-import calebxzhou.rdi.client.service.WorldBirdViewSourceSpec
-import calebxzhou.rdi.client.service.WorldBirdViewStore
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
-import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 
 private const val SCREEN_FADE_DURATION_MS = 500
@@ -303,16 +299,6 @@ fun AppNavigation(
                     },
                     onOpenMcVersions = { mcVer ->
                         navController.navigate(ResourceRoute(ResourceTab.McResources.name, mcVer?.mcVer))
-                    },
-                    onOpenResourceMods = { mcVer ->
-                        navController.navigate(
-                            ResourceRoute(
-                                tab = ResourceTab.Mods.name,
-                                requiredMcVer = mcVer?.mcVer,
-                                fromHostId = route.hostId,
-                                fromAllHosts = route.fromAllHosts
-                            )
-                        )
                     },
                     onOpenHostEdit = { host ->
                         navController.navigate(

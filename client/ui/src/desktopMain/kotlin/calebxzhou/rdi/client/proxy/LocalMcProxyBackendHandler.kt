@@ -16,7 +16,8 @@ class LocalMcProxyBackendHandler (
         if (metrics != null && msg is ByteBuf) {
             metrics.record("s2c", msg)
         }
-        frontendChannel.writeAndFlush(msg).addListener { future ->
+        LocalMcProxyFlowControl.pauseSourceIfTargetNotWritable(ctx.channel(), frontendChannel)
+        frontendChannel.write(msg).addListener { future ->
             if (!future.isSuccess) {
                 reportLog(
                     "frontend write failed: ${future.cause()?.message ?: "unknown"}"
@@ -24,6 +25,16 @@ class LocalMcProxyBackendHandler (
                 ctx.channel().close()
             }
         }
+        LocalMcProxyFlowControl.pauseSourceIfTargetNotWritable(ctx.channel(), frontendChannel)
+    }
+
+    override fun channelReadComplete(ctx: ChannelHandlerContext) {
+        frontendChannel.flush()
+    }
+
+    override fun channelWritabilityChanged(ctx: ChannelHandlerContext) {
+        LocalMcProxyFlowControl.resumePeerIfWritable(ctx.channel())
+        ctx.fireChannelWritabilityChanged()
     }
 
     override fun channelInactive(ctx: ChannelHandlerContext) {

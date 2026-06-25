@@ -328,7 +328,8 @@ val hotRunBaseJvmArgs = listOf(
     "-Drdi.debug=true",
     "-Drdi.noHttps=true",
     "-Drdi.noUpdate=true",
-    "-Drdi.netMetrics=true",
+    "-Drdi.zstd=true",
+    //"-Drdi.netMetrics=true",
     "-Drdi.account=eyJfaWQiOiI2OGIzMTRiYmFkYWY1MmRkYWI5NmI1ZWQiLCJuYW1lIjoiMTIzMTIzIiwicHdkIjoiMTIzQEBAIiwicXEiOiIxMjMxMjMifQ=="
 )
 

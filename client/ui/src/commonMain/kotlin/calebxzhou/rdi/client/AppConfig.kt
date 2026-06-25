@@ -158,6 +158,7 @@ data class AppConfig(
     val jre25Path: String?=null,
     val jre21Path: String?=null,
     val proxyConfig: ProxyConfig?=null,
+    val zstdCompression: Boolean = true,
     val aiConfig: AiConfig = AiConfig(),
     val pinyinName: Boolean = false,
 ){

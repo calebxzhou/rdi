@@ -372,7 +372,7 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
                 McPlayStore.pendingLaunch.also { McPlayStore.pendingLaunch = null }
             }
         }
-        calebxzhou.rdi.client.ui.screen.McPlayScreen(
+        McPlayScreen(
             launchArgs = launchArgs,
             autoStart = launchArgs != null,
             onOpenAiChat = { mcpPort, versionDir ->

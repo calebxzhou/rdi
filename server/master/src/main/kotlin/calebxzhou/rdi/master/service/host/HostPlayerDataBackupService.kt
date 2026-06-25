@@ -27,7 +27,6 @@ import kotlinx.coroutines.CancellationException as KxCancellationException
 object HostPlayerDataBackupService {
     private val lgr by Loggers
     private const val MAX_BACKUPS_PER_PLAYER = 128
-    private val timestampFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss-SSS")
     private val lastBackedHashes = ConcurrentHashMap<String, String>()
     private var backupJob: Job? = null
 
@@ -93,7 +92,7 @@ object HostPlayerDataBackupService {
             }
         }
 
-        val target = backupDir.resolve("${LocalDateTime.now().format(timestampFormatter)}.dat")
+        val target = backupDir.resolve("${System.currentTimeMillis()}.dat")
         val temp = backupDir.resolve("${target.name}.tmp")
         source.copyTo(temp, overwrite = true)
         if (temp.length() != source.length() || temp.length() <= 0 || temp.sha1 != sourceHash) {

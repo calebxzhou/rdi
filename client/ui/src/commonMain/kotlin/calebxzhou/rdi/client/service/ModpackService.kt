@@ -535,7 +535,7 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
             "$port\n" +
             "${loggedAccount.uuid}\n" +
             loggedAccount.name
-
+    lgr.info { "play arg: $playArg" }
     runCatching {
         server.makeRequest<Unit>("modpack/${modpack.id}/play", HttpMethod.Post)
     }
