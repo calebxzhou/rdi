@@ -9,6 +9,8 @@
     "AAnvilChunkLoader1710",
     "AChunkProviderServer1710",
     "mAllowChineseNameLogin",
+    "mCancelWorldGenAnimalSpawning1710",
+    "mIgnoreBrokenForcedChunks1710",
     "mLimitTerrainGenerationThreads1710",
     "mOnlySaveFirmSections1710",
     "mTerrainCacheChunkLoad1710",

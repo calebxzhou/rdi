@@ -12,6 +12,7 @@
     "AServerEntity",
     "mAllowChineseNameLogin",
     "mBoundTickingBlockEntityGuard",
+    "mCancelWorldGenAnimalSpawning",
     "mChatMsg",
     "mChinesePlayerName",
     "mGuardChunkTick",
