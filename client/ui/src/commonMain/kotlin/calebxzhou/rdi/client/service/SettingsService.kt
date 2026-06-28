@@ -212,7 +212,6 @@ object SettingsService {
         proxyPortText: String,
         proxyUsr: String,
         proxyPwd: String,
-        zstdCompression: Boolean,
         aiConfig: AiConfig,
         requireActiveAiProfile: Boolean = false
     ): Result<Unit> = runCatching {
@@ -243,7 +242,6 @@ object SettingsService {
                 usr = proxyUsr.takeIf { it.isNotBlank() },
                 pwd = proxyPwd.takeIf { it.isNotBlank() }
             ),
-            zstdCompression = zstdCompression,
             aiConfig = normalizedAiConfig,
             pinyinName = CONF.pinyinName
         )

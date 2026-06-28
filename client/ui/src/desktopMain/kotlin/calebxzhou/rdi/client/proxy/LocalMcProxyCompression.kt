@@ -1,10 +1,7 @@
 package calebxzhou.rdi.client.proxy
 
-import calebxzhou.rdi.CONF
-
 internal object LocalMcProxyCompression {
-    val enabled: Boolean
-        get() = System.getProperty("rdi.zstd")?.toBooleanStrictOrNull() ?: CONF.zstdCompression
+    const val enabled: Boolean = true
     val level: Int = System.getProperty("rdi.zstd.level")?.toIntOrNull()?.coerceIn(1, 22) ?: 3
     val threshold: Int = System.getProperty("rdi.zstd.threshold")?.toIntOrNull()?.coerceAtLeast(0) ?: 256
     val maxFrameSize: Int = System.getProperty("rdi.zstd.maxFrameSize")?.toIntOrNull()?.coerceAtLeast(1024)

@@ -68,7 +68,6 @@ fun SettingScreen(
     var proxyPortText by remember { mutableStateOf("10808") }
     var proxyUsr by remember { mutableStateOf("") }
     var proxyPwd by remember { mutableStateOf("") }
-    var zstdCompression by remember { mutableStateOf(true) }
     var totalMemoryMb by remember { mutableStateOf(0) }
     val defaultAiProfile = remember { AiConfig().activeProfile() }
     val aiProfiles = remember { mutableStateListOf(defaultAiProfile) }
@@ -96,7 +95,6 @@ fun SettingScreen(
                 proxyPortText = (config.proxyConfig?.port ?: 10808).toString()
                 proxyUsr = config.proxyConfig?.usr.orEmpty()
                 proxyPwd = config.proxyConfig?.pwd.orEmpty()
-                zstdCompression = config.zstdCompression
                 val normalizedAiConfig = config.aiConfig.normalized()
                 aiProfiles.clear()
                 aiProfiles.addAll(normalizedAiConfig.profiles)
@@ -241,7 +239,6 @@ fun SettingScreen(
                             proxyPortText = proxyPortText,
                             proxyUsr = proxyUsr,
                             proxyPwd = proxyPwd,
-                            zstdCompression = zstdCompression,
                             aiConfig = aiConfig,
                             requireActiveAiProfile = false//requireActiveAiProfile
                         ).onSuccess {
@@ -339,14 +336,12 @@ fun SettingScreen(
                                             proxyPort = proxyPortText,
                                             proxyUsr = proxyUsr,
                                             proxyPwd = proxyPwd,
-                                            zstdCompression = zstdCompression,
                                             onProxyEnabledChange = { proxyEnabled = it },
                                             onProxySystemChange = { proxySystem = it },
                                             onProxyHostChange = { proxyHost = it },
                                             onProxyPortChange = { proxyPortText = it },
                                             onProxyUsrChange = { proxyUsr = it },
                                             onProxyPwdChange = { proxyPwd = it },
-                                            onZstdCompressionChange = { zstdCompression = it },
                                             switchingNode = switchingNode,
                                             onAutoSwitchFastestNode = { switchNode() },
                                             onUseGameBackupNode = { switchNode(true) },
@@ -1108,14 +1103,12 @@ fun SettingScreen(
         proxyPort: String,
         proxyUsr: String,
         proxyPwd: String,
-        zstdCompression: Boolean,
         onProxyEnabledChange: (Boolean) -> Unit,
         onProxySystemChange: (Boolean) -> Unit,
         onProxyHostChange: (String) -> Unit,
         onProxyPortChange: (String) -> Unit,
         onProxyUsrChange: (String) -> Unit,
         onProxyPwdChange: (String) -> Unit,
-        onZstdCompressionChange: (Boolean) -> Unit,
         switchingNode: Boolean,
         onAutoSwitchFastestNode: () -> Unit,
         onUseGameBackupNode: () -> Unit,
@@ -1188,10 +1181,6 @@ fun SettingScreen(
             )
             // Proxy settings — desktop only
             if (isDesktop) {
-                RRow {
-                    Text("高速模式")
-                    RSwitch(checked = zstdCompression, onCheckedChange = onZstdCompressionChange)
-                }
                 val mode = when {
                     !proxyEnabled -> 0
                     proxySystem -> 1
