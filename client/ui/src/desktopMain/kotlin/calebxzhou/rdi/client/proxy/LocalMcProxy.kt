@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.proxy
 
+import calebxzhou.rdi.common.DEBUG
+
 actual object LocalMcProxy {
     private const val LOCAL_BIND_HOST = "127.0.0.1"
     private const val PREFERRED_BIND_PORT = 55667
@@ -25,6 +27,7 @@ actual object LocalMcProxy {
         ProxyEndpointResolver.currentEndpointFromCarrier()
 
     internal fun reportLog(message: String) {
+        if(!DEBUG) return
         val formatted = "[LocalMcProxy] $message"
         println(formatted)
         runCatching { logSink(formatted) }

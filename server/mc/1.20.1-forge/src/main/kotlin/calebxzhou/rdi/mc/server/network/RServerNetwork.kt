@@ -1,6 +1,11 @@
 package calebxzhou.rdi.mc.server.network
 
+import calebxzhou.rdi.mc.chunkcache.RChunkCacheManifestPacket
+import calebxzhou.rdi.mc.chunkcache.RChunkCacheReadyPacket
+import calebxzhou.rdi.mc.chunkcache.RChunkHashPacket
+import calebxzhou.rdi.mc.chunkcache.RChunkRequestPacket
 import calebxzhou.rdi.mc.common.RGlobalPlayerList
+import calebxzhou.rdi.mc.server.chunkcache.RdiChunkCacheServer
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
 import com.google.gson.Gson
 import net.minecraft.network.FriendlyByteBuf
@@ -15,7 +20,7 @@ import java.util.function.Supplier
 import kotlin.concurrent.Volatile
 
 object RServerNetwork {
-    private const val PROTOCOL_VERSION = "1"
+    private const val PROTOCOL_VERSION = "3"
     private val GSON = Gson()
 
     @Volatile
@@ -59,6 +64,63 @@ object RServerNetwork {
             .decoder(RFirmSectionsPacket::decode)
             .consumerMainThread(RFirmSectionsPacket::handle)
             .add()
+        CHANNEL.messageBuilder(
+            RChunkCacheManifestPacket::class.java,
+            2,
+            NetworkDirection.PLAY_TO_SERVER
+        )
+            .encoder(RChunkCacheManifestPacket::encode)
+            .decoder(RChunkCacheManifestPacket::decode)
+            .consumerMainThread { packet, context ->
+                val ctx = context.get()
+                val sender = ctx.sender
+                if (sender != null) {
+                    RdiChunkCacheServer.acceptManifest(sender, packet)
+                }
+                ctx.packetHandled = true
+            }
+            .add()
+        CHANNEL.messageBuilder(
+            RChunkCacheReadyPacket::class.java,
+            3,
+            NetworkDirection.PLAY_TO_SERVER
+        )
+            .encoder(RChunkCacheReadyPacket::encode)
+            .decoder(RChunkCacheReadyPacket::decode)
+            .consumerMainThread { _, context ->
+                val ctx = context.get()
+                val sender = ctx.sender
+                if (sender != null) {
+                    RdiChunkCacheServer.markReady(sender)
+                }
+                ctx.packetHandled = true
+            }
+            .add()
+        CHANNEL.messageBuilder(
+            RChunkHashPacket::class.java,
+            4,
+            NetworkDirection.PLAY_TO_CLIENT
+        )
+            .encoder(RChunkHashPacket::encode)
+            .decoder(RChunkHashPacket::decode)
+            .consumerMainThread { _, context -> context.get().packetHandled = true }
+            .add()
+        CHANNEL.messageBuilder(
+            RChunkRequestPacket::class.java,
+            5,
+            NetworkDirection.PLAY_TO_SERVER
+        )
+            .encoder(RChunkRequestPacket::encode)
+            .decoder(RChunkRequestPacket::decode)
+            .consumerMainThread { packet, context ->
+                val ctx = context.get()
+                val sender = ctx.sender
+                if (sender != null) {
+                    RdiChunkCacheServer.resendChunk(sender, packet)
+                }
+                ctx.packetHandled = true
+            }
+            .add()
     }
 
     fun sendToAll(server: DedicatedServer, playerList: RGlobalPlayerList) {
@@ -91,6 +153,10 @@ object RServerNetwork {
         })
 
     private fun sendTo(player: ServerPlayer, packet: Any) {
+        CHANNEL.send(PacketDistributor.PLAYER.with { player }, packet)
+    }
+
+    fun sendChunkHash(player: ServerPlayer, packet: RChunkHashPacket) {
         CHANNEL.send(PacketDistributor.PLAYER.with { player }, packet)
     }
 }

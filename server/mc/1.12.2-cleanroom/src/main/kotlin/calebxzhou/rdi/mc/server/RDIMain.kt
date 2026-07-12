@@ -6,18 +6,14 @@ import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
 import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState.remove
 import calebxzhou.rdi.mc.rcmd.tpa.TpaService
 import calebxzhou.rdi.mc.rcmd.tpa.TpaService.removeRelated
-import calebxzhou.rdi.mc.firmsection.FirmSectionSetStatus
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService112
 import calebxzhou.rdi.mc.server.network.RServerNetwork.register
 import calebxzhou.rdi.mc.server.network.RServerNetwork.sendFirmSectionsTo
 import calebxzhou.rdi.mc.server.network.RServerNetwork.sendLastTo
 import calebxzhou.rdi.mc.server.world.TerrainCache112
 import net.minecraft.entity.player.EntityPlayerMP
-import net.minecraft.network.play.server.SPacketTitle
 import net.minecraft.server.dedicated.DedicatedServer
 import net.minecraft.util.text.TextComponentString
-import net.minecraft.util.text.TextFormatting
-import net.minecraft.util.text.event.ClickEvent
 import net.minecraftforge.common.DimensionManager
 import net.minecraftforge.common.MinecraftForge
 import net.minecraftforge.event.world.BlockEvent
@@ -109,42 +105,18 @@ class RDIMain {
         if (event.world.getTileEntity(event.pos) == null || !FirmSectionService112.isAutoSetEnabled(player)) {
             return
         }
-        val result = FirmSectionService112.set(player, event.world, event.pos)
-        if (result.status == FirmSectionSetStatus.ADDED) {
-            player.sendMessage(TextComponentString("放置方块实体的位置已设为持久子区块"))
-        }
+        FirmSectionService112.set(player, event.world, event.pos)
     }
 
     companion object {
         private val lgr: Logger = LogManager.getLogger("rdi")
         private var server: DedicatedServer? = null
-        private const val MANUAL_URL = "https://craftrdi.feishu.cn/wiki/U8LRwMpUliuxW5kZLvCcxonNnkd"
         private const val JOIN_MESSAGE_DELAY_TICKS = 100
         private val pendingJoinMessages = mutableMapOf<UUID, Int>()
 
         private fun sendJoinMessages(player: EntityPlayerMP) {
             val range = PlayerChatRangeState.get(player.uniqueID)
-            val result = FirmSectionService112.list(player)
-            player.connection.sendPacket(SPacketTitle(10, 200, 20))
-            player.connection.sendPacket(
-                SPacketTitle(
-                    SPacketTitle.Type.SUBTITLE,
-                    TextComponentString("设定“持久子区块” 否则丢数据 见说明书")
-                )
-            )
-            player.connection.sendPacket(SPacketTitle(SPacketTitle.Type.TITLE, TextComponentString("")))
             player.sendMessage(TextComponentString("当前聊天范围：${range.displayName}"))
-            player.sendMessage(
-                TextComponentString(
-                    "6月22日开始 只有“持久子区块”会永久保存 其余区域有随时被清除的可能\n" +
-                        "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书"
-                )
-            )
-            player.sendMessage(TextComponentString("点此打开RDI说明书").also {
-                it.style.setUnderlined(true)
-                    .setColor(TextFormatting.AQUA)
-                    .setClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, MANUAL_URL))
-            })
         }
 
         private fun applyGameRules() {

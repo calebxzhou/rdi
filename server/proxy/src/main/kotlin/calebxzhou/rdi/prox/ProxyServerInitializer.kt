@@ -23,12 +23,10 @@ class ProxyServerInitializer(
             //记录包的内容
             ch.pipeline().addLast(LoggingHandler(LogLevel.INFO))
         }
-        if (Const.ZSTD_ENABLED) {
-            ch.pipeline().addLast(
-                ZstdFrameAutoDecoder(),
-                ZstdFrameEncoder(onlyWhenDetected = true)
-            )
-        }
+        ch.pipeline().addLast(
+            ZstdFrameAutoDecoder(),
+            ZstdFrameEncoder(onlyWhenDetected = true)
+        )
         ch.pipeline().addLast(
             // Use Minecraft framing to handle packet boundaries
             MinecraftFrameDecoder(),

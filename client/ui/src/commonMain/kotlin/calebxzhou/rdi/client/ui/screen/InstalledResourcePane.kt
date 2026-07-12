@@ -405,14 +405,16 @@ fun InstalledResourcePane(
                     }
                 }
             }
-            CircleIconButton(
-                "\uDB81\uDC53",
-                "重新下载",
-                size = size,
-                enabled = selected != null,
-                bgColor = secondaryActionColor
-            ) {
-                reinstallConfirmPack = selected
+            if (isDesktop) {
+                CircleIconButton(
+                    "\uDB81\uDC53",
+                    "重新下载",
+                    size = size,
+                    enabled = selected != null,
+                    bgColor = secondaryActionColor
+                ) {
+                    reinstallConfirmPack = selected
+                }
             }
             CircleIconButton(
                 "\uE713",
@@ -458,29 +460,31 @@ fun InstalledResourcePane(
                     }
                 }
             }
-            CircleIconButton(
-                "\uEB9B",
-                "单机运行",
-                size = size,
-                enabled = selected != null,
-                bgColor = primaryActionColor
-            ) {
-                selected?.let { packdir ->
-                    val playArgs = McPlayArgs(
-                        title = "单机 - ${packdir.vo.name} ${packdir.verName}",
-                        mcVer = packdir.vo.mcVer,
-                        modLoader = packdir.vo.modloader,
-                        versionId = packdir.versionId,
-                        modpackName = packdir.vo.name,
-                        playArg = "${server.hqUrl}\n" +
-                                "127.0.0.1:55667\n" +
-                                "test\n" +
-                                "55555\n" +
-                                "${loggedAccount.uuid}\n" +
-                                loggedAccount.name,
-                        versionDir = packdir.dir.absolutePath
-                    )
-                    onOpenPlay?.invoke(playArgs)
+            if (isDesktop) {
+                CircleIconButton(
+                    "\uEB9B",
+                    "单机运行",
+                    size = size,
+                    enabled = selected != null,
+                    bgColor = primaryActionColor
+                ) {
+                    selected?.let { packdir ->
+                        val playArgs = McPlayArgs(
+                            title = "单机 - ${packdir.vo.name} ${packdir.verName}",
+                            mcVer = packdir.vo.mcVer,
+                            modLoader = packdir.vo.modloader,
+                            versionId = packdir.versionId,
+                            modpackName = packdir.vo.name,
+                            playArg = "${server.hqUrl}\n" +
+                                    "127.0.0.1:55667\n" +
+                                    "test\n" +
+                                    "55555\n" +
+                                    "${loggedAccount.uuid}\n" +
+                                    loggedAccount.name,
+                            versionDir = packdir.dir.absolutePath
+                        )
+                        onOpenPlay?.invoke(playArgs)
+                    }
                 }
             }
             if (isDesktop) {
@@ -821,7 +825,7 @@ fun InstalledResourcePane(
         )
     }
 
-    reinstallConfirmPack?.let { packdir ->
+    if (isDesktop) reinstallConfirmPack?.let { packdir ->
         AlertDialog(
             onDismissRequest = { reinstallConfirmPack = null },
             title = { Text("确认重装") },

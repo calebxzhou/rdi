@@ -512,19 +512,21 @@ fun HostInfoScreen(
                             }
                         }
                         HeadButton(host.ownerId)
-                        CircleIconButton(
-                            icon = "\uF04B",
-                            tooltip = "开始",
-                            bgColor = MaterialColor.GREEN_900.color,
-                            enabled = !startPlayLoading,
-                        ) {
-                            startPlay(host)
-                        }
-                        if (startPlayLoading) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(20.dp),
-                                strokeWidth = 2.dp
-                            )
+                        if (isDesktop) {
+                            CircleIconButton(
+                                icon = "\uF04B",
+                                tooltip = "开始",
+                                bgColor = MaterialColor.GREEN_900.color,
+                                enabled = !startPlayLoading,
+                            ) {
+                                startPlay(host)
+                            }
+                            if (startPlayLoading) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    strokeWidth = 2.dp
+                                )
+                            }
                         }
 
                         if (meAdmin) {
@@ -1817,13 +1819,15 @@ private fun HostExtraModsPane(
                 )
                 Checkbox(selectAllExtraMods, onCheckedChange = { onToggleSelectAll(it) })
                 Text("全选")
-                CircleIconButton(
-                    icon = "\uF019",
-                    tooltip = "下载",
-                    enabled = selectedExtraMods.isNotEmpty(),
-                    bgColor = MaterialColor.GREEN_900.color,
-                ) {
-                    onDownloadSelected()
+                if (isDesktop) {
+                    CircleIconButton(
+                        icon = "\uF019",
+                        tooltip = "下载",
+                        enabled = selectedExtraMods.isNotEmpty(),
+                        bgColor = MaterialColor.GREEN_900.color,
+                    ) {
+                        onDownloadSelected()
+                    }
                 }
                 if (canManageExtraMods) {
                     CircleIconButton(

@@ -18,7 +18,6 @@ import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.firstLoader
-import calebxzhou.rdi.client.model.firstLoaderVersion
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.ui.*
@@ -44,8 +43,6 @@ fun McVersionPane(
     onTitleActionsChange: (ResourceScreenTitleActions?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    var fclDialogText by remember { mutableStateOf<String?>(null) }
-    var fclDialogDirName by remember { mutableStateOf<String?>(null) }
     var downloadSourceDialogAction by remember { mutableStateOf<McVersionDownloadAction?>(null) }
     var showGroupFileDialog by remember { mutableStateOf(false) }
     var selectedMcVer by rememberSaveable(requiredMcVer) { mutableStateOf(requiredMcVer) }
@@ -80,21 +77,6 @@ fun McVersionPane(
                 submitTask(GameService.downloadLoaderTask2(action.mcVer, action.loader))
             }
         }
-    }
-
-    fun openFclGuide(mcver: McVersion) {
-        val guideText = buildString {
-            appendLine("1.打开FCL启动器")
-            appendLine("2.点击左侧的\uDB80\uDD62按钮")
-            appendLine("3.在上方选择“游戏”")
-            appendLine("4.选择${mcver.mcVer}")
-            appendLine("5.点击${mcver.firstLoader.name}")
-            appendLine("6.点击版本${mcver.firstLoaderVersion.ver}")
-            appendLine("7.填入名称${mcver.firstLoaderVersion.dirName}，必须一模一样，填错会导致无法启动！填错会导致无法启动！填错会导致无法启动！")
-            append("8.点击名称栏右侧的\uDB80\uDDDA等待安装完成")
-        }
-        fclDialogText = guideText
-        fclDialogDirName = mcver.firstLoaderVersion.dirName
     }
 
     if (!showPaneActions) {
@@ -136,7 +118,7 @@ fun McVersionPane(
                 }
             }
     ) {
-        if (requiredMcVer != null) {
+        if (isDesktop && requiredMcVer != null) {
             Text(
                 text = "MC${requiredMcVer.mcVer}版本资源需要更新。请点击下载",
                 color = MaterialTheme.colorScheme.error
@@ -155,7 +137,6 @@ fun McVersionPane(
             onInstallLoader = { mcver, loader ->
                 downloadSourceDialogAction = McVersionDownloadAction.Loader(mcver, loader)
             },
-            onOpenFclGuide = ::openFclGuide,
             showAdvancedActions = showAdvancedActions
         )
         Space8h()
@@ -182,38 +163,6 @@ fun McVersionPane(
                 }
             }
         }
-    }
-
-    fclDialogText?.let {
-        AlertDialog(
-            onDismissRequest = {
-                fclDialogText = null
-                fclDialogDirName = null
-            },
-            title = { Text("FCL下载提示") },
-            text = { Text(it.asIconText, color = MaterialColor.GRAY_900.color) },
-            dismissButton = {
-                TextButton(onClick = {
-                    fclDialogText = null
-                    fclDialogDirName = null
-                }) {
-                    Text("取消")
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val dirName = fclDialogDirName
-                    if (!dirName.isNullOrBlank()) {
-                        copyToClipboard(dirName)
-                    }
-                    openGameLauncher()
-                    fclDialogText = null
-                    fclDialogDirName = null
-                }) {
-                    Text("复制版本名称并启动FCL")
-                }
-            }
-        )
     }
 
     downloadSourceDialogAction?.let { action ->
@@ -284,7 +233,6 @@ private fun McVersionActionRow(
     onDownloadAll: (McVersion) -> Unit,
     onDownloadAssets: (McVersion) -> Unit,
     onInstallLoader: (McVersion, ModLoader) -> Unit,
-    onOpenFclGuide: (McVersion) -> Unit,
     showAdvancedActions: Boolean
 ) {
     val selected = selectedMcVer
@@ -329,14 +277,6 @@ private fun McVersionActionRow(
                             onInstallLoader(selected, loader)
                         }
                     }
-                }
-            } else {
-                CircleIconButton(
-                    icon = "\uF019",
-                    tooltip = "使用FCL下载",
-                    enabled = selected != null
-                ) {
-                    selected?.let(onOpenFclGuide)
                 }
             }
         }

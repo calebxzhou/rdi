@@ -4,6 +4,8 @@ import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.WebSocketClient
 import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
 import calebxzhou.rdi.mc.rcmd.tpa.TpaService
+import calebxzhou.rdi.mc.server.chunkcache.RdiChunkCacheServer
+import calebxzhou.rdi.mc.server.chunkcache.RdiDelayedChunkCache
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
 import calebxzhou.rdi.mc.server.mcpimpl.McpNetwork
 import calebxzhou.rdi.mc.server.network.RServerNetwork
@@ -128,6 +130,8 @@ class RDIMain {
             val player: ServerPlayer = e.entity as ServerPlayer
             PlayerChatRangeState.remove(player.getUUID())
             TpaService.removeRelated(player.getUUID())
+            RdiDelayedChunkCache.remove(player)
+            RdiChunkCacheServer.remove(player)
         }
     }
 }

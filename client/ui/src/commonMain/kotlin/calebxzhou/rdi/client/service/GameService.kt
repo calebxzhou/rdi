@@ -1341,7 +1341,7 @@ object GameService {
 
     internal fun runInstallerBootstrapperTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
         if (!calebxzhou.rdi.client.ui.isDesktop) {
-            ctx.emit(Task2Progress("Android跳过 (由FCL处理)", 1f))
+            ctx.emit(Task2Progress("Android不支持客户端安装器", 1f))
             return
         }
         if (holder.clientInstallerAlreadyHandled) {
@@ -1353,7 +1353,7 @@ object GameService {
 
     internal fun runServerInstallerBootstrapperTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
         if (!calebxzhou.rdi.client.ui.isDesktop) {
-            ctx.emit(Task2Progress("Android跳过 (由FCL处理)", 1f))
+            ctx.emit(Task2Progress("Android不支持服务端安装器", 1f))
             return
         }
         if (holder.serverInstallerAlreadyHandled) {

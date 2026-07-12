@@ -7,18 +7,19 @@ enum class McVersion(
     val mcVer: String,
     val iconName: String,
     val jreSupport: Int,
-    val alterJreVer: Int = jreSupport,
+    val protocolVer: Int,
     //预留多loader支持
     val loaderVersions: Map<ModLoader, ModLoader.Version>,
     val plusJvmArgs: List<String> = listOf(),
     val enabled: Boolean = true,
+
 ) {
 
     V211(
         "1.21.1",
         "mace",
         25,
-        25,
+        767,
         // "https://piston-meta.mojang.com/v1/packages/a56257b4bc475ecac33571b51b68b33ac046fc72/1.21.1.json",
         mapOf(
             ModLoader.neoforge to ModLoader.Version(
@@ -31,7 +32,8 @@ enum class McVersion(
     ),
     V201(
         "1.20.1",
-        "brush", 25,25,
+        "brush", 25,
+        763,
         // "https://piston-meta.mojang.com/v1/packages/9318a951bbc903b54a21463a7eb8c4d451f7b132/1.20.1.json",
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -44,7 +46,8 @@ enum class McVersion(
     ),
     V192(
         "1.19.2",
-        "frog", 21,21,
+        "frog", 21,
+        760,
         mapOf(
             ModLoader.forge to ModLoader.Version(
                 ModLoader.forge,
@@ -55,39 +58,11 @@ enum class McVersion(
         )
 
     ),
-    /*V182(
-        "1.18.2",
-        "copper.png", 21,21,
-        //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
-        mapOf(
-            ModLoader.forge to ModLoader.Version(
-                ModLoader.forge,
-                "1.18.2-forge-40.3.12",
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.18.2-40.3.12/forge-1.18.2-40.3.12-installer.jar",
-                "d7f759dec5b52ddb342c3e12511da1674d0401bf"
-            )
-        )
-    ),*/
-    /*V165(
-        "1.16.5",
-        "zoglin.webp", 8,8,
-        mapOf(
-            ModLoader.forge to ModLoader.Version(
-                ModLoader.forge,
-                "1.16.5-forge-36.2.42",
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.42/forge-1.16.5-36.2.42-installer.jar",
-                "e09ecf910e4d5eae12fb3564d9b7de212c1958b2"
-            )
-        ),
-        //jdk21+运行j8mc用
-        *//*"""--add-exports=java.base/sun.security.util=ALL-UNNAMED
---add-exports=jdk.naming.dns/com.sun.jndi.dns=java.naming
---add-opens=java.base/java.util.jar=ALL-UNNAMED""".trimIndent().split("\n"),*//*
-        enabled = true,
-    ),*/
+
     V122(
         "1.12.2",
-        "terracotta", 25,25,
+        "terracotta", 25,
+        340,
         mapOf(
             ModLoader.cleanroom to ModLoader.Version(
                 ModLoader.cleanroom,
@@ -100,7 +75,8 @@ enum class McVersion(
     //GTNH only
     V071(
         "1.7.10",
-        "acacia_log", 25,25,
+        "acacia_log", 25,
+        5,
         //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
         mapOf(
             ModLoader.forge to ModLoader.Version(
@@ -119,10 +95,10 @@ enum class McVersion(
     //1.16及以下 服务端核心
     val serverJarName get() = "minecraft_server.${mcVer}.jar"
     val supportedJreVers get() = buildList {
-        add(jreSupport)
+        add(jreSupport)/*
         if (alterJreVer != jreSupport) {
             add(alterJreVer)
-        }
+        }*/
     }
     val icon = "assets/icons/${iconName}.png"
     val vMajor get() = mcVer.split(".")[0]
@@ -135,5 +111,36 @@ enum class McVersion(
 
     companion object {
         fun from(mcVer: String): McVersion? = entries.firstOrNull { it.mcVer == mcVer }
+        fun fromProtocolVer(protocolVer: Int): McVersion? = entries.firstOrNull { it.protocolVer == protocolVer }
     }
 }
+/*V182(
+      "1.18.2",
+      "copper.png", 21,21,
+      //https://piston-meta.mojang.com/v1/packages/334b33fcba3c9be4b7514624c965256535bd7eba/1.18.2.json
+      mapOf(
+          ModLoader.forge to ModLoader.Version(
+              ModLoader.forge,
+              "1.18.2-forge-40.3.12",
+              "https://maven.minecraftforge.net/net/minecraftforge/forge/1.18.2-40.3.12/forge-1.18.2-40.3.12-installer.jar",
+              "d7f759dec5b52ddb342c3e12511da1674d0401bf"
+          )
+      )
+  ),*/
+/*V165(
+    "1.16.5",
+    "zoglin.webp", 8,8,
+    mapOf(
+        ModLoader.forge to ModLoader.Version(
+            ModLoader.forge,
+            "1.16.5-forge-36.2.42",
+            "https://maven.minecraftforge.net/net/minecraftforge/forge/1.16.5-36.2.42/forge-1.16.5-36.2.42-installer.jar",
+            "e09ecf910e4d5eae12fb3564d9b7de212c1958b2"
+        )
+    ),
+    //jdk21+运行j8mc用
+    *//*"""--add-exports=java.base/sun.security.util=ALL-UNNAMED
+--add-exports=jdk.naming.dns/com.sun.jndi.dns=java.naming
+--add-opens=java.base/java.util.jar=ALL-UNNAMED""".trimIndent().split("\n"),*//*
+        enabled = true,
+    ),*/

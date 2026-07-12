@@ -8,13 +8,13 @@ import java.io.File
 
 /**
  * Android actual for installer bootstrapper expect functions.
- * On Android, the installer bootstrapper is not run — FCL handles this.
+ * Android does not support local game installation.
  */
 internal actual fun GameService.runInstallerBootstrapperDesktop(
     holder: GameService.LoaderInstallHolder,
     ctx: TaskContext
 ) {
-    ctx.emitProgress(TaskProgress("Android不运行客户端安装器 (由FCL处理)", 1f))
+    ctx.emitProgress(TaskProgress("Android不支持客户端安装器", 1f))
 }
 
 internal actual fun GameService.runServerInstallerBootstrapperDesktop(

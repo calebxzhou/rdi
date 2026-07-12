@@ -257,12 +257,6 @@ actual fun loadImageBitmap(resourceName: String): ImageBitmap {
     }
 }
 
-actual fun checkLauncherInstalled(): Boolean = true // Desktop always has its own launcher
-
-actual fun openGameLauncher() {
-    // No-op on desktop — game is launched directly via ProcessBuilder
-}
-
 actual fun openFolder(path: String) {
     val dir = java.io.File(path)
     if (dir.exists()) {
@@ -375,9 +369,6 @@ actual fun androidx.navigation.NavGraphBuilder.addDesktopOnlyRoutes(
         McPlayScreen(
             launchArgs = launchArgs,
             autoStart = launchArgs != null,
-            onOpenAiChat = { mcpPort, versionDir ->
-                //navController.navigate(AiChat(mcpPort, versionDir))
-            },
             onBack = {
                 val callback = McPlayStore.onBack
                 McPlayStore.onBack = null

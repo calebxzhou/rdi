@@ -12,8 +12,13 @@
     "mServerboundHelloPacket"
   ],
   "client": [
+    "ASectionBlocksUpdatePacket",
+    "AClientPacketListener",
     "AMinecraft",
     "mChat",
+    "mChunkCache",
+    "mChunkCachePacketOrder",
+    "mDelayedChunkCacheClient",
     "mGame",
     "mHttpTexture",
     "mMultiScreen",

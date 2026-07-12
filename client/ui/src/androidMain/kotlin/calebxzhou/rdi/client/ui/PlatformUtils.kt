@@ -29,7 +29,6 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.navigation.compose.composable
-import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.getCachedOrFetchHwSpecJson
 import calebxzhou.rdi.client.ui.screen.ModpackUpload
 import calebxzhou.rdi.client.ui.screen.ResourceRoute
@@ -155,11 +154,8 @@ actual suspend fun runDesktopUpdateFlow(
     onDetail: (String) -> Unit,
     onRestart: suspend () -> Unit
 ) {
-    UpdateService.startUpdateFlow(
-        onStatus = onStatus,
-        onDetail = onDetail,
-        onRestart = null
-    )
+    onStatus("已跳过更新")
+    onDetail("")
 }
 
 actual fun createDesktopShortcut(): Result<Unit> =
@@ -181,32 +177,6 @@ actual fun loadImageBitmap(resourceName: String): androidx.compose.ui.graphics.I
         val bitmap = android.graphics.BitmapFactory.decodeStream(stream)
             ?: throw IllegalStateException("Failed to decode image: $resourceName")
         bitmap.asImageBitmap()
-    }
-}
-
-actual fun checkLauncherInstalled(): Boolean {
-    val packages = listOf("com.tungsten.fcl", )
-    val pm = AndroidPlatform.appContext.packageManager
-    return packages.any { pkg ->
-        try {
-            pm.getPackageInfo(pkg, 0)
-            true
-        } catch (_: android.content.pm.PackageManager.NameNotFoundException) {
-            false
-        }
-    }
-}
-
-actual fun openGameLauncher() {
-    val packages = listOf("com.tungsten.fcl", )
-    val pm = AndroidPlatform.appContext.packageManager
-    for (pkg in packages) {
-        val intent = pm.getLaunchIntentForPackage(pkg)
-        if (intent != null) {
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            AndroidPlatform.appContext.startActivity(intent)
-            return
-        }
     }
 }
 

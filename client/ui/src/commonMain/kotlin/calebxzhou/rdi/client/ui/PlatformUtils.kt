@@ -105,7 +105,7 @@ expect fun checkCanCreateSymlink(): Boolean
 /**
  * Run update flow.
  * Desktop: update MC cores + UI libs and may restart.
- * Android: update MC cores only.
+ * Android: no-op.
  */
 expect suspend fun runDesktopUpdateFlow(
     onStatus: (String) -> Unit,
@@ -136,18 +136,6 @@ expect fun exportResource(name: String, target: File)
  * Desktop: Skia Image. Android: BitmapFactory.
  */
 expect fun loadImageBitmap(resourceName: String): ImageBitmap
-
-/**
- * Check if the game launcher app is installed.
- * Desktop: always true. Android: checks for com.tungsten.fcl.
- */
-expect fun checkLauncherInstalled(): Boolean
-
-/**
- * Open the external game launcher (FCL on Android).
- * Desktop: no-op. Android: launches com.tungsten.fcl via intent.
- */
-expect fun openGameLauncher()
 
 /**
  * Open a folder/directory in the system file manager.

@@ -165,12 +165,15 @@ object HostInstallService {
         if (HostQueryService.findByOwnerAndModpack(playerId, host.modpackId) != null && !this.isDav) {
             throw RequestError("同一个整合包只能创建一张房间")
         }
-        val world = resolveWorld(host.saveWorld, host.worldId, host.modpackId)
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此包")
         val version = modpack.getVersion(host.packVer) ?: throw RequestError("无此版本")
+        /*if (modpack.mcVer == McVersion.V192) {
+            throw RequestError("MC1.19.2暂不支持创建房间")
+        }*/
         if (version.status != Modpack.Status.OK) {
             throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
         }
+        val world = resolveWorld(host.saveWorld, host.worldId, host.modpackId)
         val port = allocateRoomPort()
         val createdHost = Host(
             name = host.name,

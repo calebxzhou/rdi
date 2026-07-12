@@ -159,13 +159,16 @@ fun MenuScreen(
                         .align(Alignment.BottomCenter)
                         .padding(bottom = 24.dp)
                 ) {
-                    lastPlayHost?.let { host ->
-                        CircleIconButton(
-                            icon = "\uF04B",
-                            tooltip = "继续游玩房间:${host.name}",
-                            bgColor = MaterialColor.GREEN_900.color
-                        ) {
-                            onOpenHostInfo(host.id)
+                    Column {
+                        Text("rdi6准备开始内测 随机抽取幸运玩家发送邀请")
+                        lastPlayHost?.let { host ->
+                            CircleIconButton(
+                                icon = "\uF04B",
+                                tooltip = "继续游玩房间:${host.name}",
+                                bgColor = MaterialColor.GREEN_900.color
+                            ) {
+                                onOpenHostInfo(host.id)
+                            }
                         }
                     }
                 }
@@ -176,15 +179,6 @@ fun MenuScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     horizontalAlignment = Alignment.End
                 ) {
-                    if (DEBUG) {
-                        CircleIconButton(
-                            icon = "\uE0CA",
-                            tooltip = "AI聊天",
-                            bgColor = MaterialColor.PURPLE_700.color
-                        ) {
-                            openAiDebugDialog()
-                        }
-                    }
                     ImageIconButton(
                         icon = "mcmod",
                         tooltip = "MC百科",
@@ -195,7 +189,7 @@ fun MenuScreen(
                     }
                     CircleIconButton(
                         icon = "\uF004",
-                        tooltip = "支持·许愿池",
+                        tooltip = "支持",
                         bgColor = MaterialColor.PINK_700.color
                     ) {
                         onOpenSponsor()
@@ -228,52 +222,6 @@ fun MenuScreen(
             }
         }
     }
-    if (DEBUG && showAiDebugDialog) {
-        AlertDialog(
-            onDismissRequest = { showAiDebugDialog = false },
-            title = { Text("AI调试入口") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = aiDebugPortText,
-                        onValueChange = { aiDebugPortText = it.filter(Char::isDigit).take(5) },
-                        label = { Text("连接号/端口") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = aiDebugVersionDir,
-                        onValueChange = { aiDebugVersionDir = it },
-                        label = { Text("整合包目录") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    aiDebugError?.let {
-                        Text(it, color = MaterialColor.RED_700.color)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val port = aiDebugPortText.toIntOrNull()
-                    if (port == null || port !in 1..65535) {
-                        aiDebugError = "端口必须在1-65535之间"
-                        return@TextButton
-                    }
-                    val versionDir = aiDebugVersionDir.trim().takeIf(String::isNotBlank)
-                    showAiDebugDialog = false
-                    onOpenAiChat(port, versionDir)
-                }) {
-                    Text("开始聊天")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAiDebugDialog = false }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
 }
 
 @Composable
@@ -281,19 +229,7 @@ private fun MenuAccountSummary(
     onlinePlayerIds: List<ObjectId>,
     modifier: Modifier = Modifier
 ) {
-    val javaMajor = remember { currentPlatformJavaMajor() }
-    val needJava25Warn = isDesktop && javaMajor != 25
-    var showJava25WarnDialog by remember { mutableStateOf(false) }
-    val java25Deadline = remember { LocalDate.of(2026, 5, 10) }
-    val remainingDays = remember {
-        ChronoUnit.DAYS.between(LocalDate.now(), java25Deadline).coerceAtLeast(0)
-    }
 
-    LaunchedEffect(needJava25Warn) {
-        if (needJava25Warn) {
-            showJava25WarnDialog = true
-        }
-    }
 
     Column(
         modifier = modifier,
@@ -317,25 +253,6 @@ private fun MenuAccountSummary(
         }
     }
 
-    if (showJava25WarnDialog) {
-        AlertDialog(
-            onDismissRequest = { showJava25WarnDialog = true },
-            title = { Text("需要更新Java和启动脚本") },
-            text = {
-                Text(
-                    "请立刻进行以下操作：\n" +
-                        "1.安装Java25（群文件有）\n" +
-                        "2.更换新的启动脚本(双击启动.ps1) 并删除+重新创建RDI桌面快捷方式\n\n" +
-                        "详见群文档H2章节。"
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { exitProcess(0) }) {
-                    Text("现在去安装")
-                }
-            }
-        )
-    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -395,15 +312,6 @@ private fun MenuActionButtons(
                     bgColor = MaterialColor.GRAY_900.color
                 ) {
                     onOpenMcConsole()
-                }
-            }
-            if(DEBUG){
-                CircleIconButton(
-                    "\uE0CA",
-                    "AI聊天",
-                    bgColor = MaterialColor.PURPLE_700.color
-                ) {
-                    onOpenAiChat()
                 }
             }
             CircleIconButton(

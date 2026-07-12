@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
@@ -37,7 +36,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.encodeBase64
-import calebxzhou.rdi.client.Const
 import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.ModpackService
@@ -53,8 +51,6 @@ import calebxzhou.rdi.client.ui.McGameSession
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.McPlayStore
 import calebxzhou.rdi.client.ui.Space8h
-import calebxzhou.rdi.client.ui.Space8w
-import calebxzhou.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.TitleRow2
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.common.model.GTO_GUARD_AGENT_FILE_NAME
@@ -69,7 +65,6 @@ fun McPlayScreen(
     launchArgs: McPlayArgs? = null,
     autoStart: Boolean = true,
     extraJvmArgs: List<String> = emptyList(),
-    onOpenAiChat: (Int?, String?) -> Unit = { _, _ -> },
     onBack: () -> Unit
 ) {
     val sessions = McPlayStore.sessions

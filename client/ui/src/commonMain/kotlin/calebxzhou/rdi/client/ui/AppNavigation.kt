@@ -4,28 +4,16 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
-import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.model.BSSkinData
-import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
 import org.bson.types.ObjectId
@@ -52,56 +40,11 @@ fun AppNavigation(
     startDestination: Any = Login,
 ) {
         val navController = rememberNavController()
-        val scope = rememberCoroutineScope()
-        // Android FCL launch dialog
-        val showFclLaunchDialog = remember { mutableStateOf(false) }
-        val fclLaunchArgs = remember { mutableStateOf<McPlayArgs?>(null) }
         val openMcPlay: (McPlayArgs, (() -> Unit)?) -> Unit = { args, onBack ->
             if (isDesktop) {
                 McPlayStore.pendingLaunch = args
                 McPlayStore.onBack = onBack
                 navController.navigate(McPlayView)
-            } else {
-                fclLaunchArgs.value = args
-                showFclLaunchDialog.value = true
-            }
-        }
-        if (showFclLaunchDialog.value) {
-            val args = fclLaunchArgs.value
-            if (args != null) {
-                var jvmArg by remember(args.playArg) { mutableStateOf("") }
-                LaunchedEffect(args.playArg) {
-                    jvmArg = "-Drdi.play=${args.playArg.withGameAddr(LocalMcProxy.gameAddr).encodeBase64}"
-                }
-                AlertDialog(
-                    onDismissRequest = { showFclLaunchDialog.value = false },
-                    title = { Text("在FCL中启动游戏") },
-                    text = {
-                        Column {
-                            Text("0.随意建个离线账户")
-                            Text("1.点 管理版本")
-                            Text("2.点 公有目录，点击 刷新")
-                            Text("3.点击 ${args.versionId}")
-                            Text("4.点击 \uF013".asIconText)
-                            Text("5.翻到最下面 找到Java虚拟机参数 全部清空")
-                            Text("6.粘贴 $jvmArg")
-                        }
-
-                    },
-                    confirmButton = {
-                        TextButton(onClick = {
-                            copyToClipboard(jvmArg)
-                            openGameLauncher()
-                        }) {
-                            Text("复制参数并打开FCL")
-                        }
-                    },
-                    dismissButton = {
-                        TextButton(onClick = { showFclLaunchDialog.value = false }) {
-                            Text("取消")
-                        }
-                    }
-                )
             }
         }
 

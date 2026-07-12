@@ -14,12 +14,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -32,8 +27,6 @@ import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.RdiTheme
-import calebxzhou.rdi.client.ui.checkLauncherInstalled
-import calebxzhou.rdi.client.ui.openUrl
 import calebxzhou.rdi.client.ui.screen.Login
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.DL_MOD_DIR
@@ -97,28 +90,7 @@ class MainActivity : ComponentActivity() {
         warmUpHwSpecCacheOnStartup()
         refreshNodeSettingsOnStartup()
         setContent {
-            val showFclDialog = remember { mutableStateOf(!checkLauncherInstalled()) }
             RdiTheme {
-                if (showFclDialog.value) {
-                    AlertDialog(
-                        onDismissRequest = { showFclDialog.value = false },
-                        title = { Text("需要安装Fold Craft Launcher") },
-                        text = { Text("RDI需要Fold Craft Launcher(FCL)来启动Minecraft。请先安装FCL，然后重新打开RDI。") },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                openUrl("https://fcl-team.github.io/")
-                                showFclDialog.value = false
-                            }) {
-                                Text("前往下载")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showFclDialog.value = false }) {
-                                Text("稍后再说")
-                            }
-                        }
-                    )
-                }
                 Surface(
                     modifier = Modifier.fillMaxSize().padding(top = 32.dp)
                 ) {

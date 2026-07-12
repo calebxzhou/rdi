@@ -1,7 +1,10 @@
 package calebxzhou.rdi.prox
 
+import calebxzau.util.netty.tryReadVarInt
+import calebxzau.util.netty.writeVarInt
 import com.github.luben.zstd.Zstd
 import io.netty.buffer.ByteBuf
+import io.netty.channel.Channel
 import io.netty.channel.ChannelHandlerContext
 import io.netty.handler.codec.ByteToMessageDecoder
 import io.netty.handler.codec.CorruptedFrameException
@@ -11,6 +14,12 @@ import io.netty.util.AttributeKey
 private const val ZSTD_MAGIC = 0x52445A53 // RDZS
 private const val FLAG_COMPRESSED = 0x01
 private val ZSTD_FRAME_ENABLED = AttributeKey.valueOf<Boolean>("rdi.zstd.frame.enabled")
+
+internal fun Channel.isZstdFrameEnabled(): Boolean = attr(ZSTD_FRAME_ENABLED).get() == true
+
+internal fun Channel.disableZstdFrameEncoding() {
+    attr(ZSTD_FRAME_ENABLED).set(false)
+}
 
 class ZstdFrameAutoDecoder(
     private val maxFrameSize: Int = Const.ZSTD_MAX_FRAME_SIZE,
@@ -56,8 +65,8 @@ class ZstdFrameEncoder(
 
         out.writeInt(ZSTD_MAGIC)
         out.writeByte(if (compressed) FLAG_COMPRESSED else 0)
-        writeVarInt(length, out)
-        writeVarInt(payload.size, out)
+        out.writeVarInt(length)
+        out.writeVarInt(payload.size)
         out.writeBytes(payload)
     }
 }
@@ -83,12 +92,12 @@ private fun decodeZstdFrame(ctx: ChannelHandlerContext, input: ByteBuf, out: Mut
     if ((flags and FLAG_COMPRESSED.inv()) != 0) {
         throw CorruptedFrameException("unknown zstd frame flags: $flags")
     }
-    val uncompressedLength = readVarInt(input)
+    val uncompressedLength = input.tryReadVarInt()
     if (uncompressedLength == null) {
         input.readerIndex(frameStart)
         return
     }
-    val payloadLength = readVarInt(input)
+    val payloadLength = input.tryReadVarInt()
     if (payloadLength == null) {
         input.readerIndex(frameStart)
         return
@@ -120,31 +129,4 @@ private fun decodeZstdFrame(ctx: ChannelHandlerContext, input: ByteBuf, out: Mut
     val buf = ctx.alloc().buffer(decompressed.size)
     buf.writeBytes(decompressed)
     out.add(buf)
-}
-
-private fun writeVarInt(value: Int, out: ByteBuf) {
-    var current = value
-    while (true) {
-        if ((current and 0x7F.inv()) == 0) {
-            out.writeByte(current)
-            return
-        }
-        out.writeByte((current and 0x7F) or 0x80)
-        current = current ushr 7
-    }
-}
-
-private fun readVarInt(input: ByteBuf): Int? {
-    var value = 0
-    var position = 0
-    while (true) {
-        if (!input.isReadable) return null
-        val currentByte = input.readByte().toInt()
-        value = value or ((currentByte and 0x7F) shl position)
-        if ((currentByte and 0x80) == 0) return value
-        position += 7
-        if (position >= 32) {
-            throw CorruptedFrameException("VarInt too big")
-        }
-    }
 }

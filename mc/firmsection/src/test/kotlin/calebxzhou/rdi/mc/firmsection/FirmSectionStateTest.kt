@@ -1,4 +1,3 @@
-/*
 package calebxzhou.rdi.mc.firmsection
 
 import java.util.UUID
@@ -12,6 +11,10 @@ class FirmSectionStateTest {
     private val anotherKey = FirmSectionKey("minecraft:overworld", 1, 2, 4)
 
     @Test
+    fun ok(){
+
+    }
+   /* @Test
     fun `same player setting same section returns already present`() {
         val state = FirmSectionState(maxTotal = 10)
 
@@ -53,6 +56,5 @@ class FirmSectionStateTest {
         assertEquals(listOf(key), state.sectionsOf(playerA))
         assertEquals(listOf(anotherKey), state.sectionsOf(playerB))
         assertEquals(2, state.totalCount())
-    }
+    }*/
 }
-*/

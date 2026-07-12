@@ -1,5 +1,6 @@
 package calebxzhou.rdi.prox
 
+import calebxzau.util.netty.writeVarInt
 import io.netty.buffer.ByteBuf
 import io.netty.channel.ChannelHandlerContext
 import io.netty.handler.codec.MessageToByteEncoder
@@ -8,19 +9,7 @@ import io.netty.handler.codec.MessageToByteEncoder
 class MinecraftFrameEncoder : MessageToByteEncoder<ByteBuf>() {
     override fun encode(ctx: ChannelHandlerContext, msg: ByteBuf, out: ByteBuf) {
         val length = msg.readableBytes()
-        writeVarInt(length, out)
+        out.writeVarInt(length)
         out.writeBytes(msg)
-    }
-
-    private fun writeVarInt(value: Int, buffer: ByteBuf) {
-        var v = value
-        while (true) {
-            if ((v and 0x7F.inv()) == 0) {
-                buffer.writeByte(v)
-                return
-            }
-            buffer.writeByte((v and 0x7F) or 0x80)
-            v = v ushr 7
-        }
     }
 }

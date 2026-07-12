@@ -10,8 +10,6 @@ actual object ClientDirs {
      */
     private lateinit var baseDir: File
 
-    private val fclMinecraftDir = File("/storage/emulated/0/FCL/.minecraft")
-
     fun ensureInit(context: Context) {
         if (!::baseDir.isInitialized) {
             init(context.getExternalFilesDir(null) ?: context.filesDir)
@@ -33,12 +31,12 @@ actual object ClientDirs {
     }
 
     actual val dlPacksDir: File get() = baseDir.resolve("dl-packs")
-    actual val versionsDir: File get() = fclMinecraftDir.resolve("versions")
+    actual val versionsDir: File get() = mcDir.resolve("versions")
     actual val dlModsDir: File get() = baseDir.resolve("dl-mods")
     actual val packProcDir: File get() = baseDir.resolve("pack-proc")
-    actual val mcDir: File get() = fclMinecraftDir
-    actual val librariesDir: File get() = fclMinecraftDir.resolve("libraries")
-    actual val assetsDir: File get() = fclMinecraftDir.resolve("assets")
+    actual val mcDir: File get() = baseDir.resolve("mc")
+    actual val librariesDir: File get() = mcDir.resolve("libraries")
+    actual val assetsDir: File get() = mcDir.resolve("assets")
     actual val assetIndexesDir: File get() = assetsDir.resolve("indexes")
     actual val assetObjectsDir: File get() = assetsDir.resolve("objects")
     actual val toolsDir: File

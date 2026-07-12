@@ -189,22 +189,25 @@ fun ModpackInfoScreen(
 
             if (pack != null) {
                 title="整合包 · "+pack.name
-                val tabTitles = listOf(
-                    "简介",
-                    "Mod列表(${pack.modCount})",
-                    "\uF019 下载版本(${pack.versions.size})"
-                )
-                TabRow(selectedTabIndex = selectedTab, containerColor = Color.White) {
+                val tabTitles = buildList {
+                    add("简介")
+                    add("Mod列表(${pack.modCount})")
+                    if (isDesktop) {
+                        add("\uF019 下载版本(${pack.versions.size})")
+                    }
+                }
+                val activeTab = selectedTab.takeIf { it in tabTitles.indices } ?: 0
+                TabRow(selectedTabIndex = activeTab, containerColor = Color.White) {
                     tabTitles.forEachIndexed { index, title ->
                         Tab(
-                            selected = selectedTab == index,
+                            selected = activeTab == index,
                             onClick = { selectedTab = index },
                             text = { Text(title) }
                         )
                     }
                 }
                 Space8h()
-                when (selectedTab) {
+                when (activeTab) {
                     0 -> {
                         ModpackIntroTabContent(
                             pack = pack
@@ -280,7 +283,7 @@ fun ModpackInfoScreen(
                                             ) { confirmRebuildVersion = version }
                                         }
                                     }
-                                    if (version.status == Modpack.Status.OK) {
+                                    if (isDesktop && version.status == Modpack.Status.OK) {
                                         Space8w()
                                         CircleIconButton(
                                             icon = "\uF019",
@@ -420,7 +423,7 @@ fun ModpackInfoScreen(
         )
     }
 
-    confirmRedownloadVersion?.let { version ->
+    if (isDesktop) confirmRedownloadVersion?.let { version ->
         val currentPack = pack
         if (currentPack != null) {
             ConfirmDialog(
@@ -437,7 +440,7 @@ fun ModpackInfoScreen(
         }
     }
 
-    downloadMethodVersion?.let { version ->
+    if (isDesktop) downloadMethodVersion?.let { version ->
         val currentPack = pack
         if (currentPack != null) {
             ModpackDownloadMethodDialog(

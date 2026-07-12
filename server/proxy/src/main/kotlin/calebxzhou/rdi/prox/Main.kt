@@ -54,7 +54,7 @@ val ktorClient by lazy {
 
 fun main() {
     lgr.info {
-        "proxy zstd=${Const.ZSTD_ENABLED} level=${Const.ZSTD_LEVEL} " +
+        "proxy zstd=required-for-login level=${Const.ZSTD_LEVEL} " +
             "threshold=${Const.ZSTD_THRESHOLD} maxFrameSize=${Const.ZSTD_MAX_FRAME_SIZE}"
     }
     // Start the basic proxy with binary control packet support

@@ -25,7 +25,6 @@ import cpw.mods.fml.common.eventhandler.SubscribeEvent
 import cpw.mods.fml.common.gameevent.PlayerEvent
 import cpw.mods.fml.common.gameevent.TickEvent
 import net.minecraft.entity.player.EntityPlayerMP
-import net.minecraft.event.ClickEvent
 import net.minecraft.server.dedicated.DedicatedServer
 import net.minecraft.util.ChatComponentText
 import net.minecraftforge.common.DimensionManager
@@ -123,14 +122,7 @@ class RDI {
 
     private fun sendJoinMessages(player: EntityPlayerMP) {
         val range = PlayerChatRangeState.get(player.getUniqueID())
-        val result = FirmSectionService1710.list(player)
         player.addChatMessage(ChatComponentText("当前聊天范围：" + range.displayName))
-        player.addChatMessage(ChatComponentText("6月18日起 只有“持久子区块”会保存 其余区域有随时被清除的可能"))
-        player.addChatMessage(ChatComponentText("你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书"))
-        player.addChatMessage(ChatComponentText("点此打开RDI说明书").apply {
-            chatStyle.setUnderlined(true)
-            chatStyle.setChatClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL, "https://craftrdi.feishu.cn/wiki/U8LRwMpUliuxW5kZLvCcxonNnkd"))
-        })
     }
 
     @SubscribeEvent
@@ -158,7 +150,6 @@ class RDI {
             event.z.toDouble(),
         )
         if (result.status == FirmSectionSetStatus.ADDED) {
-            player.addChatMessage(ChatComponentText("放置方块实体的位置已设为持久子区块"))
             RServerNetwork.sendFirmSectionsToAll(server)
         }
     }

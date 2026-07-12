@@ -1140,38 +1140,42 @@ fun SettingScreen(
             }
         }
 
-        LaunchedEffect(Unit) {
-            loadDlQuota()
+        LaunchedEffect(isDesktop) {
+            if (isDesktop) {
+                loadDlQuota()
+            }
         }
 
         RColumn {
-            RRow {
-                Text("使用BMCL-API国内镜像")
-                RSwitch(checked = preferMcMirror, onCheckedChange = onPreferMcMirrorChange)
-                Text("下载MC资源")
-                RSwitch(checked = preferModMirror, onCheckedChange = onPreferModMirrorChange)
-                Text("下载Mod")
-            }
-            RRow {
-                Text("RDI CDN下载额度")
-                val quotaText = when {
-                    dlQuotaLoading && dlQuota == null -> "读取中"
-                    dlQuotaError != null && dlQuota == null -> "读取失败"
-                    else -> dlQuota?.let {
-                        "今日剩余${it.remainingBytes.humanFileSize}/${it.limitBytes.humanFileSize}"
-                    } ?: "--"
+            if (isDesktop) {
+                RRow {
+                    Text("使用BMCL-API国内镜像")
+                    RSwitch(checked = preferMcMirror, onCheckedChange = onPreferMcMirrorChange)
+                    Text("下载MC资源")
+                    RSwitch(checked = preferModMirror, onCheckedChange = onPreferModMirrorChange)
+                    Text("下载Mod")
                 }
-                Text(
-                    text = quotaText,
-                    color = if (dlQuotaError != null && dlQuota == null) MaterialTheme.colorScheme.error else Color.Unspecified
-                )
-                CircleIconButton(
-                    icon = "\uF021",
-                    tooltip = if (dlQuotaLoading) "刷新中" else "刷新下载额度",
-                    showText = false,
-                    enabled = !dlQuotaLoading,
-                    onClick = ::loadDlQuota
-                )
+                RRow {
+                    Text("RDI CDN下载额度")
+                    val quotaText = when {
+                        dlQuotaLoading && dlQuota == null -> "读取中"
+                        dlQuotaError != null && dlQuota == null -> "读取失败"
+                        else -> dlQuota?.let {
+                            "今日剩余${it.remainingBytes.humanFileSize}/${it.limitBytes.humanFileSize}"
+                        } ?: "--"
+                    }
+                    Text(
+                        text = quotaText,
+                        color = if (dlQuotaError != null && dlQuota == null) MaterialTheme.colorScheme.error else Color.Unspecified
+                    )
+                    CircleIconButton(
+                        icon = "\uF021",
+                        tooltip = if (dlQuotaLoading) "刷新中" else "刷新下载额度",
+                        showText = false,
+                        enabled = !dlQuotaLoading,
+                        onClick = ::loadDlQuota
+                    )
+                }
             }
             AutoRouteStatus(
                 switchingNode = switchingNode,

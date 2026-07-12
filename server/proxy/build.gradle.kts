@@ -22,6 +22,7 @@ dependencies {
     implementation(project(":model"))
 //    implementation(project(":net"))
     implementation(kotlin("reflect"))
+    implementation(libs.knbt)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
@@ -37,6 +38,12 @@ dependencies {
     implementation(libs.netty.handler)
     implementation(libs.netty.transport)
     implementation(libs.zstd.jni)
+}
+
+kotlin {
+    sourceSets.named("main") {
+        kotlin.srcDir("../../ktutils/netty/src/main/kotlin")
+    }
 }
 
 tasks.named<Jar>("jar") {

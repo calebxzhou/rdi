@@ -1,5 +1,7 @@
 package calebxzhou.rdi.mc.client
 
+import calebxzhou.rdi.mc.client.chunkcache.RdiChunkCacheClient
+import calebxzhou.rdi.mc.client.chunkcache.RdiChunkCacheClientHandler
 import calebxzhou.rdi.mc.client.network.RClientNetwork
 import calebxzhou.rdi.mc.client.mcp.standard.StandardMcpServer
 import calebxzhou.rdi.mc.client.mcpimpl.McpGameImpl
@@ -59,15 +61,23 @@ class RDIMain {
         @SubscribeEvent
         @JvmStatic
         fun onClientJoinServer(event: ClientPlayerNetworkEvent.LoggingIn) {
-            StandardMcpServer.start(McpGameImpl, null)
+            RdiChunkCacheClientHandler.clearDeferredPackets()
+            RdiChunkCacheClient.open(
+                Minecraft.getInstance().gameDirectory.toPath(),
+                "${RDI.HOST_NAME}\n${RDI.GAME_IP}",
+            )
+            RdiChunkCacheClient.sendManifestAndReady()
+           /* StandardMcpServer.start(McpGameImpl, null)
                 .onSuccess { port -> sendMcpUrlMessage(event.player, port) }
-                .onFailure { it.printStackTrace() }
+                .onFailure { it.printStackTrace() }*/
         }
 
         @SubscribeEvent
         @JvmStatic
         fun onClientLeaveServer(event: ClientPlayerNetworkEvent.LoggingOut) {
             StandardMcpServer.stop()
+            RdiChunkCacheClientHandler.clearDeferredPackets()
+            RdiChunkCacheClient.close()
         }
 
         private fun sendMcpUrlMessage(player: LocalPlayer, port: Int) {

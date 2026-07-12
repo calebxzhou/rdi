@@ -20,7 +20,7 @@ expect object ClientDirs {
     /** Temporary processing directory for modpack operations */
     val packProcDir: File
 
-    /** Root MC directory (desktop: RDIClient.DIR/mc, android: FCL/.minecraft) */
+    /** Root MC directory */
     val mcDir: File
 
     /** Libraries directory */

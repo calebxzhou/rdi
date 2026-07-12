@@ -1,7 +1,11 @@
 package calebxzhou.rdi.prox
 
+import calebxzau.util.netty.readVarInt
+import calebxzau.util.netty.writeUtf8String
+import calebxzau.util.netty.writeVarInt
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.HostStatus
+import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Response
 import io.ktor.client.call.*
 import io.ktor.client.request.*
@@ -18,6 +22,7 @@ import java.io.File
 import java.net.InetSocketAddress
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Enhanced handler for frontend connections with simplified port-based routing
@@ -65,6 +70,7 @@ class DynamicProxyFrontendHandler(
     private val pendingBuffer = mutableListOf<Any>()
     private var handshakeReceived = false
     private var isStatusRequest = false
+    private var mcVersion: McVersion? = null
 
     override fun channelActive(ctx: ChannelHandlerContext) {
         activeConnections.add(ctx.channel())
@@ -108,7 +114,7 @@ class DynamicProxyFrontendHandler(
         if(port==25565){
             return@runCatching HostStatus.PLAYABLE
         }
-        withTimeoutOrNull(1000L) {
+        withTimeoutOrNull(2000L.milliseconds) {
             ktorClient.get("$MASTER_URL/host/status?port=$port").body<Response<HostStatus?>>().run {
                 data ?: run {
                     lgr.info { "host $port status fail: ${msg}" }
@@ -124,35 +130,45 @@ class DynamicProxyFrontendHandler(
         val parser = buffer.slice()
 
         // 1. Skip Packet Length (VarInt)
-        readVarInt(parser)
+        parser.readVarInt()
 
         // 2. Read Packet ID (VarInt) - must be 0x00 for Handshake
-        val packetId = readVarInt(parser)
+        val packetId = parser.readVarInt()
 
         if (packetId == 0) {
             // 3. Protocol Version (VarInt)
-            val protocolVersion = readVarInt(parser)
+            val protocolVersion = parser.readVarInt()
 
             // 4. Skip Hostname (String = VarInt Len + Bytes)
-            val hostLen = readVarInt(parser)
+            val hostLen = parser.readVarInt()
             parser.skipBytes(hostLen)
 
             // 5. Read Port (UShort)
             val port = parser.readUnsignedShort()
-            val nextState = readVarInt(parser)
+            val nextState = parser.readVarInt()
             handshakeReceived = true
             ctx.channel().attr(ATTR_PROTOCOL_VER).set(protocolVersion)
-            lgr.info { "Handshake received: Port $port Version $protocolVersion NextState $nextState" }
+            mcVersion = McVersion.fromProtocolVer(protocolVersion)
+            lgr.info {
+                "Handshake received: Port $port Version $protocolVersion " +
+                        "McVersion ${mcVersion?.mcVer ?: "unsupported"} NextState $nextState"
+            }
 
             // Handle status request (Server List Ping)
             if (nextState == 1) {
                 isStatusRequest = true
+                ctx.channel().disableZstdFrameEncoding()
                 lgr.info { "Status request detected, will respond locally" }
                 // Keep the frame decoder for status packets
                 return
             }
 
             // nextState == 2: Login flow - determine backend based on port
+            if (!ctx.channel().isZstdFrameEnabled()) {
+                lgr.info { "Client login without zstd frame support, disconnecting" }
+                disconnectPlayerWithReason(ctx.channel(), "you must update client")
+                return
+            }
             if (port in 50000..59999 || port == 25565) {
                 val status = runBlocking {
                     getHostStatus(port).getOrElse {
@@ -172,7 +188,7 @@ class DynamicProxyFrontendHandler(
                     )
                     return
                 }
-                lgr.info { "Connecting to backend 127.0.0.1:$port " }
+                lgr.info { "Connecting to backend $currentBackendHost:$port " }
                 currentBackendHost = "127.0.0.1"
                 currentBackendPort = port
                 installBandwidthLimiter(ctx, port)
@@ -180,13 +196,9 @@ class DynamicProxyFrontendHandler(
 
                 // Forward the handshake packet
                 forwardToBackend(ctx, buffer.retain())
-
-                // Remove the frame decoder so subsequent encrypted/compressed packets flow raw
-                ctx.pipeline().remove(MinecraftFrameDecoder::class.java)
-                lgr.info { "Removed MinecraftFrameDecoder, switching to raw forwarding" }
             } else {
                 val reason = "Invalid port $port (must be 50000-59999)"
-                lgr.info { reason + ", closing connection" }
+                lgr.info { "$reason, closing connection" }
                 ctx.channel().attr(ATTR_PROTOCOL_VER).set(protocolVersion)
                 disconnectPlayerWithReason(ctx.channel(), reason)
             }
@@ -207,27 +219,6 @@ class DynamicProxyFrontendHandler(
         lgr.info { "Installed bandwidth limiter for host port $port: 10Mbps tx/rx" }
     }
 
-
-    private fun readVarInt(buffer: ByteBuf): Int {
-        var value = 0
-        var position = 0
-        var currentByte: Byte
-
-        while (true) {
-            currentByte = buffer.readByte()
-            value = value or ((currentByte.toInt() and 0x7F) shl position)
-
-            if ((currentByte.toInt() and 0x80) == 0) break
-
-            position += 7
-
-            if (position >= 32) throw RuntimeException("VarInt is too big")
-        }
-
-        return value
-    }
-
-
     private fun connectToBackend(ctx: ChannelHandlerContext) {
         val frontendChannel = ctx.channel()
 
@@ -244,7 +235,14 @@ class DynamicProxyFrontendHandler(
             .option(ChannelOption.AUTO_READ, true)
             .option(ChannelOption.TCP_NODELAY, true)
             .option(ChannelOption.SO_KEEPALIVE, true)
-            .handler(ProxyBackendHandler(frontendChannel))
+            .handler(object : ChannelInitializer<NioSocketChannel>() {
+                override fun initChannel(ch: NioSocketChannel) {
+                    ch.pipeline().addLast(
+                        MinecraftFrameDecoder(),
+                        ProxyBackendHandler(frontendChannel, mcVersion)
+                    )
+                }
+            })
 
         val future = bootstrap.connect(currentBackendHost, currentBackendPort)
         backendChannel = future.channel()
@@ -355,31 +353,16 @@ class DynamicProxyFrontendHandler(
         val dataBuffer = ch.alloc().buffer()
 
         try {
-            writeVarInt(packetId, dataBuffer)
-            writeString(reasonJson, dataBuffer)
+            dataBuffer.writeVarInt(packetId)
+            dataBuffer.writeUtf8String(reasonJson)
 
-            writeVarInt(dataBuffer.readableBytes(), buffer)
+            buffer.writeVarInt(dataBuffer.readableBytes())
             buffer.writeBytes(dataBuffer)
 
             ch.writeAndFlush(buffer).addListener(ChannelFutureListener.CLOSE)
         } finally {
             dataBuffer.release()
         }
-    }
-
-    private fun writeVarInt(value: Int, buffer: ByteBuf) {
-        var v = value
-        while ((v and -128) != 0) {
-            buffer.writeByte(v and 127 or 128)
-            v = v ushr 7
-        }
-        buffer.writeByte(v)
-    }
-
-    private fun writeString(value: String, buffer: ByteBuf) {
-        val bytes = value.toByteArray(Charsets.UTF_8)
-        writeVarInt(bytes.size, buffer)
-        buffer.writeBytes(bytes)
     }
 
     /**
@@ -390,10 +373,10 @@ class DynamicProxyFrontendHandler(
         val parser = buffer.slice()
         
         // Read packet length (VarInt)
-        readVarInt(parser)
+        parser.readVarInt()
         
         // Read packet ID
-        val packetId = readVarInt(parser)
+        val packetId = parser.readVarInt()
         
         when (packetId) {
             0x00 -> {
@@ -445,10 +428,10 @@ class DynamicProxyFrontendHandler(
         val dataBuffer = ctx.alloc().buffer()
         
         try {
-            writeVarInt(0x00, dataBuffer)  // Packet ID for Status Response
-            writeString(statusJson, dataBuffer)
-            
-            writeVarInt(dataBuffer.readableBytes(), buffer)
+            dataBuffer.writeVarInt(0x00)  // Packet ID for Status Response
+            dataBuffer.writeUtf8String(statusJson)
+
+            buffer.writeVarInt(dataBuffer.readableBytes())
             buffer.writeBytes(dataBuffer)
             
             ctx.writeAndFlush(buffer.retain())
@@ -480,10 +463,10 @@ class DynamicProxyFrontendHandler(
         val dataBuffer = ctx.alloc().buffer()
         
         try {
-            writeVarInt(0x01, dataBuffer)  // Packet ID for Ping Response
+            dataBuffer.writeVarInt(0x01)  // Packet ID for Ping Response
             dataBuffer.writeLong(payload)
-            
-            writeVarInt(dataBuffer.readableBytes(), buffer)
+
+            buffer.writeVarInt(dataBuffer.readableBytes())
             buffer.writeBytes(dataBuffer)
             
             ctx.writeAndFlush(buffer).addListener(ChannelFutureListener.CLOSE)

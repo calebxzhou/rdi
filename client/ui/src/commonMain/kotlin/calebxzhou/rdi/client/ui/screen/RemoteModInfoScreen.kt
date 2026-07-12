@@ -74,6 +74,7 @@ import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.client.ui.comp.ModpackManageCard
 import calebxzhou.rdi.client.ui.comp.RemoteModCard
 import calebxzhou.rdi.client.ui.comp.WebPagePane
+import calebxzhou.rdi.client.ui.isDesktop
 import calebxzhou.rdi.client.ui.openUrl
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
@@ -139,7 +140,9 @@ fun RemoteModInfoScreen(
     val mcmodUrl = mcmodId?.let { "https://www.mcmod.cn/class/$it.html" }
     val tabs = remember(mcmodUrl) {
         buildList {
-            add(RemoteModInfoTab.Download)
+            if (isDesktop) {
+                add(RemoteModInfoTab.Download)
+            }
             add(RemoteModInfoTab.Description)
             if (mcmodUrl != null) {
                 add(RemoteModInfoTab.Mcmod)
@@ -311,7 +314,7 @@ fun RemoteModInfoScreen(
     }
 
     val loadedProject = project
-    if (loadedProject != null) downloadVersion?.let { version ->
+    if (isDesktop && loadedProject != null) downloadVersion?.let { version ->
         RemoteModDownloadTargetDialog(
             project = loadedProject,
             version = version,
@@ -776,14 +779,16 @@ private fun RemoteModDownloadVersionCard(
                 color = MaterialColor.GRAY_700.color,
                 maxLines = 1
             )
-            CircleIconButton(
-                icon = "\uF019",
-                tooltip = "下载模组",
-                bgColor = MaterialColor.GREEN_700.color,
-                enabled = version.primaryFile != null,
-                showText = false
-            ) {
-                onDownload(version)
+            if (isDesktop) {
+                CircleIconButton(
+                    icon = "\uF019",
+                    tooltip = "下载模组",
+                    bgColor = MaterialColor.GREEN_700.color,
+                    enabled = version.primaryFile != null,
+                    showText = false
+                ) {
+                    onDownload(version)
+                }
             }
         }
     }

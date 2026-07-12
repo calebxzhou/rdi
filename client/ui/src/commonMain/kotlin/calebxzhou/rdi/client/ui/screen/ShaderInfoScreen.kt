@@ -77,6 +77,7 @@ import calebxzhou.rdi.client.ui.comp.HttpImage
 import calebxzhou.rdi.client.ui.comp.LoadingFlowGrid
 import calebxzhou.rdi.client.ui.comp.ModpackManageCard
 import calebxzhou.rdi.client.ui.copyToClipboard
+import calebxzhou.rdi.client.ui.isDesktop
 import calebxzhou.rdi.client.ui.openUrl
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
@@ -157,7 +158,15 @@ fun ModrinthProjectInfoScreen(
     val title = project?.title ?: initialTitle
     val downloadsText = project?.downloadsText ?: initialDownloadsText
     val followsText = project?.followsText ?: initialFollowsText
-    val tabTitles = listOf("描述", "相册", "日志", "下载")
+    val tabTitles = buildList {
+        add("描述")
+        add("相册")
+        add("日志")
+        if (isDesktop) {
+            add("下载")
+        }
+    }
+    val activeTab = selectedTab.takeIf { it in tabTitles.indices } ?: 0
 
     Box(modifier = Modifier.fillMaxSize()) {
         MainColumn {
@@ -172,12 +181,12 @@ fun ModrinthProjectInfoScreen(
             }
             Space8h()
             TabRow(
-                selectedTabIndex = selectedTab,
+                selectedTabIndex = activeTab,
                 containerColor = MaterialTheme.colorScheme.surface
             ) {
                 tabTitles.forEachIndexed { index, tabTitle ->
                     Tab(
-                        selected = selectedTab == index,
+                        selected = activeTab == index,
                         onClick = { selectedTab = index },
                         text = { Text(tabTitle) }
                     )
@@ -198,7 +207,7 @@ fun ModrinthProjectInfoScreen(
                 Space8h()
             }
 
-            when (selectedTab) {
+            when (activeTab) {
                 0 -> ShaderDescriptionTab(project)
                 1 -> ShaderGalleryTab(project, projectDisplayName) { previewGallery = it }
                 2 -> ShaderChangelogTab(project)
@@ -215,7 +224,7 @@ fun ModrinthProjectInfoScreen(
             onDismiss = { previewGallery = null }
         )
     }
-    downloadVersion?.let { version ->
+    if (isDesktop) downloadVersion?.let { version ->
         ShaderDownloadPackDialog(
             version = version,
             projectDisplayName = projectDisplayName,
@@ -386,14 +395,16 @@ private fun ShaderDownloadTableRow(
             style = MaterialTheme.typography.titleMedium,
             modifier = Modifier.weight(1f)
         )
-        CircleIconButton(
-            icon = "\uF019",
-            tooltip = "下载${projectDisplayName}",
-            bgColor = MaterialColor.GREEN_700.color,
-            showText = false,
-            enabled = version.primaryFile != null
-        ) {
-            onDownload(version)
+        if (isDesktop) {
+            CircleIconButton(
+                icon = "\uF019",
+                tooltip = "下载${projectDisplayName}",
+                bgColor = MaterialColor.GREEN_700.color,
+                showText = false,
+                enabled = version.primaryFile != null
+            ) {
+                onDownload(version)
+            }
         }
     }
 }
