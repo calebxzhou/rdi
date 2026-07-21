@@ -16,7 +16,14 @@ repositories {
     mavenLocal()
     mavenCentral()
 }
+val runDir = layout.projectDirectory.dir("run")
 
+tasks.withType<JavaExec>().configureEach {
+    workingDir = runDir.asFile
+    doFirst {
+        workingDir.mkdirs()
+    }
+}
 dependencies {
     api(project(":misc"))
     api(project(":model"))

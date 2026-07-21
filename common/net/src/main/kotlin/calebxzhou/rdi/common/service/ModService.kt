@@ -758,7 +758,11 @@ object ModService {
             targetPath.downloadFileFrom(
                 urls = allCandidateUrls,
                 urlHeadersProvider = { url ->
-                    if (url in rdiUrls) rdiModDownloadHeadersProvider(url) else emptyMap()
+                    if (url in rdiUrls) {
+                        rdiModDownloadHeadersProvider(url)
+                    } else {
+                        CurseForgeService.downloadHeadersFor(url)
+                    }
                 },
                 validator = validator,
                 onProgress = onProgress

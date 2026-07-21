@@ -31,7 +31,21 @@ object CurseForgeService {
     val slugBriefInfo: Map<String, ModBriefInfo> by lazy { ModService.buildSlugMap(briefInfo) { it.curseforgeSlugs } }
     private val lgr by Loggers
     const val OFFICIAL_URL = "https://api.curseforge.com/v1"
+    private const val API_KEY_HEADER = "x-api-key"
+    private val apiKey = byteArrayOf(
+        36, 50, 97, 36, 49, 48, 36, 55, 87, 87, 86, 49, 87, 69, 76, 99, 119, 88, 56, 88,
+        112, 55, 100, 54, 56, 77, 72, 115, 46, 53, 103, 114, 84, 121, 90, 86, 97, 54,
+        83, 121, 110, 121, 101, 83, 121, 77, 104, 49, 114, 115, 69, 56, 57, 110, 73,
+        97, 48, 57, 122, 79
+    ).let(::String)
+    private val apiKeyHeaders = mapOf(API_KEY_HEADER to apiKey)
     //镜像源可能会缺mod  比如McJtyLib - 1.21-9.0.14
+
+    internal fun downloadHeadersFor(url: String): Map<String, String> {
+        if (!url.startsWith("https://", ignoreCase = true)) return emptyMap()
+        val host = url.substring(8).substringBefore('/').substringBefore(':')
+        return if (host.endsWith(".forgecdn.net", ignoreCase = true)) apiKeyHeaders else emptyMap()
+    }
 
 
     suspend fun List<File>.loadInfoCurseForge(): CurseForgeLocalResult {
@@ -333,13 +347,7 @@ object CurseForgeService {
         suspend fun doRequest(base: String) = ktorClient.request {
             url("${base}/${path}")
             json()
-            header(
-                "x-api-key", byteArrayOf(
-                    36, 50, 97, 36, 49, 48, 36, 55, 87, 87, 86, 49, 87, 69, 76, 99, 119, 88, 56, 88,
-                    112, 55, 100, 54, 56, 77, 72, 115, 46, 53, 103, 114, 84, 121, 90, 86, 97, 54,
-                    83, 121, 110, 121, 101, 83, 121, 77, 104, 49, 114, 115, 69, 56, 57, 110, 73,
-                    97, 48, 57, 122, 79
-                ).let { String(it) })
+            header(API_KEY_HEADER, apiKey)
             body?.let { setBody(it) }
             params.forEach { parameter(it.key, it.value) }
             this.method = method

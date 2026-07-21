@@ -1,3 +1,4 @@
+import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.gradle.api.tasks.testing.Test
@@ -7,7 +8,7 @@ plugins {
     idea
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
-    alias(libs.plugins.ktor)
+    alias(libs.plugins.shadow)
 }
 
 group = "calebxzhou.rdi"
@@ -57,10 +58,14 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.test)
 }
 
-ktor {
-    fatJar {
-        archiveFileName.set("ihq.jar")
-    }
+val shadowJar = tasks.named<ShadowJar>("shadowJar") {
+    archiveFileName.set("ihq.jar")
+}
+
+tasks.register("buildFatJar") {
+    group = "build"
+    description = "Builds a combined JAR of project and runtime dependencies."
+    dependsOn(shadowJar)
 }
 
 application {

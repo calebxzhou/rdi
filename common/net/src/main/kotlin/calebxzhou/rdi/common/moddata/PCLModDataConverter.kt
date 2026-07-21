@@ -7,7 +7,7 @@ import java.io.File
 /**
  * calebxzhou @ 2025-10-14 18:01
  * 读取pcl的mod简要信息
- * https://raw.githubusercontent.com/Meloong-Git/PCL/refs/heads/main/Plain%20Craft%20Launcher%202/Resources/ModData.txt
+ * https://raw.githubusercontent.com/Meloong-Git/PCL/refs/heads/main/PCLCS/Resource/WikiEntries.txt
  */
 @Serializable
 data class PCLModBriefInfo(

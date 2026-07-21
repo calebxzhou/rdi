@@ -25,7 +25,7 @@ import kotlin.math.max
 internal val mcmodDataDir = File("mcmod-data").apply { mkdir() }
 val lgr by Loggers
 suspend fun main() {
-    listOf("1.7.10", "1.12.2", "1.16.5", "1.18.2", "1.20.1", "1.21.1")
+    listOf("1.20.1", "1.21.1")
         .forEach { fetchAllPages("https://www.mcmod.cn/modlist.html?mcver=${it}&platform=1&sort=createtime") }
 }
 
