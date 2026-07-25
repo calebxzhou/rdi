@@ -1,11 +1,11 @@
 package calebxzhou.rdi.mc.server.network
 
-import calebxzhou.rdi.mc.chunkcache.RChunkCacheManifestPacket
-import calebxzhou.rdi.mc.chunkcache.RChunkCacheReadyPacket
-import calebxzhou.rdi.mc.chunkcache.RChunkHashPacket
-import calebxzhou.rdi.mc.chunkcache.RChunkRequestPacket
+// import calebxzhou.rdi.mc.chunkcache.RChunkCacheManifestPacket
+// import calebxzhou.rdi.mc.chunkcache.RChunkCacheReadyPacket
+// import calebxzhou.rdi.mc.chunkcache.RChunkHashPacket
+// import calebxzhou.rdi.mc.chunkcache.RChunkRequestPacket
 import calebxzhou.rdi.mc.common.RGlobalPlayerList
-import calebxzhou.rdi.mc.server.chunkcache.RdiChunkCacheServer
+// import calebxzhou.rdi.mc.server.chunkcache.RdiChunkCacheServer
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
 import com.google.gson.Gson
 import net.minecraft.network.FriendlyByteBuf
@@ -64,7 +64,7 @@ object RServerNetwork {
             .decoder(RFirmSectionsPacket::decode)
             .consumerMainThread(RFirmSectionsPacket::handle)
             .add()
-        CHANNEL.messageBuilder(
+        /* CHANNEL.messageBuilder(
             RChunkCacheManifestPacket::class.java,
             2,
             NetworkDirection.PLAY_TO_SERVER
@@ -79,8 +79,8 @@ object RServerNetwork {
                 }
                 ctx.packetHandled = true
             }
-            .add()
-        CHANNEL.messageBuilder(
+            .add() */
+        /* CHANNEL.messageBuilder(
             RChunkCacheReadyPacket::class.java,
             3,
             NetworkDirection.PLAY_TO_SERVER
@@ -95,8 +95,8 @@ object RServerNetwork {
                 }
                 ctx.packetHandled = true
             }
-            .add()
-        CHANNEL.messageBuilder(
+            .add() */
+        /* CHANNEL.messageBuilder(
             RChunkHashPacket::class.java,
             4,
             NetworkDirection.PLAY_TO_CLIENT
@@ -104,8 +104,8 @@ object RServerNetwork {
             .encoder(RChunkHashPacket::encode)
             .decoder(RChunkHashPacket::decode)
             .consumerMainThread { _, context -> context.get().packetHandled = true }
-            .add()
-        CHANNEL.messageBuilder(
+            .add() */
+        /* CHANNEL.messageBuilder(
             RChunkRequestPacket::class.java,
             5,
             NetworkDirection.PLAY_TO_SERVER
@@ -120,7 +120,7 @@ object RServerNetwork {
                 }
                 ctx.packetHandled = true
             }
-            .add()
+            .add() */
     }
 
     fun sendToAll(server: DedicatedServer, playerList: RGlobalPlayerList) {
@@ -156,7 +156,7 @@ object RServerNetwork {
         CHANNEL.send(PacketDistributor.PLAYER.with { player }, packet)
     }
 
-    fun sendChunkHash(player: ServerPlayer, packet: RChunkHashPacket) {
+    /* fun sendChunkHash(player: ServerPlayer, packet: RChunkHashPacket) {
         CHANNEL.send(PacketDistributor.PLAYER.with { player }, packet)
-    }
+    } */
 }

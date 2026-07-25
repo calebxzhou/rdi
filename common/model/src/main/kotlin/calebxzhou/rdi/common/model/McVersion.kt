@@ -46,7 +46,7 @@ enum class McVersion(
     ),
     V192(
         "1.19.2",
-        "frog", 21,
+        "frog", 25,
         760,
         mapOf(
             ModLoader.forge to ModLoader.Version(

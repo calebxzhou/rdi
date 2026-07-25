@@ -33,8 +33,7 @@ suspend inline fun httpRequest(crossinline builder: HttpRequestBuilder.() -> Uni
 fun HttpRequestBuilder.json() = contentType(ContentType.Application.Json)
 /**
  * Set this before first use of [ktorClient] to override the HTTP cache directory.
- * Desktop: defaults to DIR/cache/http
- * Android: set to application.cacheDir.resolve("http") in MainActivity
+ * Defaults to DIR/cache/http.
  */
 var httpCacheDir: File = DIR.resolve("cache").resolve("http").apply { mkdirs() }
 private const val HTTP_CACHE_SIZE_BYTES = 4*1024L * 1024 * 1024 // 1GB

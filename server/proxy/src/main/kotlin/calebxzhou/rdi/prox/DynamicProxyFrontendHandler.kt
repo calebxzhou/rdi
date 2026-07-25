@@ -3,12 +3,8 @@ package calebxzhou.rdi.prox
 import calebxzau.util.netty.readVarInt
 import calebxzau.util.netty.writeUtf8String
 import calebxzau.util.netty.writeVarInt
-import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.model.Response
-import io.ktor.client.call.*
-import io.ktor.client.request.*
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
@@ -16,13 +12,16 @@ import io.netty.channel.*
 import io.netty.channel.socket.nio.NioSocketChannel
 import io.netty.util.AttributeKey
 import io.netty.util.ReferenceCountUtil
-import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
 import java.net.InetSocketAddress
 import java.util.*
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.time.Duration.Companion.milliseconds
 
 /**
  * Enhanced handler for frontend connections with simplified port-based routing
@@ -31,7 +30,8 @@ import kotlin.time.Duration.Companion.milliseconds
 class DynamicProxyFrontendHandler(
     private val defaultBackendHost: String,
     private val defaultBackendPort: Int,
-    private val backendGroup: EventLoopGroup
+    private val backendGroup: EventLoopGroup,
+    private val routeResolver: ProxyRouteResolver = ProxyRouteResolver()
 ) : ChannelInboundHandlerAdapter() {
 
     companion object {
@@ -71,6 +71,8 @@ class DynamicProxyFrontendHandler(
     private var handshakeReceived = false
     private var isStatusRequest = false
     private var mcVersion: McVersion? = null
+    private val routeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var routeLookupJob: Job? = null
 
     override fun channelActive(ctx: ChannelHandlerContext) {
         activeConnections.add(ctx.channel())
@@ -107,21 +109,6 @@ class DynamicProxyFrontendHandler(
 
         // After handshake (login), forward all data normally
         forwardToBackend(ctx, msg)
-    }
-
-    private suspend fun getHostStatus(port: Int): Result<HostStatus> = runCatching {
-        //test
-        if(port==25565){
-            return@runCatching HostStatus.PLAYABLE
-        }
-        withTimeoutOrNull(2000L.milliseconds) {
-            ktorClient.get("$MASTER_URL/host/status?port=$port").body<Response<HostStatus?>>().run {
-                data ?: run {
-                    lgr.info { "host $port status fail: ${msg}" }
-                    throw RequestError("无法获取房间状态：$msg")
-                }
-            }
-        } ?: throw RequestError("无法获取房间状态：请求超时")
     }
 
     private fun handleHandshake(ctx: ChannelHandlerContext, buffer: ByteBuf) {
@@ -169,44 +156,50 @@ class DynamicProxyFrontendHandler(
                 disconnectPlayerWithReason(ctx.channel(), "you must update client")
                 return
             }
-            if (port in 50000..59999 || port == 25565) {
-                val status = runBlocking {
-                    getHostStatus(port).getOrElse {
-                        disconnectPlayerWithReason(
-                            ctx.channel(),
-                            it.message ?: ""
-                        ); HostStatus.UNKNOWN
-                    }
-                }
-                if (status != HostStatus.PLAYABLE) {
-                    disconnectPlayerWithReason(
-                        ctx.channel(), when (status) {
-                            HostStatus.STOPPED -> "请前往房间后台，点击启动按钮"
-                            HostStatus.STARTED -> "房间启动中，请稍等"
-                            else -> "无法连接房间，请稍后再试"
-                        }
-                    )
-                    return
-                }
-                lgr.info { "Connecting to backend $currentBackendHost:$port " }
-                currentBackendHost = "127.0.0.1"
-                currentBackendPort = port
+            forwardToBackend(ctx, buffer.retain())
+            ctx.channel().config().isAutoRead = false
+            if (Const.DEBUG && port == 25565) {
+                currentBackendHost = defaultBackendHost
+                currentBackendPort = defaultBackendPort
                 installBandwidthLimiter(ctx, port)
                 connectToBackend(ctx)
-
-                // Forward the handshake packet
-                forwardToBackend(ctx, buffer.retain())
-            } else {
-                val reason = "Invalid port $port (must be 50000-59999)"
-                lgr.info { "$reason, closing connection" }
-                ctx.channel().attr(ATTR_PROTOCOL_VER).set(protocolVersion)
-                disconnectPlayerWithReason(ctx.channel(), reason)
+                return
             }
+            resolveRoute(ctx, port)
         } else {
             lgr.info { "Expected Handshake (0x00) but got $packetId, closing" }
             ctx.channel().close()
         }
     }
+
+    private fun resolveRoute(ctx: ChannelHandlerContext, port: Int) {
+        routeLookupJob = routeScope.launch {
+            val result = routeResolver.resolve(port)
+            ctx.executor().execute {
+                if (!ctx.channel().isActive) return@execute
+                result.onSuccess { route ->
+                    if (route.status != HostStatus.PLAYABLE) {
+                        disconnectPlayerWithReason(ctx.channel(), route.status.disconnectReason)
+                        return@onSuccess
+                    }
+                    currentBackendHost = route.backendHost
+                    currentBackendPort = route.backendPort
+                    installBandwidthLimiter(ctx, route.backendPort)
+                    connectToBackend(ctx)
+                }.onFailure { err ->
+                    lgr.warn { "Host $port route lookup failed: ${err.message}\n$err" }
+                    disconnectPlayerWithReason(ctx.channel(), "房间服务暂时不可用，请稍后重试")
+                }
+            }
+        }
+    }
+
+    private val HostStatus.disconnectReason: String
+        get() = when (this) {
+            HostStatus.STOPPED -> "请前往房间后台，点击启动按钮"
+            HostStatus.STARTED -> "房间启动中，请稍等"
+            else -> "无法连接房间，请稍后再试"
+        }
 
     private fun installBandwidthLimiter(ctx: ChannelHandlerContext, port: Int) {
         val limiterName = "host-bandwidth-limiter-$port"
@@ -280,6 +273,8 @@ class DynamicProxyFrontendHandler(
                         compositeBuf.release()
                     }
                 }
+                frontendChannel.config().isAutoRead = true
+                frontendChannel.read()
             } else {
                 // Connection failed, close frontend
                 lgr.info { "Failed to connect to backend: ${connectFuture.cause()?.message}" }
@@ -321,6 +316,8 @@ class DynamicProxyFrontendHandler(
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
         activeConnections.remove(ctx.channel())
+        routeLookupJob?.cancel()
+        routeScope.cancel()
         lgr.info { "Client disconnected. Active connections: ${activeConnections.size}" }
         if (backendChannel?.isActive == true) {
             closeOnFlush(backendChannel!!)

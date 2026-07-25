@@ -12,6 +12,7 @@ import calebxzhou.rdi.mc.rcmd.tpa.TpaService
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService1710
 import calebxzhou.rdi.mc.server.mcp.McpServerNetwork1710
 import calebxzhou.rdi.mc.server.network.RServerNetwork
+import calebxzhou.rdi.mc.server.rcmd.PlayerNbtChatRangeStore
 import calebxzhou.rdi.mc.server.rcmd.RcmdServerCommands1710
 import calebxzhou.rdi.mc.server.rcmd.RcmdServerSource1710
 import calebxzhou.rdi.mc.server.world.TerrainCache1710
@@ -78,6 +79,7 @@ class RDI {
 
         val player = event.player as EntityPlayerMP
         val playerId = player.getUniqueID()
+        PlayerChatRangeState.restore(playerId, PlayerNbtChatRangeStore(player))
         pendingJoinMessages += PendingJoinMessage(playerId, serverTick + JOIN_MESSAGE_DELAY_TICKS)
 
         RServerNetwork.sendLastTo(player)
@@ -178,13 +180,16 @@ class RDI {
                 true
             )
             if (WebSocketClient.sendMessage<RChatMessage>(WsMessage.Channel.Chat, chatMessage)) {
-                server!!.getConfigurationManager()
-                    .sendChatMsg(ChatComponentText("[公共] " + player.getCommandSenderName() + ": " + message))
+                val component = ChatComponentText("[公共] " + player.getCommandSenderName() + ": " + message)
+                server.configurationManager.playerEntityList
+                    .filterIsInstance<EntityPlayerMP>()
+                    .filter { PlayerChatRangeState.isGlobal(it.uniqueID) }
+                    .forEach { it.addChatMessage(component) }
             } else {
-                player.addChatMessage(ChatComponentText("全局聊天发送失败：房间未连接到RDI主服务器"))
+                player.addChatMessage(ChatComponentText("聊天服务未连接"))
             }
         } else {
-            WebSocketClient.sendMessage<RChatMessage>(
+            val sent = WebSocketClient.sendMessage<RChatMessage>(
                 WsMessage.Channel.Chat, RChatMessage(
                     UUID.randomUUID().toString(),
                     RDI.HOST_ID,
@@ -195,6 +200,10 @@ class RDI {
                     false
                 )
             )
+            if (!sent) {
+                event.setCanceled(true)
+                player.addChatMessage(ChatComponentText("聊天服务未连接"))
+            }
         }
     }
 

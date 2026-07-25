@@ -471,7 +471,7 @@ object ModService {
         val fileCandidates = listOf(
             File(resourcePath),
             File("common/src/main/resources/$resourcePath"),
-            File("client/ui/src/commonMain/resources/$resourcePath")
+            File("client/ui/src/main/resources/$resourcePath")
         )
         fileCandidates.forEach { file ->
             val text = runCatching {

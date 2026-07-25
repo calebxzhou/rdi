@@ -1,0 +1,18 @@
+Place Windows x64 native bridge DLL here:
+
+  webview2/win-x64/rdi_webview2_bridge.dll
+
+This project now loads WebView2 through a native C ABI bridge instead of
+calling COM callback/vtable layers directly from JNA.
+
+Suggested build flow:
+
+  powershell -ExecutionPolicy Bypass -File client\ui\native\webview2bridge\build-win64.ps1
+
+Then copy:
+
+  client\ui\native\webview2bridge\out\rdi_webview2_bridge.dll
+
+to:
+
+  client\ui\src\main\resources\webview2\win-x64\rdi_webview2_bridge.dll

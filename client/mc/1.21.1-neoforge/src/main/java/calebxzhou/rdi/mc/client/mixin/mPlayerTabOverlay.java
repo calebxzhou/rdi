@@ -32,13 +32,14 @@ public class mPlayerTabOverlay {
         return true;
     }
 
-    @Inject(method = "render", at = @At("TAIL"))
+    @Inject(method = "render", at = @At("HEAD"), cancellable = true)
     private void renderRdiGlobalPlayers(GuiGraphics guiGraphics, int width, Scoreboard scoreboard, Objective objective, CallbackInfo ci) {
         var playerList = GlobalPlayerListState.getCurrent();
         var hosts = playerList.hosts();
         if (hosts.isEmpty()) {
             return;
         }
+        ci.cancel();
         var rows = new ArrayList<RTabRow>();
         rows.add(new RTabRow("RDI在线玩家", null, 0xFFFFD86B));
         for (RGlobalPlayerList.HostEntry host : hosts) {
@@ -60,8 +61,8 @@ public class mPlayerTabOverlay {
         }
         int panelWidth = Math.min(maxTextWidth + 12, 260);
         int lineHeight = 10;
-        int x = Math.max(4, width - panelWidth - 8);
-        int y = vanillaPlayerListBottomY();
+        int x = (width - panelWidth) / 2;
+        int y = 10;
         int panelHeight = rows.size() * lineHeight + 8;
         guiGraphics.fill(x - 4, y - 4, x + panelWidth + 4, y + panelHeight, 0x90000000);
         for (int i = 0; i < rows.size(); i++) {
@@ -74,21 +75,6 @@ public class mPlayerTabOverlay {
             }
             guiGraphics.drawString(font, row.text, textX, rowY, row.color, false);
         }
-    }
-
-    private int vanillaPlayerListBottomY() {
-        var connection = Minecraft.getInstance().getConnection();
-        if (connection == null) {
-            return 8;
-        }
-        int count = Math.min(connection.getListedOnlinePlayers().size(), 80);
-        int columns = 1;
-        int rows = count;
-        while (rows > 20) {
-            columns++;
-            rows = (count + columns - 1) / columns;
-        }
-        return 10 + rows * 9 + 12;
     }
 
     private UUID parseUuid(String raw) {

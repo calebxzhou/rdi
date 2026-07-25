@@ -12,5 +12,8 @@ enum class ChatRange(val displayName: String) {
                 else -> ChatRange.HOST
             }
         }
+
+        fun fromStoredValue(value: String): ChatRange? =
+            values().firstOrNull { it.name.equals(value, ignoreCase = true) }
     }
 }

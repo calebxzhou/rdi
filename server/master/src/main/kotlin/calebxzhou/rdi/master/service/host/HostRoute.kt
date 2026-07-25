@@ -2,12 +2,16 @@ package calebxzhou.rdi.master.service.host
 
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.model.ProxyHostRoute
+import calebxzhou.rdi.master.CONF
+import calebxzhou.rdi.master.net.clientIp
 import calebxzhou.rdi.master.net.err
 import calebxzhou.rdi.master.net.idParam
 import calebxzhou.rdi.master.net.ok
 import calebxzhou.rdi.master.net.param
 import calebxzhou.rdi.master.net.paramNull
 import calebxzhou.rdi.master.net.response
+import calebxzhou.rdi.master.service.GameNodeService
 import calebxzhou.rdi.master.service.host.HostControlService.forceStop
 import calebxzhou.rdi.master.service.host.HostControlService.graceStop
 import calebxzhou.rdi.master.service.host.HostControlService.restart
@@ -259,6 +263,20 @@ fun Route.hostPlayRoutes() = route("/host") {
         val port = param("port").toInt()
         val host = HostQueryService.getByPort(port) ?: throw RequestError("无此房间")
         response(data = host.status)
+    }
+    get("/route") {
+        if (!GameNodeService.isProxyIpAllowed(call.clientIp)) {
+            throw RequestError("无权访问房间路由")
+        }
+        val port = param("port").toInt()
+        val host = HostQueryService.getByPort(port) ?: throw RequestError("无此房间")
+        response(
+            data = ProxyHostRoute(
+                status = host.status,
+                backendHost = CONF.server.gameHost,
+                backendPort = host.port
+            )
+        )
     }
     webSocket("/play/{hostId}") {
         val rawHostId = call.param("hostId")

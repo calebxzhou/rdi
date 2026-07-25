@@ -27,6 +27,9 @@ fun Route.gameNodeRoutes() {
 }
 
 object GameNodeService {
+    fun isProxyIpAllowed(ip: String): Boolean =
+        ProxyAccessPolicy.isAllowed(ip, CONF.gameNode.nodes.map { it.gameAddr })
+
     fun resolveServerEntry(ipv4: String, gameBackup: Boolean = false, forceMain: Boolean = false): ServerEntry {
         requireIpv4(ipv4)
         val region = CarrierDetectService.detectResult(ipv4)
@@ -91,6 +94,11 @@ object GameNodeService {
         return carriers.isNotEmpty() || provinces.isNotEmpty()
     }
 
+}
+
+object ProxyAccessPolicy {
+    fun isAllowed(ip: String, gameAddresses: Iterable<String>): Boolean =
+        ip == "127.0.0.1" || gameAddresses.any { it.substringBeforeLast(':') == ip }
 }
 
 private const val FALLBACK_GAME_NODE_ID = 0

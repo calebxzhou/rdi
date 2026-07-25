@@ -50,7 +50,7 @@ kotlin {
     jvmToolchain(21)
 }
 sourceSets.main {
-    java.srcDir '../../../mc/chunkcache/1.20.1/src/main/java'
+    // java.srcDir '../../../mc/chunkcache/1.20.1/src/main/java'
     kotlin.srcDir '../../../mc/common/2021/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
     java.srcDir '../common2/src/main/java'
@@ -220,11 +220,11 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation(jarJar("io.heapy.kotaml:kotaml-jvm:0.108.0"))
     //不需要夹在built jar里  rdi client已有
-    implementation("com.github.luben:zstd-jni:1.5.7-11")
-    additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11")
-    implementation(jarJar("org.iq80.leveldb:leveldb-api:0.12"))
-    implementation(jarJar("org.iq80.leveldb:leveldb:0.12"))
-    additionalRuntimeClasspath("org.iq80.leveldb:leveldb:0.12")
+    // implementation("com.github.luben:zstd-jni:1.5.7-11")
+    // additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11")
+    // implementation(jarJar("org.iq80.leveldb:leveldb-api:0.12"))
+    // implementation(jarJar("org.iq80.leveldb:leveldb:0.12"))
+    // additionalRuntimeClasspath("org.iq80.leveldb:leveldb:0.12")
     compileOnly "mezz.jei:jei-1.20.1-forge-api:15.20.0.132"
     // at runtime, use the full JEI jar for NeoForge
     modImplementation("mezz.jei:jei-1.20.1-forge:15.20.0.132")

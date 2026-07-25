@@ -11,6 +11,7 @@ import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.model.ChatMsg
 import calebxzhou.rdi.common.util.objectId
 import calebxzhou.rdi.master.model.RChatMessage
+import com.mongodb.client.model.Filters
 import com.mongodb.client.model.Sorts
 import io.ktor.server.routing.*
 import io.ktor.server.sse.*
@@ -59,7 +60,7 @@ object ChatService {
             event = ServerSentEvent(event = "heartbeat", data = "ping")
         }
 
-        val history = dbcl.find()
+        val history = dbcl.find(Filters.ne(ChatMsg::global.name, false))
             .sort(Sorts.descending("_id"))
             .limit(HISTORY_LIMIT)
             .toList()

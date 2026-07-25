@@ -1,0 +1,5 @@
+package calebxzhou.rdi.client.service
+
+fun createLocalWorldBirdViewDataSource(rootPath: String): WorldBirdViewDataSource? {
+    return LocalWorldBirdViewDataSource(rootPath)
+}

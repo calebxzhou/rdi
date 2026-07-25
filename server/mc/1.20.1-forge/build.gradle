@@ -21,7 +21,7 @@ version = "5-mc-server-1.20.1-forge"
 group = "calebxzhou.rdi"
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
-    java.srcDir '../../../mc/chunkcache/1.20.1/src/main/java'
+    // java.srcDir '../../../mc/chunkcache/1.20.1/src/main/java'
     kotlin.srcDir '../../../mc/firmsection/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
     kotlin.srcDir '../../../mc/rmcp/server/src/main/kotlin'

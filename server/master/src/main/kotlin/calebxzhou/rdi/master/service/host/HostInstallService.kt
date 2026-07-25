@@ -117,7 +117,7 @@ object HostInstallService {
             .filter { it.isFile && !Files.isSymbolicLink(it.toPath()) }
             .sumOf { it.length() }
         if (totalSize > HostService.HOST_WORKDIR_LIMIT_BYTES) {
-            throw RequestError("房间目录超过 3GB (${totalSize.humanFileSize}MB)，请删除不必要文件后再启动")
+            throw RequestError("房间目录超过 3GB (${totalSize.humanFileSize})，请删除不必要文件后再启动")
         }
     }
 

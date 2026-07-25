@@ -36,13 +36,14 @@ public class mTabOverlay {
         return true;
     }
 
-    @Inject(method = "renderPlayerlist", at = @At("TAIL"))
+    @Inject(method = "renderPlayerlist", at = @At("HEAD"), cancellable = true)
     private void renderRdiGlobalPlayers(int width, Scoreboard scoreboard, ScoreObjective objective, CallbackInfo ci) {
         RGlobalPlayerList playerList = GlobalPlayerListState.current();
         List<RGlobalPlayerList.HostEntry> hosts = playerList.hosts();
         if (hosts.isEmpty()) {
             return;
         }
+        ci.cancel();
         ArrayList<RTabRow> rows = new ArrayList<>();
         rows.add(new RTabRow("RDI在线玩家", null, TITLE_COLOR));
         for (RGlobalPlayerList.HostEntry host : hosts) {
@@ -64,8 +65,8 @@ public class mTabOverlay {
         }
         int panelWidth = Math.min(maxTextWidth + 12, 260);
         int lineHeight = 10;
-        int x = Math.max(4, width - panelWidth - 8);
-        int y = vanillaPlayerListBottomY(mc);
+        int x = (width - panelWidth) / 2;
+        int y = 10;
         int panelHeight = rows.size() * lineHeight + 8;
         Gui.drawRect(x - 4, y - 4, x + panelWidth + 4, y + panelHeight, 0x90000000);
         for (int i = 0; i < rows.size(); i++) {
@@ -78,20 +79,6 @@ public class mTabOverlay {
             }
             mc.fontRenderer.drawStringWithShadow(row.text, textX, rowY, row.color);
         }
-    }
-
-    private int vanillaPlayerListBottomY(Minecraft mc) {
-        if (mc.getConnection() == null) {
-            return 8;
-        }
-        int count = Math.min(mc.getConnection().getPlayerInfoMap().size(), 80);
-        int columns = 1;
-        int rows = count;
-        while (rows > 20) {
-            columns++;
-            rows = (count + columns - 1) / columns;
-        }
-        return 10 + rows * 9 + 12;
     }
 
     private void drawPlayerFace(Minecraft mc, UUID playerId, String playerName, int x, int y) {

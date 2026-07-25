@@ -57,8 +57,9 @@ public abstract class mChatMsg {
         if (PlayerChatRangeState.isGlobal(player.getUniqueID())) {
             ci.cancel();
             sendGlobalChat(message);
-        } else {
-            sendHostChat(message);
+        } else if (!sendHostChat(message)) {
+            ci.cancel();
+            player.sendMessage(new TextComponentString("聊天服务未连接"));
         }
     }
 
@@ -82,16 +83,18 @@ public abstract class mChatMsg {
                 true
         );
         if (WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage)) {
-            player.server.getPlayerList().sendMessage(
-                    new TextComponentString("[公共] " + player.getGameProfile().getName() + ": " + message),
-                    false
-            );
+            TextComponentString component = new TextComponentString("[公共] " + player.getGameProfile().getName() + ": " + message);
+            for (EntityPlayerMP recipient : player.server.getPlayerList().getPlayers()) {
+                if (PlayerChatRangeState.isGlobal(recipient.getUniqueID())) {
+                    recipient.sendMessage(component);
+                }
+            }
         } else {
-            player.sendMessage(new TextComponentString("全局聊天发送失败：房间未连接到RDI主服务器"));
+            player.sendMessage(new TextComponentString("聊天服务未连接"));
         }
     }
 
-    private void sendHostChat(String message) {
+    private boolean sendHostChat(String message) {
         RChatMessage chatMessage = new RChatMessage(
                 UUID.randomUUID().toString(),
                 HOST_ID,
@@ -101,6 +104,6 @@ public abstract class mChatMsg {
                 System.currentTimeMillis(),
                 false
         );
-        WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage);
+        return WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage);
     }
 }

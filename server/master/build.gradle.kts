@@ -33,7 +33,6 @@ dependencies {
     implementation(project(":net"))
     implementation(project(":archive"))
     implementation(project(":anvilrw"))
-    implementation(project(":ai"))
     implementation(libs.logback.classic)
     implementation(libs.bundles.ktor.server)
     implementation("io.netty:netty-tcnative-boringssl-static:${libs.versions.netty.tcnative.get()}:linux-x86_64")

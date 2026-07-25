@@ -58,12 +58,9 @@ object RcmdServerCommands : RcmdServerCommandHandler {
         RcmdResult.ok("pong，rcmd正常")
 
     override fun setChatRange(context: RcmdContext): RcmdResult {
-        val source = context.source
-        if (!source.isPlayer) {
-            return RcmdResult.error("此rcmd命令只能由玩家执行")
-        }
+        val player = playerOrNull(context.source) ?: return RcmdResult.error("此rcmd命令只能由玩家执行")
         val chatRange = ChatRange.fromRcmdValue(context.getString("range"))
-        PlayerChatRangeState.set(source.playerId(), chatRange)
+        PlayerChatRangeState.set(player.uniqueID, chatRange, PlayerNbtChatRangeStore(player))
         return RcmdResult.ok("聊天范围已切换为${chatRange.displayName}")
     }
 

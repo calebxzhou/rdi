@@ -165,7 +165,10 @@ object HostRuntimeService {
                     return
                 }
                 lgr.info { chatMessage.playerName + ": " + chatMessage.content }
-                ChatService.recordGameChat(chatMessage)
+                ioScope.launch {
+                    runCatching { ChatService.recordGameChat(chatMessage) }
+                        .onFailure { error -> lgr.warn { "保存游戏聊天记录失败: ${error.message}" } }
+                }
                 if (chatMessage.global) {
                     broadcastChatMessage(message.id, chatMessage.copy(sourceHostId = hostId.toHexString()))
                 }

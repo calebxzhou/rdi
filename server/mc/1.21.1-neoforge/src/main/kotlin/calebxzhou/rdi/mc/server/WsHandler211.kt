@@ -4,6 +4,7 @@ import calebxzhou.rdi.mc.common.RGlobalPlayerList
 import calebxzhou.rdi.mc.common.WebSocketClient
 import calebxzhou.rdi.mc.common.WsMessage
 import calebxzhou.rdi.mc.common.WsMessageHandler
+import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
 import calebxzhou.rdi.mc.rcmd.chat.RChatMessage
 import calebxzhou.rdi.mc.server.network.RServerNetwork
 import com.google.gson.JsonElement
@@ -24,10 +25,10 @@ class WsHandler211(private val server: DedicatedServer) : WsMessageHandler {
 
             WsMessage.Channel.Chat -> {
                 val chatMessage = WebSocketClient.fromJson<RChatMessage>(msg.getData(), RChatMessage::class.java)
-                server.getPlayerList().broadcastSystemMessage(
-                    Component.literal("[公共] " + chatMessage.playerName + ": " + chatMessage.content),
-                    false
-                )
+                val component = Component.literal("[公共] " + chatMessage.playerName + ": " + chatMessage.content)
+                server.playerList.players
+                    .filter { PlayerChatRangeState.isGlobal(it.uuid) }
+                    .forEach { it.sendSystemMessage(component) }
             }
 
             WsMessage.Channel.PlayerList -> {

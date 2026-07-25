@@ -358,10 +358,14 @@ object CurseForgeService {
 
         val mirrorResult = runCatching { doRequest(OFFICIAL_URL.ofMirrorUrl) }
         mirrorResult.getOrNull()?.let { response ->
-            if (response.status.isSuccess()) return response
+            val returnedHtml = response.contentType()?.match(ContentType.Text.Html) == true
+            if (response.status.isSuccess() && !returnedHtml) return response
 
             val body = response.bodyAsText()
-            lgr.warn { "CurseForge mirror request failed, falling back to official API: $body" }
+            lgr.warn {
+                "CurseForge mirror returned ${response.status} ${response.contentType()}, " +
+                    "falling back to official API: $body"
+            }
         }
 
         mirrorResult.exceptionOrNull()?.let { ex ->

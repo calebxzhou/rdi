@@ -10,6 +10,7 @@ import calebxzhou.rdi.mc.server.firmsection.FirmSectionService112
 import calebxzhou.rdi.mc.server.network.RServerNetwork.register
 import calebxzhou.rdi.mc.server.network.RServerNetwork.sendFirmSectionsTo
 import calebxzhou.rdi.mc.server.network.RServerNetwork.sendLastTo
+import calebxzhou.rdi.mc.server.rcmd.PlayerNbtChatRangeStore
 import calebxzhou.rdi.mc.server.world.TerrainCache112
 import net.minecraft.entity.player.EntityPlayerMP
 import net.minecraft.server.dedicated.DedicatedServer
@@ -64,6 +65,7 @@ class RDIMain {
     @SubscribeEvent
     fun onPlayerJoin(e: PlayerLoggedInEvent) {
         val player = e.player as EntityPlayerMP
+        PlayerChatRangeState.restore(player.uniqueID, PlayerNbtChatRangeStore(player))
         if (RDI.isAllOp()) {
             player.server.getPlayerList().addOp(player.getGameProfile())
         }

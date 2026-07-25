@@ -1,0 +1,219 @@
+package calebxzhou.rdi.client.ui.comp
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
+import calebxzhou.rdi.client.service.playermodel.GpuPlayerModelRenderService
+import calebxzhou.rdi.client.service.playermodel.PlayerModelRenderColor
+import calebxzhou.rdi.client.service.playermodel.PlayerTexturePixels
+import calebxzhou.rdi.client.ui.CircleIconButton
+import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzhou.rdi.client.ui.decodeImageBitmap
+import calebxzhou.rdi.common.net.httpRequest
+import io.ktor.client.request.url
+import io.ktor.client.statement.bodyAsBytes
+import io.ktor.http.isSuccess
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/**
+ * OpenGL player model renderer.
+ * Input: a standard Minecraft skin (64x64 or 64x32) and optional cape.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun PlayerModel(
+    skin: ImageBitmap?,
+    cape: ImageBitmap? = null,
+    modifier: Modifier = Modifier,
+    backgroundColor: Color = Color.Transparent,
+    autoRotate: Boolean = true,
+    animateWalk: Boolean = true,
+    showOuterLayer: Boolean = true,
+    isSlim: Boolean? = null,
+    maxRenderSide: Int = 256,
+    noControl: Boolean = false
+) {
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
+    var autoRotateEnabled by remember(skin, cape, autoRotate) { mutableStateOf(autoRotate) }
+    var walkEnabled by remember(skin, cape, animateWalk) { mutableStateOf(animateWalk) }
+    val skinPixels = remember(skin, isSlim) {
+        skin?.let { PlayerTexturePixels.skin(it, isSlim) }
+    }
+    val capePixels = remember(cape) {
+        cape?.let(PlayerTexturePixels::cape)
+    }
+    val controller = remember { GpuPlayerModelRenderService.register() }
+    val frame by controller.frame.collectAsState()
+    val failure by controller.failure.collectAsState()
+
+    LaunchedEffect(
+        controller,
+        skinPixels,
+        capePixels,
+        backgroundColor,
+        autoRotateEnabled,
+        walkEnabled,
+        showOuterLayer,
+        maxRenderSide,
+        viewport
+    ) {
+        controller.update(
+            skin = skinPixels,
+            cape = capePixels,
+            background = PlayerModelRenderColor(
+                red = backgroundColor.red,
+                green = backgroundColor.green,
+                blue = backgroundColor.blue,
+                alpha = backgroundColor.alpha
+            ),
+            autoRotate = autoRotateEnabled,
+            animateWalk = walkEnabled,
+            showOuterLayer = showOuterLayer,
+            maxRenderSide = maxRenderSide
+        )
+        controller.resize(viewport.width, viewport.height)
+    }
+    DisposableEffect(controller) {
+        onDispose(controller::close)
+    }
+
+    Box(
+        modifier = modifier
+            .background(backgroundColor)
+            .onSizeChanged { viewport = it }
+            .pointerInput(controller, skinPixels) {
+                if (skinPixels == null) return@pointerInput
+                detectDragGestures(
+                    onDragStart = controller::startDragging,
+                    onDragEnd = controller::stopDragging,
+                    onDragCancel = controller::stopDragging
+                ) { change, dragAmount ->
+                    change.consume()
+                    controller.drag(dragAmount)
+                }
+            }
+    ) {
+        when {
+            failure != null -> Text(
+                text = failure!!,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.align(Alignment.Center)
+            )
+
+            frame != null -> {
+                Image(
+                    bitmap = frame!!,
+                    contentDescription = "Player Model",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds
+                )
+                if (!noControl) {
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        CircleIconButton(
+                            icon = "\uDB83\uDD98",
+                            tooltip = if (autoRotateEnabled) "自动旋转：开" else "自动旋转：关",
+                            bgColor = if (autoRotateEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
+                            size = 30,
+                            showText = false
+                        ) {
+                            autoRotateEnabled = !autoRotateEnabled
+                        }
+                        CircleIconButton(
+                            icon = "\uEE1D",
+                            tooltip = if (walkEnabled) "走路动画：开" else "走路动画：关",
+                            bgColor = if (walkEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
+                            size = 30,
+                            showText = false
+                        ) {
+                            walkEnabled = !walkEnabled
+                        }
+                        CircleIconButton(
+                            icon = "\uDB81\uDC50",
+                            tooltip = "重置视角",
+                            bgColor = MaterialTheme.colorScheme.primary,
+                            size = 30,
+                            showText = false,
+                            onClick = controller::resetView
+                        )
+                    }
+                }
+            }
+
+            else -> Text(
+                text = "皮肤加载中...",
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+    }
+}
+
+@Composable
+fun PlayerModel(
+    skinUrl: String,
+    capeUrl: String? = null,
+    modifier: Modifier = Modifier,
+    backgroundColor: Color = Color.Transparent,
+    autoRotate: Boolean = true,
+    animateWalk: Boolean = true,
+    showOuterLayer: Boolean = true,
+    isSlim: Boolean? = null,
+    maxRenderSide: Int = 256,
+    noControl: Boolean = false
+) {
+    val skin = produceState<ImageBitmap?>(initialValue = null, skinUrl) {
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val response = httpRequest { url(skinUrl) }
+                if (!response.status.isSuccess()) return@runCatching null
+                decodeImageBitmap(response.bodyAsBytes())
+            }.getOrNull()
+        }
+    }.value
+    val cape = produceState<ImageBitmap?>(initialValue = null, capeUrl) {
+        if (capeUrl.isNullOrBlank()) {
+            value = null
+            return@produceState
+        }
+        value = withContext(Dispatchers.IO) {
+            runCatching {
+                val response = httpRequest { url(capeUrl) }
+                if (!response.status.isSuccess()) return@runCatching null
+                decodeImageBitmap(response.bodyAsBytes())
+            }.getOrNull()
+        }
+    }.value
+    PlayerModel(
+        skin = skin,
+        cape = cape,
+        modifier = modifier,
+        backgroundColor = backgroundColor,
+        autoRotate = autoRotate,
+        animateWalk = animateWalk,
+        showOuterLayer = showOuterLayer,
+        isSlim = isSlim,
+        maxRenderSide = maxRenderSide,
+        noControl = noControl
+    )
+}

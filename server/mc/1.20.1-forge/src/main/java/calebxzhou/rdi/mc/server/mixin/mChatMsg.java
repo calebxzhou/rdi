@@ -52,14 +52,19 @@ public abstract class mChatMsg {
                     true
             );
             if (WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage)) {
-                player.server.getPlayerList().broadcastSystemMessage(Component.literal("[公共] " + player.getGameProfile().getName() + ": " + message), false);
+                Component component = Component.literal("[公共] " + player.getGameProfile().getName() + ": " + message);
+                for (ServerPlayer recipient : player.server.getPlayerList().getPlayers()) {
+                    if (PlayerChatRangeState.isGlobal(recipient.getUUID())) {
+                        recipient.sendSystemMessage(component);
+                    }
+                }
             } else {
-                player.sendSystemMessage(Component.literal("全局聊天发送失败：房间未连接到RDI主服务器"));
+                player.sendSystemMessage(Component.literal("聊天服务未连接"));
             }
             ci.cancel();
             return;
         }
-        WebSocketClient.sendMessage(WsMessage.Channel.Chat, new RChatMessage(
+        RChatMessage chatMessage = new RChatMessage(
                 UUID.randomUUID().toString(),
                 HOST_ID,
                 player.getUUID().toString(),
@@ -67,8 +72,12 @@ public abstract class mChatMsg {
                 message,
                 System.currentTimeMillis(),
                 false
-        ));
-        player.server.getPlayerList().broadcastSystemMessage(Component.literal(player.getDisplayName().getString()+": "+message),false);
+        );
+        if (WebSocketClient.sendMessage(WsMessage.Channel.Chat, chatMessage)) {
+            player.server.getPlayerList().broadcastSystemMessage(Component.literal(player.getDisplayName().getString()+": "+message),false);
+        } else {
+            player.sendSystemMessage(Component.literal("聊天服务未连接"));
+        }
         ci.cancel();
     }
 }

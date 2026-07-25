@@ -1,10 +1,10 @@
 package calebxzhou.rdi.mc.client.network
 
-import calebxzhou.rdi.mc.chunkcache.RChunkCacheManifestPacket
-import calebxzhou.rdi.mc.chunkcache.RChunkCacheReadyPacket
-import calebxzhou.rdi.mc.chunkcache.RChunkHashPacket
-import calebxzhou.rdi.mc.chunkcache.RChunkRequestPacket
-import calebxzhou.rdi.mc.client.chunkcache.RdiChunkCacheClientHandler
+// import calebxzhou.rdi.mc.chunkcache.RChunkCacheManifestPacket
+// import calebxzhou.rdi.mc.chunkcache.RChunkCacheReadyPacket
+// import calebxzhou.rdi.mc.chunkcache.RChunkHashPacket
+// import calebxzhou.rdi.mc.chunkcache.RChunkRequestPacket
+// import calebxzhou.rdi.mc.client.chunkcache.RdiChunkCacheClientHandler
 import net.minecraft.resources.ResourceLocation
 import net.minecraftforge.network.NetworkDirection
 import net.minecraftforge.network.NetworkRegistry
@@ -47,7 +47,7 @@ object RClientNetwork {
             .decoder(RFirmSectionsPacket::decode)
             .consumerMainThread { packet, context -> RFirmSectionsPacket.handle(packet, context) }
             .add()
-        CHANNEL.messageBuilder(
+        /* CHANNEL.messageBuilder(
             RChunkCacheManifestPacket::class.java,
             2,
             NetworkDirection.PLAY_TO_SERVER
@@ -85,10 +85,10 @@ object RClientNetwork {
             .encoder(RChunkRequestPacket::encode)
             .decoder(RChunkRequestPacket::decode)
             .consumerMainThread { _, context -> context.get().packetHandled = true }
-            .add()
+            .add() */
     }
 
-    fun sendChunkCacheManifest(bytes: ByteArray, hasMore: Boolean) {
+    /* fun sendChunkCacheManifest(bytes: ByteArray, hasMore: Boolean) {
         CHANNEL.sendToServer(RChunkCacheManifestPacket(bytes, hasMore))
     }
 
@@ -98,5 +98,5 @@ object RClientNetwork {
 
     fun sendChunkRequest(chunkX: Int, chunkZ: Int, contentHash: Long, requestId: Long) {
         CHANNEL.sendToServer(RChunkRequestPacket(chunkX, chunkZ, contentHash, requestId))
-    }
+    } */
 }

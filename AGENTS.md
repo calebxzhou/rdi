@@ -28,6 +28,7 @@ no need care about CRLF/LF issue, but Dockerfile and *.sh files must be LF
 you are not required to run git diff for static check
 you are not required to run git diff for static check
 you are not required to run git diff for static check
+- on wsl, when you wanna read gradle cache, go windows host to read, not read ~
 ## Coding Style & Naming Conventions
 - Kotlin, 4-space indentation, UTF-8.
 - Types/files: `PascalCase`; functions/vars: `camelCase`; constants: `UPPER_SNAKE_CASE`.

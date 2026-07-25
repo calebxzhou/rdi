@@ -1,5 +1,7 @@
 package calebxzhou.rdi.mc.server.mixin;
 
+import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
+import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import net.minecraft.server.level.ChunkMap;
 import net.minecraft.server.level.ServerEntity;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -20,8 +22,8 @@ public class mSaveBandwidth {
     @Unique
     int sendTickAmount = 60;
 
-    @Redirect(method = "tick()V", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerEntity;sendChanges()V"))
-    private void thottle(ServerEntity instance) {
+   /* @WrapOperation(method = "tick()V", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerEntity;sendChanges()V"))
+    private void thottle(ServerEntity instance, Operation<Void> original) {
         if(((AServerEntity)instance).getEntity() instanceof ItemEntity){
             if (tickAmount >= sendTickAmount) {
                 instance.sendChanges();
@@ -32,5 +34,5 @@ public class mSaveBandwidth {
         }else{
             instance.sendChanges();
         }
-    }
+    }*/
 }
