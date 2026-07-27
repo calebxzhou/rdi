@@ -1,358 +1,237 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
 
-internal static class Program
+internal static class NtfsMftEnum
 {
-    private const uint GENERIC_READ  = 0x80000000;
-    private const uint GENERIC_WRITE = 0x40000000;
-
-    private const uint FILE_SHARE_READ   = 0x00000001;
-    private const uint FILE_SHARE_WRITE  = 0x00000002;
-    private const uint FILE_SHARE_DELETE = 0x00000004;
-
-    private const uint OPEN_EXISTING = 3;
-
-    // CTL_CODE(FILE_DEVICE_FILE_SYSTEM, 44, METHOD_NEITHER, FILE_ANY_ACCESS)
-    private const uint FSCTL_ENUM_USN_DATA = 0x000900B3;
-
-    private const int ERROR_HANDLE_EOF = 38;
-    private const uint FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
-
-    // USN_RECORD_V2 fixed portion is 60 bytes.
-    private const int USN_RECORD_V2_MIN_SIZE = 60;
+    private const uint GenericRead = 0x80000000;
+    private const uint FileShareRead = 0x00000001;
+    private const uint FileShareWrite = 0x00000002;
+    private const uint FileShareDelete = 0x00000004;
+    private const uint OpenExisting = 3;
+    private const uint FileFlagBackupSemantics = 0x02000000;
+    private const uint FsctlEnumUsnData = 0x000900B3;
+    private const int ErrorHandleEof = 38;
+    private const int UsnRecordV2MinSize = 60;
+    private const int MaximumPathLength = 32768;
 
     [StructLayout(LayoutKind.Sequential)]
-    private struct MftEnumData
+    private struct MftEnumDataV0
     {
         public ulong StartFileReferenceNumber;
         public long LowUsn;
         public long HighUsn;
     }
 
-    private readonly record struct DirectoryEntry(
-        ulong ParentReference,
-        string Name
-    );
+    private enum FileIdType
+    {
+        FileId
+    }
 
-    private readonly record struct FileMatch(
-        ulong ParentReference,
-        string Name
-    );
+    [StructLayout(LayoutKind.Explicit, Size = 24)]
+    private struct FileIdDescriptor
+    {
+        [FieldOffset(0)] public uint Size;
+        [FieldOffset(4)] public FileIdType Type;
+        [FieldOffset(8)] public long FileId;
+    }
 
-    [DllImport(
-        "kernel32.dll",
-        EntryPoint = "CreateFileW",
-        CharSet = CharSet.Unicode,
-        SetLastError = true
-    )]
+    private sealed record DriveScanResult(HashSet<string> Paths, long Records, int Matches, int UnresolvedPaths);
+
+    [DllImport("kernel32.dll", EntryPoint = "CreateFileW", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern SafeFileHandle CreateFile(
         string fileName,
         uint desiredAccess,
         uint shareMode,
-        IntPtr securityAttributes,
+        nint securityAttributes,
         uint creationDisposition,
         uint flagsAndAttributes,
-        IntPtr templateFile
-    );
+        nint templateFile);
 
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool DeviceIoControl(
         SafeFileHandle device,
         uint ioControlCode,
-        ref MftEnumData inputBuffer,
+        ref MftEnumDataV0 inputBuffer,
         int inputBufferSize,
         byte[] outputBuffer,
         int outputBufferSize,
         out int bytesReturned,
-        IntPtr overlapped
-    );
+        nint overlapped);
 
-    public static int Main()
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern SafeFileHandle OpenFileById(
+        SafeFileHandle volumeHint,
+        ref FileIdDescriptor fileId,
+        uint desiredAccess,
+        uint shareMode,
+        nint securityAttributes,
+        uint flagsAndAttributes);
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFinalPathNameByHandleW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern uint GetFinalPathNameByHandle(
+        SafeFileHandle file,
+        StringBuilder filePath,
+        int filePathLength,
+        uint flags);
+
+    public static MftEnumerationResult FindJavaExecutables(Action<string>? onPathFound = null)
     {
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+        List<string> diagnostics = [];
         if (!OperatingSystem.IsWindows())
-        {
-            Console.Error.WriteLine("This program only works on Windows.");
-            return 1;
-        }
+            return new(paths, ["MFT搜索仅支持Windows"]);
 
-        var results = new HashSet<string>(
-            StringComparer.OrdinalIgnoreCase
-        );
-
-        foreach (DriveInfo drive in DriveInfo.GetDrives())
+        foreach (var drive in DriveInfo.GetDrives())
         {
+            var stopwatch = Stopwatch.StartNew();
             try
             {
-                if (!drive.IsReady ||
-                    !string.Equals(
-                        drive.DriveFormat,
-                        "NTFS",
-                        StringComparison.OrdinalIgnoreCase))
-                {
+                if (!drive.IsReady || !drive.DriveFormat.Equals("NTFS", StringComparison.OrdinalIgnoreCase))
                     continue;
-                }
-
-                if (drive.Name.Length < 2 || drive.Name[1] != ':')
+                if (drive.Name is not [var driveLetter, ':', ..])
                     continue;
 
-                char driveLetter = char.ToUpperInvariant(drive.Name[0]);
-
-                Console.Error.WriteLine(
-                    $"Scanning {driveLetter}: MFT..."
-                );
-
-                foreach (string path in FindJavaExecutables(driveLetter))
-                    results.Add(path);
+                var result = FindJavaExecutablesOnDrive(char.ToUpperInvariant(driveLetter), onPathFound);
+                paths.UnionWith(result.Paths);
+                diagnostics.Add(
+                    $"MFT[{drive.Name}]耗时{stopwatch.Elapsed.TotalSeconds:F2}秒，V2={result.Records}，java.exe={result.Matches}，路径成功={result.Paths.Count}，路径失败={result.UnresolvedPaths}");
             }
-            catch (Exception ex)
+            catch (Win32Exception exception)
             {
-                Console.Error.WriteLine(
-                    $"{drive.Name}: {ex.Message}"
-                );
+                diagnostics.Add($"MFT[{drive.Name}]失败，Win32={exception.NativeErrorCode}: {exception.Message}");
+            }
+            catch (Exception exception)
+            {
+                diagnostics.Add($"MFT[{drive.Name}]失败: {exception.Message}");
             }
         }
 
-        foreach (string path in results.OrderBy(
-                     static path => path,
-                     StringComparer.OrdinalIgnoreCase))
-        {
-            Console.WriteLine(path);
-        }
-
-        Console.Error.WriteLine(
-            $"Found {results.Count} java.exe file(s)."
-        );
-
-        return 0;
+        return new(paths, diagnostics);
     }
 
-    private static IEnumerable<string> FindJavaExecutables(
-        char driveLetter)
+    private static DriveScanResult FindJavaExecutablesOnDrive(char driveLetter, Action<string>? onPathFound)
     {
-        string volumePath = $@"\\.\{driveLetter}:";
-
-        using SafeFileHandle volume = CreateFile(
+        var volumePath = $@"\\.\{driveLetter}:";
+        using var volume = CreateFile(
             volumePath,
-            GENERIC_READ | GENERIC_WRITE,
-            FILE_SHARE_READ |
-            FILE_SHARE_WRITE |
-            FILE_SHARE_DELETE,
-            IntPtr.Zero,
-            OPEN_EXISTING,
+            GenericRead,
+            FileShareRead | FileShareWrite | FileShareDelete,
+            nint.Zero,
+            OpenExisting,
             0,
-            IntPtr.Zero
-        );
-
+            nint.Zero);
         if (volume.IsInvalid)
+            throw new Win32Exception(Marshal.GetLastWin32Error(), $"无法以只读方式打开{volumePath}");
+
+        HashSet<string> paths = new(StringComparer.OrdinalIgnoreCase);
+        var enumData = new MftEnumDataV0
         {
-            throw new Win32Exception(
-                Marshal.GetLastWin32Error(),
-                $"Could not open {volumePath}. Run as administrator."
-            );
-        }
-
-        var directories =
-            new Dictionary<ulong, DirectoryEntry>();
-
-        var matches = new List<FileMatch>();
-
-        var enumData = new MftEnumData
-        {
-            StartFileReferenceNumber = 0,
             LowUsn = 0,
             HighUsn = long.MaxValue
         };
-
-        // Larger buffers reduce the number of DeviceIoControl calls.
-        byte[] buffer = new byte[1024 * 1024];
-        int inputSize = Marshal.SizeOf<MftEnumData>();
+        var buffer = new byte[1024 * 1024];
+        var inputSize = Marshal.SizeOf<MftEnumDataV0>();
+        long records = 0;
+        var matches = 0;
+        var unresolvedPaths = 0;
 
         while (true)
         {
-            bool success = DeviceIoControl(
+            var success = DeviceIoControl(
                 volume,
-                FSCTL_ENUM_USN_DATA,
+                FsctlEnumUsnData,
                 ref enumData,
                 inputSize,
                 buffer,
                 buffer.Length,
-                out int bytesReturned,
-                IntPtr.Zero
-            );
-
+                out var bytesReturned,
+                nint.Zero);
             if (!success)
             {
-                int error = Marshal.GetLastWin32Error();
-
-                if (error == ERROR_HANDLE_EOF)
+                var error = Marshal.GetLastWin32Error();
+                if (error == ErrorHandleEof)
                     break;
-
-                throw new Win32Exception(
-                    error,
-                    $"FSCTL_ENUM_USN_DATA failed on {driveLetter}:"
-                );
+                throw new Win32Exception(error, $"FSCTL_ENUM_USN_DATA读取{driveLetter}:失败");
             }
-
             if (bytesReturned < sizeof(ulong))
                 break;
 
-            // The first 8 bytes contain the starting FRN
-            // for the next DeviceIoControl call.
-            ulong nextReference =
-                BitConverter.ToUInt64(buffer, 0);
-
-            int offset = sizeof(ulong);
-
-            while (offset + USN_RECORD_V2_MIN_SIZE <= bytesReturned)
+            var nextReference = BitConverter.ToUInt64(buffer, 0);
+            var offset = sizeof(ulong);
+            while (offset + UsnRecordV2MinSize <= bytesReturned)
             {
-                uint recordLength =
-                    BitConverter.ToUInt32(buffer, offset);
-
-                if (recordLength < USN_RECORD_V2_MIN_SIZE ||
-                    offset + (long)recordLength > bytesReturned)
-                {
+                var recordLength = BitConverter.ToUInt32(buffer, offset);
+                if (recordLength < UsnRecordV2MinSize || offset + (long)recordLength > bytesReturned)
                     break;
-                }
 
-                ushort majorVersion =
-                    BitConverter.ToUInt16(buffer, offset + 4);
-
-                if (majorVersion == 2)
+                if (BitConverter.ToUInt16(buffer, offset + 4) == 2)
                 {
-                    ProcessUsnRecordV2(
-                        buffer,
-                        offset,
-                        recordLength,
-                        directories,
-                        matches
-                    );
+                    records++;
+                    if (GetJavaFileReference(buffer, offset, recordLength) is { } fileReference)
+                    {
+                        matches++;
+                        if (ResolvePath(volume, fileReference) is not { } path)
+                            unresolvedPaths++;
+                        else if (paths.Add(path))
+                            onPathFound?.Invoke(path);
+                    }
                 }
-
                 offset += checked((int)recordLength);
             }
 
             if (nextReference <= enumData.StartFileReferenceNumber)
                 break;
-
             enumData.StartFileReferenceNumber = nextReference;
         }
 
-        foreach (FileMatch match in matches)
-        {
-            string? path = BuildPath(
-                driveLetter,
-                match,
-                directories
-            );
-
-            if (path is not null)
-                yield return path;
-        }
+        return new(paths, records, matches, unresolvedPaths);
     }
 
-    private static void ProcessUsnRecordV2(
-        byte[] buffer,
-        int offset,
-        uint recordLength,
-        Dictionary<ulong, DirectoryEntry> directories,
-        List<FileMatch> matches)
+    private static ulong? GetJavaFileReference(byte[] buffer, int offset, uint recordLength)
     {
-        // USN_RECORD_V2 layout:
-        //  8: FileReferenceNumber
-        // 16: ParentFileReferenceNumber
-        // 52: FileAttributes
-        // 56: FileNameLength
-        // 58: FileNameOffset
+        var fileNameLength = BitConverter.ToUInt16(buffer, offset + 56);
+        var fileNameOffset = BitConverter.ToUInt16(buffer, offset + 58);
+        if ((uint)fileNameOffset + fileNameLength > recordLength || (fileNameLength & 1) != 0)
+            return null;
 
-        ulong fileReference =
-            BitConverter.ToUInt64(buffer, offset + 8);
-
-        ulong parentReference =
-            BitConverter.ToUInt64(buffer, offset + 16);
-
-        uint attributes =
-            BitConverter.ToUInt32(buffer, offset + 52);
-
-        ushort fileNameLength =
-            BitConverter.ToUInt16(buffer, offset + 56);
-
-        ushort fileNameOffset =
-            BitConverter.ToUInt16(buffer, offset + 58);
-
-        if ((uint)fileNameOffset + fileNameLength > recordLength ||
-            (fileNameLength & 1) != 0)
-        {
-            return;
-        }
-
-        string name = Encoding.Unicode.GetString(
-            buffer,
-            offset + fileNameOffset,
-            fileNameLength
-        );
-
-        bool isDirectory =
-            (attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-
-        if (isDirectory)
-        {
-            directories[fileReference] =
-                new DirectoryEntry(parentReference, name);
-
-            return;
-        }
-
-        if (string.Equals(
-                name,
-                "java.exe",
-                StringComparison.OrdinalIgnoreCase))
-        {
-            matches.Add(
-                new FileMatch(parentReference, name)
-            );
-        }
+        var name = Encoding.Unicode.GetString(buffer, offset + fileNameOffset, fileNameLength);
+        return name.Equals("java.exe", StringComparison.OrdinalIgnoreCase)
+            ? BitConverter.ToUInt64(buffer, offset + 8)
+            : null;
     }
 
-    private static string? BuildPath(
-        char driveLetter,
-        FileMatch file,
-        Dictionary<ulong, DirectoryEntry> directories)
+    private static string? ResolvePath(SafeFileHandle volume, ulong fileReference)
     {
-        var parts = new List<string> { file.Name };
-        var visited = new HashSet<ulong>();
-
-        ulong current = file.ParentReference;
-
-        while (visited.Add(current))
+        var fileId = new FileIdDescriptor
         {
-            if (!directories.TryGetValue(
-                    current,
-                    out DirectoryEntry directory))
-            {
-                // Parent record could not be resolved.
-                return null;
-            }
+            Size = (uint)Marshal.SizeOf<FileIdDescriptor>(),
+            Type = FileIdType.FileId,
+            FileId = unchecked((long)fileReference)
+        };
+        using var file = OpenFileById(
+            volume,
+            ref fileId,
+            0,
+            FileShareRead | FileShareWrite | FileShareDelete,
+            nint.Zero,
+            FileFlagBackupSemantics);
+        if (file.IsInvalid)
+            return null;
 
-            // The NTFS root record commonly has "." as its name
-            // and references itself as its parent.
-            if (!string.IsNullOrEmpty(directory.Name) &&
-                directory.Name != ".")
-            {
-                parts.Add(directory.Name);
-            }
+        var path = new StringBuilder(MaximumPathLength);
+        var length = GetFinalPathNameByHandle(file, path, path.Capacity, 0);
+        if (length is 0 || length >= path.Capacity)
+            return null;
 
-            if (directory.ParentReference == current)
-                break;
-
-            current = directory.ParentReference;
-        }
-
-        parts.Reverse();
-
-        return $@"{driveLetter}:\" +
-               string.Join('\\', parts);
+        const string extendedPathPrefix = @"\\?\";
+        return path.ToString() is var resolvedPath && resolvedPath.StartsWith(extendedPathPrefix, StringComparison.Ordinal)
+            ? resolvedPath[extendedPathPrefix.Length..]
+            : resolvedPath;
     }
 }
+
+internal sealed record MftEnumerationResult(HashSet<string> Paths, List<string> Diagnostics);

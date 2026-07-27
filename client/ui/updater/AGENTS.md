@@ -1,0 +1,3 @@
+- use latest c#14 feature
+- should compatible with native aot
+- 

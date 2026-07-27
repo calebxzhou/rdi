@@ -1,14 +1,27 @@
+using System.ComponentModel;
 using System.Diagnostics;
-using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
 
 internal static partial class Program
 {
+    private const string MftSearchArgument = "--mft-search";
+    private const string MftLogPrefix = "LOG\t";
+    private const string MftPathPrefix = "PATH\t";
+    private const int MaxParallelJdkChecks = 8;
+    private const uint BrowseForFileSystemDirectories = 0x00000001;
+    private const uint BrowseWithEditBox = 0x00000010;
+    private const uint BrowseWithNewDialogStyle = 0x00000040;
+    private const uint ApartmentThreaded = 0x00000002;
+    private const int LeftShiftVirtualKey = 0xA0;
+    private const int MaximumWindowsPathLength = 32768;
+    private const string DebugRServerUrl = "http://127.0.0.1:65231";
+    private const string OfficialRServerUrl = "https://rdi.calebxzhou.cn:65331";
     private const string Jdk25DownloadUrl = "https://mirrors.huaweicloud.com/eclipse/temurin-compliance/temurin/25/jdk-25.0.3%2B9/OpenJDK25U-jdk_x64_windows_hotspot_25.0.3_9.msi";
     private static readonly string LauncherRoot = Path.GetFullPath(AppContext.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar);
     private static readonly string JdkCacheFile = Path.Combine(LauncherRoot, "available_jdks.txt");
+    private static string RServerUrl { get; set; } = OfficialRServerUrl;
     private static readonly string[] SearchKeywords =
     [
         "java", "jdk", "jre", "runtime", "jbr", "temurin", "zulu", "oracle",
@@ -21,20 +34,40 @@ internal static partial class Program
     private static int Main(string[] args)
     {
         Console.OutputEncoding = Encoding.UTF8;
+        if (args is [MftSearchArgument, var resultFile])
+            return RunElevatedMftSearch(resultFile);
+
         Directory.SetCurrentDirectory(LauncherRoot);
 
         try
         {
-            var bestJava = ResolveBestJdk25();
-            var javawExe = Path.Combine(bestJava.JavaHome, "bin", "javaw.exe");
-            if (!File.Exists(javawExe))
-                return Fail($"找到的Java25缺少javaw.exe：\r\n{bestJava.JavaHome}");
+            var launchOptions = ParseLaunchOptions(args);
+            RServerUrl = launchOptions.Debug ? DebugRServerUrl : OfficialRServerUrl;
+            if (launchOptions.NoUpdate)
+                WriteInfo("已关闭自动更新");
+            else
+                UiLibraryUpdater.TryUpdateAsync(
+                        RServerUrl,
+                        LauncherRoot,
+                        WriteInfo,
+                        WriteWarning,
+                        RenderDownloadProgress,
+                        useBackupApi: !launchOptions.Debug)
+                    .GetAwaiter()
+                    .GetResult();
 
-            var mainJar = Path.Combine(LauncherRoot, "lib", "rdi-5-ui.jar");
-            if (!File.Exists(mainJar))
-                return Fail("缺少lib文件夹或rdi-5-ui.jar。\r\n请确认客户端已完整解压。");
+            var libDirectory = Path.Combine(LauncherRoot, "lib");
+            if (!Directory.Exists(libDirectory) || !Directory.EnumerateFiles(libDirectory, "*.jar").Any())
+                return Fail("缺少UI库文件。\r\n请确认客户端已完整解压，或检查网络后重试。");
 
-            return StartClient(javawExe, args);
+            var bestJava = IsLeftShiftPressed()
+                ? ShowStartupOptions() ?? ResolveBestJdk25()
+                : ResolveBestJdk25();
+            var javaExe = Path.Combine(bestJava.JavaHome, "bin", launchOptions.AppLogs ? "java.exe" : "javaw.exe");
+            if (!File.Exists(javaExe))
+                return Fail($"找到的Java25缺少{Path.GetFileName(javaExe)}：\r\n{bestJava.JavaHome}");
+
+            return StartClient(javaExe, launchOptions);
         }
         catch (Exception exception)
         {
@@ -44,6 +77,13 @@ internal static partial class Program
 
     private static void WriteInfo(string message) =>
         Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {message}");
+
+    private static void WriteWarning(string message)
+    {
+        Console.ForegroundColor = ConsoleColor.Yellow;
+        WriteInfo($"警告: {message}");
+        Console.ResetColor();
+    }
 
     private static int Fail(string message)
     {
@@ -60,6 +100,90 @@ internal static partial class Program
         Console.WriteLine(message);
         Console.ResetColor();
         MessageBox(nint.Zero, message, "RDI启动失败", 0x10);
+    }
+
+    private static LaunchOptions ParseLaunchOptions(string[] args)
+    {
+        List<string> jvmArguments = [];
+        var debug = false;
+        var appLogs = false;
+        var noUpdate = false;
+
+        foreach (var argument in args)
+        {
+            if (argument.Equals("--debug", StringComparison.OrdinalIgnoreCase))
+                debug = true;
+            else if (argument.Equals("--app-logs", StringComparison.OrdinalIgnoreCase))
+                appLogs = true;
+            else if (argument.Equals("--no-update", StringComparison.OrdinalIgnoreCase))
+                noUpdate = true;
+            else if (argument.StartsWith("--jvmArg=", StringComparison.OrdinalIgnoreCase))
+                jvmArguments.AddRange(ParseJvmArguments(argument[(argument.IndexOf('=') + 1)..]));
+            else
+                throw new ArgumentException($"未知启动参数: {argument}");
+        }
+
+        return new(debug, appLogs, noUpdate, jvmArguments);
+    }
+
+    private static bool IsLeftShiftPressed() =>
+        (GetAsyncKeyState(LeftShiftVirtualKey) & 0x8000) != 0;
+
+    private static JdkCandidate? ShowStartupOptions()
+    {
+        string[] options = ["重新手动选择JDK25", "TODO"];
+        var selectedIndex = 0;
+
+        while (true)
+        {
+            Console.Clear();
+            Console.WriteLine("启动选项（使用↑/↓选择，按Enter确认）");
+            Console.WriteLine();
+            foreach (var (index, option) in options.Index())
+            {
+                Console.ForegroundColor = index == selectedIndex
+                    ? ConsoleColor.Yellow
+                    : ConsoleColor.Gray;
+                Console.WriteLine($"{(index == selectedIndex ? '>' : ' ')} {index + 1}.{option}");
+            }
+            Console.ResetColor();
+
+            switch (Console.ReadKey(true).Key)
+            {
+                case ConsoleKey.UpArrow:
+                    selectedIndex = (selectedIndex - 1 + options.Length) % options.Length;
+                    break;
+                case ConsoleKey.DownArrow:
+                    selectedIndex = (selectedIndex + 1) % options.Length;
+                    break;
+                case ConsoleKey.Enter:
+                    Console.Clear();
+                    return selectedIndex == 0 ? SelectManualJdk25() : null;
+            }
+        }
+    }
+
+    private static string[] ParseJvmArguments(string arguments)
+    {
+        if (string.IsNullOrWhiteSpace(arguments))
+            return [];
+
+        var argumentList = CommandLineToArgvW($"updater {arguments}", out var argumentCount);
+        if (argumentList == nint.Zero)
+            throw new Win32Exception(Marshal.GetLastWin32Error(), "无法解析JVM参数");
+
+        try
+        {
+            return
+            [
+                .. Enumerable.Range(1, argumentCount - 1)
+                    .Select(index => Marshal.PtrToStringUni(Marshal.ReadIntPtr(argumentList, index * IntPtr.Size))!)
+            ];
+        }
+        finally
+        {
+            LocalFree(argumentList);
+        }
     }
 
     private static JdkCandidate ResolveBestJdk25()
@@ -79,13 +203,13 @@ internal static partial class Program
                     if (InstallJdk25())
                         WriteInfo("将重新搜索Java25");
                     break;
-                case ConsoleKey.R:
-                    WriteInfo("用户选择重新搜索Java25");
-                    break;
                 case ConsoleKey.Enter:
                     if (SelectManualJdk25() is { } manualJava)
                         return manualJava;
                     WriteInfo("手动选择未得到可用Java25，返回选择菜单");
+                    break;
+                default:
+                    WriteInfo("用户选择重新授权并搜索Java25");
                     break;
             }
         }
@@ -97,7 +221,7 @@ internal static partial class Program
         Console.ForegroundColor = ConsoleColor.Red;
         Console.WriteLine("未找到可用的64位Java25。");
         Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine("按空格键下载并安装Java25，按R重新搜索，按回车键手动选择JDK安装目录。");
+        Console.WriteLine("按空格键下载并安装Java25，按回车键手动选择JDK安装目录，按任意其他键重新授权并搜索。");
         Console.ResetColor();
     }
 
@@ -108,12 +232,13 @@ internal static partial class Program
         try
         {
             WriteInfo("正在下载Java25安装程序");
-            using var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
-            using var response = client.GetAsync(Jdk25DownloadUrl, HttpCompletionOption.ResponseHeadersRead).GetAwaiter().GetResult();
-            response.EnsureSuccessStatusCode();
-            using (var source = response.Content.ReadAsStream())
-            using (var target = File.Create(installerPath))
-                source.CopyTo(target);
+            Download.FileAsync(
+                    Jdk25DownloadUrl,
+                    installerPath,
+                    reportProgress: RenderDownloadProgress,
+                    reportStatus: WriteInfo)
+                .GetAwaiter()
+                .GetResult();
 
             WriteInfo("下载完成，正在启动Java25安装程序");
             using var installer = Process.Start(new ProcessStartInfo
@@ -135,6 +260,24 @@ internal static partial class Program
             return false;
         }
     }
+
+    private static void RenderDownloadProgress(FileDownloadProgress progress)
+    {
+        var progressText = progress.TotalBytes is { } total
+            ? $"下载进度: {progress.DownloadedBytes * 100d / total,6:F2}%  {FormatBytes(progress.DownloadedBytes)}/{FormatBytes(total)}  {FormatBytes(progress.BytesPerSecond)}/s"
+            : $"下载进度: {FormatBytes(progress.DownloadedBytes)}  {FormatBytes(progress.BytesPerSecond)}/s";
+        Console.Write($"\r{progressText,-80}");
+        if (progress.Completed)
+            Console.WriteLine();
+    }
+
+    private static string FormatBytes(double bytes) => bytes switch
+    {
+        >= 1024 * 1024 * 1024 => $"{bytes / 1024 / 1024 / 1024:F2}GB",
+        >= 1024 * 1024 => $"{bytes / 1024 / 1024:F2}MB",
+        >= 1024 => $"{bytes / 1024:F2}KB",
+        _ => $"{bytes:F0}B"
+    };
 
     private static JdkCandidate? SelectManualJdk25()
     {
@@ -162,19 +305,151 @@ internal static partial class Program
 
     private static string? PickFolderPath(string title)
     {
+        Marshal.ThrowExceptionForHR(CoInitializeEx(nint.Zero, ApartmentThreaded));
+        var displayName = Marshal.AllocHGlobal(260 * sizeof(char));
         try
         {
-            var shellType = Type.GetTypeFromProgID("Shell.Application")
-                ?? throw new InvalidOperationException("无法使用文件夹选择器");
-            dynamic shell = Activator.CreateInstance(shellType)!;
-            dynamic? folder = shell.BrowseForFolder(0, title, 0, 0);
-            return folder?.Self?.Path as string;
+            var browseInfo = new BrowseInfo
+            {
+                Owner = GetConsoleWindow(),
+                DisplayName = displayName,
+                Title = title,
+                Flags = BrowseForFileSystemDirectories | BrowseWithEditBox | BrowseWithNewDialogStyle
+            };
+            var itemIdList = SHBrowseForFolder(ref browseInfo);
+            if (itemIdList == nint.Zero)
+                return null;
+
+            try
+            {
+                var path = new StringBuilder(MaximumWindowsPathLength);
+                return SHGetPathFromIDList(itemIdList, path, path.Capacity, 0)
+                    ? path.ToString()
+                    : null;
+            }
+            finally
+            {
+                Marshal.FreeCoTaskMem(itemIdList);
+            }
         }
         catch (Exception exception)
         {
             WriteInfo($"打开文件夹选择框失败: {exception.Message}");
             return null;
         }
+        finally
+        {
+            Marshal.FreeHGlobal(displayName);
+            CoUninitialize();
+        }
+    }
+
+    private static int RunElevatedMftSearch(string resultFile)
+    {
+        try
+        {
+            File.WriteAllText(resultFile, string.Empty, Encoding.UTF8);
+            var result = NtfsMftEnum.FindJavaExecutables(path =>
+                File.AppendAllLines(resultFile, [$"{MftPathPrefix}{path}"], Encoding.UTF8));
+            File.AppendAllLines(
+                resultFile,
+                result.Diagnostics.Select(message => $"{MftLogPrefix}{message}"),
+                Encoding.UTF8);
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            Console.Error.WriteLine(exception.Message);
+            return 1;
+        }
+    }
+
+    private static MftSearchResult FindJavaExecutablesWithAdministratorPrivilege()
+    {
+        var resultFile = Path.Combine(Path.GetTempPath(), $"rdi-java-{Guid.NewGuid():N}.txt");
+        HashSet<string> candidates = new(StringComparer.OrdinalIgnoreCase);
+        var succeeded = false;
+
+        try
+        {
+            WriteInfo("请给予管理员权限以搜索电脑上所有的java");
+            var executable = Environment.ProcessPath
+                ?? throw new InvalidOperationException("无法确定updater程序路径");
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = executable,
+                Verb = "runas",
+                UseShellExecute = true,
+                WindowStyle = ProcessWindowStyle.Hidden
+            };
+            startInfo.ArgumentList.Add(MftSearchArgument);
+            startInfo.ArgumentList.Add(resultFile);
+            WriteInfo("正在搜索java，请稍等15~60秒左右");
+            using var process = Process.Start(startInfo)
+                ?? throw new InvalidOperationException("无法启动搜索流程");
+            var readCharacterCount = 0;
+            while (!process.WaitForExit(100))
+                ReadMftSearchUpdates(resultFile, candidates, ref readCharacterCount);
+            ReadMftSearchUpdates(resultFile, candidates, ref readCharacterCount);
+            if (process.ExitCode != 0)
+            {
+                WriteInfo($"搜索失败，退出码: {process.ExitCode}");
+                return new(false, candidates);
+            }
+
+            succeeded = true;
+            WriteInfo($"搜索完成，找到{candidates.Count}个java.exe");
+        }
+        catch (Win32Exception exception) when (exception.NativeErrorCode == 1223)
+        {
+            WriteInfo("用户取消了权限请求");
+        }
+        catch (Exception exception)
+        {
+            WriteInfo($"搜索失败: {exception.Message}");
+        }
+        finally
+        {
+            File.Delete(resultFile);
+        }
+
+        return new(succeeded, candidates);
+    }
+
+    private static void ReadMftSearchUpdates(
+        string resultFile,
+        HashSet<string> candidates,
+        ref int readCharacterCount)
+    {
+        if (!File.Exists(resultFile))
+            return;
+
+        string content;
+        try
+        {
+            content = File.ReadAllText(resultFile, Encoding.UTF8);
+        }
+        catch (IOException)
+        {
+            return;
+        }
+
+        var completeLength = content.LastIndexOf('\n') + 1;
+        if (completeLength <= readCharacterCount)
+            return;
+
+        foreach (var line in content[readCharacterCount..completeLength]
+                     .Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (line.StartsWith(MftLogPrefix, StringComparison.Ordinal))
+                WriteInfo(line[MftLogPrefix.Length..]);
+            else if (line.StartsWith(MftPathPrefix, StringComparison.Ordinal) &&
+                     candidates.Add(line[MftPathPrefix.Length..]))
+            {
+                WriteInfo($"发现java.exe: {line[MftPathPrefix.Length..]}");
+            }
+        }
+        readCharacterCount = completeLength;
     }
 
     private static JdkCandidate? FindBestJdk25()
@@ -193,21 +468,22 @@ internal static partial class Program
             WriteInfo("缓存中的Java25已失效，开始重新搜索");
         }
 
-        var priorityCandidates = SearchJdk25Candidates(GetInitialCandidateRoots(), "优先目录");
-        WriteInfo($"优先目录候选Java数量: {priorityCandidates.Count}");
-        var priorityValidCandidates = FindValidJdk25Candidates(priorityCandidates, "优先目录");
-        if (priorityValidCandidates is not [])
+        var mftSearch = FindJavaExecutablesWithAdministratorPrivilege();
+        if (!mftSearch.Succeeded)
+            return null;
+
+        if (FindFirstValidJdk25Candidate(mftSearch.Candidates, "MFT搜索") is { } mftJava)
         {
-            WriteCachedJdkList(priorityValidCandidates);
-            PrintAvailableJdkList(priorityValidCandidates, "优先目录");
-            return SelectBestJdk25Candidate(priorityValidCandidates);
+            List<JdkCandidate> candidates = [mftJava];
+            WriteCachedJdkList(candidates);
+            PrintAvailableJdkList(candidates, "MFT搜索");
+            return mftJava;
         }
 
         var driveRoots = GetDriveRoots();
-        WriteInfo($"优先目录未找到可用Java25，开始搜索Java，共{driveRoots.Count}个磁盘");
-        var allCandidates = SearchJdk25Candidates(driveRoots, "搜索Java");
-        allCandidates.UnionWith(priorityCandidates);
-        var validCandidates = FindValidJdk25Candidates(allCandidates, "最终校验");
+        WriteInfo($"快速搜索未找到可用Java25，开始目录搜索，共{driveRoots.Count}个磁盘");
+        var directoryCandidates = SearchJdk25Candidates(driveRoots, "搜索Java");
+        var validCandidates = FindValidJdk25Candidates(directoryCandidates, "最终校验");
         if (validCandidates is [])
         {
             if (File.Exists(JdkCacheFile))
@@ -254,39 +530,6 @@ internal static partial class Program
         foreach (var javaHome in javaHomes)
             candidates.AddJavaPath(javaHome);
         return candidates;
-    }
-
-    private static List<string> GetInitialCandidateRoots()
-    {
-        var userProfile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        List<string?> roots =
-        [
-            Environment.GetEnvironmentVariable("JAVA_HOME"),
-            userProfile,
-            Environment.GetEnvironmentVariable("PUBLIC"),
-            Path.Combine(userProfile, ".jdks"),
-            Path.Combine(userProfile, ".sdkman", "candidates", "java"),
-            LauncherRoot,
-            .. (Environment.GetEnvironmentVariable("PATH") ?? "").Split(';')
-        ];
-        AddChildRoot(roots, "LOCALAPPDATA", "Programs");
-        AddChildRoot(roots, "LOCALAPPDATA", "Microsoft");
-        AddChildRoot(roots, "ProgramFiles", "Java");
-        AddChildRoot(roots, "ProgramFiles", "Microsoft");
-        AddChildRoot(roots, "ProgramFiles", "Eclipse Adoptium");
-        AddChildRoot(roots, "ProgramFiles", "BellSoft");
-
-        return roots
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Select(path => path!)
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-    }
-
-    private static void AddChildRoot(List<string?> roots, string environmentVariable, string child)
-    {
-        if (Environment.GetEnvironmentVariable(environmentVariable) is { Length: > 0 } root)
-            roots.Add(Path.Combine(root, child));
     }
 
     private static List<string> GetDriveRoots() => DriveInfo.GetDrives()
@@ -366,38 +609,45 @@ internal static partial class Program
 
     private static List<JdkCandidate> FindValidJdk25Candidates(IEnumerable<string> candidateSet, string stageName)
     {
-        var candidates = candidateSet.ToList();
-        var validCandidates = new List<JdkCandidate>();
-        foreach (var (index, javaExe) in candidates.Index())
-        {
-            WriteInfo($"校验阶段[{stageName}] {index + 1}/{candidates.Count}: {javaExe}");
-            if (TestJavaCandidate(javaExe) is { } candidate)
-            {
-                validCandidates.Add(candidate);
-                WriteInfo($"发现可用Java25: {candidate.JavaHome}");
-            }
-        }
+        var validCandidates = ValidateJdk25CandidatesParallel(candidateSet, stageName);
+        foreach (var candidate in validCandidates)
+            WriteInfo($"发现可用Java25: {candidate.JavaHome}");
         return validCandidates;
     }
 
     private static JdkCandidate? FindFirstValidJdk25Candidate(IEnumerable<string> candidateSet, string stageName)
     {
-        var candidates = candidateSet
-            .OrderByDescending(GetPathScore)
-            .ThenBy(path => path.Length)
-            .ThenBy(path => path)
-            .ToList();
+        var validCandidates = ValidateJdk25CandidatesParallel(candidateSet, stageName);
+        if (validCandidates is [])
+            return null;
 
-        foreach (var (index, javaExe) in candidates.Index())
-        {
-            WriteInfo($"校验阶段[{stageName}] {index + 1}/{candidates.Count}: {javaExe}");
-            if (TestJavaCandidate(javaExe) is { } candidate)
+        var bestCandidate = SelectBestJdk25Candidate(validCandidates);
+        WriteInfo($"阶段[{stageName}]发现可用Java25，直接使用: {bestCandidate.JavaHome}");
+        return bestCandidate;
+    }
+
+    private static List<JdkCandidate> ValidateJdk25CandidatesParallel(
+        IEnumerable<string> candidateSet,
+        string stageName)
+    {
+        var candidates = candidateSet
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (candidates is [])
+            return [];
+
+        return candidates
+            .Index()
+            .AsParallel()
+            .WithDegreeOfParallelism(Math.Min(MaxParallelJdkChecks, candidates.Count))
+            .Select(indexedCandidate =>
             {
-                WriteInfo($"缓存中发现可用Java25，直接使用: {candidate.JavaHome}");
-                return candidate;
-            }
-        }
-        return null;
+                var (index, javaExe) = indexedCandidate;
+                WriteInfo($"并行校验阶段[{stageName}] {index + 1}/{candidates.Count}: {javaExe}");
+                return TestJavaCandidate(javaExe);
+            })
+            .OfType<JdkCandidate>()
+            .ToList();
     }
 
     private static JdkCandidate? TestJavaCandidate(string javaExe)
@@ -507,35 +757,107 @@ internal static partial class Program
         }
     }
 
-    private static int StartClient(string javawExe, string[] additionalJvmParameters)
+    private static int StartClient(string javaExe, LaunchOptions options)
     {
         var startInfo = new ProcessStartInfo
         {
-            FileName = javawExe,
+            FileName = javaExe,
             WorkingDirectory = LauncherRoot,
-            UseShellExecute = false
+            UseShellExecute = false,
+            RedirectStandardOutput = options.AppLogs,
+            RedirectStandardError = options.AppLogs,
+            CreateNoWindow = options.AppLogs
         };
+        if (options.AppLogs)
+        {
+            startInfo.StandardOutputEncoding = Encoding.UTF8;
+            startInfo.StandardErrorEncoding = Encoding.UTF8;
+        }
         string[] arguments =
         [
             "-Dfile.encoding=UTF-8",
-            .. additionalJvmParameters,
+            .. options.JvmArguments,
+            $"-Drdi.debug={options.Debug.ToString().ToLowerInvariant()}",
+            .. (options.NoUpdate ? new[] { "-Drdi.noUpdate=true" } : Array.Empty<string>()),
+            $"-Drdi.updater.pid={Environment.ProcessId}",
+            $"-Drdi.updater.islogmode={options.AppLogs.ToString().ToLowerInvariant()}",
+            $"-Drserverurl={RServerUrl}",
             "-cp", "lib/*",
             "--enable-native-access=ALL-UNNAMED",
-            "calebxzhou.rdi.client.MainKt"
+            "calebxzau.rdi.client.MainKt"
         ];
         foreach (var argument in arguments)
             startInfo.ArgumentList.Add(argument);
 
-        WriteInfo($"将使用Java25启动: {Path.GetDirectoryName(Path.GetDirectoryName(javawExe))}");
+        WriteInfo($"将使用Java25启动: {Path.GetDirectoryName(Path.GetDirectoryName(javaExe))}");
         using var process = Process.Start(startInfo) ?? throw new InvalidOperationException("无法启动RDI客户端");
-        WriteInfo($"已启动进程PID: {process.Id}，正在观察5秒确认是否稳定启动");
-        if (process.WaitForExit(5000))
-            return Fail($"程序在启动后5秒内退出，可能触发自动更新，也有可能启动失败\r\n退出码: {process.ExitCode}\r\nJava: {javawExe}");
+        if (options.AppLogs)
+        {
+            WriteInfo($"已启动进程PID: {process.Id}，正在接收RDI日志");
+            var outputTask = ForwardAppLogs(process.StandardOutput);
+            var errorTask = ForwardAppLogs(process.StandardError);
+            process.WaitForExit();
+            Task.WhenAll(outputTask, errorTask).GetAwaiter().GetResult();
+            WriteInfo($"RDI已退出，退出码: {process.ExitCode}");
+            return process.ExitCode;
+        }
 
-        WriteInfo("启动成功，5秒后关闭本窗口");
-        Thread.Sleep(5000);
+        WriteInfo($"已启动，正在观察确认是否稳定启动");
+        if (process.WaitForExit(3000))
+            return Fail($"程序在启动后3秒内退出\r\n退出码: {process.ExitCode}\r\nJava: {javaExe}");
+
+        WriteInfo("启动成功，2秒后关闭本窗口");
+        Thread.Sleep(2000);
         return 0;
     }
+
+    private static async Task ForwardAppLogs(StreamReader reader)
+    {
+        while (await reader.ReadLineAsync() is { } line)
+            Console.WriteLine(line);
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct BrowseInfo
+    {
+        public nint Owner;
+        public nint Root;
+        public nint DisplayName;
+        [MarshalAs(UnmanagedType.LPWStr)] public string? Title;
+        public uint Flags;
+        public nint Callback;
+        public nint CallbackData;
+        public int Image;
+    }
+
+    [DllImport("kernel32.dll")]
+    private static extern nint GetConsoleWindow();
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int virtualKey);
+
+    [DllImport("ole32.dll")]
+    private static extern int CoInitializeEx(nint reserved, uint concurrencyModel);
+
+    [DllImport("ole32.dll")]
+    private static extern void CoUninitialize();
+
+    [DllImport("shell32.dll", EntryPoint = "SHBrowseForFolderW", CharSet = CharSet.Unicode)]
+    private static extern nint SHBrowseForFolder(ref BrowseInfo browseInfo);
+
+    [DllImport("shell32.dll", EntryPoint = "SHGetPathFromIDListEx", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SHGetPathFromIDList(
+        nint itemIdList,
+        StringBuilder path,
+        int pathLength,
+        uint flags);
+
+    [DllImport("shell32.dll", EntryPoint = "CommandLineToArgvW", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern nint CommandLineToArgvW(string commandLine, out int argumentCount);
+
+    [DllImport("kernel32.dll")]
+    private static extern nint LocalFree(nint memory);
 
     [DllImport("user32.dll", EntryPoint = "MessageBoxW", CharSet = CharSet.Unicode)]
     private static extern int MessageBox(nint windowHandle, string text, string caption, uint type);
@@ -556,7 +878,10 @@ internal static partial class Program
     private static partial Regex X86Regex();
 
     private sealed record JdkCandidate(string JavaExe, string JavaHome, string VersionText, int PathScore);
+    private sealed record MftSearchResult(bool Succeeded, HashSet<string> Candidates);
     private sealed record SearchDirectory(string Path, bool ForceDeep, int Depth);
+    private sealed record LaunchOptions(bool Debug, bool AppLogs, bool NoUpdate, List<string> JvmArguments);
+
 }
 
 file static class LauncherExtensions
