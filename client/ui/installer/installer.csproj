@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishAot>true</PublishAot>
+    <TrimMode>partial</TrimMode>
+    <_SuppressWinFormsTrimError>true</_SuppressWinFormsTrimError>
+    <StripSymbols>true</StripSymbols>
+    <AssemblyName>rdi-installer</AssemblyName>
+    <ApplicationIcon>..\src\main\resources\icon.ico</ApplicationIcon>
+    <AssemblyTitle>RDI Client Installer</AssemblyTitle>
+    <Description>RDI Client Installer</Description>
+    <Product>rdi</Product>
+    <Copyright>calebxzau</Copyright>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="assets\client.tar.zst" LogicalName="client.tar.zst" />
+    <PackageReference Include="ZstdSharp.Port" Version="0.8.8" />
+  </ItemGroup>
+
+</Project>
