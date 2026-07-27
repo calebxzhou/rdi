@@ -4,8 +4,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -18,6 +19,7 @@ import calebxzau.rdi.client.ui.RowV
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8w
+import calebxzau.rdi.client.RDIClient
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
@@ -37,11 +39,13 @@ fun MenuScreen(
     onOpenMcmod: () -> Unit,
     onOpenSponsor: () -> Unit,
     onOpenHostLobby: () -> Unit,
+    onOpenHost2Lobby: () -> Unit,
     onOpenHostInfo: (String) -> Unit,
     onOpenWardrobe: () -> Unit
 ) {
     val lastPlayHost = remember { LocalCredentials.read().lastPlayHost }
     var onlinePlayerIds by remember { mutableStateOf<List<ObjectId>>(emptyList()) }
+    var showOldMainWarning by remember { mutableStateOf(RDIClient.OLD_MAIN) }
 
     LaunchedEffect(Unit) {
         runCatching {
@@ -49,6 +53,28 @@ fun MenuScreen(
         }.onSuccess { ids ->
             onlinePlayerIds = ids.distinct()
         }
+    }
+
+    if (showOldMainWarning) {
+        AlertDialog(
+            onDismissRequest = { showOldMainWarning = false },
+            title = { Text("旧版入口即将停止支持") },
+            text = {
+                Text(
+                    "你正在使用旧版入口启动rdi\n" +
+                        "此入口将在2026.8.10停止支持\n" +
+                        "请打开rdi安装文件夹，从\"start.exe\"启动rdi 然后删掉桌面图标重新创建"
+                )
+            },
+            confirmButton = {
+                CircleIconButton(
+                    icon = "\uF00C",
+                    tooltip = "知道了"
+                ) {
+                    showOldMainWarning = false
+                }
+            }
+        )
     }
 
     MaxBox {
@@ -74,6 +100,7 @@ fun MenuScreen(
                         modifier = Modifier.widthIn(min = 220.dp),
                         onOpenResources = onOpenResources,
                         onOpenHostLobby = onOpenHostLobby,
+                        onOpenHost2Lobby = onOpenHost2Lobby,
                         onOpenMcmod = onOpenMcmod,
                         onOpenSponsor = onOpenSponsor
                     )
@@ -132,12 +159,12 @@ private fun MenuAccountSummary(
 
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun MenuActionButtons(
     modifier: Modifier = Modifier,
     onOpenResources: () -> Unit,
     onOpenHostLobby: () -> Unit,
+    onOpenHost2Lobby: () -> Unit,
     onOpenMcmod: () -> Unit,
     onOpenSponsor: () -> Unit
 ) {
@@ -156,6 +183,12 @@ private fun MenuActionButtons(
         ) {
             onOpenHostLobby()
         }
+       /* CircleIconButton(
+            icon = "\uF1B3",
+            tooltip = "新版房间"
+        ) {
+            onOpenHost2Lobby()
+        }*/
         ImageIconButton(
             icon = "mcmod",
             tooltip = "百科"

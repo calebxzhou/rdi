@@ -22,6 +22,14 @@ data class ServerConfig(
 )
 
 @Serializable
+data class PostgresConfig(
+    val jdbcUrl: String = "jdbc:postgresql://127.0.0.1:5432/rdi",
+    val username: String = "rdi",
+    val password: String = "",
+    val maximumPoolSize: Int = 10
+)
+
+@Serializable
 data class JwtConfig(
     val secret: String = "change-me",
     val issuer: String = "rdi",
@@ -61,7 +69,8 @@ data class StorageConfig(
     val worldCacheDir: String? = null,
     val worldBackupDir: String? = null,
     val gameLibsDir: String? = null,
-    val crashReportDir: String? = null
+    val crashReportDir: String? = null,
+    val host2Dir: String? = null
 )
 
 @Serializable
@@ -106,6 +115,7 @@ data class GameNodeConfig(
 @Serializable
 data class AppConfig(
     val database: DatabaseConfig = DatabaseConfig(),
+    val postgres: PostgresConfig = PostgresConfig(),
     val server: ServerConfig = ServerConfig(),
     val proxy: ProxyConfig = ProxyConfig(),
     val docker: DockerConfig = DockerConfig(),
@@ -119,27 +129,15 @@ data class AppConfig(
     companion object {
         private val configFile = File("config.toml")
         private val lgr = KotlinLogging.logger {  }
-        fun load(): AppConfig {
-            return if (configFile.exists()) {
-                lgr.info { "find config.toml, loading" }
-                try {
-                    Toml.decodeFromString(serializer(), configFile.readText())
-                } catch (e: Exception) {
-                    lgr.warn { "read config failed, use default and save" + "\n" + e }
-                    AppConfig().also { save(it) }
-                }
+        fun load(): Result<AppConfig> = runCatching {
+            if (!configFile.exists()) {
+                lgr.info { "config.toml不存在，创建默认配置" }
+                AppConfig().also { configFile.writeText(Toml.encodeToString(serializer(), it)) }
             } else {
-                lgr.info { "config.toml not find, create default" }
-                AppConfig().also { save(it) }
+                require(configFile.isFile) { "config.toml不是文件: ${configFile.absolutePath}" }
+                lgr.info { "find config.toml, loading" }
+                Toml.decodeFromString(serializer(), configFile.readText())
             }
-        }
-
-        private fun save(config: AppConfig) {
-            try {
-                configFile.writeText(Toml.encodeToString(serializer(), config))
-            } catch (e: Exception) {
-                lgr.warn { "save config failed" + "\n" + e }
-            }
-        }
+        }.onFailure { lgr.error(it) { "config.toml加载失败，拒绝启动" } }
     }
 }

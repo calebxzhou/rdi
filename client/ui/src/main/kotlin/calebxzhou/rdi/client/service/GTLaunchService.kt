@@ -2,7 +2,7 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.javaExePath
-import calebxzhou.rdi.CONF
+import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.client.model.*
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.LibraryOsArch

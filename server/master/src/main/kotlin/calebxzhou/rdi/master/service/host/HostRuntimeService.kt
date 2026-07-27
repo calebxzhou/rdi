@@ -13,6 +13,7 @@ import calebxzhou.rdi.master.model.WsMessage
 import calebxzhou.rdi.master.service.ChatService
 import calebxzhou.rdi.master.service.DockerService
 import calebxzhou.rdi.master.service.host.HostInstallService.refreshWorldSizeAfterStop
+import calebxzhou.rdi.master.service.host2.Host2RuntimeService
 import io.ktor.server.websocket.DefaultWebSocketServerSession
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
@@ -194,6 +195,7 @@ object HostRuntimeService {
                     .onFailure { error -> lgr.warn { "广播全局聊天到host失败: ${error.message}" } }
             }
         }
+        Host2RuntimeService.broadcastChatMessage(id, chatMessage)
     }
 
     fun sendGlobalPlayerListToSession(session: DefaultWebSocketServerSession, playerList: RGlobalPlayerList) {

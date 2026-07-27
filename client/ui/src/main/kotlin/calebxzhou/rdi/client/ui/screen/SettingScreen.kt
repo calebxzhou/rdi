@@ -32,6 +32,8 @@ import calebxzhou.rdi.client.*
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
+import calebxzhou.rdi.client.service.LocalMinecraftReuseService
+import calebxzhou.rdi.client.service.LocalMinecraftScanState
 import calebxzhou.rdi.client.service.SettingsService
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.RPasswordField
@@ -318,6 +320,8 @@ fun SettingScreen(
                                         )
                                     }
 
+                                    SettingCategory.Minecraft -> LocalMinecraftSettings()
+
                                     /*SettingCategory.AI -> {
                                         val currentAiProfile = selectedAiProfile()
                                         AiSettings(
@@ -530,12 +534,13 @@ fun SettingScreen(
     private enum class SettingCategory(val icon: String, val label: String) {
         Java("\uEDAF", "Java"),
         Network("\uEF09", "网络"),
+        Minecraft("\uE7C4", "Minecraft"),
         //AI("\uDB84\uDECA", "AI");
 ;
         /** Whether this category is visible on the current platform */
         val visible: Boolean
             get() = when (this) {
-                Java -> true
+                Minecraft -> System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
                 else -> true
             }
     }
@@ -603,6 +608,32 @@ fun SettingScreen(
                 RTextField("限制MC内存", maxMemoryText, modifier = Modifier.width(140.dp)) { onMaxMemoryChange(it) }
                 Text("MB")
             }
+        }
+    }
+
+    @Composable
+    private fun LocalMinecraftSettings() {
+        val scanState by LocalMinecraftReuseService.state.collectAsState()
+        val scanning = scanState is LocalMinecraftScanState.Scanning
+        val status = when (val current = scanState) {
+            LocalMinecraftScanState.Idle -> "等待扫描"
+            is LocalMinecraftScanState.Scanning -> "扫描中，已记录${current.previousCount}个实例"
+            is LocalMinecraftScanState.Completed -> "已发现${current.foundCount}个实例"
+            is LocalMinecraftScanState.Failed -> "扫描失败，仍可使用${current.foundCount}个已记录实例"
+        }
+        RColumn {
+            RRow {
+                Text("本地Minecraft实例")
+                Text(status)
+                CircleIconButton(
+                    icon = "\uF021",
+                    tooltip = if (scanning) "扫描中" else "重新扫描",
+                    showText = false,
+                    enabled = !scanning,
+                    onClick = LocalMinecraftReuseService::rescan
+                )
+            }
+            Text("每12h自动扫描本机Minecraft实例和Downloads，优先复用相同文件")
         }
     }
 

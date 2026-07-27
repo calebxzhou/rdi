@@ -89,7 +89,7 @@ import org.bson.types.ObjectId
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun RemoteModInfoScreen(
+fun LegacyRemoteModInfoScreen(
     mod: RemoteModCardVo,
     onBack: () -> Unit,
     onOpenDependencyMod: (RemoteModCardVo) -> Unit = {},

@@ -1,6 +1,7 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.testing.Test
 
 plugins {
@@ -51,6 +52,15 @@ dependencies {
     implementation(libs.ip2region)
     implementation(libs.bundles.mykotutils)
     implementation(libs.zstd.jni)
+    implementation(libs.koin.core)
+    implementation(libs.koin.ktor)
+    implementation(libs.koin.logger.slf4j)
+    implementation(libs.exposed.core)
+    implementation(libs.exposed.jdbc)
+    implementation(libs.hikari)
+    implementation(libs.flyway.core)
+    implementation(libs.flyway.postgresql)
+    implementation(libs.postgresql)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.mockk)
@@ -59,6 +69,11 @@ dependencies {
 
 val shadowJar = tasks.named<ShadowJar>("shadowJar") {
     archiveFileName.set("ihq.jar")
+    duplicatesStrategy = DuplicatesStrategy.INCLUDE
+    mergeServiceFiles()
+    filesNotMatching("META-INF/services/**") {
+        duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    }
 }
 
 tasks.register("buildFatJar") {

@@ -4,13 +4,17 @@ import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.master.net.param
 import calebxzhou.rdi.master.net.response
+import calebxzhou.rdi.master.service.UpdateService.mcCoreModFile
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import java.io.File
 
 private val CLIENT_LIBS_DIR = File("client-libs").also { it.mkdirs() }
-
+private val updatersDir get() = CLIENT_LIBS_DIR.resolve("updaters").also { it.mkdirs() }
+private val updaterWin get() = updatersDir.resolve("updater.exe.zst")
+private val updaterWinHash get() = updatersDir.resolve("updater.exe.sha1")
 private val uiLibsDir get() = CLIENT_LIBS_DIR.resolve("lib")
+
 private val mcCoreFilePrefix = "rdi-5-mc-client"
 
 fun Route.updateRoutes() = route("/update") {
@@ -47,14 +51,32 @@ fun Route.updateRoutes() = route("/update") {
         call.respondFile(uiFile)
     }*/
     get("/mc/{ver}/hash"){
-        val jarFile = CLIENT_LIBS_DIR.resolve("$mcCoreFilePrefix-${param("ver")}.jar")
-        if(!jarFile.exists()) throw RequestError("无此版本的MC核心库")
+        val jarFile = mcCoreModFile()
         response(data = jarFile.sha1)
     }
 
     get("/mc/{ver}"){
-        val jarFile = CLIENT_LIBS_DIR.resolve("$mcCoreFilePrefix-${param("ver")}.jar")
-        if(!jarFile.exists()) throw RequestError("无此版本的MC核心库")
+        val jarFile = mcCoreModFile()
         call.respondFile(jarFile)
+    }
+    route("/updater"){
+        get {
+            call.respondFile(updaterWin)
+        }
+        get("/hash"){
+            val hash = updaterWinHash.readText().trim()
+            if (hash.isBlank()) throw RequestError("updater hash为空")
+            response(data = hash)
+        }
+    }
+}
+
+
+
+object UpdateService {
+    suspend fun RoutingContext.mcCoreModFile(): File {
+        val jarFile = CLIENT_LIBS_DIR.resolve("$mcCoreFilePrefix-${param("ver")}.jar")
+        if (!jarFile.exists()) throw RequestError("无此版本的MC核心库")
+        return jarFile
     }
 }

@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.common.model.ServerEntry
-import calebxzhou.rdi.lgr
+import calebxzau.rdi.client.lgr
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 

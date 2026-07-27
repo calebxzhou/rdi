@@ -47,7 +47,10 @@ public class mPlayerTabOverlay {
             if (host.players().isEmpty()) {
                 continue;
             }
-            rows.add(new RTabRow(host.hostName() + " · " + host.modpackName() + " " + host.packVer(), null, 0xFFEFEFEF));
+            String title = host.modpackName().isEmpty() && host.packVer().isEmpty()
+                    ? host.hostName()
+                    : host.hostName() + " · " + host.modpackName() + " " + host.packVer();
+            rows.add(new RTabRow(title, null, 0xFFEFEFEF));
             for (RGlobalPlayerList.PlayerEntry player : host.players()) {
                 rows.add(new RTabRow(player.playerName(), parseUuid(player.playerId()), 0xFFEFEFEF));
             }

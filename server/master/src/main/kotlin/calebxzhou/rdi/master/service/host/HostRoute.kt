@@ -2,6 +2,7 @@ package calebxzhou.rdi.master.service.host
 
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.ProxyHostRoute
 import calebxzhou.rdi.master.CONF
 import calebxzhou.rdi.master.net.clientIp
@@ -12,6 +13,9 @@ import calebxzhou.rdi.master.net.param
 import calebxzhou.rdi.master.net.paramNull
 import calebxzhou.rdi.master.net.response
 import calebxzhou.rdi.master.service.GameNodeService
+import calebxzhou.rdi.master.infra.postgres.DatabaseProvider
+import calebxzhou.rdi.master.service.host2.Host2Repository
+import calebxzhou.rdi.master.service.host2.Host2RuntimeService
 import calebxzhou.rdi.master.service.host.HostControlService.forceStop
 import calebxzhou.rdi.master.service.host.HostControlService.graceStop
 import calebxzhou.rdi.master.service.host.HostControlService.restart
@@ -64,6 +68,8 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import org.bson.types.ObjectId
+import org.koin.ktor.ext.inject
+import java.util.UUID
 
 /**
  * calebxzhou @ 2026-05-28 22:00
@@ -259,30 +265,55 @@ fun Route.hostRoutes() = route("/host") {
 
 //单独拿出来是为了不走authentication  proxy和mc要用
 fun Route.hostPlayRoutes() = route("/host") {
+    val host2Database by inject<DatabaseProvider>()
+    val host2Repository by inject<Host2Repository>()
     get("/status") {
         val port = param("port").toInt()
-        val host = HostQueryService.getByPort(port) ?: throw RequestError("无此房间")
-        response(data = host.status)
+        val host = HostQueryService.getByPort(port)
+        if (host != null) {
+            response(data = host.status)
+        } else {
+            val host2 = host2Database.transaction { host2Repository.findByPort(port) } ?: throw RequestError("无此房间")
+            response(data = Host2RuntimeService.status(host2.id))
+        }
     }
     get("/route") {
         if (!GameNodeService.isProxyIpAllowed(call.clientIp)) {
             throw RequestError("无权访问房间路由")
         }
         val port = param("port").toInt()
-        val host = HostQueryService.getByPort(port) ?: throw RequestError("无此房间")
-        response(
-            data = ProxyHostRoute(
-                status = host.status,
-                backendHost = CONF.server.gameHost,
-                backendPort = host.port
-            )
-        )
+        val host = HostQueryService.getByPort(port)
+        val status: HostStatus
+        val backendPort: Int
+        if (host != null) {
+            status = host.status
+            backendPort = host.port
+        } else {
+            val host2 = host2Database.transaction { host2Repository.findByPort(port) } ?: throw RequestError("无此房间")
+            status = Host2RuntimeService.status(host2.id)
+            backendPort = host2.port
+        }
+        response(data = ProxyHostRoute(status, CONF.server.gameHost, backendPort))
     }
     webSocket("/play/{hostId}") {
         val rawHostId = call.param("hostId")
 
-        val hostId = runCatching { ObjectId(rawHostId) }.getOrElse {
-            close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "host无效"))
+        val hostId = runCatching { ObjectId(rawHostId) }.getOrNull()
+        if (hostId == null) {
+            val host2Id = runCatching { UUID.fromString(rawHostId) }.getOrNull()
+            val host2 = host2Id?.let { host2Database.transaction { host2Repository.findById(it) } }
+            if (host2 == null) {
+                close(CloseReason(CloseReason.Codes.CANNOT_ACCEPT, "host无效"))
+                return@webSocket
+            }
+            Host2RuntimeService.register(host2, this)
+            try {
+                for (frame in incoming) {
+                    if (frame is Frame.Text) Host2RuntimeService.handleMessage(host2.id, frame.readText())
+                }
+            } finally {
+                Host2RuntimeService.unregister(host2.id, this)
+            }
             return@webSocket
         }
 

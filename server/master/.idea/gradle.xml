@@ -10,7 +10,6 @@
         <option name="gradleJvm" value="jbr-25" />
         <option name="modules">
           <set>
-            <option value="$PROJECT_DIR$/../../common/ai" />
             <option value="$PROJECT_DIR$/../../common/anvilrw" />
             <option value="$PROJECT_DIR$/../../common/archive" />
             <option value="$PROJECT_DIR$/../../common/misc" />

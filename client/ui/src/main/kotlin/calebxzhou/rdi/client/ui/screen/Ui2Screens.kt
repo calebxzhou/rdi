@@ -21,6 +21,7 @@ object Wardrobe
     val tab: String = ResourceTab.All.name,
     val requiredMcVer: String? = null,
     val fromHostId: String? = null,
+    val fromHost2Id: String? = null,
     val fromAllHosts: Boolean = false
 )
 @Serializable data class ModpackInfo(
@@ -50,6 +51,9 @@ object Wardrobe
 @Serializable object Setting
 @Serializable data class HostRoute(val tab: String = HostTab.MyHosts.name)
 @Serializable data class HostInfo(val hostId: String, val fromAllHosts: Boolean = false)
+@Serializable object Host2Lobby
+@Serializable object Host2Create
+@Serializable data class Host2Info(val hostId: String)
 @Serializable data class MailDetail(val mailId: String)
 //@Serializable data class WorldBirdView(val worldId: String)
 @Serializable data class TaskList(val selectedRunId: String? = null)

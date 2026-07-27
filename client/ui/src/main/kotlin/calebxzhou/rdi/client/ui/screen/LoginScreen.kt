@@ -22,10 +22,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.checkCanCreateSymlink
-import calebxzau.rdi.client.ui.createShortcut
 import calebxzau.rdi.client.ui.runUpdateFlow
 import calebxzhou.rdi.client.Const
 import calebxzau.rdi.client.ui.CodeFontFamily
@@ -70,8 +68,6 @@ fun LoginScreen(
     var loginError by remember { mutableStateOf<String?>(null) }
     var updateStatus by remember { mutableStateOf("正在检查更新...") }
     var updateDetail by remember { mutableStateOf("") }
-    val snackbarHostState = remember { SnackbarHostState() }
-    var okMessage by remember { mutableStateOf<String?>(null) }
     var symlinkError by remember { mutableStateOf<String?>(null) }
     var updateCheckComplete by remember { mutableStateOf(false) }
     var showMsAccountDialog by remember { mutableStateOf(false) }
@@ -123,13 +119,6 @@ fun LoginScreen(
         )
         updateCheckComplete = true
     }
-    LaunchedEffect(okMessage) {
-        okMessage?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-            okMessage = null
-        }
-    }
-
     MaxBox {
         BoxWithConstraints(
             modifier = Modifier.fillMaxSize()
@@ -315,30 +304,6 @@ fun LoginScreen(
                                     onOpenResetPassword?.invoke()
                                 }
                             }
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                CircleIconButton(
-                                    "\uDB83\uDCFD",
-                                    "创建桌面图标",
-                                    bgColor = MaterialColor.TEAL_200.color,
-                                    iconColor = Color.Black
-                                ) {
-                                    scope.launch {
-                                        val result = withContext(Dispatchers.IO) {
-                                            createShortcut()
-                                        }
-                                        if (result.isSuccess) {
-                                            okMessage = "已创建桌面快捷方式"
-                                        } else {
-                                            loginError = result.exceptionOrNull()?.message ?: "创建快捷方式失败"
-                                        }
-                                    }
-                                }
-                            }
-
                             symlinkError?.let { message ->
                                 LoginMessageDialog(
                                     title = "警告",
@@ -398,8 +363,6 @@ fun LoginScreen(
                 }
             }
         }
-
-        BottomSnakebarM3(snackbarHostState)
 
         // MS Account Dialog
         if (showMsAccountDialog) {

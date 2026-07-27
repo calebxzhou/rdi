@@ -8,7 +8,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -18,7 +17,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import calebxzau.rdi.client.ui.decodeImageBitmap
 import calebxzau.rdi.client.ui.wM
 import calebxzhou.rdi.common.model.Mod
 
@@ -130,40 +128,22 @@ private fun ModCardIcon(
     modName: String,
     modifier: Modifier = Modifier
 ) {
-    val localBitmap = remember(iconData) {
-        iconData?.let { bytes ->
-            runCatching { decodeImageBitmap(bytes) }.getOrNull()
-        }
-    }
-    val iconUrl = iconUrls.firstOrNull { it.isNotBlank() }.orEmpty()
+    val image = rememberLocalFirstImage(iconData, iconUrls)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
-        when {
-            localBitmap != null -> {
-                Image(
-                    bitmap = localBitmap,
-                    contentDescription = modName,
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
-            }
-
-            iconUrl.isNotBlank() -> {
-                HttpImage(
-                    imgUrl = iconUrl,
-                    modifier = Modifier.fillMaxSize(),
-                    contentDescription = modName,
-                    contentScale = ContentScale.Crop
-                )
-            }
-
-            else -> {
-                Text(
-                    text = modName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "M",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
-            }
+        if (image != null) {
+            Image(
+                bitmap = image,
+                contentDescription = modName,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.Crop
+            )
+        } else {
+            Text(
+                text = modName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "M",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontWeight = FontWeight.Bold,
+                fontSize = 20.sp
+            )
         }
     }
 }

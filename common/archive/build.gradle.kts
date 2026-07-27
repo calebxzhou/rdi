@@ -15,4 +15,6 @@ dependencies {
     implementation(libs.mykotutils.std)
     implementation(libs.commons.compress)
     compileOnly(libs.zstd.jni)
+    testImplementation(kotlin("test"))
+    testRuntimeOnly(libs.zstd.jni)
 }

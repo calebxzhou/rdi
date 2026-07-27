@@ -1,6 +1,6 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.CONF
+import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.client.AiConfig
 import calebxzhou.rdi.client.AiProvider
 import calebxzhou.rdi.client.AiProviderProfile

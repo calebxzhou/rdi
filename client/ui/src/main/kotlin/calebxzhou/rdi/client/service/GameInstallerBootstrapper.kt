@@ -3,9 +3,9 @@ package calebxzhou.rdi.client.service
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.javaExePath
-import calebxzhou.rdi.CONF
+import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.client.Const
-import calebxzhou.rdi.client.ScreenSize
+import calebxzau.rdi.client.ScreenSize
 import calebxzhou.rdi.client.model.*
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.service.GameService.resolveGameArgumentList

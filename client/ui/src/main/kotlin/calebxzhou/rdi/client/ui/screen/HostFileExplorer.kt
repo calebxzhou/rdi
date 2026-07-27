@@ -71,6 +71,13 @@ private val hostFileExplorerHeaderHeight = 42.dp
 fun HostFileExplorer(
     hostId: ObjectId,
     modifier: Modifier = Modifier
+) = HostFileExplorer(hostId.toHexString(), "host", modifier)
+
+@Composable
+fun HostFileExplorer(
+    hostId: String,
+    apiRoot: String,
+    modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
     var files by remember(hostId) { mutableStateOf<List<Host.FileEntry>>(emptyList()) }
@@ -109,7 +116,7 @@ fun HostFileExplorer(
         }
         loadingContent = true
         scope.rdiRequest<Host.FileContentVo>(
-            path = "host/$hostId/files/file",
+            path = "$apiRoot/$hostId/files/file",
             params = mapOf("path" to path),
             onOk = { response ->
                 val file = response.data ?: run {
@@ -141,7 +148,7 @@ fun HostFileExplorer(
         errorMessage = null
         val params = if (path.isBlank()) emptyMap() else mapOf("path" to path)
         scope.rdiRequest<List<Host.FileEntry>>(
-            path = "host/$hostId/files",
+            path = "$apiRoot/$hostId/files",
             params = params,
             onOk = { response ->
                 val loadedFiles = response.data ?: emptyList()
@@ -183,7 +190,7 @@ fun HostFileExplorer(
         saving = true
         errorMessage = null
         scope.rdiRequest<Host.FileUploadVo>(
-            path = "host/$hostId/files/file",
+            path = "$apiRoot/$hostId/files/file",
             method = HttpMethod.Put,
             body = serdesJson.encodeToString(
                 Host.FileWriteDto(
@@ -229,7 +236,7 @@ fun HostFileExplorer(
         searchResults = emptyList()
         errorMessage = null
         scope.rdiRequest<List<Host.FileEntry>>(
-            path = "host/$hostId/files/search",
+            path = "$apiRoot/$hostId/files/search",
             params = mapOf("query" to normalizedQuery),
             onOk = { response ->
                 if (activeSearchQuery == normalizedQuery) {
@@ -252,7 +259,7 @@ fun HostFileExplorer(
         saving = true
         errorMessage = null
         scope.rdiRequest<Host.FileUploadVo>(
-            path = "host/$hostId/files/create",
+            path = "$apiRoot/$hostId/files/create",
             method = HttpMethod.Post,
             body = serdesJson.encodeToString(Host.FileCreateDto(path = path, directory = directory)),
             onOk = { response ->
@@ -273,7 +280,7 @@ fun HostFileExplorer(
         saving = true
         errorMessage = null
         scope.rdiRequest<Host.FileUploadVo>(
-            path = "host/$hostId/files/rename",
+            path = "$apiRoot/$hostId/files/rename",
             method = HttpMethod.Put,
             body = serdesJson.encodeToString(Host.FileRenameDto(from = from, to = to)),
             onOk = { response ->
@@ -300,7 +307,7 @@ fun HostFileExplorer(
         saving = true
         errorMessage = null
         scope.rdiRequestU(
-            path = "host/$hostId/files/file",
+            path = "$apiRoot/$hostId/files/file",
             method = HttpMethod.Delete,
             body = serdesJson.encodeToString(Host.FileDeleteDto(path)),
             onOk = {

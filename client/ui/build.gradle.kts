@@ -1,7 +1,9 @@
 import org.gradle.api.GradleException
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import sun.jvmstat.monitor.MonitoredVmUtil.mainClass
 import java.io.File
+import java.security.MessageDigest
 
 val appVersion = libs.versions.app.get()
 val javaVersion = libs.versions.java.get()
@@ -83,6 +85,7 @@ dependencies {
     implementation(project(":net"))
     implementation(project(":archive"))
     implementation(project(":anvilrw"))
+    implementation(project(":mod-catalog"))
 
     val lwjglVersion = libs.versions.lwjgl.get()
     listOf("", "glfw", "opengl").forEach { component ->
@@ -151,7 +154,7 @@ val runDir = layout.projectDirectory.dir("run").asFile
 val hotRunBaseJvmArgs = listOf(
     "-Drdi.debug=true",
     "-Drdi.noHttps=true",
-    "-Drdi.noUpdate=true",
+   // "-Drdi.noUpdate=true",
     //"-Drdi.netMetrics=true",
     "-Drdi.account=eyJfaWQiOiI2OGIzMTRiYmFkYWY1MmRkYWI5NmI1ZWQiLCJuYW1lIjoiMTIzMTIzIiwicHdkIjoiMTIzQEBAIiwicXEiOiIxMjMxMjMifQ=="
 )
@@ -206,6 +209,99 @@ fun registerCopyTask(name: String, extraDestinations: List<String> = emptyList()
 
 registerCopyTask("出core2-local")
 registerCopyTask("出core2-release", listOf("\\\\rdi\\rdi55\\ihq\\client-libs\\lib"))
+val dotnetReleaseCmd = listOf(
+    "dotnet",
+    "publish",
+    "-c",
+    "Release",
+    "-r",
+    "win-x64",
+    "-p:PublishAot=true",
+    "-p:StripSymbols=true",
+)
+fun registerUpdaterTask(name: String, destinationDirs: List<File>) {
+
+    tasks.register(name) {
+        notCompatibleWithConfigurationCache("invokes dotnet and zstd, then copies the updater")
+        group = "distribution"
+        description = "Build, compress and publish the Windows updater."
+
+        val updaterDir = layout.projectDirectory.dir("updater").asFile
+        val updaterExe = updaterDir.resolve("bin/Release/net10.0/win-x64/native/updater.exe")
+        val compressedUpdater = updaterExe.parentFile.resolve("updater.exe.zst")
+        val updaterSha1File = updaterExe.parentFile.resolve("updater.exe.sha1")
+
+        doLast {
+            fun runProcess(command: List<String>, workingDirectory: File? = null): Int {
+                logger.lifecycle("> ${command.joinToString(" ")}")
+                val process = ProcessBuilder(command).apply {
+                    workingDirectory?.let { directory(it) }
+                }.start()
+                val stdoutThread = Thread {
+                    process.inputStream.bufferedReader().useLines { lines ->
+                        lines.forEach { logger.lifecycle("[stdout] $it") }
+                    }
+                }.apply { start() }
+                val stderrThread = Thread {
+                    process.errorStream.bufferedReader().useLines { lines ->
+                        lines.forEach { logger.lifecycle("[stderr] $it") }
+                    }
+                }.apply { start() }
+                val exitCode = process.waitFor()
+                stdoutThread.join()
+                stderrThread.join()
+                return exitCode
+            }
+
+            val publishExitCode = runProcess(
+                dotnetReleaseCmd,
+                updaterDir
+            )
+            if (publishExitCode != 0) {
+                throw GradleException("dotnet publish updater失败，退出码: $publishExitCode")
+            }
+
+            if (!updaterExe.isFile) {
+                throw GradleException("未找到updater: $updaterExe")
+            }
+
+            val updaterSha1 = MessageDigest.getInstance("SHA-1")
+                .digest(updaterExe.readBytes())
+                .joinToString("") { "%02x".format(it) }
+            updaterSha1File.writeText(updaterSha1)
+
+            val compressExitCode = runProcess(
+                listOf(
+                    "zstd",
+                    "-f",
+                    updaterExe.absolutePath,
+                    "-o",
+                    compressedUpdater.absolutePath,
+                )
+            )
+            if (compressExitCode != 0) {
+                throw GradleException("zstd压缩updater失败，退出码: $compressExitCode")
+            }
+
+            destinationDirs.forEach { destinationDir ->
+                destinationDir.mkdirs()
+                compressedUpdater.copyTo(destinationDir.resolve(compressedUpdater.name), overwrite = true)
+                updaterSha1File.copyTo(destinationDir.resolve(updaterSha1File.name), overwrite = true)
+                logger.lifecycle("已发布updater到$destinationDir")
+            }
+        }
+    }
+}
+
+val localUpdaterDestination = file("../../server/master/run/client-libs/updaters")
+registerUpdaterTask("出updater-local", listOf(localUpdaterDestination))
+registerUpdaterTask(
+    "出updater-release",
+    listOf(
+        localUpdaterDestination,
+        file("\\\\rdi\\rdi55\\ihq\\client-libs\\updaters"),
+    )
+)
 
 tasks.register("makeShipPack") {
     notCompatibleWithConfigurationCache("uses project file operations and external process execution at execution time")
@@ -252,6 +348,70 @@ tasks.register("makeShipPack") {
         if (exitCode != 0) {
             throw GradleException("7z打包失败，退出码: $exitCode")
         }
+    }
+}
+
+tasks.register("makeShipPackZst") {
+    notCompatibleWithConfigurationCache("uses project file operations and external process execution at execution time")
+    val shipDir = File(System.getProperty("user.home"), "Documents/rdi5ship")
+    val filesNeed = listOf("fonts", "lib", "start.exe")
+    val temporaryTar = layout.buildDirectory.file("installer/assets/client.tar").get().asFile
+    val archiveFile = layout.projectDirectory.file("installer/assets/client.tar.zst").asFile
+    group = "distribution"
+    description = "Create the installer client.tar.zst from Documents/rdi5ship."
+
+    doLast {
+        filesNeed.forEach { name ->
+            val target = shipDir.resolve(name)
+            if (!target.exists()) throw GradleException("缺少文件或目录:$target")
+        }
+
+        temporaryTar.parentFile.mkdirs()
+        archiveFile.parentFile.mkdirs()
+        try {
+            val tarExitCode = ProcessBuilder(
+                "tar",
+                "-cf",
+                temporaryTar.absolutePath,
+                "-C",
+                shipDir.absolutePath,
+                *filesNeed.toTypedArray(),
+            ).inheritIO()
+                .start()
+                .waitFor()
+            if (tarExitCode != 0) throw GradleException("tar打包失败，退出码:$tarExitCode")
+
+            val zstdExitCode = ProcessBuilder(
+                "zstd",
+                "-T0",
+                "-19",
+                "-f",
+                temporaryTar.absolutePath,
+                "-o",
+                archiveFile.absolutePath,
+            ).inheritIO()
+                .start()
+                .waitFor()
+            if (zstdExitCode != 0) throw GradleException("zstd压缩失败，退出码:$zstdExitCode")
+        } finally {
+            temporaryTar.delete()
+        }
+    }
+}
+
+tasks.register("makeShipInstaller") {
+    dependsOn("makeShipPackZst")
+    notCompatibleWithConfigurationCache("invokes dotnet in the installer directory")
+    group = "distribution"
+    description = "Create the shipping pack and publish the Windows installer."
+
+    doLast {
+        val exitCode = ProcessBuilder(dotnetReleaseCmd)
+            .directory(layout.projectDirectory.dir("installer").asFile)
+            .inheritIO()
+            .start()
+            .waitFor()
+        if (exitCode != 0) throw GradleException("dotnet publish installer失败，退出码:$exitCode")
     }
 }
 

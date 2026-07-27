@@ -198,6 +198,18 @@ class TarZstArchiveWriter(target: File) : Closeable {
         output.closeArchiveEntry()
     }
 
+    fun addFile(path: String, source: File) {
+        val normalized = path.replace('\\', '/').trim('/').ifBlank { return }
+        val entry = TarArchiveEntry(normalized).apply {
+            size = source.length()
+            modTime = java.util.Date(source.lastModified())
+            mode = 0b110100100
+        }
+        output.putArchiveEntry(entry)
+        source.inputStream().buffered().use { it.copyTo(output) }
+        output.closeArchiveEntry()
+    }
+
     override fun close() {
         output.finish()
         output.close()

@@ -1,10 +1,9 @@
 package calebxzhou.rdi.client.auth
 
-import calebxzhou.rdi.RDIClient
+import calebxzau.rdi.client.RDIClient
 import calebxzhou.rdi.client.model.LoginInfo
 import calebxzhou.rdi.common.serdesJson
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import java.io.File
 
 @Serializable

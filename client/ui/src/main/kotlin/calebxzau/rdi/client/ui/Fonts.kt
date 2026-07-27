@@ -2,7 +2,7 @@ package calebxzau.rdi.client.ui
 
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.platform.Font
-import calebxzhou.rdi.RDIClient
+import calebxzau.rdi.client.RDIClient
 
 private val fontDir = RDIClient.DIR.resolve("run").resolve("fonts").takeIf { it.exists() }
     ?: RDIClient.DIR.resolve("fonts")

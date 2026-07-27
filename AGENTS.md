@@ -20,6 +20,7 @@ when you wanna change the code, you should gimme plan
 - use Material3
 - hide technological details to user if possible, such as we dont need to let user know what's docker container, this situation use host instead.
 - you can read minecraft source code on "client\mc\1.21.1-neoforge\build\moddev\artifacts\neoforge-${neoforge-version}-sources" for 1.21.1
+- for models with uuid needed, use uuidv7
 ## Build, Test, and Development Commands
 no need to execute gradle commands unless explictly declared
 no need execute javac i wanna execute it manually and tell you error

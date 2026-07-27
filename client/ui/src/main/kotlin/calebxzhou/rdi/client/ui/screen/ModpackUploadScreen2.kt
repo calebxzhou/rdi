@@ -28,7 +28,7 @@ import calebxzau.rdi.client.ui.currentJavaMajor
 import calebxzau.rdi.client.ui.pickLocalDirectory
 import calebxzau.rdi.client.ui.pickLocalModpackFile
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
-import calebxzhou.rdi.CONF
+import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.CLIENT_TEST_SUCCESS_MARKER
@@ -64,7 +64,7 @@ import calebxzhou.rdi.common.model.Task2Status
 import calebxzhou.rdi.common.model.isPlatformCf
 import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.ModService
-import calebxzhou.rdi.lgr
+import calebxzau.rdi.client.lgr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

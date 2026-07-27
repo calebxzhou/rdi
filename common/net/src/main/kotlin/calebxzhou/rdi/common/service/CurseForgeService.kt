@@ -41,10 +41,13 @@ object CurseForgeService {
     private val apiKeyHeaders = mapOf(API_KEY_HEADER to apiKey)
     //镜像源可能会缺mod  比如McJtyLib - 1.21-9.0.14
 
-    internal fun downloadHeadersFor(url: String): Map<String, String> {
+    fun downloadHeadersFor(url: String): Map<String, String> {
         if (!url.startsWith("https://", ignoreCase = true)) return emptyMap()
         val host = url.substring(8).substringBefore('/').substringBefore(':')
-        return if (host.endsWith(".forgecdn.net", ignoreCase = true)) apiKeyHeaders else emptyMap()
+        return if (
+            host.equals("mod.mcimirror.top", ignoreCase = true) ||
+            host.endsWith(".forgecdn.net", ignoreCase = true)
+        ) apiKeyHeaders else emptyMap()
     }
 
 

@@ -163,6 +163,7 @@ suspend fun Path.downloadFileFrom(
             val tempPath = targetPath.createTempDownloadPath()
             repeat(totalAttempts) { attemptIndex ->
                 val attemptNumber = attemptIndex + 1
+                val readTimeoutMillis = attemptReadTimeoutMillis(attemptNumber)
                 var usedMultiRange = false
                 try {
                     val existingTempBytes = fileSizeOrZero(tempPath)
@@ -171,7 +172,8 @@ suspend fun Path.downloadFileFrom(
                         headers = headers,
                         urlHeadersProvider = urlHeadersProvider,
                         knownSize = knownSize,
-                        existingTempBytes = existingTempBytes
+                        existingTempBytes = existingTempBytes,
+                        readTimeoutMillis = readTimeoutMillis,
                     )
                     when (strategy) {
                         is DownloadStrategy.Single -> {
@@ -180,7 +182,7 @@ suspend fun Path.downloadFileFrom(
                                 targetPath = tempPath,
                                 onProgress = onProgress,
                                 knownSize = strategy.totalBytesHint,
-                                readTimeoutMillis = attemptReadTimeoutMillis(attemptNumber)
+                                readTimeoutMillis = readTimeoutMillis,
                             )
                         }
 
@@ -432,8 +434,9 @@ private suspend fun resolveDownloadStrategy(
     urlHeadersProvider: (String) -> Map<String, String>,
     knownSize: Long,
     existingTempBytes: Long,
+    readTimeoutMillis: Long,
 ): DownloadStrategy {
-    val sources = resolveDownloadSources(urls, headers, urlHeadersProvider, knownSize)
+    val sources = resolveDownloadSources(urls, headers, urlHeadersProvider, knownSize, readTimeoutMillis)
     if (sources.isEmpty()) {
         throw IOException("没有可用下载源: ${urls.joinToString()}")
     }
@@ -480,6 +483,7 @@ private suspend fun resolveDownloadSources(
     headers: Map<String, String>,
     urlHeadersProvider: (String) -> Map<String, String>,
     knownSize: Long,
+    readTimeoutMillis: Long,
 ): List<DownloadSource> = coroutineScope {
     val probedSources = urls.mapIndexed { index, url ->
         async {
@@ -487,7 +491,8 @@ private suspend fun resolveDownloadSources(
                 url = url,
                 orderIndex = index,
                 headers = headers + urlHeadersProvider(url),
-                knownSize = knownSize
+                knownSize = knownSize,
+                readTimeoutMillis = readTimeoutMillis,
             )
         }
     }.awaitAll().filterNotNull()
@@ -519,18 +524,21 @@ private suspend fun probeDownloadSource(
     orderIndex: Int,
     headers: Map<String, String>,
     knownSize: Long,
+    readTimeoutMillis: Long,
 ): DownloadSource? {
     val startedAt = System.currentTimeMillis()
     return try {
         val host = extractHost(url)
-        val sizeHint = knownSize.takeIf { it > 0L } ?: fetchContentLength(url, headers) ?: -1L
+        val sizeHint = knownSize.takeIf { it > 0L }
+            ?: fetchContentLength(url, headers, readTimeoutMillis)
+            ?: -1L
         val rangeProbe = if (shouldDisableRangeForHost(host)) {
             RangeProbeResult(
                 supported = false,
                 totalBytes = sizeHint
             )
         } else {
-            probeRangeSupport(url, headers, sizeHint)
+            probeRangeSupport(url, headers, sizeHint, readTimeoutMillis)
         }
         val totalBytes = when {
             rangeProbe.totalBytes > 0L -> rangeProbe.totalBytes
@@ -571,10 +579,12 @@ private fun selectRangedSources(
 private suspend fun fetchContentLength(
     url: String,
     headers: Map<String, String>,
+    readTimeoutMillis: Long,
 ): Long? {
     return try {
         val response = executeRequestWithHostLimit(url) {
             httpFileClient.request(url) {
+                timeout { socketTimeoutMillis = readTimeoutMillis }
                 method = HttpMethod.Head
                 headers.forEach { (key, value) -> header(key, value) }
                 header(HttpHeaders.AcceptEncoding, "identity")
@@ -594,10 +604,12 @@ private suspend fun probeRangeSupport(
     url: String,
     headers: Map<String, String>,
     sizeHint: Long,
+    readTimeoutMillis: Long,
 ): RangeProbeResult {
     return try {
         executeRequestWithHostLimit(url) {
             httpFileClient.prepareGet(url) {
+                timeout { socketTimeoutMillis = readTimeoutMillis }
                 headers.forEach { (key, value) -> header(key, value) }
                 header(HttpHeaders.AcceptEncoding, "identity")
                 header(HttpHeaders.Range, "bytes=0-0")
@@ -657,6 +669,7 @@ private suspend fun downloadSingleStream(
     return executeRequestWithHostLimit(url) {
         downloadSemaphore.withPermit {
             httpFileClient.prepareGet(url) {
+                timeout { socketTimeoutMillis = readTimeoutMillis }
                 headers.forEach { (key, value) -> header(key, value) }
                 header(HttpHeaders.AcceptEncoding, "identity")
                 if (shouldResume) {
@@ -953,6 +966,7 @@ private suspend fun downloadRangeChunk(
     return executeRequestWithHostLimit(source.url) {
         downloadSemaphore.withPermit {
             httpFileClient.prepareGet(source.url) {
+                timeout { socketTimeoutMillis = readTimeoutMillis }
                 source.headers.forEach { (key, value) -> header(key, value) }
                 header(HttpHeaders.AcceptEncoding, "identity")
                 header(HttpHeaders.Range, "bytes=${chunk.startInclusive}-${chunk.endInclusive}")

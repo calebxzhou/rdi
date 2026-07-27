@@ -71,7 +71,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun RemoteModScreen(
+fun LegacyRemoteModScreen(
     requiredMcVer: McVersion? = null,
     modifier: Modifier = Modifier,
     onOpenMod: (RemoteModCardVo) -> Unit = {}

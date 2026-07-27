@@ -1,6 +1,6 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.RDIClient
+import calebxzau.rdi.client.RDIClient
 import java.io.File
 
 object ClientDirs {

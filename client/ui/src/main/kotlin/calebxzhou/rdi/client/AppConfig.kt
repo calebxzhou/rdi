@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client
 
 import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.rdi.CONF
+import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.ProxyConfig
 import calebxzhou.rdi.common.serdesToml

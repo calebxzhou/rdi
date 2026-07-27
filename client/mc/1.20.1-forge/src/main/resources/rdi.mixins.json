@@ -16,6 +16,7 @@
     // "AClientPacketListener",
     "AMinecraft",
     "mChat",
+    "mConnection",
     // "mChunkCache",
     // "mChunkCachePacketOrder",
     // "mDelayedChunkCacheClient",

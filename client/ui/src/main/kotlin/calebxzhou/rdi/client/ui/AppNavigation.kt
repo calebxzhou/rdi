@@ -13,6 +13,7 @@ import androidx.navigation.toRoute
 import calebxzau.rdi.client.ui.screen.PlayerInfoScreen
 import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzhou.rdi.client.model.BSSkinData
+import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
 import org.bson.types.ObjectId
@@ -39,6 +40,7 @@ fun NavHostController.navigateRoot(route: Any) {
 @Composable
 fun AppNavigation(
     navController: NavHostController,
+    modCatalog: ModCatalog,
     startDestination: Any = Login,
 ) {
         val openMcPlay: (McPlayArgs, (() -> Unit)?) -> Unit = { args, onBack ->
@@ -73,6 +75,7 @@ fun AppNavigation(
                     onOpenMcmod = { navController.navigate(Mcmod) },
                     onOpenSponsor = { navController.navigate(Sponsor) },
                     onOpenHostLobby = { navController.navigate(HostRoute(HostTab.MyHosts.name)) },
+                    onOpenHost2Lobby = { navController.navigate(Host2Lobby) },
                     onOpenHostInfo = { hostId -> navController.navigate(HostInfo(hostId)) },
                     onOpenWardrobe = { navController.navigate(Wardrobe) }
                 )
@@ -203,6 +206,7 @@ fun AppNavigation(
             composable<HostInfo> {
                 val route = it.toRoute<HostInfo>()
                 HostInfoScreen(
+                    modCatalog = modCatalog,
                     hostId = ObjectId(route.hostId),
                     onBack = {
                         if (route.fromAllHosts) {
@@ -326,6 +330,33 @@ fun AppNavigation(
                     },
                 )
             }
+            composable<Host2Lobby> {
+                Host2LobbyScreen(
+                    onBack = { navController.navigateAbsolute(Menu) },
+                    onCreate = { navController.navigate(Host2Create) },
+                    onOpen = { navController.navigate(Host2Info(it)) }
+                )
+            }
+            composable<Host2Create> {
+                Host2CreateScreen(
+                    onBack = { navController.navigateAbsolute(Host2Lobby) },
+                    onCreated = { navController.navigateAbsolute(Host2Info(it)) }
+                )
+            }
+            composable<Host2Info> {
+                val route = it.toRoute<Host2Info>()
+                Host2InfoScreen(
+                    hostId = route.hostId,
+                    onBack = { navController.navigateAbsolute(Host2Lobby) },
+                    onOpenMods = { mcVersion ->
+                        navController.navigate(ResourceRoute(ResourceTab.Mods.name, mcVersion.mcVer, fromHost2Id = route.hostId))
+                    },
+                    onOpenTask = { runId -> navController.navigate(TaskList(runId)) },
+                    onOpenPlay = { args ->
+                        openMcPlay(args) { navController.navigateAbsolute(Host2Info(route.hostId)) }
+                    }
+                )
+            }
             composable<PlayerInfo> {
                 PlayerInfoScreen(
                     onBack = {
@@ -338,12 +369,16 @@ fun AppNavigation(
             composable<ResourceRoute> {
                 val route = it.toRoute<ResourceRoute>()
                 ResourceScreen(
+                    modCatalog = modCatalog,
                     initialCategory = ResourceTab.fromRouteValue(route.tab),
                     requiredMcVer = route.requiredMcVer?.let(McVersion::from),
                     targetHostId = route.fromHostId?.let(::ObjectId),
+                    targetHost2Id = route.fromHost2Id,
                     onBack = {
                         val fromHostId = route.fromHostId
-                        if (fromHostId != null) {
+                        if (route.fromHost2Id != null) {
+                            navController.navigateAbsolute(Host2Info(route.fromHost2Id))
+                        } else if (fromHostId != null) {
                             navController.navigateAbsolute(HostInfo(fromHostId, route.fromAllHosts))
                         } else {
                             navController.navigateAbsolute(Menu)

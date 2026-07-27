@@ -1,0 +1,108 @@
+CREATE TABLE catalog_metadata (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    format_version INTEGER NOT NULL,
+    source_sha1 TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    mod_count INTEGER NOT NULL,
+    project_count INTEGER NOT NULL,
+    search_term_count INTEGER NOT NULL
+);
+
+CREATE TABLE catalog_mod (
+    mcmod_id INTEGER NOT NULL PRIMARY KEY,
+    popularity INTEGER NOT NULL CHECK (popularity >= 0),
+    name TEXT NOT NULL CHECK (length(name) > 0),
+    name_cn TEXT,
+    intro TEXT,
+    logo_url TEXT
+);
+
+CREATE TABLE catalog_project (
+    mcmod_id INTEGER NOT NULL,
+    project_order INTEGER NOT NULL CHECK (project_order >= 0),
+    platform TEXT NOT NULL CHECK (platform IN ('CURSEFORGE', 'MODRINTH')),
+    slug TEXT NOT NULL CHECK (length(slug) > 0),
+    normalized_slug TEXT NOT NULL CHECK (length(normalized_slug) > 0),
+    name_cn_override TEXT,
+    PRIMARY KEY (mcmod_id, project_order),
+    FOREIGN KEY (mcmod_id) REFERENCES catalog_mod(mcmod_id) ON DELETE CASCADE,
+    UNIQUE (platform, normalized_slug)
+);
+
+CREATE TABLE catalog_search_term (
+    mcmod_id INTEGER NOT NULL,
+    normalized_term TEXT NOT NULL COLLATE NOCASE CHECK (length(normalized_term) > 0),
+    weight INTEGER NOT NULL,
+    PRIMARY KEY (mcmod_id, normalized_term),
+    FOREIGN KEY (mcmod_id) REFERENCES catalog_mod(mcmod_id) ON DELETE CASCADE
+);
+
+CREATE INDEX catalog_project_mod ON catalog_project(mcmod_id, project_order);
+CREATE INDEX catalog_search_prefix ON catalog_search_term(normalized_term COLLATE NOCASE, weight DESC, mcmod_id);
+CREATE INDEX catalog_popularity ON catalog_mod(popularity DESC, mcmod_id);
+
+insertMetadata:
+INSERT INTO catalog_metadata(id, format_version, source_sha1, generated_at, mod_count, project_count, search_term_count)
+VALUES (1, ?, ?, ?, ?, ?, ?);
+
+insertMod:
+INSERT INTO catalog_mod(mcmod_id, popularity, name, name_cn, intro, logo_url)
+VALUES (?, ?, ?, ?, ?, ?);
+
+insertProject:
+INSERT INTO catalog_project(mcmod_id, project_order, platform, slug, normalized_slug, name_cn_override)
+VALUES (?, ?, ?, ?, ?, ?);
+
+insertSearchTerm:
+INSERT INTO catalog_search_term(mcmod_id, normalized_term, weight)
+VALUES (?, ?, ?);
+
+selectMetadata:
+SELECT format_version, source_sha1, generated_at, mod_count, project_count, search_term_count
+FROM catalog_metadata WHERE id = 1;
+
+countMods:
+SELECT count(*) FROM catalog_mod;
+
+countProjects:
+SELECT count(*) FROM catalog_project;
+
+countSearchTerms:
+SELECT count(*) FROM catalog_search_term;
+
+selectIdentityByProject:
+SELECT catalog_mod.mcmod_id, catalog_mod.name, catalog_mod.name_cn, catalog_mod.intro,
+       catalog_mod.logo_url, catalog_project.platform, catalog_project.slug,
+       catalog_project.name_cn_override
+FROM catalog_project
+JOIN catalog_mod ON catalog_mod.mcmod_id = catalog_project.mcmod_id
+WHERE catalog_project.platform = :platform AND catalog_project.normalized_slug = :normalizedSlug;
+
+selectProjectsByMcmodId:
+SELECT catalog_mod.mcmod_id, catalog_mod.name, catalog_mod.name_cn, catalog_mod.intro,
+       catalog_mod.logo_url, catalog_project.platform, catalog_project.slug,
+       catalog_project.name_cn_override
+FROM catalog_project
+JOIN catalog_mod ON catalog_mod.mcmod_id = catalog_project.mcmod_id
+WHERE catalog_project.mcmod_id = :mcmodId
+ORDER BY catalog_project.project_order, catalog_project.platform;
+
+searchIdentity:
+WITH ranked_mod AS (
+    SELECT catalog_search_term.mcmod_id,
+           max(CASE WHEN normalized_term = :normalizedQuery THEN 1000 + weight ELSE weight END) AS result_rank
+    FROM catalog_search_term
+    JOIN catalog_mod ON catalog_mod.mcmod_id = catalog_search_term.mcmod_id
+    WHERE normalized_term = :normalizedQuery OR normalized_term LIKE :prefixPattern
+    GROUP BY catalog_search_term.mcmod_id, catalog_mod.popularity
+    ORDER BY result_rank DESC, catalog_mod.popularity DESC, catalog_search_term.mcmod_id
+    LIMIT :resultLimit OFFSET :resultOffset
+)
+SELECT catalog_mod.mcmod_id, catalog_mod.name, catalog_mod.name_cn, catalog_mod.intro,
+       catalog_mod.logo_url, catalog_project.platform, catalog_project.slug,
+       catalog_project.name_cn_override
+FROM ranked_mod
+JOIN catalog_mod ON catalog_mod.mcmod_id = ranked_mod.mcmod_id
+LEFT JOIN catalog_project ON catalog_project.mcmod_id = catalog_mod.mcmod_id
+ORDER BY ranked_mod.result_rank DESC, catalog_mod.popularity DESC,
+         catalog_mod.mcmod_id, catalog_project.project_order, catalog_project.platform;

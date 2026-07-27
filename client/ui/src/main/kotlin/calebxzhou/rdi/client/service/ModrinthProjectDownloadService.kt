@@ -1,9 +1,13 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.client.model.ModrinthProjectVersionFileVo
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Progress
+import calebxzhou.rdi.common.net.LocalArtifactHashAlgorithm
+import calebxzhou.rdi.common.net.LocalArtifactRequest
+import calebxzhou.rdi.common.net.LocalArtifactReuse
 import calebxzhou.rdi.common.net.downloadFileFrom
 import java.nio.file.Files
 
@@ -21,6 +25,23 @@ object ModrinthProjectDownloadService {
         if (expectedSha1 != null && Files.isRegularFile(target) && target.sha1.equals(expectedSha1, ignoreCase = true)) {
             ctx.emit(Task2Progress("${projectDisplayName}已存在: $filename", 1f))
             return@Leaf
+        }
+
+        if (expectedSha1 != null && targetDirName.equals("mods", ignoreCase = true)) {
+            val localSource = LocalArtifactReuse.reuse(
+                LocalArtifactRequest(
+                    algorithm = LocalArtifactHashAlgorithm.SHA1,
+                    hash = expectedSha1,
+                    size = file.size?.takeIf { it > 0 }
+                ),
+                target
+            ).onFailure {
+                lgr.warn(it) { "查找本地Mod失败，将使用网络下载: $filename" }
+            }.getOrNull()
+            if (localSource != null) {
+                ctx.emit(Task2Progress("已从本地实例复用${filename}", 1f))
+                return@Leaf
+            }
         }
 
         ctx.emit(Task2Progress("开始下载${filename}", 0f))
@@ -50,6 +71,8 @@ object ModrinthProjectDownloadService {
 
         ctx.emit(Task2Progress("已下载到${packdir.vo.name}的${targetDirName}目录", 1f))
     }
+
+    private val lgr by Loggers
 }
 
 private fun ModrinthProjectVersionFileVo.safeFilename(): String =

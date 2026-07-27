@@ -16,6 +16,7 @@ import calebxzhou.rdi.master.service.host.HostControlService.clearShutFlag
 import calebxzhou.rdi.master.service.host.HostControlService.status
 import calebxzhou.rdi.master.service.host.HostControlService.stop
 import calebxzhou.rdi.master.service.host.HostControlService.updateShutFlag
+import calebxzhou.rdi.master.service.host2.Host2RuntimeService
 import com.mongodb.client.model.Filters.`in`
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -87,14 +88,16 @@ object HostPresenceService {
         )
         lastGlobalPlayerList = playerList
         HostRuntimeService.broadcastGlobalPlayerList(playerList)
+        Host2RuntimeService.broadcastGlobalPlayerList(playerList)
         lgr.info { "全局玩家列表已变化，广播${hosts.sumOf { it.players.size }}个玩家/${hosts.size}个房间" }
     }
 
     internal suspend fun collectGlobalPlayerListHosts(): List<RGlobalPlayerList.HostEntry> = coroutineScope {
-        getPlayables()
+        val legacy = getPlayables()
             .map { host -> async { host.fetchGlobalPlayerListHostEntry() } }
             .awaitAll()
             .filterNotNull()
+        (legacy + Host2RuntimeService.globalEntries())
             .sortedWith(compareBy<RGlobalPlayerList.HostEntry> { it.hostName }.thenBy { it.hostId })
     }
 

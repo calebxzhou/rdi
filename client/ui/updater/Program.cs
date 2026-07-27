@@ -1,5 +1,7 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -46,28 +48,35 @@ internal static partial class Program
             if (launchOptions.NoUpdate)
                 WriteInfo("已关闭自动更新");
             else
+            {
+                var playerIpv4 = launchOptions.Debug
+                    ? null
+                    : GetPublicIpv4Async().GetAwaiter().GetResult();
                 UiLibraryUpdater.TryUpdateAsync(
                         RServerUrl,
                         LauncherRoot,
                         WriteInfo,
                         WriteWarning,
                         RenderDownloadProgress,
-                        useBackupApi: !launchOptions.Debug)
+                        useBackupApi: !launchOptions.Debug,
+                        playerIpv4: playerIpv4)
                     .GetAwaiter()
                     .GetResult();
+            }
 
             var libDirectory = Path.Combine(LauncherRoot, "lib");
             if (!Directory.Exists(libDirectory) || !Directory.EnumerateFiles(libDirectory, "*.jar").Any())
                 return Fail("缺少UI库文件。\r\n请确认客户端已完整解压，或检查网络后重试。");
 
-            var bestJava = IsLeftShiftPressed()
-                ? ShowStartupOptions() ?? ResolveBestJdk25()
-                : ResolveBestJdk25();
+            var startupSelection = IsLeftShiftPressed()
+                ? ShowStartupOptions()
+                : new StartupSelection(null, false);
+            var bestJava = startupSelection.Jdk ?? ResolveBestJdk25();
             var javaExe = Path.Combine(bestJava.JavaHome, "bin", launchOptions.AppLogs ? "java.exe" : "javaw.exe");
             if (!File.Exists(javaExe))
                 return Fail($"找到的Java25缺少{Path.GetFileName(javaExe)}：\r\n{bestJava.JavaHome}");
 
-            return StartClient(javaExe, launchOptions);
+            return StartClient(javaExe, launchOptions, startupSelection.SolidWindow);
         }
         catch (Exception exception)
         {
@@ -83,6 +92,23 @@ internal static partial class Program
         Console.ForegroundColor = ConsoleColor.Yellow;
         WriteInfo($"警告: {message}");
         Console.ResetColor();
+    }
+
+    private static async Task<string?> GetPublicIpv4Async()
+    {
+        try
+        {
+            using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+            var ipv4 = (await client.GetStringAsync("https://ip.3322.net/")).Trim();
+            if (!IPAddress.TryParse(ipv4, out var address) || address.AddressFamily != AddressFamily.InterNetwork)
+                throw new InvalidDataException("服务未返回有效IPv4");
+            return ipv4;
+        }
+        catch (Exception exception)
+        {
+            WriteWarning($"获取公网IPv4失败，将继续尝试更新: {exception.Message}");
+            return null;
+        }
     }
 
     private static int Fail(string message)
@@ -129,9 +155,9 @@ internal static partial class Program
     private static bool IsLeftShiftPressed() =>
         (GetAsyncKeyState(LeftShiftVirtualKey) & 0x8000) != 0;
 
-    private static JdkCandidate? ShowStartupOptions()
+    private static StartupSelection ShowStartupOptions()
     {
-        string[] options = ["重新手动选择JDK25", "TODO"];
+        string[] options = ["重新手动选择JDK25", "本次以实心窗口启动"];
         var selectedIndex = 0;
 
         while (true)
@@ -158,7 +184,9 @@ internal static partial class Program
                     break;
                 case ConsoleKey.Enter:
                     Console.Clear();
-                    return selectedIndex == 0 ? SelectManualJdk25() : null;
+                    return selectedIndex == 0
+                        ? new(SelectManualJdk25(), false)
+                        : new(null, true);
             }
         }
     }
@@ -757,7 +785,7 @@ internal static partial class Program
         }
     }
 
-    private static int StartClient(string javaExe, LaunchOptions options)
+    private static int StartClient(string javaExe, LaunchOptions options, bool solidWindow)
     {
         var startInfo = new ProcessStartInfo
         {
@@ -779,6 +807,7 @@ internal static partial class Program
             .. options.JvmArguments,
             $"-Drdi.debug={options.Debug.ToString().ToLowerInvariant()}",
             .. (options.NoUpdate ? new[] { "-Drdi.noUpdate=true" } : Array.Empty<string>()),
+            .. (solidWindow ? new[] { "-Drdi.window.transparent=false" } : Array.Empty<string>()),
             $"-Drdi.updater.pid={Environment.ProcessId}",
             $"-Drdi.updater.islogmode={options.AppLogs.ToString().ToLowerInvariant()}",
             $"-Drserverurl={RServerUrl}",
@@ -881,6 +910,7 @@ internal static partial class Program
     private sealed record MftSearchResult(bool Succeeded, HashSet<string> Candidates);
     private sealed record SearchDirectory(string Path, bool ForceDeep, int Depth);
     private sealed record LaunchOptions(bool Debug, bool AppLogs, bool NoUpdate, List<string> JvmArguments);
+    private sealed record StartupSelection(JdkCandidate? Jdk, bool SolidWindow);
 
 }
 

@@ -2,7 +2,7 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.*
-import calebxzhou.rdi.CONF
+import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.client.model.*
 import calebxzau.rdi.client.ui.loadResourceStream
 import calebxzau.rdi.client.ui.exportResource
@@ -10,6 +10,9 @@ import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.model.LibraryOsArch.Companion.detectHostOs
 import calebxzhou.rdi.common.net.DownloadProgress
+import calebxzhou.rdi.common.net.LocalArtifactHashAlgorithm
+import calebxzhou.rdi.common.net.LocalArtifactRequest
+import calebxzhou.rdi.common.net.LocalArtifactReuse
 import calebxzhou.rdi.common.net.downloadFileFrom
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.runInline
@@ -403,6 +406,13 @@ object GameService {
         sourcePlan: DownloadSourcePlan,
         onProgress: (DownloadProgress) -> Unit
     ): Result<File> {
+        if (reuseLocalArtifact(artifact.sha1, artifact.size, target)) {
+            onProgress(DownloadProgress(target.length(), target.length(), 0.0))
+            return Result.success(target)
+        }
+        if (sourcePlan.primaryUrls.isEmpty() && sourcePlan.fallbackUrls.isEmpty()) {
+            throw IllegalStateException("$label 下载链接为空")
+        }
         var attempt = 1
         var currentSourcePlan = sourcePlan
         while (true) {
@@ -610,6 +620,10 @@ object GameService {
         }
 
         targetDir.mkdirs()
+        if (reuseLocalArtifact(hash, asset.size, targetFile)) {
+            onProgress(DownloadProgress(asset.size, asset.size, 0.0))
+            return Result.success(targetFile)
+        }
         val sourcePlan = buildAssetDownloadSourcePlan(hash)
 
         val maxRetries = 4
@@ -619,10 +633,13 @@ object GameService {
                 urls = sourcePlan.primaryUrls + sourcePlan.fallbackUrls,
                 knownSize = asset.size,
                 validator = { downloadedPath ->
-                    if (downloadedPath.toFile().length() == asset.size) {
+                    if (
+                        downloadedPath.toFile().length() == asset.size &&
+                        downloadedPath.sha1.equals(hash, ignoreCase = true)
+                    ) {
                         Result.success(Unit)
                     } else {
-                        Result.failure(IllegalStateException("Size mismatch for $path"))
+                        Result.failure(IllegalStateException("资源校验失败: $path"))
                     }
                 }
             ) { progress ->
@@ -1114,6 +1131,11 @@ object GameService {
             return
         }
 
+        if (reuseLocalArtifact(loaderMeta.installerSha1, null, installer)) {
+            ctx.emit(Task2Progress("从本地复用安装器", 1f))
+            return
+        }
+
         ctx.emit(Task2Progress("开始下载...", 0f))
         val sourcePlan = buildDownloadSourcePlan(loaderMeta.installerUrl)
         installer.toPath().downloadFileFrom(
@@ -1387,10 +1409,6 @@ object GameService {
             }
         }
         target.parentFile?.mkdirs()
-        if (sourcePlan.primaryUrls.isEmpty() && sourcePlan.fallbackUrls.isEmpty()) {
-
-            throw IllegalStateException("$label 下载链接为空")
-        }
         return downloadVerifiedArtifact(
             label = label,
             artifact = artifact,
@@ -1398,6 +1416,30 @@ object GameService {
             sourcePlan = sourcePlan,
             onProgress = onProgress
         )
+    }
+
+    private suspend fun reuseLocalArtifact(expectedSha1: String, expectedSize: Long?, target: File): Boolean {
+        if (expectedSha1.isBlank()) return false
+        val targetPath = target.toPath().toAbsolutePath().normalize()
+        val mcRoot = ClientDirs.mcDir.toPath().toAbsolutePath().normalize()
+        val relativePaths = if (targetPath.startsWith(mcRoot)) {
+            listOf(mcRoot.relativize(targetPath).toString())
+        } else {
+            emptyList()
+        }
+        val source = LocalArtifactReuse.reuse(
+            LocalArtifactRequest(
+                algorithm = LocalArtifactHashAlgorithm.SHA1,
+                hash = expectedSha1,
+                size = expectedSize?.takeIf { it > 0 },
+                relativePaths = relativePaths
+            ),
+            targetPath
+        ).onFailure {
+            lgr.warn(it) { "查找本地Minecraft文件失败，将使用网络下载：${target.name}" }
+        }.getOrNull()
+        if (source != null) lgr.info { "从本地复用Minecraft文件：$source -> $target" }
+        return source != null
     }
 
     // ---- Argument resolution used by game launching ----

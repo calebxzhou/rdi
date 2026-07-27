@@ -48,7 +48,8 @@ import calebxzhou.mykotutils.std.millisToHumanDateTime
 import calebxzhou.mykotutils.std.secondsToHumanDateTime
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.auth.updateLastPlayHost
-import calebxzhou.rdi.client.model.RemoteModCardVo
+import calebxzhou.rdi.client.modcatalog.CatalogMod
+import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
@@ -99,6 +100,7 @@ private const val TACZ_MAX_ZIP_FILES = 10
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun HostInfoScreen(
+    modCatalog: ModCatalog,
     hostId: ObjectId,
     onBack: () -> Unit = {},
     onOpenModpackInfo: (String) -> Unit,
@@ -153,7 +155,7 @@ fun HostInfoScreen(
     var selectedGithubAsset by remember { mutableStateOf<GithubReleaseAsset?>(null) }
     var extraModSide by remember { mutableStateOf(Mod.Side.BOTH) }
     var showRemoteModOverlay by remember { mutableStateOf(false) }
-    var remoteModOverlayStack by remember { mutableStateOf<List<RemoteModCardVo>>(emptyList()) }
+    var remoteModOverlayStack by remember { mutableStateOf<List<CatalogMod>>(emptyList()) }
     var privateThingsSubTab by remember { mutableStateOf(0) }
     var selectedExtraModKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var disabledMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
@@ -1332,6 +1334,7 @@ fun HostInfoScreen(
                     val currentRemoteMod = remoteModOverlayStack.lastOrNull()
                     if (currentRemoteMod == null) {
                         RemoteModScreen(
+                            catalog = modCatalog,
                             requiredMcVer = host.modpack.mcVer,
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1340,6 +1343,7 @@ fun HostInfoScreen(
                         )
                     } else {
                         RemoteModInfoScreen(
+                            catalog = modCatalog,
                             mod = currentRemoteMod,
                             onBack = { remoteModOverlayStack = remoteModOverlayStack.dropLast(1) },
                             onOpenDependencyMod = { remoteModOverlayStack = remoteModOverlayStack + it },

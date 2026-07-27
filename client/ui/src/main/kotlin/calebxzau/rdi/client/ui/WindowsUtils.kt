@@ -6,9 +6,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import calebxzhou.mykotutils.std.canCreateSymlink
 import calebxzhou.mykotutils.std.jarResource
-import calebxzhou.mykotutils.std.javaExePath
-import calebxzhou.mykotutils.std.readAllString
-import calebxzhou.rdi.RDIClient
+import calebxzau.rdi.client.RDIClient
 import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.ui.comp.WebViewHost
 import calebxzhou.rdi.client.ui.pickAwtDirectory
@@ -164,67 +162,8 @@ suspend fun runUpdateFlow(
 ) {
     UpdateService.startUpdateFlow(
         onStatus = onStatus,
-        onDetail = onDetail,
-        onRestart = onRestart
+        onDetail = onDetail
     )
-}
-
-fun createShortcut(): Result<Unit> {
-    return runCatching {
-        val baseDir = File(".").absoluteFile
-        val javaExe = File(javaExePath)
-        val javawCandidate = javaExe.parentFile?.resolve("javaw.exe")
-        val javawPath = when {
-            javaExe.name.equals("java.exe", ignoreCase = true) && javawCandidate?.exists() == true -> javawCandidate
-            javaExe.name.equals("javaw.exe", ignoreCase = true) -> javaExe
-            else -> javaExe
-        }
-        if (!javawPath.exists()) {
-            throw IllegalStateException("未找到javaw: ${javawPath.absolutePath}")
-        }
-        val resourcesDir = File(baseDir, "resources").apply { mkdirs() }
-        val iconFile = File(resourcesDir, "icon.ico")
-        if (!iconFile.exists()) {
-            RDIClient.jarResource("icon.ico").use { input ->
-                iconFile.outputStream().use { output -> input.copyTo(output) }
-            }
-        }
-        val args = "-cp \"lib/*;rdi-5-ui.jar\" calebxzhou.rdi.client.MainKt"
-        fun esc(path: String) = path.replace("'", "''")
-        val template = RDIClient.jarResource("shortcut_maker.ps1").readAllString()
-        val script = template
-            .replace("__JAVAW__", esc(javawPath.absolutePath))
-            .replace("__ARGS__", esc(args))
-            .replace("__WORKDIR__", esc(baseDir.absolutePath))
-            .replace("__ICON__", esc(iconFile.absolutePath))
-        val scriptFile = File(resourcesDir, "shortcut_maker.ps1")
-        scriptFile.outputStream().use { output ->
-            output.write(byteArrayOf(0xFF.toByte(), 0xFE.toByte()))
-            output.write(script.toByteArray(Charsets.UTF_16LE))
-        }
-
-        val psCommands = listOf("powershell", "pwsh")
-        val proc = psCommands.firstNotNullOfOrNull { cmd ->
-            runCatching {
-                ProcessBuilder(
-                    cmd,
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-File",
-                    scriptFile.absolutePath
-                ).redirectErrorStream(true).start()
-            }.getOrNull()
-        }
-        if (proc == null) {
-            throw IllegalStateException("未找到 PowerShell 或 pwsh")
-        }
-        val exit = proc.waitFor()
-        val shortcutPath = File(System.getProperty("user.home"), "Desktop").resolve("RDI.lnk")
-        if (exit != 0 || !shortcutPath.exists()) {
-            throw IllegalStateException("创建快捷方式失败")
-        }
-    }
 }
 
 fun loadResourceStream(name: String): InputStream {

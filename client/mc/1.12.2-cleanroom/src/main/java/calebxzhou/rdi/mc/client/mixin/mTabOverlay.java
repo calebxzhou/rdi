@@ -50,7 +50,10 @@ public class mTabOverlay {
             if (host.players().isEmpty()) {
                 continue;
             }
-            rows.add(new RTabRow(host.hostName() + " · " + host.modpackName() + " " + host.packVer(), null, TEXT_COLOR));
+            String title = host.modpackName().isEmpty() && host.packVer().isEmpty()
+                    ? host.hostName()
+                    : host.hostName() + " · " + host.modpackName() + " " + host.packVer();
+            rows.add(new RTabRow(title, null, TEXT_COLOR));
             for (RGlobalPlayerList.PlayerEntry player : host.players()) {
                 rows.add(new RTabRow(player.playerName(), parseUuid(player.playerId()), TEXT_COLOR));
             }

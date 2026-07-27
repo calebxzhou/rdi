@@ -17,7 +17,8 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.TitleTabBar
 import calebxzau.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
-import calebxzhou.rdi.client.model.RemoteModCardVo
+import calebxzhou.rdi.client.modcatalog.CatalogMod
+import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.common.model.McVersion
 import kotlinx.serialization.Serializable
@@ -53,9 +54,11 @@ enum class ResourceTab(
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
 fun ResourceScreen(
+    modCatalog: ModCatalog,
     initialCategory: ResourceTab = ResourceTab.All,
     requiredMcVer: McVersion? = null,
     targetHostId: ObjectId? = null,
+    targetHost2Id: String? = null,
     onBack: (() -> Unit) = {},
     onOpenUpload: (() -> Unit) = {},
     onOpenModpackInfo: (String) -> Unit = {},
@@ -65,7 +68,7 @@ fun ResourceScreen(
     var category by rememberSaveable(initialCategory) { mutableStateOf(initialCategory) }
     var selectedShader by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
     var selectedResourcepack by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
-    var selectedRemoteModStack by remember { mutableStateOf<List<RemoteModCardVo>>(emptyList()) }
+    var selectedRemoteModStack by remember { mutableStateOf<List<CatalogMod>>(emptyList()) }
 
     val currentShader = selectedShader
     val currentResourcepack = selectedResourcepack
@@ -133,6 +136,7 @@ fun ResourceScreen(
 
                                 ResourceTab.Mods -> {
                                     RemoteModScreen(
+                                        catalog = modCatalog,
                                         requiredMcVer = requiredMcVer,
                                         modifier = Modifier.fillMaxSize(),
                                         onOpenMod = { selectedRemoteModStack = listOf(it) }
@@ -185,6 +189,7 @@ fun ResourceScreen(
                         currentRemoteMod != null -> {
                             Box(modifier = Modifier.fillMaxSize()) {
                                 RemoteModInfoScreen(
+                                    catalog = modCatalog,
                                     mod = currentRemoteMod,
                                     onBack = {
                                         selectedRemoteModStack = selectedRemoteModStack.dropLast(1)
@@ -193,6 +198,7 @@ fun ResourceScreen(
                                         selectedRemoteModStack = selectedRemoteModStack + it
                                     },
                                     targetHostId = targetHostId,
+                                    targetHost2Id = targetHost2Id,
                                     targetHostMcVer = requiredMcVer
                                 )
                             }

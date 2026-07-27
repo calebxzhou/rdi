@@ -5,7 +5,7 @@ import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.common.model.ServerEntry
 import calebxzhou.rdi.common.net.httpRequest
 import calebxzhou.rdi.common.util.ok
-import calebxzhou.rdi.lgr
+import calebxzau.rdi.client.lgr
 import io.ktor.client.request.url
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.HttpMethod

@@ -5,6 +5,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <ApplicationIcon>..\src\main\resources\icon.ico</ApplicationIcon>
+    <Description>RDI Client Updater</Description>
+    <Copyright>calebxzau</Copyright>
   </PropertyGroup>
 
 </Project>

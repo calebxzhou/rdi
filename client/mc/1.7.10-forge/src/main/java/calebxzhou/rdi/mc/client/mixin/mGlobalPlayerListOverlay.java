@@ -82,7 +82,10 @@ public class mGlobalPlayerListOverlay {
             if (host.players().isEmpty()) {
                 continue;
             }
-            rows.add(new RdiGlobalTabRow(host.hostName() + " · " + host.modpackName() + " " + host.packVer(), TEXT_COLOR));
+            String title = host.modpackName().isEmpty() && host.packVer().isEmpty()
+                    ? host.hostName()
+                    : host.hostName() + " · " + host.modpackName() + " " + host.packVer();
+            rows.add(new RdiGlobalTabRow(title, TEXT_COLOR));
             for (RGlobalPlayerList.PlayerEntry player : host.players()) {
                 rows.add(new RdiGlobalTabRow(player.playerName(), TEXT_COLOR, player));
             }

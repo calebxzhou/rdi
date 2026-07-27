@@ -4,6 +4,7 @@ import calebxzhou.rdi.common.model.ServerEntry
 import calebxzhou.rdi.master.CONF
 import calebxzhou.rdi.master.GameNodeRuleConfig
 import calebxzhou.rdi.master.exception.ParamError
+import calebxzhou.rdi.master.net.clientIp
 import calebxzhou.rdi.master.net.param
 import calebxzhou.rdi.master.net.paramNull
 import calebxzhou.rdi.master.net.response
@@ -18,7 +19,7 @@ fun Route.gameNodeRoutes() {
     get("/server-entry") {
         response(
             data = GameNodeService.resolveServerEntry(
-                ipv4 = call.param("myIp"),
+                ipv4 = call.paramNull("myIp")?:call.clientIp,
                 gameBackup = call.paramNull("gameBackup") == "true",
                 call.paramNull("forceMain") == "true",
             )

@@ -17,9 +17,10 @@ internal static partial class UiLibraryUpdater
         Action<string> writeInfo,
         Action<string> writeWarning,
         Action<FileDownloadProgress> reportProgress,
-        bool useBackupApi)
+        bool useBackupApi,
+        string? playerIpv4)
     {
-        var backupUrl = useBackupApi ? await ResolveBackupUrl(primaryUrl, writeInfo) : null;
+        var backupUrl = useBackupApi ? await ResolveBackupUrl(primaryUrl, playerIpv4, writeInfo) : null;
         var apiUrls = new[] { backupUrl, primaryUrl }
             .Where(url => !string.IsNullOrWhiteSpace(url))
             .Select(url => url!.TrimEnd('/'))
@@ -100,13 +101,19 @@ internal static partial class UiLibraryUpdater
         }
     }
 
-    private static async Task<string?> ResolveBackupUrl(string primaryUrl, Action<string> writeInfo)
+    private static async Task<string?> ResolveBackupUrl(
+        string primaryUrl,
+        string? playerIpv4,
+        Action<string> writeInfo)
     {
         try
         {
             using var client = CreateMetadataClient();
+            var serverEntryUrl = $"{primaryUrl.TrimEnd('/')}/server-entry";
+            if (!string.IsNullOrWhiteSpace(playerIpv4))
+                serverEntryUrl += $"?myIp={Uri.EscapeDataString(playerIpv4)}";
             var response = await client.GetFromJsonAsync<ApiResponse<ServerEntry>>(
-                $"{primaryUrl.TrimEnd('/')}/server-entry",
+                serverEntryUrl,
                 JsonOptions);
             var api = response?.Code == 0 ? response.Data?.Api : null;
             if (string.IsNullOrWhiteSpace(api))

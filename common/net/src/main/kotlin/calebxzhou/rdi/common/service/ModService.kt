@@ -7,6 +7,9 @@ import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.deser
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.net.DownloadProgress
+import calebxzhou.rdi.common.net.LocalArtifactHashAlgorithm
+import calebxzhou.rdi.common.net.LocalArtifactRequest
+import calebxzhou.rdi.common.net.LocalArtifactReuse
 import calebxzhou.rdi.common.net.downloadFileFrom
 import calebxzhou.rdi.common.serdesJson
 import kotlinx.serialization.decodeFromString
@@ -675,6 +678,10 @@ object ModService {
         return downloadSingleModFromSources(
             mod = mod,
             officialUrls = mod.downloadUrls + fileInfo.realDownloadUrl,
+            localRequest = LocalArtifactRequest(
+                algorithm = LocalArtifactHashAlgorithm.CURSEFORGE_MURMUR2,
+                hash = expectedFingerprint.toString()
+            ),
             existingFileMatches = { path -> path.exists() && path.murmur2 == expectedFingerprint },
             validator = { path ->
                 val actualFingerprint = path.murmur2
@@ -700,6 +707,10 @@ object ModService {
         return downloadSingleModFromSources(
             mod = mod,
             officialUrls = mod.downloadUrls,
+            localRequest = LocalArtifactRequest(
+                algorithm = LocalArtifactHashAlgorithm.SHA1,
+                hash = expectedHash
+            ),
             existingFileMatches = { path -> expectedHash.isNotBlank() && path.exists() && path.sha1 == expectedHash },
             validator = { path ->
                 if (expectedHash.isBlank()) {
@@ -724,6 +735,7 @@ object ModService {
     private suspend fun downloadSingleModFromSources(
         mod: Mod,
         officialUrls: List<String>,
+        localRequest: LocalArtifactRequest,
         existingFileMatches: (Path) -> Boolean,
         validator: suspend (Path) -> Result<Unit>,
         onProgress: (DownloadProgress) -> Unit
@@ -733,6 +745,20 @@ object ModService {
         if (existingPath != null) {
             copyExistingModFile(existingPath, targetPath)
             lgr.debug { "Mod file already exists and hash matches: $existingPath" }
+            return Result.success(targetPath)
+        }
+
+        val localSource = if (localRequest.hash.isBlank()) {
+            null
+        } else {
+            LocalArtifactReuse.reuse(localRequest, targetPath)
+                .onFailure { lgr.warn(it) { "查找本地Mod失败，将使用网络下载：${mod.slug}" } }
+                .getOrNull()
+        }
+        if (localSource != null) {
+            val size = Files.size(targetPath)
+            onProgress(DownloadProgress(size, size, 0.0))
+            lgr.info { "从本地复用Mod${mod.slug}：$localSource" }
             return Result.success(targetPath)
         }
 
