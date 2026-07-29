@@ -7,7 +7,6 @@ import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.net.ktorClient
 import calebxzhou.rdi.common.serdesJson
-import calebxzhou.rdi.common.service.ModService.briefInfo
 import calebxzhou.rdi.common.service.ModService.buildIconUrls
 import calebxzhou.rdi.common.service.ModService.modLogo
 import calebxzhou.rdi.common.service.ModService.ofMirrorUrl
@@ -28,7 +27,6 @@ import java.util.jar.JarFile
 
 
 object CurseForgeService {
-    val slugBriefInfo: Map<String, ModBriefInfo> by lazy { ModService.buildSlugMap(briefInfo) { it.curseforgeSlugs } }
     private val lgr by Loggers
     const val OFFICIAL_URL = "https://api.curseforge.com/v1"
     private const val API_KEY_HEADER = "x-api-key"
@@ -63,9 +61,8 @@ object CurseForgeService {
 
     //从完整的cf mod信息取得card vo
     private fun CurseForgeModInfo.toCardVo(modFile: File? = null): Mod.CardVo {
-        val briefInfo = slugBriefInfo[slug]
-        val icons = buildIconUrls(logo?.thumbnailUrl, logo?.url, briefInfo?.logoUrl)
-        val resolvedName = briefInfo?.name ?: (name ?: slug).ifBlank { slug }
+        val icons = buildIconUrls(logo?.thumbnailUrl, logo?.url)
+        val resolvedName = (name ?: slug).ifBlank { slug }
         val localMeta = modFile?.readLocalModCardMeta()
         val introText = summary?.takeIf { it.isNotBlank() }?.trim()
             ?: localMeta?.description
@@ -73,8 +70,8 @@ object CurseForgeService {
 
         return Mod.CardVo(
             name = resolvedName,
-            nameCn = briefInfo?.nameCn,
-            intro = briefInfo?.intro ?: introText,
+            nameCn = null,
+            intro = introText,
             iconData = localMeta?.iconBytes,
             iconUrls = icons,
             side = Mod.Side.BOTH
@@ -330,14 +327,6 @@ object CurseForgeService {
         throw ModpackError("处理整合包时出错: ${error.message}")
     }
 
-
-    //cf - mr
-    val String.cf2MrSlug: String
-        get() {
-            if (isBlank()) return this
-            val info = slugBriefInfo[trim().lowercase()] ?: return this
-            return info.modrinthSlugs.firstOrNull { it.isNotBlank() }?.trim() ?: this
-        }
 
     @VisibleForTesting
     private suspend fun makeRequest(

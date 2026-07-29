@@ -26,12 +26,12 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import calebxzau.rdi.client.ui.RowV
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzau.rdi.client.ui.asIconText
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ModrinthProjectCard(
     project: ModrinthProjectCardVo,
@@ -64,23 +64,12 @@ fun ModrinthProjectCard(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Text(
-                            text = project.description,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
+                        RowV {
+                            ModrinthProjectStat("\uDB80\uDED1", project.followsText)
+                        }
                     }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    ModrinthProjectStat("\uF019", project.downloadsText)
-                    ModrinthProjectStat("\uDB80\uDED1", project.followsText)
-                }
             }
         }
     }
@@ -120,9 +109,8 @@ private fun ModrinthProjectBanner(project: ModrinthProjectCardVo) {
 @Composable
 private fun ModrinthProjectIcon(project: ModrinthProjectCardVo) {
     Surface(
-        modifier = Modifier.size(64.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialColor.GRAY_200.color,
+        modifier = Modifier.size(48.dp),
+        shape = baseRoundCornerShape,
         shadowElevation = 1.dp
     ) {
         project.iconUrl?.takeIf(String::isNotBlank)?.let { url ->
@@ -135,7 +123,7 @@ private fun ModrinthProjectIcon(project: ModrinthProjectCardVo) {
         } ?: Box(
             modifier = Modifier
                 .fillMaxSize()
-                .clip(RoundedCornerShape(16.dp))
+                .clip(baseRoundCornerShape)
                 .background(MaterialColor.BLUE_GRAY_200.color),
             contentAlignment = Alignment.Center
         ) {
@@ -143,25 +131,8 @@ private fun ModrinthProjectIcon(project: ModrinthProjectCardVo) {
                 text = project.title.firstOrNull()?.uppercaseChar()?.toString() ?: "M",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialColor.GRAY_800.color
             )
         }
-    }
-}
-
-@Composable
-private fun ModrinthProjectChip(text: String) {
-    Surface(
-        shape = RoundedCornerShape(999.dp),
-        color = Color.White,
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialColor.GRAY_300.color)
-    ) {
-        Text(
-            text = text,
-            color = MaterialColor.GRAY_800.color,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
-        )
     }
 }
 

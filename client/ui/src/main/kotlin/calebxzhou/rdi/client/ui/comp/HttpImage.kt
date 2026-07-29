@@ -85,8 +85,12 @@ fun rememberLocalFirstImage(
             .filter(String::isNotBlank)
             .distinct()
     }
-    val remoteBitmap by produceState<ImageBitmap?>(null, candidates) {
-        value = null
+    val cachedRemoteBitmap = remember(candidates) {
+        candidates.firstNotNullOfOrNull { HttpImageState.peek(it)?.bitmap }
+    }
+    val remoteBitmap by produceState(cachedRemoteBitmap, candidates) {
+        value = cachedRemoteBitmap
+        if (cachedRemoteBitmap != null) return@produceState
         candidates.forEach { url ->
             val bitmap = (HttpImageState.peek(url) ?: HttpImageState.fetch(url)).bitmap
             if (bitmap != null) {

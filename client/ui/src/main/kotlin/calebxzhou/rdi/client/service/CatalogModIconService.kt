@@ -10,26 +10,48 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.jar.JarFile
+import java.util.concurrent.ConcurrentHashMap
 
-internal suspend fun CatalogMod.loadLocalIcon(): Result<ByteArray?> = withContext(Dispatchers.IO) {
-    runCatching {
-        val jarFiles = DL_MOD_DIR.listFiles { file ->
-            file.isFile && file.extension.equals("jar", ignoreCase = true)
-        }.orEmpty()
-        localFilePrefixes().firstNotNullOfOrNull { prefix ->
-            jarFiles
-                .asSequence()
-                .filter { it.matchesLocalModFile(prefix) }
-                .sortedByDescending { it.lastModified() }
-                .firstNotNullOfOrNull { file ->
-                    file.readModIcon().getOrElse { cause ->
-                        lgr.warn(cause) { "读取本地Mod图标失败: ${file.absolutePath}" }
-                        null
+internal data class CachedCatalogModIcon(val iconData: ByteArray?)
+
+private val localIconCache = ConcurrentHashMap<String, CachedCatalogModIcon>()
+
+internal fun CatalogMod.peekLocalIcon(): CachedCatalogModIcon? = localIconCache[localIconCacheKey]
+
+internal suspend fun CatalogMod.loadLocalIcon(): Result<ByteArray?> {
+    val cacheKey = localIconCacheKey
+    localIconCache[cacheKey]?.let { return Result.success(it.iconData) }
+    return withContext(Dispatchers.IO) {
+        runCatching {
+            val jarFiles = DL_MOD_DIR.listFiles { file ->
+                file.isFile && file.extension.equals("jar", ignoreCase = true)
+            }.orEmpty()
+            localFilePrefixes().firstNotNullOfOrNull { prefix ->
+                jarFiles
+                    .asSequence()
+                    .filter { it.matchesLocalModFile(prefix) }
+                    .sortedByDescending { it.lastModified() }
+                    .firstNotNullOfOrNull { file ->
+                        file.readModIcon().getOrElse { cause ->
+                            lgr.warn(cause) { "读取本地Mod图标失败: ${file.absolutePath}" }
+                            null
+                        }
                     }
-                }
-        }
+            }
+        }.onSuccess { localIconCache[cacheKey] = CachedCatalogModIcon(it) }
     }
 }
+
+private val CatalogMod.localIconCacheKey: String
+    get() = buildString {
+        append(identity.stableKey)
+        sources.forEach { source ->
+            append('|')
+            append(source.ref.platform.name)
+            append(':')
+            append(source.slug)
+        }
+    }
 
 private fun CatalogMod.localFilePrefixes(): List<String> {
     val primary = sources.first { it.ref == primaryRef }

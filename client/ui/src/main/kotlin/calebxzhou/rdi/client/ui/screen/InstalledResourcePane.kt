@@ -19,7 +19,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.CursorPositionBox
 import calebxzau.rdi.client.ui.FlowRowV
+import calebxzau.rdi.client.ui.RDropdownMenuItem
 import calebxzau.rdi.client.ui.RowV
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
@@ -85,10 +87,11 @@ private val localConfigEditableExtensions = setOf(
     "zs"
 )
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+
 @Composable
 fun InstalledResourcePane(
     onOpenPlay: ((McPlayArgs) -> Unit)? = null,
+    onOpenContent: (ModpackLocalDir, ModpackContentType) -> Unit = { _, _ -> },
     onOpenMcVersionManage: (() -> Unit)? = null,
     onOpenTaskList: ((String) -> Unit)? = null,
     showPaneActions: Boolean = false,
@@ -99,7 +102,6 @@ fun InstalledResourcePane(
     var loading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var localDirs by remember { mutableStateOf<List<ModpackLocalDir>>(emptyList()) }
-    var selectedPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
     var packActionMessage by remember { mutableStateOf<String?>(null) }
     var deleteConfirmPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
     var deleteIncludedMods by remember { mutableStateOf(false) }
@@ -283,9 +285,6 @@ fun InstalledResourcePane(
                 errorMessage = "加载本地整合包失败"
             } else {
                 localDirs = result
-                selectedPack = selectedPack?.let { selected ->
-                    localDirs.firstOrNull { it.versionId == selected.versionId }
-                }
             }
             loading = false
         }
@@ -297,8 +296,7 @@ fun InstalledResourcePane(
 
     @Composable
     fun PackGrid(
-        modifier: Modifier = Modifier,
-        portrait: Boolean
+        modifier: Modifier = Modifier
     ) {
         LoadingFlowGrid(
             loading = loading,
@@ -308,14 +306,164 @@ fun InstalledResourcePane(
         ) { packdir ->
             val versionId = "${packdir.vo.id}_${packdir.verName}"
             val isRunning = McPlayStore.aliveCount(versionId) > 0
-            ModpackManageCard(
+
+            var menuExpanded by remember(packdir.versionId) { mutableStateOf(false) }
+            CursorPositionBox(
                 modifier = Modifier.widthIn(max = 350.dp),
-                packdir = packdir,
-                isRunning = isRunning,
-                selected = selectedPack?.versionId == packdir.versionId,
-                miniMode = true,
-                onClick = { selectedPack = packdir }
-            )
+                onSecondaryPress = { menuExpanded = true },
+                cursorContent = {
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false },
+                        //offset = OffsetFirstItemUnderCursor
+                    ) {
+                        RDropdownMenuItem(
+                            text = "单机",
+                            icon = "\uEB9B",
+                            enabled = onOpenPlay != null,
+                            onClick = {
+                                menuExpanded = false
+                                onOpenPlay?.invoke(
+                                    McPlayArgs(
+                                        title = "单机 - ${packdir.vo.name} ${packdir.verName}",
+                                        mcVer = packdir.vo.mcVer,
+                                        modLoader = packdir.vo.modloader,
+                                        versionId = packdir.versionId,
+                                        modpackName = packdir.vo.name,
+                                        playArg = "${server.hqUrl}\n" +
+                                                "127.0.0.1:55667\n" +
+                                                "test\n" +
+                                                "55555\n" +
+                                                "${loggedAccount.uuid}\n" +
+                                                loggedAccount.name,
+                                        versionDir = packdir.dir.absolutePath
+                                    )
+                                )
+                            }
+                        )
+                        RDropdownMenuItem(
+                            text = ModpackContentType.Mods.label,
+                            icon = ModpackContentType.Mods.icon,
+                            onClick = {
+                                menuExpanded = false
+                                onOpenContent(packdir, ModpackContentType.Mods)
+                            }
+                        )
+                        RDropdownMenuItem(
+                            text = ModpackContentType.ResourcePacks.label,
+                            icon = ModpackContentType.ResourcePacks.icon,
+                            onClick = {
+                                menuExpanded = false
+                                onOpenContent(packdir, ModpackContentType.ResourcePacks)
+                            }
+                        )
+                        RDropdownMenuItem(
+                            text = ModpackContentType.Shaders.label,
+                            icon = ModpackContentType.Shaders.icon,
+                            onClick = {
+                                menuExpanded = false
+                                onOpenContent(packdir, ModpackContentType.Shaders)
+                            }
+                        )
+                        HorizontalDivider()
+                        RDropdownMenuItem(
+                            text = "配置",
+                            icon = "\uE713",
+                            onClick = {
+                                menuExpanded = false
+                                resetLocalConfigEditorState()
+                                configEditorPack = packdir
+                                loadLocalConfigFiles(packdir)
+                            }
+                        )
+                        RDropdownMenuItem(
+                            text = "迁移",
+                            icon = "\uE8C8",
+                            enabled = localDirs.size > 1,
+                            onClick = {
+                                menuExpanded = false
+                                copyDataSourcePack = packdir
+                                copyDataTargetVersionId = localDirs.firstOrNull {
+                                    it.versionId != packdir.versionId
+                                }?.versionId
+                                copyDataSelectedKeys = personalDataCopyEntries.map { it.key }.toSet()
+                            }
+                        )
+                        RDropdownMenuItem(
+                            text = "目录",
+                            icon = "\uEAED",
+                            onClick = {
+                                menuExpanded = false
+                                val dir = packdir.dir
+                                if (!dir.exists()) {
+                                    errorMessage = "目录不存在: ${dir.absolutePath}"
+                                } else {
+                                    runCatching { openFolder(dir.absolutePath) }
+                                        .onFailure { errorMessage = "无法打开目录: ${it.message}" }
+                                }
+                            }
+                        )
+                        RDropdownMenuItem(
+                            text = "重装",
+                            icon = "\uDB81\uDC53",
+                            onClick = {
+                                menuExpanded = false
+                                reinstallConfirmPack = packdir
+                            }
+                        )
+                        RDropdownMenuItem(
+                            text = "分享",
+                            icon = "\uDB82\uDD5E",
+                            onClick = {
+                                menuExpanded = false
+                                scope.launch {
+                                    val result = withContext(Dispatchers.IO) {
+                                        packActionMessage = "开始导出..."
+                                        exportRdiModpack(packdir) { msg -> packActionMessage = msg }
+                                    }
+                                    if (result.isFailure) {
+                                        errorMessage = result.exceptionOrNull()?.message ?: "导出失败"
+                                        packActionMessage = null
+                                    } else {
+                                        packActionMessage = "导出完成"
+                                    }
+                                }
+                            }
+                        )
+                        RDropdownMenuItem(
+                            text = "日志",
+                            icon = "\uEF11",
+                            onClick = {
+                                menuExpanded = false
+                                scope.launch {
+                                    exportLogsPack(packdir).onFailure {
+                                        errorMessage = it.message ?: "导出日志失败"
+                                    }
+                                }
+                            }
+                        )
+                        HorizontalDivider()
+                        RDropdownMenuItem(
+                            text = "删除",
+                            icon = "\uEA81",
+                            danger = true,
+                            onClick = {
+                                menuExpanded = false
+                                deleteConfirmPack = packdir
+                                deleteIncludedMods = false
+                            }
+                        )
+                    }
+                }
+            ) {
+                ModpackManageCard(
+                    modifier = Modifier.fillMaxWidth(),
+                    packdir = packdir,
+                    isRunning = isRunning,
+                    miniMode = true,
+                    onClick = { menuExpanded = true }
+                )
+            }
         }
     }
 
@@ -365,173 +513,6 @@ fun InstalledResourcePane(
         }
     }
 
-    @Composable
-    fun PackActionPanel(
-        selected: ModpackLocalDir?,
-        portrait: Boolean,
-        modifier: Modifier = Modifier
-    ) {
-        val primaryActionColor = MaterialColor.INDIGO_800.color
-        val secondaryActionColor = MaterialColor.BLUE_GRAY_800.color
-        val utilityActionColor = MaterialColor.TEAL_800.color
-        val size = 32
-
-        @Composable
-        fun ActionButtons() {
-            CircleIconButton(
-                "\uEA81",
-                "删除",
-                size = size,
-                bgColor = MaterialColor.RED_900.color,
-                enabled = selected != null
-            ) {
-                deleteConfirmPack = selected
-                deleteIncludedMods = false
-            }
-            CircleIconButton(
-                "\uDB82\uDD5E",
-                "导出RDI包",
-                size = size,
-                bgColor = MaterialTheme.colorScheme.primary,
-                enabled = selected != null
-            ) {
-                val packdir = selected ?: return@CircleIconButton
-                scope.launch {
-                    val result = withContext(Dispatchers.IO) {
-                        packActionMessage = "开始导出..."
-                        exportRdiModpack(packdir) { msg -> packActionMessage = msg }
-                    }
-                    if (result.isFailure) {
-                        errorMessage = result.exceptionOrNull()?.message ?: "导出失败"
-                        packActionMessage = null
-                    } else {
-                        packActionMessage = "导出完成"
-                    }
-                }
-            }
-            CircleIconButton(
-                "\uDB81\uDC53",
-                "重新下载",
-                size = size,
-                enabled = selected != null,
-                bgColor = secondaryActionColor
-            ) {
-                reinstallConfirmPack = selected
-            }
-            CircleIconButton(
-                "\uE713",
-                "配置文件",
-                size = size,
-                enabled = selected != null,
-                bgColor = MaterialColor.DEEP_PURPLE_700.color
-            ) {
-                val packdir = selected ?: return@CircleIconButton
-                resetLocalConfigEditorState()
-                configEditorPack = packdir
-                loadLocalConfigFiles(packdir)
-            }
-            CircleIconButton(
-                "\uE8C8",
-                "复制数据",
-                size = size,
-                enabled = selected != null && localDirs.size > 1,
-                bgColor = utilityActionColor
-            ) {
-                val packdir = selected ?: return@CircleIconButton
-                copyDataSourcePack = packdir
-                copyDataTargetVersionId = localDirs.firstOrNull {
-                    it.versionId != packdir.versionId
-                }?.versionId
-                copyDataSelectedKeys = personalDataCopyEntries.map { it.key }.toSet()
-            }
-            CircleIconButton(
-                "\uEAED",
-                "安装目录",
-                size = size,
-                enabled = selected != null,
-                bgColor = MaterialColor.GREEN_800.color
-            ) {
-                val packdir = selected ?: return@CircleIconButton
-                val dir = packdir.dir
-                if (!dir.exists()) {
-                    errorMessage = "目录不存在: ${dir.absolutePath}"
-                } else {
-                    runCatching { openFolder(dir.absolutePath) }
-                        .onFailure { errorMessage = "无法打开目录: ${it.message}" }
-                }
-            }
-            CircleIconButton(
-                "\uEB9B",
-                "单机运行",
-                size = size,
-                enabled = selected != null,
-                bgColor = primaryActionColor
-            ) {
-                selected?.let { packdir ->
-                    val playArgs = McPlayArgs(
-                        title = "单机 - ${packdir.vo.name} ${packdir.verName}",
-                        mcVer = packdir.vo.mcVer,
-                        modLoader = packdir.vo.modloader,
-                        versionId = packdir.versionId,
-                        modpackName = packdir.vo.name,
-                        playArg = "${server.hqUrl}\n" +
-                                "127.0.0.1:55667\n" +
-                                "test\n" +
-                                "55555\n" +
-                                "${loggedAccount.uuid}\n" +
-                                loggedAccount.name,
-                        versionDir = packdir.dir.absolutePath
-                    )
-                    onOpenPlay?.invoke(playArgs)
-                }
-            }
-            CircleIconButton(
-                "\uEF11",
-                "导出日志",
-                size = size,
-                bgColor = MaterialColor.GRAY_800.color,
-                enabled = selected != null
-            ) {
-                val packdir = selected ?: return@CircleIconButton
-                scope.launch {
-                    val result = exportLogsPack(packdir)
-                    if (result.isFailure) {
-                        errorMessage = result.exceptionOrNull()?.message ?: "导出日志失败"
-                    }
-                }
-            }
-        }
-
-        Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalAlignment = if (portrait) Alignment.Start else Alignment.CenterHorizontally
-        ) {
-            Text(
-                selected?.let { "${it.vo.name} ${it.verName}" } ?: "请选择整合包",
-                style = MaterialTheme.typography.titleMedium
-            )
-            packActionMessage?.let {
-                Text(it, color = MaterialTheme.colorScheme.primary)
-            }
-            if (portrait) {
-                FlowRowV(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ActionButtons()
-                }
-            } else {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    ActionButtons()
-                }
-            }
-        }
-    }
-
     Column(modifier = modifier.fillMaxSize()) {
         FlowRowV(
             modifier = Modifier.fillMaxWidth(),
@@ -552,54 +533,11 @@ fun InstalledResourcePane(
             Text(it, color = MaterialTheme.colorScheme.error)
             Space8h()
         }
-        BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val portrait = maxHeight > maxWidth
-            val selected = selectedPack
-            if (portrait) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    PackActionPanel(
-                        selected = selected,
-                        portrait = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    PackGrid(
-                        portrait = true,
-                        modifier = Modifier.fillMaxWidth().weight(1f)
-                    )
-                }
-            } else {
-                Row(
-                    modifier = Modifier.fillMaxSize(),
-                    horizontalArrangement = Arrangement.spacedBy(20.dp),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        PackGrid(
-                            portrait = false,
-                            modifier = Modifier.fillMaxWidth().weight(1f, fill = false)
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .width(140.dp)
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        PackActionPanel(
-                            selected = selected,
-                            portrait = false,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                }
-            }
+        packActionMessage?.let {
+            Text(it, color = MaterialTheme.colorScheme.primary)
+            Space8h()
         }
+        PackGrid(modifier = Modifier.fillMaxSize())
     }
 
     configEditorPack?.let { packdir ->

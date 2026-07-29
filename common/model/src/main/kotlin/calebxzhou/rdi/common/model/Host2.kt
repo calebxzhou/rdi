@@ -11,6 +11,7 @@ data class Host2(
     val id: UUID,
     val name: String,
     val intro: String = "暂无简介",
+    val iconUrl: String? = null,
     @Contextual
     val ownerId: UUID,
     val mcVersion: McVersion,
@@ -33,6 +34,7 @@ data class Host2(
         val id: UUID,
         val name: String,
         val intro: String = "暂无简介",
+        val iconUrl: String? = null,
         @Contextual
         val ownerId: UUID,
         val mcVersion: McVersion,
@@ -51,6 +53,7 @@ data class Host2(
         val id: UUID,
         val name: String,
         val intro: String = "暂无简介",
+        val iconUrl: String? = null,
         @Contextual
         val ownerId: UUID,
         val mcVersion: McVersion,
@@ -78,6 +81,7 @@ data class Host2(
     data class OptionsDto(
         val name: String? = null,
         val intro: String? = null,
+        val iconUrl: String? = null,
         val whitelist: Boolean? = null,
         val mcVersion: McVersion? = null,
         val modLoader: ModLoader? = null

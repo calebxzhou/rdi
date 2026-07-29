@@ -47,7 +47,7 @@ import kotlin.system.exitProcess
 /**
  * calebxzhou @ 2026-01-14 16:45
  */
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun LoginScreen(
     onLoginSuccess: (() -> Unit)? = null,

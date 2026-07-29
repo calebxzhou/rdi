@@ -160,6 +160,7 @@ data class AppConfig(
     val proxyConfig: ProxyConfig?=null,
     val aiConfig: AiConfig = AiConfig(),
     val pinyinName: Boolean = false,
+    val solidWindow: Boolean = false,
 ){
     companion object {
         private val lgr by Loggers

@@ -1,15 +1,15 @@
 package calebxzhou.rdi.client.ui.screen
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import calebxzau.rdi.client.ui.ContentBody
+import calebxzau.rdi.client.ui.KeepAliveAnimatedTabHost
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
@@ -19,18 +19,16 @@ import calebxzau.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
 import calebxzhou.rdi.client.modcatalog.CatalogMod
 import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
 import kotlinx.serialization.Serializable
-import org.bson.types.ObjectId
 
 /**
  * calebxzhou @ 2026-01-13 18:27
  */
 typealias ResourceScreenTitleActions = @Composable RowScope.() -> Unit
-
-private const val RESOURCE_TAB_FADE_DURATION_MS = 140
-private const val RESOURCE_TAB_SLIDE_DURATION_MS = 180
 
 @Serializable
 enum class ResourceTab(
@@ -51,63 +49,104 @@ enum class ResourceTab(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
+enum class ModpackContentType(val icon: String, val label: String) {
+    Mods("\uF12E", "模组"),
+    ResourcePacks("\uDB80\uDEA2", "资源包"),
+    Shaders("\uDB83\uDC4A", "光影包")
+}
+
+private data class ModpackContentTarget(
+    val pack: ModpackLocalDir,
+    val type: ModpackContentType
+)
+
+private val topLevelResourceTabs = listOf(ResourceTab.All, ResourceTab.Installed, ResourceTab.McResources)
+
 @Composable
 fun ResourceScreen(
     modCatalog: ModCatalog,
     initialCategory: ResourceTab = ResourceTab.All,
     requiredMcVer: McVersion? = null,
-    targetHostId: ObjectId? = null,
-    targetHost2Id: String? = null,
+    requiredLoader: ModLoader? = null,
     onBack: (() -> Unit) = {},
     onOpenUpload: (() -> Unit) = {},
     onOpenModpackInfo: (String) -> Unit = {},
+    onOpenRemoteMod: (CatalogMod, ModpackLocalDir?) -> Unit = { _, _ -> },
+    onOpenResourceInfo: (ModrinthProjectCardVo, ResourceInfoType, ModpackLocalDir?) -> Unit = { _, _, _ -> },
     onOpenPlay: ((McPlayArgs) -> Unit)? = null,
     onOpenTaskList: ((String) -> Unit)? = null
 ) {
     var category by rememberSaveable(initialCategory) { mutableStateOf(initialCategory) }
-    var selectedShader by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
-    var selectedResourcepack by remember { mutableStateOf<ModrinthProjectCardVo?>(null) }
-    var selectedRemoteModStack by remember { mutableStateOf<List<CatalogMod>>(emptyList()) }
+    var contentTarget by remember { mutableStateOf<ModpackContentTarget?>(null) }
+    val localTarget = contentTarget
 
-    val currentShader = selectedShader
-    val currentResourcepack = selectedResourcepack
-    val currentRemoteMod = selectedRemoteModStack.lastOrNull()
+    fun closeContentTarget() {
+        contentTarget = null
+        category = ResourceTab.Installed
+    }
+
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.LARGE) {
-            TitleRow("资源", onBack) {
-                TitleTabBar(
-                    items = remember {
-                        ResourceTab.entries.map { TitleTabItem(it, it.icon, it.label) }
-                    },
-                    selected = category,
-                    onSelect = { category = it }
-                )
+            when {
+                localTarget != null -> TitleRow(
+                    "${localTarget.pack.vo.name} ${localTarget.pack.verName} · ${localTarget.type.label}",
+                    ::closeContentTarget
+                ) {
+                    Text(
+                        "${localTarget.pack.vo.mcVer.mcVer} · ${localTarget.pack.vo.modloader.displayName}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                category !in topLevelResourceTabs -> TitleRow("添加${category.label}", onBack)
+
+                else -> TitleRow("资源", onBack) {
+                    TitleTabBar(
+                        items = remember {
+                            topLevelResourceTabs.map { TitleTabItem(it, it.icon, it.label) }
+                        },
+                        selected = category,
+                        onSelect = { category = it }
+                    )
+                }
             }
 
             ContentBody {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    AnimatedContent(
-                        targetState = category,
-                        transitionSpec = {
-                            val forward =
-                                ResourceTab.entries.indexOf(targetState) > ResourceTab.entries.indexOf(initialState)
-                            val direction = if (forward) 1 else -1
-                            (slideInHorizontally(
-                                animationSpec = tween(RESOURCE_TAB_SLIDE_DURATION_MS),
-                                initialOffsetX = { it / 10 * direction }
-                            ) + fadeIn(animationSpec = tween(RESOURCE_TAB_FADE_DURATION_MS))) togetherWith
-                                    (slideOutHorizontally(
-                                        animationSpec = tween(RESOURCE_TAB_SLIDE_DURATION_MS),
-                                        targetOffsetX = { -it / 10 * direction }
-                                    ) + fadeOut(animationSpec = tween(RESOURCE_TAB_FADE_DURATION_MS))) using
-                                    SizeTransform(clip = false)
-                        },
-                        modifier = Modifier.fillMaxSize(),
-                        label = "ResourceTabContent"
-                    ) { activeCategory ->
-                        Box(modifier = Modifier.fillMaxSize()) {
-                            when (activeCategory) {
+                    if (localTarget != null) {
+                        when (localTarget.type) {
+                            ModpackContentType.Mods -> RemoteModScreen(
+                                catalog = modCatalog,
+                                requiredMcVer = localTarget.pack.vo.mcVer,
+                                requiredLoader = localTarget.pack.vo.modloader,
+                                modifier = Modifier.fillMaxSize(),
+                                onOpenMod = { onOpenRemoteMod(it, localTarget.pack) }
+                            )
+
+                            ModpackContentType.ResourcePacks -> ResourcepackListScreen(
+                                requiredMcVer = localTarget.pack.vo.mcVer,
+                                modifier = Modifier.fillMaxSize(),
+                                onOpenResourcepack = {
+                                    onOpenResourceInfo(it, ResourceInfoType.ResourcePack, localTarget.pack)
+                                }
+                            )
+
+                            ModpackContentType.Shaders -> ShaderListScreen(
+                                requiredMcVer = localTarget.pack.vo.mcVer,
+                                modifier = Modifier.fillMaxSize(),
+                                onOpenShader = {
+                                    onOpenResourceInfo(it, ResourceInfoType.Shader, localTarget.pack)
+                                }
+                            )
+                        }
+                    } else {
+                        KeepAliveAnimatedTabHost(
+                            selected = category,
+                            order = ResourceTab.entries::indexOf,
+                            modifier = Modifier.fillMaxSize(),
+                        ) { activeCategory ->
+                            Box(modifier = Modifier.fillMaxSize()) {
+                                when (activeCategory) {
                                 ResourceTab.All -> {
                                     RemoteModpackScreen(
                                         onOpenInfo = onOpenModpackInfo,
@@ -119,6 +158,9 @@ fun ResourceScreen(
                                 ResourceTab.Installed -> {
                                     InstalledResourcePane(
                                         onOpenPlay = onOpenPlay,
+                                        onOpenContent = { pack, type ->
+                                            contentTarget = ModpackContentTarget(pack, type)
+                                        },
                                         onOpenTaskList = onOpenTaskList,
                                         showPaneActions = true,
                                         modifier = Modifier.fillMaxSize()
@@ -138,8 +180,9 @@ fun ResourceScreen(
                                     RemoteModScreen(
                                         catalog = modCatalog,
                                         requiredMcVer = requiredMcVer,
+                                        requiredLoader = requiredLoader,
                                         modifier = Modifier.fillMaxSize(),
-                                        onOpenMod = { selectedRemoteModStack = listOf(it) }
+                                        onOpenMod = { onOpenRemoteMod(it, null) }
                                     )
                                 }
 
@@ -147,7 +190,9 @@ fun ResourceScreen(
                                     ResourcepackListScreen(
                                         requiredMcVer = requiredMcVer,
                                         modifier = Modifier.fillMaxSize(),
-                                        onOpenResourcepack = { selectedResourcepack = it }
+                                        onOpenResourcepack = {
+                                            onOpenResourceInfo(it, ResourceInfoType.ResourcePack, null)
+                                        }
                                     )
                                 }
 
@@ -155,57 +200,24 @@ fun ResourceScreen(
                                     ShaderListScreen(
                                         requiredMcVer = requiredMcVer,
                                         modifier = Modifier.fillMaxSize(),
-                                        onOpenShader = { selectedShader = it }
+                                        onOpenShader = {
+                                            onOpenResourceInfo(it, ResourceInfoType.Shader, null)
+                                        }
                                     )
                                 }
                             }
                         }
                     }
-                    when {
-                        currentShader != null -> {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                ShaderInfoScreen(
-                                    projectId = currentShader.projectId,
-                                    initialTitle = currentShader.title,
-                                    initialDownloadsText = currentShader.downloadsText,
-                                    initialFollowsText = currentShader.followsText,
-                                    onBack = { selectedShader = null }
-                                )
-                            }
-                        }
-
-                        currentResourcepack != null -> {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                ResourcepackInfoScreen(
-                                    projectId = currentResourcepack.projectId,
-                                    initialTitle = currentResourcepack.title,
-                                    initialDownloadsText = currentResourcepack.downloadsText,
-                                    initialFollowsText = currentResourcepack.followsText,
-                                    onBack = { selectedResourcepack = null }
-                                )
-                            }
-                        }
-
-                        currentRemoteMod != null -> {
-                            Box(modifier = Modifier.fillMaxSize()) {
-                                RemoteModInfoScreen(
-                                    catalog = modCatalog,
-                                    mod = currentRemoteMod,
-                                    onBack = {
-                                        selectedRemoteModStack = selectedRemoteModStack.dropLast(1)
-                                    },
-                                    onOpenDependencyMod = {
-                                        selectedRemoteModStack = selectedRemoteModStack + it
-                                    },
-                                    targetHostId = targetHostId,
-                                    targetHost2Id = targetHost2Id,
-                                    targetHostMcVer = requiredMcVer
-                                )
-                            }
-                        }
                     }
                 }
             }
         }
     }
 }
+
+private val ModLoader.displayName: String
+    get() = when (this) {
+        ModLoader.forge -> "Forge"
+        ModLoader.neoforge -> "NeoForge"
+        ModLoader.cleanroom -> "Cleanroom"
+    }

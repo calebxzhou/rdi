@@ -10,10 +10,10 @@ chown -R rdi:rdi /home/rdi /opt/server /data
 HOST_IP=$(ip route | grep default | awk '{print $3}')
 echo "Detected Docker host IP (gateway): ${HOST_IP}" >&2
 
-# Also resolve host.docker.internal if available (Docker Desktop uses a different IP)
+# Also resolve the IPv4 address of host.docker.internal if available (Docker Desktop uses a different IP)
 HOST_DOCKER_INTERNAL_IP=""
-if getent hosts host.docker.internal >/dev/null 2>&1; then
-    HOST_DOCKER_INTERNAL_IP=$(getent hosts host.docker.internal | awk '{print $1}')
+if getent ahostsv4 host.docker.internal >/dev/null 2>&1; then
+    HOST_DOCKER_INTERNAL_IP=$(getent ahostsv4 host.docker.internal | awk 'NR == 1 {print $1}')
     echo "Detected host.docker.internal IP: ${HOST_DOCKER_INTERNAL_IP}" >&2
 fi
 

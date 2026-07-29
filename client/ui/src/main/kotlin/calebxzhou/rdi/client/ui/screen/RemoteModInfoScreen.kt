@@ -5,7 +5,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -20,14 +19,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -36,7 +30,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -52,23 +45,16 @@ import calebxzhou.rdi.client.model.ModrinthProjectVersionFileVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
 import calebxzhou.rdi.client.model.RemoteModCardVo
 import calebxzhou.rdi.client.model.RemoteModSource
+import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.service.ClientTaskManager
-import calebxzhou.rdi.client.service.CurseForgeProjectInfoService
-import calebxzhou.rdi.client.service.ModrinthProjectInfoService
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.RemoteModDownloadService
 import calebxzhou.rdi.client.service.RemoteModDependencyService
-import calebxzhou.rdi.client.service.RemoteModLocalization
 import calebxzhou.rdi.client.service.getLocalPackDirs
-import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ImageIconButton
-import calebxzau.rdi.client.ui.MainColumn
 import calebxzhou.rdi.client.ui.MaterialColor
-import calebxzau.rdi.client.ui.Space8h
-import calebxzau.rdi.client.ui.Space8w
-import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.client.ui.comp.ModpackManageCard
@@ -87,240 +73,6 @@ import io.ktor.http.contentType
 import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-fun LegacyRemoteModInfoScreen(
-    mod: RemoteModCardVo,
-    onBack: () -> Unit,
-    onOpenDependencyMod: (RemoteModCardVo) -> Unit = {},
-    targetHostId: ObjectId? = null,
-    targetHostMcVer: McVersion? = null
-) {
-    var project by remember { mutableStateOf<ModrinthProjectInfoVo?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var okMessage by remember { mutableStateOf<String?>(null) }
-    var selectedTab by rememberSaveable { mutableStateOf(0) }
-    var downloadVersion by remember { mutableStateOf<ModrinthProjectVersionVo?>(null) }
-    var loadingCurseForgeVersionFilterKey by remember { mutableStateOf<String?>(null) }
-    val snackbarHostState = remember { SnackbarHostState() }
-
-    LaunchedEffect(mod.source, mod.projectId) {
-        loading = true
-        errorMessage = null
-        runCatching {
-            when (mod.source) {
-                RemoteModSource.MODRINTH -> ModrinthProjectInfoService.loadProjectInfo(mod.projectId)
-                RemoteModSource.CURSEFORGE -> CurseForgeProjectInfoService.loadProjectInfo(mod.projectId)
-            }
-        }.onSuccess {
-            project = it
-        }.onFailure {
-            errorMessage = "加载模组详情失败: ${it.message ?: it}"
-        }
-        loading = false
-    }
-    LaunchedEffect(okMessage) {
-        okMessage?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-            okMessage = null
-        }
-    }
-
-    val title = project?.title ?: mod.title
-    val downloadsText = project?.downloadsText ?: mod.downloadsText
-    val followsText = project?.followsText ?: mod.followsText
-    val sourceSlug = project?.slug ?: mod.slug
-    val mcmodId = when (mod.source) {
-        RemoteModSource.MODRINTH -> RemoteModLocalization.mcmodIdByModrinthSlug(sourceSlug)
-        RemoteModSource.CURSEFORGE -> RemoteModLocalization.mcmodIdByCurseForgeSlug(sourceSlug)
-    }
-    val mcmodUrl = mcmodId?.let { "https://www.mcmod.cn/class/$it.html" }
-    val tabs = remember(mcmodUrl) {
-        buildList {
-            add(RemoteModInfoTab.Download)
-            add(RemoteModInfoTab.Description)
-            if (mcmodUrl != null) {
-                add(RemoteModInfoTab.Mcmod)
-            }
-            add(RemoteModInfoTab.Versions)
-        }
-    }
-
-    LaunchedEffect(tabs.size) {
-        if (selectedTab !in tabs.indices) {
-            selectedTab = 0
-        }
-    }
-    val activeTabIndex = selectedTab.takeIf { it in tabs.indices } ?: 0
-    val activeTab = tabs[activeTabIndex]
-    val versions = project?.versions.orEmpty()
-    val lockedGameVersion = targetHostMcVer?.mcVer
-    val supportedGameVersions = remember {
-        McVersion.entries.filter { it.enabled }
-    }
-    val visibleGameVersions = remember(supportedGameVersions, lockedGameVersion) {
-        lockedGameVersion?.let { locked ->
-            supportedGameVersions.filter { it.mcVer == locked }
-        } ?: supportedGameVersions
-    }
-
-    fun ModrinthProjectVersionVo.supportsSelectedLoader(
-        loader: ModLoader
-    ): Boolean =
-        loaders.isEmpty() || loaders.any { it.equals(loader.toModrinthLoader(), ignoreCase = true) }
-
-    fun versionMatchesDownloadFilter(
-        version: ModrinthProjectVersionVo,
-        gameVersion: String,
-        loader: ModLoader
-    ): Boolean =
-        gameVersion in version.gameVersions && version.supportsSelectedLoader(loader)
-
-    var selectedGameVersion by rememberSaveable(project?.projectId) { mutableStateOf<String?>(null) }
-    var selectedLoader by rememberSaveable(project?.projectId) { mutableStateOf<ModLoader?>(null) }
-    val availableLoaders = remember(selectedGameVersion, visibleGameVersions) {
-        visibleGameVersions
-            .firstOrNull { it.mcVer == selectedGameVersion }
-            ?.supportedRdiRemoteModLoaders()
-            .orEmpty()
-    }
-
-    LaunchedEffect(project?.projectId, visibleGameVersions, lockedGameVersion) {
-        selectedGameVersion = lockedGameVersion
-            ?.takeIf { locked -> visibleGameVersions.any { it.mcVer == locked } }
-            ?: selectedGameVersion?.takeIf { selected -> visibleGameVersions.any { it.mcVer == selected } }
-            ?: visibleGameVersions.firstOrNull { it == McVersion.V211 }?.mcVer
-            ?: visibleGameVersions.firstOrNull()?.mcVer
-    }
-    LaunchedEffect(availableLoaders) {
-        selectedLoader = selectedLoader
-            ?.takeIf { it in availableLoaders }
-            ?: availableLoaders.firstOrNull { it == ModLoader.neoforge }
-            ?: availableLoaders.firstOrNull()
-    }
-    var loadedCurseForgeVersionFilterKey by rememberSaveable(mod.source.name, mod.projectId) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mod.source, mod.projectId, selectedGameVersion, selectedLoader) {
-        if (mod.source != RemoteModSource.CURSEFORGE) return@LaunchedEffect
-        val gameVersion = selectedGameVersion ?: return@LaunchedEffect
-        val loader = selectedLoader ?: return@LaunchedEffect
-        if (project == null) return@LaunchedEffect
-        val filterKey = "$gameVersion:${loader.name}"
-        if (loadedCurseForgeVersionFilterKey == filterKey) return@LaunchedEffect
-        loadingCurseForgeVersionFilterKey = filterKey
-        runCatching {
-            CurseForgeProjectInfoService.loadProjectVersions(
-                projectId = mod.projectId,
-                mcVersion = gameVersion,
-                loader = loader.toModrinthLoader()
-            )
-        }.onSuccess { loadedVersions ->
-            project = project?.withMergedVersions(loadedVersions)
-            loadedCurseForgeVersionFilterKey = filterKey
-        }.onFailure {
-            snackbarHostState.showSnackbar(
-                it.message ?: "版本列表加载失败",
-                duration = SnackbarDuration.Short
-            )
-        }
-        if (loadingCurseForgeVersionFilterKey == filterKey) {
-            loadingCurseForgeVersionFilterKey = null
-        }
-    }
-
-    Box(modifier = Modifier.fillMaxSize()) {
-        MainColumn {
-            TitleRow(title, onBack) {
-                Text("\uF019 $downloadsText".asIconText, color = MaterialColor.GRAY_900.color)
-                followsText?.let {
-                    Space8w()
-                    Text("\uDB80\uDED1 $it".asIconText, color = MaterialColor.GRAY_900.color)
-                }
-                if (activeTab == RemoteModInfoTab.Download && supportedGameVersions.isNotEmpty()) {
-                    selectedGameVersion?.let { gameVersion ->
-                        Space8w()
-                        McVersionIconSelector(
-                            versions = visibleGameVersions,
-                            selectedGameVersion = gameVersion,
-                            enabled = lockedGameVersion == null,
-                            onSelect = { selectedGameVersion = it.mcVer }
-                        )
-                    }
-                    selectedLoader?.let { loader ->
-                        Space8w()
-                        ModLoaderIconSelector(
-                            loaders = availableLoaders,
-                            selectedLoader = loader,
-                            onSelect = { selectedLoader = it }
-                        )
-                    }
-                }
-                (project?.sourceUrl ?: mod.defaultSourceUrl())?.takeIf(String::isNotBlank)?.let { url ->
-                    Space8w()
-                    CircleIconButton(
-                        icon = "\uE8A7",
-                        tooltip = "打开来源页面",
-                        bgColor = MaterialColor.GREEN_700.color
-                    ) {
-                        openUrl(url)
-                    }
-                }
-            }
-            Space8h()
-            TabRow(
-                selectedTabIndex = activeTabIndex,
-                containerColor = MaterialTheme.colorScheme.surface
-            ) {
-                tabs.forEachIndexed { index, tab ->
-                    Tab(
-                        selected = activeTabIndex == index,
-                        onClick = { selectedTab = index },
-                        text = { Text(tab.label) }
-                    )
-                }
-            }
-            Space8h()
-            when {
-                loading -> Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-
-                errorMessage != null -> Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
-
-                activeTab == RemoteModInfoTab.Download -> RemoteModDownloadTab(
-                    project = project,
-                    selectedGameVersion = selectedGameVersion,
-                    selectedLoader = selectedLoader,
-                    versionsLoading = loadingCurseForgeVersionFilterKey != null,
-                    versionFilter = { version, gameVersion, loader ->
-                        versionMatchesDownloadFilter(version, gameVersion, loader)
-                    },
-                    onOpenDependencyMod = onOpenDependencyMod,
-                    onDownload = { downloadVersion = it }
-                )
-                activeTab == RemoteModInfoTab.Description || activeTab == RemoteModInfoTab.Mcmod ->
-                    RemoteModWebInfoTab(activeTab, project, mod, mcmodUrl)
-                else -> RemoteModVersionsTab(project, lockedGameVersion)
-            }
-        }
-        BottomSnakebarM3(snackbarHostState)
-    }
-
-    val loadedProject = project
-    if (loadedProject != null) downloadVersion?.let { version ->
-        RemoteModDownloadTargetDialog(
-            project = loadedProject,
-            version = version,
-            onTaskSubmitted = { okMessage = it },
-            onDismiss = { downloadVersion = null },
-            targetHostId = targetHostId,
-            targetHostMcVer = targetHostMcVer
-        )
-    }
-}
 
 private enum class RemoteModInfoTab(val label: String) {
     Download("下载"),
@@ -527,7 +279,7 @@ private fun RemoteModVersionsTab(project: ModrinthProjectInfoVo?, lockedGameVers
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+
 @Composable
 private fun RemoteModVersionCard(version: ModrinthProjectVersionVo) {
     Surface(
@@ -597,6 +349,7 @@ private fun RemoteModVersionCard(version: ModrinthProjectVersionVo) {
 
 @Composable
 private fun RemoteModDownloadTab(
+    modCatalog: ModCatalog,
     project: ModrinthProjectInfoVo?,
     selectedGameVersion: String?,
     selectedLoader: ModLoader?,
@@ -634,6 +387,7 @@ private fun RemoteModDownloadTab(
             item("download-dependencies") {
                 RemoteModDependenciesPane(
                     versions = filteredVersions,
+                    modCatalog = modCatalog,
                     onOpenDependencyMod = onOpenDependencyMod
                 )
             }
@@ -651,6 +405,7 @@ private fun RemoteModDownloadTab(
 
 @Composable
 private fun RemoteModDependenciesPane(
+    modCatalog: ModCatalog,
     versions: List<ModrinthProjectVersionVo>,
     onOpenDependencyMod: (RemoteModCardVo) -> Unit
 ) {
@@ -674,7 +429,7 @@ private fun RemoteModDependenciesPane(
         loading = true
         errorMessage = null
         runCatching {
-            RemoteModDependencyService.loadRequiredDependencyCards(versions)
+            RemoteModDependencyService.loadRequiredDependencyCards(modCatalog, versions)
         }.onSuccess {
             dependencies = it
         }.onFailure {
@@ -737,7 +492,7 @@ private fun ModLoader.toModrinthLoader(): String =
         ModLoader.cleanroom -> "forge"
         else -> name
     }
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 private fun RemoteModDownloadVersionCard(
     version: ModrinthProjectVersionVo,

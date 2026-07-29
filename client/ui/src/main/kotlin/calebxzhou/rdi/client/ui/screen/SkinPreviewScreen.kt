@@ -58,7 +58,7 @@ private data class PreviewLoadState(
     val error: String? = null
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun SkinPreviewScreen(
     skin: BSSkinData,

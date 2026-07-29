@@ -17,7 +17,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.asIconText
 
-@OptIn(ExperimentalLayoutApi::class)
+
 @Composable
 fun <T> LoadingFlowGrid(
     loading: Boolean,

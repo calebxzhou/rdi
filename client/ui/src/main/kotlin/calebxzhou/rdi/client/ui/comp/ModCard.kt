@@ -17,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import calebxzhou.rdi.client.model.UiMod
 import calebxzau.rdi.client.ui.wM
 import calebxzhou.rdi.common.model.Mod
 
@@ -24,14 +25,13 @@ import calebxzhou.rdi.common.model.Mod
  * calebxzhou @ 2026-01-13 21:28
  */
 @Composable
-fun Mod.CardVo.ModCard(
+internal fun UiModCard(
+    mod: UiMod,
     modifier: Modifier = Modifier,
-    currentSide: Mod.Side = side,
+    currentSide: Mod.Side = mod.side,
     onSideChange: ((Mod.Side) -> Unit)? = null
 ) {
     val (clientEnabled, serverEnabled) = sideToFlags(currentSide)
-    val hasChineseName = !nameCn.isNullOrBlank()
-    val primaryText = if (hasChineseName) nameCn!!.trim() else name.trim()
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -41,10 +41,8 @@ fun Mod.CardVo.ModCard(
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Icon
-        ModCardIcon(
-            iconData = iconData,
-            iconUrls = iconUrls,
-            modName = primaryText.ifBlank { name.trim() },
+        UiModIcon(
+            mod = mod,
             modifier = Modifier
                 .size(56.dp)
                 .clip(RoundedCornerShape(12.dp))
@@ -62,7 +60,7 @@ fun Mod.CardVo.ModCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = primaryText.ifBlank { name.trim() },
+                    text = mod.primaryName,
                     color = MaterialTheme.colorScheme.onSurface,
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
@@ -92,25 +90,22 @@ fun Mod.CardVo.ModCard(
                 )
             }
 
-            if (hasChineseName) {
-                val secondaryTrimmed = name.trim()
-                if (secondaryTrimmed.isNotEmpty()) {
-                    Text(
-                        text = secondaryTrimmed,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontSize = 14.sp,
-                        fontStyle = FontStyle.Italic,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
+          /*  mod.secondaryName?.let { secondaryName ->
+                Text(
+                    text = secondaryName,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontSize = 14.sp,
+                    fontStyle = FontStyle.Italic,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }*/
 
             Spacer(modifier = Modifier.height(6.dp))
 
             // Intro
             Text(
-                text = intro.ifBlank { "暂无简介" },
+                text = mod.intro.ifBlank { "暂无简介" },
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 13.sp,
                 maxLines = 2,
@@ -122,24 +117,22 @@ fun Mod.CardVo.ModCard(
 }
 
 @Composable
-private fun ModCardIcon(
-    iconData: ByteArray?,
-    iconUrls: List<String>,
-    modName: String,
+internal fun UiModIcon(
+    mod: UiMod,
     modifier: Modifier = Modifier
 ) {
-    val image = rememberLocalFirstImage(iconData, iconUrls)
+    val image = rememberLocalFirstImage(mod.iconData, mod.iconUrls)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         if (image != null) {
             Image(
                 bitmap = image,
-                contentDescription = modName,
+                contentDescription = mod.primaryName,
                 modifier = Modifier.fillMaxSize(),
                 contentScale = ContentScale.Crop
             )
         } else {
             Text(
-                text = modName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "M",
+                text = mod.primaryName.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "M",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontWeight = FontWeight.Bold,
                 fontSize = 20.sp

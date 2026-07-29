@@ -27,6 +27,7 @@ import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.model.UiMod
+import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
@@ -43,9 +44,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun ModpackVersionEditScreen(
+    modCatalog: ModCatalog,
     modpackId: String,
     verName: String,
     onBack: () -> Unit
@@ -102,7 +104,7 @@ fun ModpackVersionEditScreen(
                 uiMods = emptyList()
                 scope.launch {
                     val loaded = withContext(Dispatchers.IO) {
-                        runCatching { currentVersion.mods.hydrateToUiMods() }
+                        runCatching { currentVersion.mods.hydrateToUiMods(modCatalog) }
                             .getOrElse {
                                 it.printStackTrace()
                                 currentVersion.mods.toUiMods()
@@ -243,7 +245,7 @@ fun ModpackVersionEditScreen(
                                             addDialogLoading = true
                                             addDialogLoadingText = "正在匹配Mod..."
                                             val matchResult = try {
-                                                matchHostExtraModFiles(files, mcVersion) { progress ->
+                                                matchHostExtraModFiles(modCatalog, files, mcVersion) { progress ->
                                                     addDialogLoadingText = progress
                                                 }
                                             } catch (e: Exception) {

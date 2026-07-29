@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzhou.rdi.client.modcatalog.ModPlatform
 import calebxzhou.rdi.client.model.ModrinthProjectCategoryVo
 import calebxzhou.rdi.client.model.ModrinthProjectGalleryVo
 import calebxzhou.rdi.client.model.ModrinthProjectInfoVo
@@ -17,6 +19,7 @@ import kotlin.math.abs
 
 object CurseForgeProjectInfoService {
     suspend fun loadProjectInfo(
+        modCatalog: ModCatalog,
         projectId: String,
         mcVersion: String? = null,
         loader: String? = null
@@ -28,7 +31,9 @@ object CurseForgeProjectInfoService {
         val files = async {
             loadAvailableFiles(modId, mcVersion, loader)
         }
+        val metadata = RemoteModLocalization.find(modCatalog, ModPlatform.CURSEFORGE, project.slug)
         project.toModrinthProjectInfoVo(
+            metadata = metadata,
             description = description.await().takeIf(String::isNotBlank) ?: project.summary.orEmpty(),
             files = files.await()
         )
@@ -59,15 +64,16 @@ object CurseForgeProjectInfoService {
 }
 
 private suspend fun CurseForgeModInfo.toModrinthProjectInfoVo(
+    metadata: calebxzhou.rdi.client.modcatalog.CatalogModMetadata?,
     description: String,
     files: List<CurseForgeFile>
 ): ModrinthProjectInfoVo = coroutineScope {
     val versions = files.toModrinthProjectVersionVos(id)
     val fallbackSummary = summary?.takeIf(String::isNotBlank) ?: "暂无简介"
-    val localizedSummary = RemoteModLocalization.introByCurseForgeSlug(slug, fallbackSummary)
-    val localizedDescription = RemoteModLocalization.introByCurseForgeSlug(
-        slug = slug,
-        fallback = description.takeIf(String::isNotBlank) ?: fallbackSummary
+    val localizedSummary = RemoteModLocalization.intro(metadata, fallbackSummary)
+    val localizedDescription = RemoteModLocalization.intro(
+        metadata,
+        description.takeIf(String::isNotBlank) ?: fallbackSummary
     )
     val sourceUrl = links?.websiteUrl?.takeIf(String::isNotBlank)
         ?: "https://www.curseforge.com/minecraft/mc-mods/$slug"
@@ -75,7 +81,7 @@ private suspend fun CurseForgeModInfo.toModrinthProjectInfoVo(
         source = RemoteModSource.CURSEFORGE,
         projectId = id.toString(),
         slug = slug,
-        title = RemoteModLocalization.titleByCurseForgeSlug(slug, name),
+        title = RemoteModLocalization.title(metadata, name),
         summary = localizedSummary,
         description = localizedDescription,
         downloadsText = (downloadCount ?: 0).toCompactCountText(),
@@ -93,7 +99,8 @@ private suspend fun CurseForgeModInfo.toModrinthProjectInfoVo(
         loaders = files.flatMap { it.gameVersions }.mapNotNull(String::toRemoteLoaderId).distinct(),
         versionIds = versions.map { it.id },
         versions = versions,
-        sourceUrl = sourceUrl
+        sourceUrl = sourceUrl,
+        mcmodId = metadata?.mcmodId
     )
 }
 

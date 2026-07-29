@@ -1,7 +1,5 @@
 package calebxzhou.rdi.client.ui.screen
 
-import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.CircularProgressIndicator
@@ -15,6 +13,7 @@ import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.FlowRowV
+import calebxzau.rdi.client.ui.KeepAliveAnimatedTabHost
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
@@ -26,11 +25,9 @@ import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
-import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.client.ui.comp.ModpackDownloadMethodDialog
 import calebxzhou.rdi.common.model.Host
-import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.isDav
 import org.bson.types.ObjectId
 
@@ -43,7 +40,6 @@ enum class HostTab(
 ) {
     MyHosts("\uF04B", "我的房间"),
     AllHosts("\uF0C0", "所有房间"),
-    Mail("\uEB1C", "信箱"),
     Worlds("\uDB85\uDC5C", "存档");
 
     companion object {
@@ -53,24 +49,13 @@ enum class HostTab(
     }
 }
 
-private const val HOST_TAB_FADE_DURATION_MS = 140
-private const val HOST_TAB_SLIDE_DURATION_MS = 180
-
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalAnimationApi::class)
 @Composable
 fun HostListScreen(
     onBack: (() -> Unit),
     onOpenHostInfo: ((String, Boolean) -> Unit),
     onOpenHostCreate: (() -> Unit),
-    onOpenMcVersions: ((McVersion?) -> Unit),
-    onOpenResourceMods: ((McVersion?, String, Boolean) -> Unit),
-    onOpenMcPlay: ((McPlayArgs) -> Unit),
     onOpenTaskList: ((String) -> Unit),
     initialTab: HostTab = HostTab.MyHosts,
-    /*
-    onOpenBirdView: (String) -> Unit = {},
-    onOpenLocalBirdView: (() -> Unit)? = null
-    */
 ) {
     var currentTab by remember(initialTab) { mutableStateOf(initialTab) }
 
@@ -86,88 +71,55 @@ fun HostListScreen(
                 )
             }
             ContentBody {
-                AnimatedContent(
-                    targetState = currentTab,
-                    transitionSpec = {
-                        val forward = HostTab.entries.indexOf(targetState) > HostTab.entries.indexOf(initialState)
-                        val direction = if (forward) 1 else -1
-                        (slideInHorizontally(
-                            animationSpec = tween(HOST_TAB_SLIDE_DURATION_MS),
-                            initialOffsetX = { it / 10 * direction }
-                        ) + fadeIn(animationSpec = tween(HOST_TAB_FADE_DURATION_MS))) togetherWith
-                                (slideOutHorizontally(
-                                    animationSpec = tween(HOST_TAB_SLIDE_DURATION_MS),
-                                    targetOffsetX = { -it / 10 * direction }
-                                ) + fadeOut(animationSpec = tween(HOST_TAB_FADE_DURATION_MS))) using
-                                SizeTransform(clip = false)
-                    },
+                KeepAliveAnimatedTabHost(
+                    selected = currentTab,
+                    order = HostTab.entries::indexOf,
                     modifier = Modifier.fillMaxSize(),
-                    label = "HostTabContent"
                 ) { activeTab ->
                     when (activeTab) {
-                HostTab.MyHosts -> HostBrowserPane(
-                    title = "我的房间",
-                    emptyStateText = "暂无你的房间，点击上方创建新房间或等待朋友邀请",
-                    listPathForPage = { pageIndex -> "host/my/$pageIndex" },
-                    onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, false) },
-                    fromAllHosts = false,
-                    onOpenMcVersions = onOpenMcVersions,
-                    onOpenResourceMods = onOpenResourceMods,
-                    onOpenMcPlay = onOpenMcPlay,
-                    onOpenTaskList = onOpenTaskList
-                ) {
-                    FlowRowV(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("显示你创建/受邀的房间")
-                        CircleIconButton("\uDB81\uDC90", "创建新房间") {
-                            onOpenHostCreate()
+                        HostTab.MyHosts -> HostBrowserPane(
+                            emptyStateText = "暂无你的房间，点击上方创建新房间或等待朋友邀请",
+                            listPathForPage = { pageIndex -> "host/my/$pageIndex" },
+                            onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, false) },
+                            onOpenTaskList = onOpenTaskList
+                        ) {
+                            FlowRowV(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text("显示你创建/受邀的房间")
+                                CircleIconButton("\uDB81\uDC90", "创建新房间") {
+                                    onOpenHostCreate()
+                                }
+                            }
                         }
-                    }
-                }
 
-                HostTab.AllHosts -> HostBrowserPane(
-                    title = "所有房间",
-                    emptyStateText = "暂无可展示的房间",
-                    listPathForPage = { pageIndex -> "host/list/$pageIndex" },
-                    onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, true) },
-                    fromAllHosts = true,
-                    onOpenMcVersions = onOpenMcVersions,
-                    onOpenResourceMods = onOpenResourceMods,
-                    onOpenMcPlay = onOpenMcPlay,
-                    onOpenTaskList = onOpenTaskList
-                )
+                        HostTab.AllHosts -> HostBrowserPane(
+                            emptyStateText = "暂无可展示的房间",
+                            listPathForPage = { pageIndex -> "host/list/$pageIndex" },
+                            onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, true) },
+                            onOpenTaskList = onOpenTaskList
+                        )
 
-                HostTab.Mail -> MailPane(
-                    modifier = Modifier.fillMaxSize()
-                )
-
-                HostTab.Worlds -> WorldListPane(
-                    /*
-                    onOpenBirdView = onOpenBirdView,
-                    onOpenLocalBirdView = onOpenLocalBirdView,
-                    */
-                    modifier = Modifier.fillMaxSize()
-                )
-                }
+                        HostTab.Worlds -> WorldListPane(
+                            /*
+                            onOpenBirdView = onOpenBirdView,
+                            onOpenLocalBirdView = onOpenLocalBirdView,
+                            */
+                            modifier = Modifier.fillMaxSize()
+                        )
                     }
                 }
             }
         }
     }
+}
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HostBrowserPane(
-    title: String,
     emptyStateText: String,
     listPathForPage: (Int) -> String,
     onOpenHostInfo: ((String) -> Unit),
-    fromAllHosts: Boolean,
-    onOpenMcVersions: ((McVersion?) -> Unit),
-    onOpenResourceMods: ((McVersion?, String, Boolean) -> Unit),
-    onOpenMcPlay: ((McPlayArgs) -> Unit),
     onOpenTaskList: ((String) -> Unit),
     modifier: Modifier = Modifier,
     headerActions: (@Composable ColumnScope.() -> Unit)? = null

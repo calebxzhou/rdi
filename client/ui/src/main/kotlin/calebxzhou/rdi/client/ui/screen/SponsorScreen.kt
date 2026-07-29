@@ -27,7 +27,7 @@ import calebxzhou.rdi.client.ui.loadResourceBitmap
 /**
  * calebxzhou @ 2026-03-31 13:59
  */
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun SponsorScreen(
     onBack: () -> Unit = {}

@@ -6,7 +6,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,12 +32,10 @@ import calebxzhou.rdi.client.model.RemoteModCardVo
 import calebxzhou.rdi.client.model.RemoteModSource
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzau.rdi.client.ui.asIconText
-import calebxzhou.rdi.client.ui.iconBitmap
 import calebxzhou.rdi.client.ui.loadResourceBitmap
 import calebxzau.rdi.client.ui.baseRoundCornerShape
-import calebxzhou.rdi.common.model.McVersion
 
-@OptIn(ExperimentalLayoutApi::class)
+
 @Composable
 fun RemoteModCard(
     mod: RemoteModCardVo,
@@ -166,43 +163,6 @@ fun RemoteModSourceIcon(
 }
 
 @Composable
-private fun RemoteModGameVersionChip(gameVersions: List<String>) {
-    val version = gameVersions.asSequence().mapNotNull(McVersion::from).firstOrNull() ?: return
-    val bitmap = remember(version) { loadResourceBitmap(version.icon) }
-    RemoteModIconChip(
-        icon = {
-            Image(
-                bitmap = bitmap,
-                contentDescription = "MC版本",
-                modifier = Modifier.size(18.dp),
-                contentScale = ContentScale.Fit
-            )
-        },
-        text = version.simpleVer
-    )
-}
-
-@Composable
-private fun RemoteModLoaderChip(loader: String) {
-    val iconName = loader.toLoaderIconName()
-    if (iconName == null) {
-        RemoteModChip(loader.toLoaderLabel())
-        return
-    }
-    val bitmap = remember(iconName) { iconBitmap(iconName) }
-    RemoteModIconChip(
-        icon = {
-            Image(
-                bitmap = bitmap,
-                contentDescription = loader.toLoaderLabel(),
-                modifier = Modifier.size(18.dp),
-                contentScale = ContentScale.Fit
-            )
-        }
-    )
-}
-
-@Composable
 private fun RemoteModIconChip(
     icon: @Composable () -> Unit,
     text: String? = null
@@ -237,24 +197,6 @@ private fun RemoteModIconChip(
 }
 
 @Composable
-private fun RemoteModChip(text: String) {
-    Surface(
-        shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialColor.GRAY_300.color)
-    ) {
-        Text(
-            text = text,
-            color = MaterialColor.GRAY_800.color,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
 private fun RemoteModStat(icon: String, text: String, compact: Boolean = false) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
@@ -279,25 +221,6 @@ private val RemoteModSource.label: String
     get() = when (this) {
         RemoteModSource.MODRINTH -> "Modrinth"
         RemoteModSource.CURSEFORGE -> "CurseForge"
-    }
-
-private fun String.toLoaderLabel(): String =
-    replaceFirstChar { it.uppercase() }
-
-private fun String.toLoaderIconName(): String? =
-    when (lowercase()) {
-        "forge" -> "forge"
-        "neoforge" -> "neoforge"
-        "cleanroom" -> "cleanroom"
-        else -> null
-    }
-
-private fun String.toSideLabel(name: String): String =
-    when (lowercase()) {
-        "required" -> "$name 必需"
-        "optional" -> "$name 可选"
-        "unsupported" -> "不支持$name"
-        else -> "$name:$this"
     }
 
 private val modrinthImageVector: ImageVector by lazy {

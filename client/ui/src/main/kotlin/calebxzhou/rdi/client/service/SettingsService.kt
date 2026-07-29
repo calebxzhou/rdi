@@ -212,6 +212,7 @@ object SettingsService {
         proxyPortText: String,
         proxyUsr: String,
         proxyPwd: String,
+        solidWindow: Boolean,
         aiConfig: AiConfig,
         requireActiveAiProfile: Boolean = false
     ): Result<Unit> = runCatching {
@@ -243,7 +244,8 @@ object SettingsService {
                 pwd = proxyPwd.takeIf { it.isNotBlank() }
             ),
             aiConfig = normalizedAiConfig,
-            pinyinName = CONF.pinyinName
+            pinyinName = CONF.pinyinName,
+            solidWindow = solidWindow
         )
         AppConfig.save(config)
     }

@@ -20,9 +20,28 @@ object Wardrobe
 @Serializable data class ResourceRoute(
     val tab: String = ResourceTab.All.name,
     val requiredMcVer: String? = null,
+    val requiredLoader: String? = null,
     val fromHostId: String? = null,
     val fromHost2Id: String? = null,
     val fromAllHosts: Boolean = false
+)
+@Serializable data class RemoteModInfoRoute(
+    val platform: String,
+    val projectId: String,
+    val requiredMcVer: String? = null,
+    val requiredLoader: String? = null,
+    val targetLocalVersionId: String? = null,
+    val targetHostId: String? = null,
+    val targetHost2Id: String? = null
+)
+@Serializable enum class ResourceInfoType {
+    ResourcePack,
+    Shader
+}
+@Serializable data class ResourceInfoRoute(
+    val type: String,
+    val projectId: String,
+    val targetLocalVersionId: String? = null
 )
 @Serializable data class ModpackInfo(
     val modpackId: String,
@@ -49,6 +68,7 @@ object Wardrobe
 @Serializable object ResetPassword
 @Serializable object PlayerInfo
 @Serializable object Setting
+@Serializable object Mailbox
 @Serializable data class HostRoute(val tab: String = HostTab.MyHosts.name)
 @Serializable data class HostInfo(val hostId: String, val fromAllHosts: Boolean = false)
 @Serializable object Host2Lobby

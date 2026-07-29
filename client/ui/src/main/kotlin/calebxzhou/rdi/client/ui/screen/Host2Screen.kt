@@ -1,19 +1,26 @@
 package calebxzhou.rdi.client.ui.screen
 
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.*
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.*
 import calebxzhou.rdi.client.ui.McPlayArgs
+import calebxzhou.rdi.client.ui.comp.rememberLocalFirstImage
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
@@ -51,10 +58,17 @@ fun Host2LobbyScreen(onBack: () -> Unit, onCreate: () -> Unit, onOpen: (String) 
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(hosts, key = { it.id.toString() }) { host ->
                         Card(Modifier.fillMaxWidth().clickable { onOpen(host.id.toString()) }) {
-                            Column(Modifier.padding(16.dp)) {
-                                Text(host.name, style = MaterialTheme.typography.titleMedium)
-                                Text("MC${host.mcVersion.mcVer} · ${host.modLoader} · ${host.status.host2Text()}")
-                                Text(host.intro, style = MaterialTheme.typography.bodySmall)
+                            Row(
+                                Modifier.padding(12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Host2Icon(host.iconUrl, 64.dp)
+                                Column(Modifier.weight(1f)) {
+                                    Text(host.name, style = MaterialTheme.typography.titleMedium)
+                                    Text("MC${host.mcVersion.mcVer} · ${host.modLoader} · ${host.status.host2Text()}")
+                                    Text(host.intro, style = MaterialTheme.typography.bodySmall)
+                                }
                             }
                         }
                     }
@@ -147,6 +161,10 @@ fun Host2InfoScreen(
     var githubLoading by remember { mutableStateOf(false) }
     var joinPackOpen by remember { mutableStateOf(false) }
     var joinPacks by remember { mutableStateOf<List<ModpackLocalDir>>(emptyList()) }
+    var iconEditOpen by remember { mutableStateOf(false) }
+    var iconUrlInput by remember { mutableStateOf("") }
+    var iconSaving by remember { mutableStateOf(false) }
+    var iconError by remember { mutableStateOf<String?>(null) }
     suspend fun reload() {
         runCatching { server.makeRequest<Host2.DetailVo>("host2/$hostId") }
             .onSuccess { response -> host = response.data ?: host }
@@ -170,6 +188,13 @@ fun Host2InfoScreen(
         ScreenContentSurface(ScreenContentSize.LARGE) {
             TitleRow(host?.name ?: "新版房间", onBack) {
                 host?.let { current ->
+                    if (current.role in setOf(Role.OWNER, Role.ADMIN)) {
+                        CircleIconButton("\uF03E", "设置图标") {
+                            iconUrlInput = current.iconUrl.orEmpty()
+                            iconError = null
+                            iconEditOpen = true
+                        }
+                    }
                     when (current.status) {
                         HostStatus.STOPPED -> if (
                             current.role != Role.GUEST && current.setupStatus == Host2SetupStatus.READY
@@ -198,9 +223,17 @@ fun Host2InfoScreen(
                 when (tab) {
                     Host2DetailTab.OVERVIEW -> host?.let { current ->
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Text("MC${current.mcVersion.mcVer} · ${current.modLoader}")
-                            Text("配置:${current.setupStatus} · 状态:${current.status.host2Text()}")
-                            Text(current.intro)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(16.dp)
+                            ) {
+                                Host2Icon(current.iconUrl, 128.dp)
+                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("MC${current.mcVersion.mcVer} · ${current.modLoader}")
+                                    Text("配置:${current.setupStatus} · 状态:${current.status.host2Text()}")
+                                    Text(current.intro)
+                                }
+                            }
                             if (current.setupStatus in setOf(Host2SetupStatus.AWAITING_UPLOAD, Host2SetupStatus.FAILED) && current.role == Role.OWNER) {
                                 CircleIconButton("\uF093", "选择解压后的server目录") {
                                     scope.launch {
@@ -264,6 +297,58 @@ fun Host2InfoScreen(
                 }
             }
         }
+    }
+    if (iconEditOpen) {
+        AlertDialog(
+            onDismissRequest = { if (!iconSaving) iconEditOpen = false },
+            title = { Text("设置Host2图标") },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Host2Icon(host?.iconUrl, 96.dp)
+                    OutlinedTextField(
+                        value = iconUrlInput,
+                        onValueChange = { iconUrlInput = it },
+                        label = { Text("Icon URL") },
+                        supportingText = { Text("留空可清除图标") },
+                        singleLine = true,
+                        enabled = !iconSaving,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    iconError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !iconSaving,
+                    onClick = {
+                        iconSaving = true
+                        iconError = null
+                        scope.launch {
+                            runCatching {
+                                val dto = Host2.OptionsDto(iconUrl = iconUrlInput)
+                                val response = server.makeRequest<Unit>("host2/$hostId/options", HttpMethod.Put) {
+                                    contentType(ContentType.Application.Json)
+                                    setBody(serdesJson.encodeToString(dto))
+                                }
+                                if (!response.ok) throw RequestError(response.msg)
+                                reload()
+                            }.onSuccess {
+                                iconEditOpen = false
+                            }.onFailure {
+                                iconError = it.message
+                            }
+                            iconSaving = false
+                        }
+                    }
+                ) { Text(if (iconSaving) "保存中" else "保存") }
+            },
+            dismissButton = {
+                TextButton({ iconEditOpen = false }, enabled = !iconSaving) { Text("取消") }
+            }
+        )
     }
     if (githubOpen) {
         AlertDialog(
@@ -382,6 +467,21 @@ fun Host2InfoScreen(
             dismissButton = { TextButton({ joinPackOpen = false }) { Text("取消") } }
         )
     }
+}
+
+@Composable
+private fun Host2Icon(iconUrl: String?, size: Dp) {
+    val image = rememberLocalFirstImage(null, listOfNotNull(iconUrl)) ?: DEFAULT_HOST_ICON
+    val shape = RoundedCornerShape(16.dp)
+    Image(
+        bitmap = image,
+        contentDescription = "Host2 Icon",
+        contentScale = ContentScale.Crop,
+        modifier = Modifier
+            .size(size)
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+    )
 }
 
 private fun HostStatus.host2Text() = when (this) {

@@ -133,7 +133,7 @@ private data class AiToolStatus(
     val errorMessage: String = ""
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun AiChatScreen(
     mcpPort: Int? = null,
@@ -889,7 +889,7 @@ fun AiChatScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 private fun AiChatHistoryDialog(
     records: List<AiChatRecordSummary>,
@@ -991,7 +991,7 @@ private fun AiContextUsageProgress(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 private fun AiReasoningEffortMenu(
     provider: AiProvider,

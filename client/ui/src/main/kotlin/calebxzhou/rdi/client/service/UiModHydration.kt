@@ -1,5 +1,6 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.common.model.Mod
@@ -17,11 +18,12 @@ private val uiModResolvers: List<ModCardResolver> = listOf(
 )
 
 suspend fun List<Mod>.hydrateToUiMods(
+    modCatalog: ModCatalog,
     modrinthProjects: List<ModrinthProject>? = null
 ): List<UiMod> = coroutineScope {
     val hydratedMods = map(Mod::copyForUiHydration)
-    val resolveContext = ModCardResolveContext(modrinthProjects = modrinthProjects)
-    val localCardMap = LocalModCardResolver.resolve(hydratedMods)
+    val resolveContext = ModCardResolveContext(modCatalog, modrinthProjects)
+    val localCardMap = LocalModCardResolver.resolve(hydratedMods, resolveContext)
     val remoteCardMap = uiModResolvers
         .map { resolver ->
             async { resolver.resolve(hydratedMods, resolveContext) }

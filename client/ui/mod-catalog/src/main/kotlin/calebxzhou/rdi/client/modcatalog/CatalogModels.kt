@@ -16,6 +16,28 @@ data class CatalogProjectRef(
     val projectId: String
 )
 
+data class CatalogSlugRef(
+    val platform: ModPlatform,
+    val slug: String
+)
+
+data class CatalogModMetadata(
+    val mcmodId: Int,
+    val name: String,
+    val nameCn: String?,
+    val intro: String?,
+    val logoUrl: String?,
+    val projects: List<CatalogMetadataProject>
+) {
+    fun project(platform: ModPlatform): CatalogMetadataProject? = projects.firstOrNull { it.platform == platform }
+}
+
+data class CatalogMetadataProject(
+    val platform: ModPlatform,
+    val slug: String,
+    val nameCnOverride: String?
+)
+
 data class CatalogFileRef(
     val platform: ModPlatform,
     val fileId: String

@@ -24,7 +24,7 @@ import calebxzau.rdi.client.ui.DEFAULT_MODPACK_ICON
  * calebxzhou @ 2026-01-27 21:24
  */
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun ModpackManageCard(
     modifier: Modifier = Modifier.fillMaxWidth(),

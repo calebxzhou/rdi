@@ -99,6 +99,7 @@ val httpFileClient by lazy {
                 })
                 connectionPool(ConnectionPool(HTTP_CONNECTION_POOL_SIZE, 5, TimeUnit.MINUTES))
                 proxySelector(DynamicProxySelector())
+                configureDebugRequestLogging()
                 configureDebugTlsForSelfSigned()
             }
         }

@@ -1,5 +1,7 @@
 package calebxzau.rdi.client.ui
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.Image
@@ -17,7 +19,11 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -27,6 +33,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.iconBitmap
 import androidx.compose.material3.OutlinedTextField as M3OutlinedTextField
@@ -43,6 +50,84 @@ data class TitleTabItem<T>(
     val icon: String,
     val label: String
 )
+
+private const val TAB_FADE_DURATION_MS = 140
+private const val TAB_SLIDE_DURATION_MS = 180
+
+@Composable
+fun <T> KeepAliveAnimatedTabHost(
+    selected: T,
+    order: (T) -> Int,
+    modifier: Modifier = Modifier,
+    content: @Composable (T) -> Unit
+) {
+    val visitedTabs = remember { mutableStateListOf(selected) }
+    val entryDirections = remember { mutableStateMapOf<T, Int>() }
+    var previousSelected by remember { mutableStateOf(selected) }
+    val focusManager = LocalFocusManager.current
+
+    LaunchedEffect(selected) {
+        focusManager.clearFocus()
+        if (selected !in visitedTabs) {
+            entryDirections[selected] = (order(selected) - order(previousSelected)).compareTo(0)
+            visitedTabs += selected
+        }
+        previousSelected = selected
+    }
+
+    BoxWithConstraints(modifier) {
+        val slideDistance = with(LocalDensity.current) { maxWidth.toPx() / 10f }
+        visitedTabs.forEach { tab ->
+            key(tab) {
+                val active = tab == selected
+                var entered by remember { mutableStateOf(tab == visitedTabs.first()) }
+                LaunchedEffect(Unit) { entered = true }
+                val direction = when {
+                    active -> entryDirections[tab] ?: 0
+                    order(tab) < order(selected) -> -1
+                    else -> 1
+                }
+                val alpha by animateFloatAsState(
+                    targetValue = if (active && entered) 1f else 0f,
+                    animationSpec = tween(TAB_FADE_DURATION_MS),
+                    label = "TabAlpha"
+                )
+                val offset by animateFloatAsState(
+                    targetValue = if (active && entered) 0f else direction.toFloat(),
+                    animationSpec = tween(TAB_SLIDE_DURATION_MS),
+                    label = "TabOffset"
+                )
+                val inactiveModifier = if (active) {
+                    Modifier
+                } else {
+                    Modifier
+                        .clearAndSetSemantics {}
+                        .pointerInput(tab) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+                                }
+                            }
+                        }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(if (active) 1f else 0f)
+                        .graphicsLayer {
+                            this.alpha = alpha
+                            translationX = offset * slideDistance
+                            clip = false
+                        }
+                        .then(inactiveModifier)
+                ) {
+                    content(tab)
+                }
+            }
+        }
+    }
+}
 
 val Int.wM: Modifier
     get() = Modifier.width(this.dp)
@@ -184,6 +269,7 @@ inline fun RowV(
         modifier = modifier, horizontalArrangement = horizontalArrangement, content = content
     )
 }
+//flow row V with 8dp arr.
 @Composable
 fun RRow(
     modifier: Modifier = Modifier,
@@ -607,70 +693,6 @@ private fun PureCircleIconButton(
 }
 
 
-@Composable
-@Deprecated("")
-fun TitleRow1(
-    title: String,
-    onBack: () -> Unit,
-    content: @Composable (FlowRowScope.() -> Unit)
-) {
-    FlowRowV(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        FlowRowV {
-            CircleIconButton(
-                icon = "\uF060",
-                tooltip = "返回",
-                size = 32,
-                showText = false
-            ) { onBack.invoke() }
-
-            Spacer(modifier = Modifier.width(12.dp))
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge
-            )
-        }
-        FlowRowV {
-            content()
-        }
-    }
-
-
-}
-
-
-@Composable
-@Deprecated("")
-fun TitleRow2(
-    title: String,
-    onBack: () -> Unit,
-    content: @Composable (FlowRowScope.() -> Unit) = {}
-) {
-    RRow (
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
-    ) {
-        RRow {
-            CircleIconButton(
-                icon = "\uF060",
-                tooltip = "返回",
-                size = 32,
-                showText = false
-            ) { onBack.invoke() }
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium
-            )
-        }
-        RRow(horizontalArrangement = space8, verticalArrangement = space8) {
-            content()
-        }
-    }
-
-
-}
 
 @Composable
 fun BoxScope.BottomSnakebar(state: SnackbarHostState) {

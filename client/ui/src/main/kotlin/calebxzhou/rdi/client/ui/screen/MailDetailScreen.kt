@@ -32,7 +32,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun MailDetailScreen(
     mailId: String,
@@ -50,7 +50,7 @@ fun MailDetailScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun MailDetailPanel(
     mailId: String,

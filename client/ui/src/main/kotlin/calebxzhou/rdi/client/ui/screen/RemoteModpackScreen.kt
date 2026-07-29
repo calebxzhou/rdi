@@ -75,7 +75,7 @@ import kotlinx.coroutines.launch
 /**
  * calebxzhou @ 2026-05-14 11:29
  */
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun RemoteModpackScreen(
     onOpenInfo: (String) -> Unit,
@@ -540,7 +540,7 @@ private fun RemoteModpackCategoryFilter(
     )
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 private fun RemoteModpackFilterChip(
     text: String,

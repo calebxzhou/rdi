@@ -11,16 +11,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
-import calebxzau.rdi.client.ui.decodeImageBitmap
 import androidx.compose.ui.unit.*
-import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzau.rdi.client.ui.SimpleTooltip
-import calebxzhou.rdi.common.net.httpRequest
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
-import io.ktor.http.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import calebxzhou.rdi.client.service.rememberPlayerHeadState
 import org.bson.types.ObjectId
 
 /**
@@ -32,7 +25,27 @@ fun HeadButton(
     avatarSize: Dp = 24.dp,
     nameFontSize: TextUnit = 14.sp,
     showName: Boolean = true,
-    onClick: () -> Unit = {}
+    onClick: (() -> Unit)? = null
+) {
+    val state = rememberPlayerHeadState(uid)
+    HeadButton(
+        name = state.name,
+        skinImage = state.skinImage,
+        avatarSize = avatarSize,
+        nameFontSize = nameFontSize,
+        showName = showName,
+        onClick = onClick
+    )
+}
+
+@Composable
+fun HeadButton(
+    name: String,
+    skinImage: ImageBitmap?,
+    avatarSize: Dp = 24.dp,
+    nameFontSize: TextUnit = 14.sp,
+    showName: Boolean = true,
+    onClick: (() -> Unit)? = null
 ) {
     val paddingSize = 2.dp
     val spacerSize = 6.dp
@@ -42,33 +55,10 @@ fun HeadButton(
     } else {
         baseTextStyle.copy(fontSize = nameFontSize)
     }
-    var name by remember { mutableStateOf("载入中...") }
-    var skinImage by remember { mutableStateOf<ImageBitmap?>(null) }
-
-    LaunchedEffect(uid) {
-        withContext(Dispatchers.IO) {
-            try {
-                val info = playerInfoCache[uid.toHexString()]
-                name = info.name
-                val response = httpRequest { url(info.cloth.skin) }
-                if (response.status.isSuccess()) {
-                    val bytes = response.bodyAsBytes()
-                    val bitmap = decodeImageBitmap(bytes)
-                    if (bitmap.width >= 64 && bitmap.height >= 32) {
-                        skinImage = bitmap
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                name = "加载失败"
-            }
-        }
-    }
-
     val row = @Composable {
         Row(
             modifier = Modifier
-                .clickable(onClick = onClick)
+                .then(onClick?.let { Modifier.clickable(onClick = it) } ?: Modifier)
                 .padding(horizontal = paddingSize, vertical = paddingSize),
             verticalAlignment = Alignment.CenterVertically
         ) {

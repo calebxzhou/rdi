@@ -16,6 +16,8 @@ internal interface CatalogIdentityIndex : AutoCloseable {
 
     suspend fun find(platform: ModPlatform, slug: String): CatalogIdentityRecord?
 
+    suspend fun findAll(refs: Set<CatalogSlugRef>): Map<CatalogSlugRef, CatalogIdentityRecord>
+
     suspend fun search(query: String, offset: Int, limit: Int): List<CatalogIdentityRecord>
 }
 
@@ -23,6 +25,8 @@ internal class UnavailableIdentityIndex(
     override val unavailableCause: Throwable
 ) : CatalogIdentityIndex {
     override suspend fun find(platform: ModPlatform, slug: String) = null
+
+    override suspend fun findAll(refs: Set<CatalogSlugRef>) = emptyMap<CatalogSlugRef, CatalogIdentityRecord>()
 
     override suspend fun search(query: String, offset: Int, limit: Int) = emptyList<CatalogIdentityRecord>()
 
@@ -50,6 +54,21 @@ internal class SqliteCatalogIdentityIndex private constructor(
             .executeAsList()
             .toIdentityRecords()
             .singleOrNull()
+    }
+
+    override suspend fun findAll(refs: Set<CatalogSlugRef>): Map<CatalogSlugRef, CatalogIdentityRecord> = query {
+        refs.mapNotNull { ref ->
+            val identity = database.modCatalogQueries.selectIdentityByProject(
+                ref.platform.name,
+                normalizeProjectSlug(ref.slug),
+                ::mapRow
+            ).executeAsOneOrNull() ?: return@mapNotNull null
+            val record = database.modCatalogQueries.selectProjectsByMcmodId(identity.mcmodId.toLong(), ::mapRow)
+                .executeAsList()
+                .toIdentityRecords()
+                .singleOrNull() ?: return@mapNotNull null
+            ref to record
+        }.toMap()
     }
 
     override suspend fun search(query: String, offset: Int, limit: Int): List<CatalogIdentityRecord> = query {

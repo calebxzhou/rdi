@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
@@ -33,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -70,30 +72,38 @@ import kotlinx.coroutines.CancellationException
 fun RemoteModScreen(
     catalog: ModCatalog,
     requiredMcVer: McVersion? = null,
+    requiredLoader: ModLoader? = null,
     modifier: Modifier = Modifier,
     onOpenMod: (CatalogMod) -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
-    val searchState = rememberTextFieldState()
+    var searchText by rememberSaveable { mutableStateOf("") }
+    val searchState = rememberTextFieldState(searchText)
+    val gridState = rememberLazyGridState()
     var query by rememberSaveable { mutableStateOf("") }
     var requestVersion by rememberSaveable { mutableStateOf(0) }
     var selectedMcVersion by rememberSaveable(requiredMcVer) {
         mutableStateOf(requiredMcVer ?: McVersion.V211)
     }
-    var selectedLoader by rememberSaveable(requiredMcVer) {
-        mutableStateOf((requiredMcVer ?: McVersion.V211).loaderVersions.keys.first())
+    var selectedLoader by rememberSaveable(requiredMcVer, requiredLoader) {
+        mutableStateOf(requiredLoader ?: (requiredMcVer ?: McVersion.V211).loaderVersions.keys.first())
     }
     var mods by remember { mutableStateOf<List<CatalogMod>>(emptyList()) }
     var nextCursor by remember { mutableStateOf<CatalogSearchCursor?>(null) }
-    var estimatedTotal by remember { mutableStateOf<Long?>(null) }
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
 
+    LaunchedEffect(searchState) {
+        snapshotFlow { searchState.text.toString() }.collect { searchText = it }
+    }
+
     val versions = remember(requiredMcVer) {
         requiredMcVer?.let(::listOf) ?: McVersion.entries.filter(McVersion::enabled)
     }
-    val loaders = remember(selectedMcVersion) { selectedMcVersion.loaderVersions.keys.toList() }
+    val loaders = remember(selectedMcVersion, requiredLoader) {
+        requiredLoader?.let(::listOf) ?: selectedMcVersion.loaderVersions.keys.toList()
+    }
 
     LaunchedEffect(selectedMcVersion) {
         if (selectedLoader !in loaders) selectedLoader = loaders.first()
@@ -113,7 +123,6 @@ fun RemoteModScreen(
             ).getOrThrow()
             mods = if (reset) outcome.value.items else mods + outcome.value.items
             nextCursor = outcome.value.nextCursor
-            estimatedTotal = outcome.value.estimatedTotal ?: estimatedTotal
             if (outcome.issues.isNotEmpty()) errorMessage = "部分目录信息暂时不可用，已显示可用结果"
         } catch (cause: CancellationException) {
             throw cause
@@ -122,7 +131,6 @@ fun RemoteModScreen(
             if (reset) {
                 mods = emptyList()
                 nextCursor = null
-                estimatedTotal = null
             }
             errorMessage = "加载模组失败，请稍后重试"
         } finally {
@@ -217,9 +225,9 @@ fun RemoteModScreen(
             loaders.forEach { loader ->
                 FilterButton(
                     selected = selectedLoader == loader,
-                    tooltip = loader.displayName,
+                    tooltip = loader.name,
                     iconName = loader.name
-                ) { selectedLoader = loader }
+                ) { if (requiredLoader == null) selectedLoader = loader }
             }
         }
     }
@@ -228,14 +236,12 @@ fun RemoteModScreen(
     fun Results() {
         Column(Modifier.fillMaxSize()) {
             errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-            if (estimatedTotal != null) {
-                Text("约${estimatedTotal}个模组", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             if (loading) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 CircularProgressIndicator()
             }
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(360.dp),
+                state = gridState,
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -262,8 +268,9 @@ fun RemoteModScreen(
         if (maxHeight > maxWidth || maxWidth < 960.dp) {
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 SearchBar()
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    versions.forEach { version ->
+                if (requiredMcVer == null || requiredLoader == null) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        versions.forEach { version ->
                         ImageIconButton(
                             icon = version.iconName,
                             tooltip = "MC${version.mcVer}",
@@ -272,13 +279,14 @@ fun RemoteModScreen(
                             bgColor = if (version == selectedMcVersion) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.surfaceVariant
                         ) { if (requiredMcVer == null) selectedMcVersion = version }
+                        }
                     }
                 }
                 Results()
             }
         } else {
             Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                Filters()
+                if (requiredMcVer == null || requiredLoader == null) Filters()
                 Column(Modifier.weight(1f).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SearchBar()
                     Results()
@@ -287,10 +295,3 @@ fun RemoteModScreen(
         }
     }
 }
-
-private val ModLoader.displayName: String
-    get() = when (this) {
-        ModLoader.forge -> "Forge"
-        ModLoader.neoforge -> "NeoForge"
-        ModLoader.cleanroom -> "Cleanroom"
-    }

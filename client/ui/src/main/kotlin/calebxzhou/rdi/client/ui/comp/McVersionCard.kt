@@ -35,7 +35,7 @@ import calebxzhou.rdi.common.model.McVersion
  * calebxzhou @ 2026-01-29 18:44
  */
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun McVersionCard(
     mcver: McVersion,

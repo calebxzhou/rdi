@@ -56,7 +56,7 @@ dependencies {
     implementation(libs.markdown.renderer)
     implementation(libs.markdown.renderer.m3)
     implementation(libs.kotlinx.coroutines.swing)
-    implementation(libs.kotlinx.datetime)
+
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.joml)
     implementation(libs.minecraft.auth)
@@ -78,7 +78,9 @@ dependencies {
     implementation(libs.bundles.mongodb)
     implementation(libs.caffeine)
     implementation(libs.maven.artifact)
-    implementation(libs.zstd.jni)
+    implementation(libs.zstd.jni) {
+        artifact { classifier = "win_amd64" }
+    }
 
     implementation(project(":misc"))
     implementation(project(":model"))
@@ -86,6 +88,8 @@ dependencies {
     implementation(project(":archive"))
     implementation(project(":anvilrw"))
     implementation(project(":mod-catalog"))
+    implementation(project(":webview2"))
+    implementation(project(":forgeguard"))
 
     val lwjglVersion = libs.versions.lwjgl.get()
     listOf("", "glfw", "opengl").forEach { component ->

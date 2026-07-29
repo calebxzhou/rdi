@@ -39,7 +39,7 @@ import calebxzhou.rdi.common.model.task2ChildPathSegment
 import calebxzhou.rdi.common.model.task2PathKey
 
 @Suppress("UnusedBoxWithConstraintsScope")
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun Task2DetailDialog(
     entry: Task2Entry,

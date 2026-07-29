@@ -34,7 +34,7 @@ import io.ktor.http.*
 /**
  * calebxzhou @ 2026-01-15 21:16
  */
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun WorldListScreen(
     onBack: (() -> Unit)? = null,
@@ -56,7 +56,7 @@ fun WorldListScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun WorldListPane(
     /*

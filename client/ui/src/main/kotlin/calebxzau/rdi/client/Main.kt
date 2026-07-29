@@ -39,7 +39,7 @@ import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ClientTaskManager
-import calebxzhou.rdi.client.service.LocalMinecraftReuseService
+// import calebxzhou.rdi.client.service.LocalMinecraftReuseService
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
@@ -74,7 +74,7 @@ fun main() {
     }
     clearIncompleteModDownloadsOnStartup()
     clearPackProcDirOnStartup()
-    LocalMinecraftReuseService.start()
+    // LocalMinecraftReuseService.start()
     GlobalScope.launch(Dispatchers.IO) {
         warmUpHwSpecCache()
     }
@@ -153,7 +153,7 @@ fun main() {
                         onOpenHome = {
                             navController.navigateRoot(if (AccountSessionStore.isLoggedIn) Menu else Login)
                         },
-                        onOpenMail = { navController.navigate(HostRoute(HostTab.Mail.name)) },
+                        onOpenMail = { navController.navigate(Mailbox) { launchSingleTop = true } },
                         onOpenSettings = {
                             if (settingsOpen) {
                                 navController.popBackStack()

@@ -7,6 +7,15 @@ import java.nio.file.Path
 import java.time.Clock
 
 interface ModCatalog : AutoCloseable {
+    suspend fun getMetadata(
+        refs: Set<CatalogSlugRef>
+    ): Result<Map<CatalogSlugRef, CatalogModMetadata>>
+
+    suspend fun searchMetadata(
+        query: String,
+        limit: Int
+    ): Result<List<CatalogModMetadata>>
+
     suspend fun search(request: CatalogSearchRequest): Result<CatalogOutcome<CatalogSearchPage>>
 
     suspend fun getMods(

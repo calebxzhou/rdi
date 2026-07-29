@@ -16,6 +16,7 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -23,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -39,6 +41,9 @@ import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ImageIconButton
 import calebxzau.rdi.client.ui.MainColumn
+import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.ScreenContentSize
+import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
@@ -56,6 +61,8 @@ import calebxzhou.rdi.client.modcatalog.CatalogModDetails
 import calebxzhou.rdi.client.modcatalog.CatalogProjectRef
 import calebxzhou.rdi.client.modcatalog.CatalogTarget
 import calebxzhou.rdi.client.modcatalog.DependencyRequest
+import calebxzhou.rdi.client.modcatalog.DependencyRequirement
+import calebxzhou.rdi.client.modcatalog.DependencyTarget
 import calebxzhou.rdi.client.modcatalog.EnvironmentRequirement
 import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.modcatalog.ModPlatform
@@ -64,17 +71,24 @@ import calebxzhou.rdi.client.modcatalog.ResolvedDownload
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.LocalContentInstallRecord
+import calebxzhou.rdi.client.service.LocalContentInstallStore
+import calebxzhou.rdi.client.service.LocalContentType
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.RemoteModDownloadService
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzhou.rdi.client.ui.McPlayStore
 import calebxzhou.rdi.client.ui.comp.CatalogModCard
 import calebxzhou.rdi.client.ui.comp.WebPagePane
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.Task2Status
+import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.service.murmur2
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.model.Role
 import io.ktor.client.request.setBody
@@ -83,19 +97,92 @@ import io.ktor.http.HttpMethod
 import io.ktor.http.contentType
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
 fun RemoteModInfoScreen(
+    route: RemoteModInfoRoute,
+    catalog: ModCatalog,
+    onBack: () -> Unit,
+    onOpenDependencyMod: (CatalogMod) -> Unit,
+    onOpenTaskList: ((String) -> Unit)? = null,
+    onTargetUnavailable: () -> Unit = onBack
+) {
+    var mod by remember(route.platform, route.projectId) { mutableStateOf<CatalogMod?>(null) }
+    var targetPack by remember(route.targetLocalVersionId) { mutableStateOf<ModpackLocalDir?>(null) }
+    var loading by remember(route.platform, route.projectId, route.targetLocalVersionId) { mutableStateOf(true) }
+    var errorMessage by remember(route.platform, route.projectId, route.targetLocalVersionId) {
+        mutableStateOf<String?>(null)
+    }
+
+    LaunchedEffect(route) {
+        loading = true
+        errorMessage = null
+        val loadedPack = route.targetLocalVersionId?.let { versionId ->
+            ModpackService.getLocalPackDirs().firstOrNull { it.versionId == versionId }
+        }
+        if (route.targetLocalVersionId != null && loadedPack == null) {
+            loading = false
+            onTargetUnavailable()
+            return@LaunchedEffect
+        }
+        runCatching {
+            val platform = ModPlatform.valueOf(route.platform.uppercase())
+            val ref = CatalogProjectRef(platform, route.projectId)
+            catalog.getMods(setOf(ref)).getOrThrow().value[ref]
+                ?: error("模组不存在")
+        }.onSuccess { loadedMod ->
+            mod = loadedMod
+            targetPack = loadedPack
+        }.onFailure { cause ->
+            errorMessage = cause.message ?: "加载模组详情失败"
+        }
+        loading = false
+    }
+
+    MaxBox {
+        ScreenContentSurface(size = ScreenContentSize.LARGE) {
+            when {
+                loading -> MainColumn { CircularProgressIndicator() }
+                errorMessage != null -> MainColumn {
+                    TitleRow("模组详情", onBack)
+                    Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
+                }
+                mod != null -> RemoteModInfoContent(
+                    catalog = catalog,
+                    mod = mod!!,
+                    onBack = onBack,
+                    onOpenDependencyMod = onOpenDependencyMod,
+                    targetHostId = route.targetHostId?.let(::ObjectId),
+                    targetHost2Id = route.targetHost2Id,
+                    targetHostMcVer = targetPack?.vo?.mcVer ?: route.requiredMcVer?.let(McVersion::from),
+                    targetLoader = targetPack?.vo?.modloader ?: route.requiredLoader?.let(ModLoader::from),
+                    targetLocalPack = targetPack,
+                    onOpenTaskList = onOpenTaskList,
+                    onTargetUnavailable = onTargetUnavailable
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemoteModInfoContent(
     catalog: ModCatalog,
     mod: CatalogMod,
     onBack: () -> Unit,
     onOpenDependencyMod: (CatalogMod) -> Unit = {},
     targetHostId: ObjectId? = null,
     targetHost2Id: String? = null,
-    targetHostMcVer: McVersion? = null
+    targetHostMcVer: McVersion? = null,
+    targetLoader: ModLoader? = null,
+    targetLocalPack: ModpackLocalDir? = null,
+    onOpenTaskList: ((String) -> Unit)? = null,
+    onTargetUnavailable: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
@@ -108,7 +195,10 @@ fun RemoteModInfoScreen(
         mutableStateOf(targetHostMcVer ?: McVersion.V211)
     }
     var selectedLoader by rememberSaveable(mod.identity.stableKey) {
-        mutableStateOf((targetHostMcVer ?: McVersion.V211).loaderVersions.keys.first())
+        mutableStateOf(
+            targetLocalPack?.vo?.modloader ?: targetLoader
+            ?: (targetHostMcVer ?: McVersion.V211).loaderVersions.keys.first()
+        )
     }
     var includeAlpha by rememberSaveable(mod.identity.stableKey) { mutableStateOf(false) }
     var files by remember(mod.identity.stableKey) { mutableStateOf<List<CatalogFile>>(emptyList()) }
@@ -121,8 +211,14 @@ fun RemoteModInfoScreen(
     var dependencySummary by remember(mod.identity.stableKey) { mutableStateOf<String?>(null) }
     var expansionLoading by remember(mod.identity.stableKey) { mutableStateOf(false) }
     var downloadSelection by remember(mod.identity.stableKey) { mutableStateOf<DownloadSelection?>(null) }
+    var localInstallRecords by remember(targetLocalPack?.versionId) {
+        mutableStateOf<List<LocalContentInstallRecord>>(emptyList())
+    }
+    var localInstallHealth by remember(targetLocalPack?.versionId) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val taskEntries by ClientTaskManager.entries.collectAsState()
 
-    val loaders = selectedMcVersion.loaderVersions.keys.toList()
+    val loaders = (targetLocalPack?.vo?.modloader ?: targetLoader)?.let(::listOf)
+        ?: selectedMcVersion.loaderVersions.keys.toList()
     val mcmodUrl = mod.mcmodId?.let { "https://www.mcmod.cn/class/$it.html" }
     val tabs = buildList {
         add("下载")
@@ -139,6 +235,41 @@ fun RemoteModInfoScreen(
         }
         details = outcome?.value
         detailsLoading = false
+    }
+
+    LaunchedEffect(
+        targetLocalPack?.versionId,
+        mod.identity.stableKey,
+        taskEntries.map { it.runId to it.status }
+    ) {
+        localInstallRecords = targetLocalPack?.let { pack ->
+            withContext(Dispatchers.IO) {
+                LocalContentInstallStore.read(pack).getOrElse { cause ->
+                    lgr.warn(cause) { "读取本地Mod安装状态失败" }
+                    emptyList()
+                }
+            }
+        }.orEmpty()
+        localInstallHealth = targetLocalPack?.let { pack ->
+            withContext(Dispatchers.IO) {
+                val projectIds = mod.sources.map { it.ref.projectId }.toSet()
+                localInstallRecords.filter {
+                    it.type == LocalContentType.MOD && it.projectId in projectIds
+                }.mapNotNull { record ->
+                    val file = pack.dir.resolve("mods").resolve(record.fileName)
+                    val problem = when {
+                        !file.isFile -> "文件缺失"
+                        record.hash == null -> null
+                        record.source == "mr" && !file.toPath().sha1.equals(record.hash, ignoreCase = true) ->
+                            "文件已被修改"
+                        record.source == "cf" && file.toPath().murmur2.toString() != record.hash ->
+                            "文件已被修改"
+                        else -> null
+                    }
+                    problem?.let { record.projectKey to it }
+                }.toMap()
+            }
+        }.orEmpty()
     }
 
     LaunchedEffect(selectedMcVersion) {
@@ -162,7 +293,8 @@ fun RemoteModInfoScreen(
             null
         }
         outcome?.let {
-            files = if (reset) it.value.items else files + it.value.items
+            files = (if (reset) it.value.items else files + it.value.items)
+                .sortedBy { file -> if (file.channel == ReleaseChannel.BETA) 0 else 1 }
             fileCursor = it.value.nextCursor
             if (it.issues.isNotEmpty()) errorMessage = "部分目录信息暂时不可用，已自动选择可用结果"
         }
@@ -210,7 +342,12 @@ fun RemoteModInfoScreen(
                 Text("\uF019 ${mod.downloadCount}".asIconText, color = MaterialColor.GRAY_900.color)
                 if (selectedTab == 0) {
                     Space8w()
-                    versions.filter { targetHostMcVer == null || it == targetHostMcVer }.forEach { version ->
+                    if (targetLocalPack != null) {
+                        Text(
+                            "${targetLocalPack.vo.mcVer.mcVer} · ${targetLocalPack.vo.modloader.displayName}",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else versions.filter { targetHostMcVer == null || it == targetHostMcVer }.forEach { version ->
                         ImageIconButton(
                             icon = version.iconName,
                             tooltip = "MC${version.mcVer}",
@@ -256,8 +393,21 @@ fun RemoteModInfoScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         items(files, key = { it.ref.fileId }) { file ->
+                            val baseInstallStatus = when {
+                                targetLocalPack == null -> null
+                                else -> taskEntries.localModTaskStatus(targetLocalPack, file)
+                                    ?: localInstallRecords.modStatus(file, localInstallHealth)
+                            }
+                            val installStatus = if (
+                                targetLocalPack != null &&
+                                McPlayStore.aliveCount(targetLocalPack.versionId) > 0 &&
+                                localInstallRecords.hasManagedMod(file) &&
+                                baseInstallStatus != "已安装"
+                            ) "运行中不可更新" else baseInstallStatus
                             CatalogFileRow(
                                 file = file,
+                                installStatus = installStatus,
+                                downloadEnabled = installStatus !in setOf("下载中", "已安装", "运行中不可更新"),
                                 expanded = expandedFile == file.ref,
                                 expansionLoading = expansionLoading && expandedFile == file.ref,
                                 changelog = changelog.takeIf { expandedFile == file.ref }.orEmpty(),
@@ -271,7 +421,9 @@ fun RemoteModInfoScreen(
                                 },
                                 onOpenDependency = onOpenDependencyMod,
                                 onDownload = {
-                                    scope.launch {
+                                    if (targetLocalPack != null && !targetLocalPack.dir.isDirectory) {
+                                        onTargetUnavailable()
+                                    } else scope.launch {
                                         val resolved = catalog.resolveDownload(file).getOrElse { cause ->
                                             lgr.warn(cause) { "解析模组下载信息失败" }
                                             snackbar.showSnackbar(
@@ -312,24 +464,48 @@ fun RemoteModInfoScreen(
 
     downloadSelection?.let { selection ->
         CatalogDownloadDialog(
+            catalog = catalog,
             mod = mod,
             file = selection.file,
             resolved = selection.resolved,
             targetHostId = targetHostId,
             targetHost2Id = targetHost2Id,
             targetHostMcVer = targetHostMcVer,
+            targetLocalPack = targetLocalPack,
             onDismiss = { downloadSelection = null },
-            onSubmitted = { message ->
+            onSubmitted = { message, runId ->
                 downloadSelection = null
-                scope.launch { snackbar.showSnackbar(message, duration = SnackbarDuration.Short) }
+                scope.launch {
+                    val result = snackbar.showSnackbar(
+                        message = message,
+                        actionLabel = runId?.let { "查看任务" },
+                        duration = SnackbarDuration.Short
+                    )
+                    if (result == SnackbarResult.ActionPerformed && runId != null) onOpenTaskList?.invoke(runId)
+                }
             }
         )
+    }
+}
+
+private fun List<calebxzhou.rdi.common.model.Task2Entry>.localModTaskStatus(
+    packdir: ModpackLocalDir,
+    file: CatalogFile
+): String? {
+    val key = "catalog-mod-local:${packdir.versionId}:${file.project.projectId}"
+    val entry = lastOrNull { it.dedupeKey == key } ?: return null
+    return when (entry.status) {
+        Task2Status.QUEUED, Task2Status.RUNNING -> "下载中"
+        Task2Status.FAILED, Task2Status.CANCELLED -> "安装失败"
+        Task2Status.DONE -> null
     }
 }
 
 @Composable
 private fun CatalogFileRow(
     file: CatalogFile,
+    installStatus: String?,
+    downloadEnabled: Boolean,
     expanded: Boolean,
     expansionLoading: Boolean,
     changelog: String,
@@ -356,6 +532,9 @@ private fun CatalogFileRow(
                         "${file.channel.displayName} · ${file.fileSize.humanFileSize} · ${file.publishedAt.displayDate()}",
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    installStatus?.let {
+                        Text(it, color = MaterialTheme.colorScheme.primary)
+                    }
                 }
                 CircleIconButton(
                     icon = if (expanded) "\uF077" else "\uF078",
@@ -365,8 +544,13 @@ private fun CatalogFileRow(
                 ) { onToggle() }
                 CircleIconButton(
                     "\uF019",
-                    "下载",
+                    when (installStatus) {
+                        "可更新" -> "更新"
+                        "文件缺失", "文件已被修改", "安装失败" -> "重新安装"
+                        else -> "下载"
+                    },
                     showText = false,
+                    enabled = downloadEnabled,
                     bgColor = MaterialColor.GREEN_700.color
                 ) {
                     onDownload()
@@ -389,6 +573,31 @@ private fun CatalogFileRow(
     }
 }
 
+private fun List<LocalContentInstallRecord>.modStatus(
+    file: CatalogFile,
+    health: Map<String, String>
+): String? {
+    val source = when (file.ref.platform) {
+        ModPlatform.CURSEFORGE -> "cf"
+        ModPlatform.MODRINTH -> "mr"
+    }
+    val record = firstOrNull {
+        it.type == LocalContentType.MOD && it.source == source && it.projectId == file.project.projectId
+    } ?: return "未安装"
+    return when {
+        health[record.projectKey] != null -> health.getValue(record.projectKey)
+        record.versionId == file.ref.fileId -> "已安装"
+        else -> "可更新"
+    }
+}
+
+private fun List<LocalContentInstallRecord>.hasManagedMod(file: CatalogFile): Boolean {
+    val source = if (file.ref.platform == ModPlatform.CURSEFORGE) "cf" else "mr"
+    return any {
+        it.type == LocalContentType.MOD && it.source == source && it.projectId == file.project.projectId
+    }
+}
+
 private data class DownloadSelection(val file: CatalogFile, val resolved: ResolvedDownload)
 
 private sealed interface CatalogInstallTarget {
@@ -401,14 +610,16 @@ private data class CatalogHost(val brief: Host.BriefVo, val detail: Host.DetailV
 
 @Composable
 private fun CatalogDownloadDialog(
+    catalog: ModCatalog,
     mod: CatalogMod,
     file: CatalogFile,
     resolved: ResolvedDownload,
     targetHostId: ObjectId?,
     targetHost2Id: String?,
     targetHostMcVer: McVersion?,
+    targetLocalPack: ModpackLocalDir?,
     onDismiss: () -> Unit,
-    onSubmitted: (String) -> Unit
+    onSubmitted: (String, String?) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     var localPacks by remember { mutableStateOf<List<ModpackLocalDir>>(emptyList()) }
@@ -417,11 +628,16 @@ private fun CatalogDownloadDialog(
     var loading by remember { mutableStateOf(true) }
     var submitting by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var localInstallMods by remember(file.ref, targetLocalPack?.versionId) { mutableStateOf<List<Mod>>(emptyList()) }
+    var dependenciesLoading by remember(file.ref, targetLocalPack?.versionId) { mutableStateOf(targetLocalPack != null) }
+    var updateCount by remember(file.ref, targetLocalPack?.versionId) { mutableStateOf(0) }
 
-    LaunchedEffect(file.ref, targetHostId, targetHost2Id) {
+    LaunchedEffect(file.ref, targetHostId, targetHost2Id, targetLocalPack?.versionId) {
         loading = true
         try {
-            if (targetHost2Id != null) {
+            if (targetLocalPack != null) {
+                target = CatalogInstallTarget.Local(targetLocalPack)
+            } else if (targetHost2Id != null) {
                 target = CatalogInstallTarget.Host2Target(targetHost2Id, targetHostMcVer)
             } else if (targetHostId != null) {
                 target = CatalogInstallTarget.HostTarget(targetHostId, "当前房间", targetHostMcVer)
@@ -446,6 +662,36 @@ private fun CatalogDownloadDialog(
         loading = false
     }
 
+    LaunchedEffect(file.ref, targetLocalPack?.versionId) {
+        val pack = targetLocalPack ?: return@LaunchedEffect
+        dependenciesLoading = true
+        resolveRequiredLocalMods(catalog, file, resolved, pack)
+            .mapCatching { mods ->
+                val records = withContext(Dispatchers.IO) {
+                    LocalContentInstallStore.read(pack).getOrThrow()
+                }
+                val requiresUpdate = mods.any { dependency ->
+                    records.firstOrNull {
+                        it.type == LocalContentType.MOD && it.source == dependency.platform &&
+                                it.projectId == dependency.projectId
+                    }?.versionId?.let { it != dependency.fileId } == true
+                }
+                if (requiresUpdate && McPlayStore.aliveCount(pack.versionId) > 0) {
+                    error("必需依赖需要更新，请先关闭当前游戏")
+                }
+                updateCount = mods.count { dependency ->
+                    records.firstOrNull {
+                        it.type == LocalContentType.MOD && it.source == dependency.platform &&
+                                it.projectId == dependency.projectId
+                    }?.versionId?.let { it != dependency.fileId } == true
+                }
+                mods
+            }
+            .onSuccess { localInstallMods = it }
+            .onFailure { errorMessage = it.message ?: "解析必需依赖失败" }
+        dependenciesLoading = false
+    }
+
     Dialog(onDismissRequest = { if (!submitting) onDismiss() }) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
@@ -457,7 +703,7 @@ private fun CatalogDownloadDialog(
                 Text("安装${resolved.fileName}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                 errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 if (loading) CircularProgressIndicator()
-                if (targetHostId == null && targetHost2Id == null) {
+                if (targetHostId == null && targetHost2Id == null && targetLocalPack == null) {
                     Text("本地整合包", fontWeight = FontWeight.Bold)
                     LazyColumn(Modifier.fillMaxWidth().heightIn(max = 180.dp)) {
                         items(localPacks, key = { "local:${it.versionId}" }) { pack ->
@@ -495,13 +741,21 @@ private fun CatalogDownloadDialog(
                         }
                     }
                 } else {
-                    Text("将添加到当前房间")
+                    Text(
+                        targetLocalPack?.let { "安装到：${it.vo.name} ${it.verName}" }
+                            ?: "将添加到当前房间"
+                    )
+                    if (targetLocalPack != null && !dependenciesLoading && localInstallMods.isNotEmpty()) {
+                        Text("将安装当前Mod及${localInstallMods.size - 1}个必需依赖")
+                        if (updateCount > 0) Text("其中${updateCount}个已安装Mod将被替换")
+                    }
                 }
                 if (!loading && target == null) Text("没有兼容的安装目标")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     TextButton(onClick = onDismiss, enabled = !submitting) { Text("取消") }
                     TextButton(
-                        enabled = target != null && !submitting,
+                        enabled = target != null && !submitting && !dependenciesLoading &&
+                                (targetLocalPack == null || localInstallMods.isNotEmpty()),
                         onClick = {
                             val selected = target ?: return@TextButton
                             submitting = true
@@ -511,14 +765,13 @@ private fun CatalogDownloadDialog(
                                     val legacyMod = mod.toLegacyMod(file, resolved)
                                     when (selected) {
                                         is CatalogInstallTarget.Local -> {
-                                            ClientTaskManager.submit(
+                                            val runId = ClientTaskManager.submit(
                                                 task = RemoteModDownloadService.downloadToLocalModpackTask2(
-                                                    legacyMod,
-                                                    selected.pack
+                                                    localInstallMods.ifEmpty { listOf(legacyMod) }, selected.pack
                                                 ),
-                                                dedupeKey = "catalog-mod-local:${selected.pack.versionId}:${file.ref.platform}:${file.ref.fileId}"
+                                                dedupeKey = "catalog-mod-local:${selected.pack.versionId}:${file.project.projectId}"
                                             )
-                                            onSubmitted("已加入任务列表")
+                                            onSubmitted("已加入任务列表", runId)
                                         }
 
                                         is CatalogInstallTarget.HostTarget -> {
@@ -536,7 +789,7 @@ private fun CatalogDownloadDialog(
                                                 setBody(serdesJson.encodeToString(listOf(legacyMod)))
                                             }
                                             if (!response.ok) error(response.msg)
-                                            onSubmitted("已提交房间附加Mod任务")
+                                            onSubmitted("已提交房间附加Mod任务", null)
                                         }
 
                                         is CatalogInstallTarget.Host2Target -> {
@@ -554,7 +807,7 @@ private fun CatalogDownloadDialog(
                                                 setBody(serdesJson.encodeToString(listOf(legacyMod)))
                                             }
                                             if (!response.ok) error(response.msg)
-                                            onSubmitted("已添加到新版房间")
+                                            onSubmitted("已添加到新版房间", null)
                                         }
                                     }
                                 } catch (cause: CancellationException) {
@@ -571,6 +824,51 @@ private fun CatalogDownloadDialog(
             }
         }
     }
+}
+
+private suspend fun resolveRequiredLocalMods(
+    catalog: ModCatalog,
+    rootFile: CatalogFile,
+    rootDownload: ResolvedDownload,
+    packdir: ModpackLocalDir
+): Result<List<Mod>> = runCatching {
+    val target = CatalogTarget(packdir.vo.mcVer, packdir.vo.modloader)
+    val graph = catalog.resolveDependencies(DependencyRequest(listOf(rootFile), target)).getOrThrow().value
+    val requiredRefs = linkedSetOf(rootFile.ref)
+    var changed: Boolean
+    do {
+        changed = false
+        graph.edges.filter {
+            it.requirement == DependencyRequirement.REQUIRED && it.from in requiredRefs
+        }.forEach { edge ->
+            val dependencyRef = when (val dependency = edge.to) {
+                is DependencyTarget.File -> dependency.ref
+                is DependencyTarget.Project -> graph.nodes.values
+                    .firstOrNull { it.file.project == dependency.ref }
+                    ?.file?.ref
+            }
+            if (dependencyRef != null && requiredRefs.add(dependencyRef)) changed = true
+        }
+    } while (changed)
+
+    val unresolvedRequired = graph.unresolved.filter { unresolved ->
+        graph.edges.any {
+            it.from in requiredRefs && it.to == unresolved.target &&
+                    it.requirement == DependencyRequirement.REQUIRED
+        }
+    }
+    if (unresolvedRequired.isNotEmpty()) {
+        error("有${unresolvedRequired.size}个必需依赖没有兼容版本")
+    }
+
+    val files = requiredRefs.map { ref -> graph.nodes.getValue(ref).file }
+    val mods = catalog.getMods(files.mapTo(linkedSetOf(), CatalogFile::project)).getOrThrow().value
+    files.map { dependencyFile ->
+        val catalogMod = mods.getValue(dependencyFile.project)
+        val download = if (dependencyFile.ref == rootFile.ref) rootDownload
+        else catalog.resolveDownload(dependencyFile).getOrThrow()
+        catalogMod.toLegacyMod(dependencyFile, download)
+    }.sortedBy { if (it.projectId == rootFile.project.projectId) 0 else 1 }
 }
 
 private suspend fun loadCatalogAdminHosts(): List<CatalogHost> {
@@ -631,7 +929,8 @@ private fun calebxzhou.rdi.client.modcatalog.EnvironmentCompatibility.toLegacySi
 
 private val ReleaseChannel.displayName: String
     get() = when (this) {
-        ReleaseChannel.RELEASE, ReleaseChannel.BETA -> "稳定"
+        ReleaseChannel.RELEASE -> "Release"
+        ReleaseChannel.BETA -> "Beta"
         ReleaseChannel.ALPHA -> "Alpha"
     }
 

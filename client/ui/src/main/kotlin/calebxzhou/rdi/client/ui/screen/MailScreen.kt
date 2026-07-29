@@ -22,9 +22,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.FlowRowV
-import calebxzau.rdi.client.ui.MainColumn
+import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.RRow
+import calebxzau.rdi.client.ui.ScreenContentSize
+import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.wM
@@ -45,23 +48,24 @@ import org.bson.types.ObjectId
 /**
  * calebxzhou @ 2026-01-13 23:19
  */
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun MailScreen(
     onBack: () -> Unit = {}
 ) {
-    MainColumn {
-        TitleRow("信箱", onBack = onBack)
-        Spacer(modifier = Modifier.height(8.dp))
-        MailPane(
-            modifier = Modifier.fillMaxSize()
-        )
+    MaxBox {
+        ScreenContentSurface(size = ScreenContentSize.LARGE) {
+            TitleRow("信箱", onBack = onBack)
+            ContentBody {
+                MailContent(modifier = Modifier.fillMaxSize())
+            }
+        }
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
-fun MailPane(
+private fun MailContent(
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -108,9 +112,8 @@ fun MailPane(
         Column(modifier = Modifier.fillMaxSize()) {
             FlowRowV(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalArrangement = Arrangement.End
             ) {
-                Text("信箱", style = MaterialTheme.typography.titleMedium)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     errorMessage?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)

@@ -32,8 +32,8 @@ import calebxzhou.rdi.client.*
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
-import calebxzhou.rdi.client.service.LocalMinecraftReuseService
-import calebxzhou.rdi.client.service.LocalMinecraftScanState
+// import calebxzhou.rdi.client.service.LocalMinecraftReuseService
+// import calebxzhou.rdi.client.service.LocalMinecraftScanState
 import calebxzhou.rdi.client.service.SettingsService
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.RPasswordField
@@ -55,7 +55,7 @@ fun SettingScreen(
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var category by remember { mutableStateOf(SettingCategory.Java) }
+    var category by remember { mutableStateOf(SettingCategory.General) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     var switchingNode by remember { mutableStateOf(false) }
@@ -72,6 +72,7 @@ fun SettingScreen(
     var proxyPortText by remember { mutableStateOf("10808") }
     var proxyUsr by remember { mutableStateOf("") }
     var proxyPwd by remember { mutableStateOf("") }
+    var solidWindow by remember { mutableStateOf(false) }
     var totalMemoryMb by remember { mutableStateOf(0) }
     val defaultAiProfile = remember { AiConfig().activeProfile() }
     val aiProfiles = remember { mutableStateListOf(defaultAiProfile) }
@@ -99,6 +100,7 @@ fun SettingScreen(
                 proxyPortText = (config.proxyConfig?.port ?: 10808).toString()
                 proxyUsr = config.proxyConfig?.usr.orEmpty()
                 proxyPwd = config.proxyConfig?.pwd.orEmpty()
+                solidWindow = config.solidWindow
                 val normalizedAiConfig = config.aiConfig.normalized()
                 aiProfiles.clear()
                 aiProfiles.addAll(normalizedAiConfig.profiles)
@@ -236,6 +238,7 @@ fun SettingScreen(
                             proxyPortText = proxyPortText,
                             proxyUsr = proxyUsr,
                             proxyPwd = proxyPwd,
+                            solidWindow = solidWindow,
                             aiConfig = aiConfig,
                             requireActiveAiProfile = false//requireActiveAiProfile
                         ).onSuccess {
@@ -287,6 +290,13 @@ fun SettingScreen(
                                     .verticalScroll(rememberScrollState())
                             ) {
                                 when (activeCategory) {
+                                    SettingCategory.General -> {
+                                        GeneralSettings(
+                                            solidWindow = solidWindow,
+                                            onSolidWindowChange = { solidWindow = it }
+                                        )
+                                    }
+
                                     SettingCategory.Java -> {
                                         JavaSettings(
                                             totalMemoryMb = totalMemoryMb,
@@ -320,7 +330,7 @@ fun SettingScreen(
                                         )
                                     }
 
-                                    SettingCategory.Minecraft -> LocalMinecraftSettings()
+                                    //SettingCategory.Minecraft -> LocalMinecraftSettings()
 
                                     /*SettingCategory.AI -> {
                                         val currentAiProfile = selectedAiProfile()
@@ -532,15 +542,16 @@ fun SettingScreen(
 
 
     private enum class SettingCategory(val icon: String, val label: String) {
+        General("\uF013", "常用"),
         Java("\uEDAF", "Java"),
         Network("\uEF09", "网络"),
-        Minecraft("\uE7C4", "Minecraft"),
+       // Minecraft("\uE7C4", "Minecraft"),
         //AI("\uDB84\uDECA", "AI");
 ;
         /** Whether this category is visible on the current platform */
         val visible: Boolean
             get() = when (this) {
-                Minecraft -> System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+              //  Minecraft -> System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
                 else -> true
             }
     }
@@ -595,7 +606,20 @@ fun SettingScreen(
         }
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
+    
+    @Composable
+    private fun GeneralSettings(
+        solidWindow: Boolean,
+        onSolidWindowChange: (Boolean) -> Unit
+    ) {
+        RColumn {
+            RRow {
+                RSwitch(checked = solidWindow, onCheckedChange = onSolidWindowChange)
+                Text("使用实心窗口解决窗口不显示的问题")
+            }
+        }
+    }
+
     @Composable
     private fun JavaSettings(
         totalMemoryMb: Int,
@@ -611,7 +635,7 @@ fun SettingScreen(
         }
     }
 
-    @Composable
+    /*@Composable
     private fun LocalMinecraftSettings() {
         val scanState by LocalMinecraftReuseService.state.collectAsState()
         val scanning = scanState is LocalMinecraftScanState.Scanning
@@ -635,9 +659,9 @@ fun SettingScreen(
             }
             Text("每12h自动扫描本机Minecraft实例和Downloads，优先复用相同文件")
         }
-    }
+    }*/
 
-    @OptIn(ExperimentalMaterial3Api::class)
+    
     @Composable
     private fun AiSettings(
         profiles: List<AiProviderProfile>,
@@ -1077,7 +1101,7 @@ fun SettingScreen(
         }
     }
 
-    @OptIn(ExperimentalMaterial3Api::class)
+    
     @Composable
     private fun AutoRouteStatus(
         switchingNode: Boolean,

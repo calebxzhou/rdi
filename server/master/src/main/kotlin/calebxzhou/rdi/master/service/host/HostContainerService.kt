@@ -1,16 +1,17 @@
 package calebxzhou.rdi.master.service.host
 
 import calebxzhou.rdi.common.exception.RequestError
-import calebxzhou.rdi.common.model.GTO_GUARD_AGENT_FILE_NAME
+import calebxzhou.rdi.common.model.FORGEGUARD_AGENT_FILE_NAME
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.model.isGtoModpackName
 import calebxzhou.rdi.common.model.sameMod
+import calebxzhou.rdi.common.model.supportsForgeguard
 import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.master.WORLD_CACHE_DIR
+import calebxzhou.rdi.master.GAME_LIBS_DIR
 import calebxzhou.rdi.master.service.CLIENT_ONLY_MARK_PREFIX
 import calebxzhou.rdi.master.service.DockerService
 import calebxzhou.rdi.master.service.Lwjgl3ifyServerSupport
@@ -26,6 +27,20 @@ import java.io.File
 import java.nio.file.Files
 
 object HostContainerService {
+    internal const val FORGEGUARD_CONTAINER_PATH = "/opt/forgeguard.jar"
+
+    internal fun forgeguardMount(): Mount {
+        val agentFile = GAME_LIBS_DIR.resolve(FORGEGUARD_AGENT_FILE_NAME)
+        if (!agentFile.isFile) {
+            throw RequestError("缺少Forgeguard服务端启动保护文件: ${agentFile.absolutePath}")
+        }
+        return Mount()
+            .withType(MountType.BIND)
+            .withSource(agentFile.absolutePath)
+            .withTarget(FORGEGUARD_CONTAINER_PATH)
+            .withReadOnly(true)
+    }
+
     internal fun Host.containerEnv(
         mcv: McVersion,
         loaderVersion: ModLoader.Version,
@@ -74,8 +89,8 @@ object HostContainerService {
             } else {
                 this.add("-Xmx8G")
             }
-            if (modpack.name.isGtoModpackName()) {
-                this.add("-javaagent:/opt/server/$GTO_GUARD_AGENT_FILE_NAME")
+            if (modpack.mcVer.supportsForgeguard(modpack.modloader)) {
+                this.add("-javaagent:$FORGEGUARD_CONTAINER_PATH")
             }
             if (worldId != null) {
                 this.add("-Drdi.terrain.cache.path=/data/world/cache")
@@ -129,6 +144,9 @@ object HostContainerService {
                 .withSource(rdiCoreSource.absolutePath)
                 .withTarget("/opt/server/mods/${rdiCore}"),
         ).apply {
+            if (modpack.mcVer.supportsForgeguard(modpack.modloader)) {
+                this += forgeguardMount()
+            }
             version.mods
                 .filter(::isServerInstalledMod)
                 .filterNot { this@makeContainer.isDisabledMod(it) }
@@ -218,14 +236,6 @@ object HostContainerService {
             throw RequestError("世界缓存路径不是目录: ${dir.absolutePath}")
         }
         return dir
-    }
-
-    internal fun Host.requireGtoGuardAgent(modpack: Modpack) {
-        if (!modpack.name.isGtoModpackName()) return
-        val agentFile = dir.resolve(GTO_GUARD_AGENT_FILE_NAME)
-        if (!agentFile.isFile) {
-            throw RequestError("缺少GTO服务端启动保护文件: ${agentFile.absolutePath}")
-        }
     }
 
     internal fun isServerInstalledMod(mod: Mod): Boolean =

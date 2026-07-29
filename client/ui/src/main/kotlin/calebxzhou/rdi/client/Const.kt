@@ -1,5 +1,6 @@
 package calebxzhou.rdi.client
 
+import calebxzau.rdi.client.CONF
 import org.bson.types.ObjectId
 
 object Const {
@@ -7,7 +8,7 @@ object Const {
     const val MODID = "rdi"
     var USE_MOCK_DATA = System.getProperty("rdi.mockData").toBoolean()
     var NO_UPDATE = System.getProperty("rdi.noUpdate").toBoolean()
-    val WINDOW_TRANSPARENT = System.getProperty("rdi.window.transparent")?.toBooleanStrictOrNull() ?: true
+    val WINDOW_TRANSPARENT = windowTransparent(CONF.solidWindow, System.getProperty("rdi.window.transparent"))
     val SEED = 1145141919810L
     val DEFAULT_MODPACK_ID = ObjectId("abcdefabcdefabcdefabcdef")
     //显示版本
@@ -24,3 +25,6 @@ object Const {
 
 
 }
+
+internal fun windowTransparent(solidWindow: Boolean, jvmProperty: String?): Boolean =
+    jvmProperty?.toBooleanStrictOrNull() ?: !solidWindow

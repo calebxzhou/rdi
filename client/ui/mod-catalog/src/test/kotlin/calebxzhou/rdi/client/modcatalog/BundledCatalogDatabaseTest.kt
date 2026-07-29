@@ -18,6 +18,15 @@ class BundledCatalogDatabaseTest {
             assertEquals(459, modrinth?.mcmodId)
             assertEquals(modrinth?.mcmodId, curseForge?.mcmodId)
             assertTrue(modrinth!!.projects.map { it.platform }.containsAll(ModPlatform.entries))
+            assertEquals(
+                2,
+                index.findAll(
+                    setOf(
+                        CatalogSlugRef(ModPlatform.MODRINTH, "jei"),
+                        CatalogSlugRef(ModPlatform.CURSEFORGE, "jei")
+                    )
+                ).size
+            )
             assertEquals(2021, index.search("机械动力", 0, 10).first().mcmodId)
         } finally {
             index.close()

@@ -55,6 +55,26 @@ class CatalogDomainTest {
     }
 
     @Test
+    fun `metadata lookup uses database project localization`() = runBlocking {
+        val ref = CatalogSlugRef(ModPlatform.MODRINTH, "jei")
+        val record = CatalogIdentityRecord(
+            mcmodId = 459,
+            name = "Just Enough Items",
+            nameCn = "JEI物品管理器",
+            intro = "查看物品及配方",
+            logoUrl = "https://mcmod/icon.png",
+            projects = listOf(CatalogIdentityProject(ModPlatform.MODRINTH, "jei", "JEI"))
+        )
+        val catalog = testCatalog(emptyMap(), FakeIdentityIndex(mapOf("MODRINTH:jei" to record)))
+
+        val metadata = catalog.getMetadata(setOf(ref)).getOrThrow().getValue(ref)
+
+        assertEquals(459, metadata.mcmodId)
+        assertEquals("JEI", metadata.nameCn)
+        assertEquals("查看物品及配方", metadata.intro)
+    }
+
+    @Test
     fun `installed release can update to newer beta`() = runBlocking {
         val installed = file(
             "release",
@@ -209,6 +229,11 @@ private class FakeIdentityIndex(
 
     override suspend fun find(platform: ModPlatform, slug: String): CatalogIdentityRecord? =
         records["${platform.name}:$slug"]
+
+    override suspend fun findAll(refs: Set<CatalogSlugRef>): Map<CatalogSlugRef, CatalogIdentityRecord> =
+        refs.mapNotNull { ref ->
+            records["${ref.platform.name}:${ref.slug}"]?.let { ref to it }
+        }.toMap()
 
     override suspend fun search(query: String, offset: Int, limit: Int) = emptyList<CatalogIdentityRecord>()
 

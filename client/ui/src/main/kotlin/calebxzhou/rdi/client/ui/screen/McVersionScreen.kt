@@ -40,7 +40,7 @@ private sealed interface McVersionDownloadAction {
     data class Loader(override val mcVer: McVersion, val loader: ModLoader) : McVersionDownloadAction
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun McVersionPane(
     requiredMcVer: McVersion? = null,
@@ -181,7 +181,7 @@ fun McVersionPane(
                     downloadSourceDialogAction = null
                     showGroupFileDialog = true
                 }) {
-                    Text("从群文件下载")
+                    Text("从群文件下载(非常快)")
                 }
             },
             confirmButton = {
@@ -189,7 +189,7 @@ fun McVersionPane(
                     downloadSourceDialogAction = null
                     runMojangDownload(action)
                 }) {
-                    Text("从mojang官方服务器下载")
+                    Text("从ojng国外服务器下载(很慢)")
                 }
             }
         )
@@ -232,7 +232,7 @@ fun McVersionPane(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 private fun McVersionActionRow(
     selectedMcVer: McVersion?,

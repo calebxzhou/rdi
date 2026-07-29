@@ -37,7 +37,7 @@ import net.raphimc.minecraftauth.msa.model.MsaDeviceCode
 /**
  * calebxzhou @ 2026-02-08 16:59
  */
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun RegisterScreen(
     useMsa: Boolean = true,

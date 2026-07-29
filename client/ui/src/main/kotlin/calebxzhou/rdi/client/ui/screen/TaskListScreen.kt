@@ -41,7 +41,7 @@ import calebxzhou.rdi.common.model.Task2Status
 /**
  * calebxzhou @ 2026-04-03 23:22
  */
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun TaskListScreen(
     onBack: () -> Unit,
@@ -100,7 +100,7 @@ fun TaskListScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 private fun TaskEntryCard(
     entry: Task2Entry,

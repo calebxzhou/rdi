@@ -30,6 +30,7 @@ import calebxzau.rdi.client.ui.pickLocalModpackFile
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.client.model.toUiMod
+import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.CLIENT_TEST_SUCCESS_MARKER
 import calebxzhou.rdi.client.service.ClientDirs
@@ -44,6 +45,7 @@ import calebxzhou.rdi.client.service.TestStatus
 import calebxzhou.rdi.client.service.UploadPayload
 import calebxzhou.rdi.client.service.createUploadModpackTask2
 import calebxzhou.rdi.client.service.loadServerPackMods
+import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.service.modpackUploadTaskKey
 import calebxzhou.rdi.client.service.toUploadPayload
 import calebxzhou.rdi.client.service.toUiMods
@@ -77,9 +79,10 @@ private data class PendingMissingModDownload(
     val mods: List<Mod>
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun ModpackUploadScreen2(
+    modCatalog: ModCatalog,
     onBack: () -> Unit,
     onUploadSubmitted: (String) -> Unit = { onBack() }
 ) {
@@ -118,10 +121,10 @@ fun ModpackUploadScreen2(
     }
     val clientTestStatus = clientTester?.status?.collectAsState()
     val clientTestPassSeconds = clientTester?.passSeconds?.collectAsState()
-    val clientTestConsoleState = remember { ConsoleState(4000) }
+    val clientTestConsoleState = remember { ConsoleState() }
     val serverTestStatus = serverTester?.status?.collectAsState()
     val serverTestPassSeconds = serverTester?.passSeconds?.collectAsState()
-    val serverTestConsoleState = remember { ConsoleState(4000) }
+    val serverTestConsoleState = remember { ConsoleState() }
     val allowUploadWithoutTests = DEBUG || IGNORE_MODPACK_TEST
     val canSubmitUpload = IGNORE_MODPACK_TEST || (
             !loading &&
@@ -457,7 +460,7 @@ fun ModpackUploadScreen2(
             loading = true
             progressText = "已选择: ${file.name}"
             progressFraction = null
-            val loadResult = ModpackService.load(file) { progress ->
+            val loadResult = ModpackService.load(modCatalog, file) { progress ->
                 scope.launch {
                     mapProgress(progress)
                 }
@@ -474,6 +477,8 @@ fun ModpackUploadScreen2(
             }
 
             val processedMods = ModpackModProcessor.processMods(defaultCurseForgeUnknownMods(loadResult.mods))
+                .hydrateToUiMods(modCatalog)
+                .map { it.toMod() }
             loadedModpack = loadResult.copy(mods = processedMods)
             modpackName = loadResult.packName
             versionName = normalizeVersionNameInput(loadResult.packVersion)
@@ -510,7 +515,11 @@ fun ModpackUploadScreen2(
                 errorText = error.message ?: "读取服务端目录失败"
                 return@launch
             }
-            applyServerPack(serverPack)
+            applyServerPack(
+                serverPack.copy(
+                    mods = serverPack.mods.hydrateToUiMods(modCatalog).map { it.toMod() }
+                )
+            )
             finishLoading()
             enterEditMode()
         }
@@ -951,7 +960,7 @@ fun ModpackUploadScreen2(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 private fun TestConsolePane(
     statusText: String,

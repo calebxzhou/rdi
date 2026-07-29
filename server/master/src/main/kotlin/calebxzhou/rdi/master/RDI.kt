@@ -9,6 +9,7 @@ import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.master.exception.AuthError
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.response
+import calebxzhou.rdi.master.net.isClientDisconnect
 import calebxzhou.rdi.master.service.*
 import calebxzhou.rdi.master.service.PlayerService.accountCol
 import calebxzhou.rdi.master.service.host.HostPresenceService
@@ -274,8 +275,10 @@ private fun Application.configureServer() {
 
         //其他内部错误
         exception<Throwable> { call, cause ->
-            cause.printStackTrace()
-            call.response<Unit>(-500, "服务器内部错误", null)
+            if (!cause.isClientDisconnect()) {
+                cause.printStackTrace()
+                call.response<Unit>(-500, "服务器内部错误", null)
+            }
         }
     }
     install(ContentNegotiation) {

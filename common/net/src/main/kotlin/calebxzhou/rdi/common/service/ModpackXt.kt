@@ -23,7 +23,7 @@ fun Modpack.hasVer(verName: String): Boolean {
     return versions.any { it.name == verName }
 }
 
-private suspend fun validateModpackIconUrl(iconUrl: String?): Result<Unit> {
+suspend fun validateIconUrl(iconUrl: String?): Result<Unit> {
     if (iconUrl.isNullOrBlank()) return ok()
     val trimmed = iconUrl.trim()
     val uri = trimmed.validateHttpUrl().getOrThrow()
@@ -83,7 +83,7 @@ private fun validateModpackSourceUrl(sourceUrl: String?) : Result<Unit>{
 }
 suspend fun Modpack.OptionsDto.validate(): Result<Unit>{
     name?.validateName()
-    validateModpackIconUrl(iconUrl)
+    validateIconUrl(iconUrl)
     validateModpackSourceUrl(sourceUrl)
     if ((categories?.distinct()?.size ?: 0) > Modpack.MAX_CATEGORY_COUNT) {
         throw RequestError("分类最多选择${Modpack.MAX_CATEGORY_COUNT}个")

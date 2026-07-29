@@ -906,7 +906,7 @@ fun HostFileExplorer(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun HostConfigEditorOverlay(
     visible: Boolean,

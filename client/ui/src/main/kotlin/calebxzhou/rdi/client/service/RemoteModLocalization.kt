@@ -1,38 +1,26 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.common.service.CurseForgeService
-import calebxzhou.rdi.common.service.ModrinthService
+import calebxzhou.rdi.client.modcatalog.CatalogModMetadata
+import calebxzhou.rdi.client.modcatalog.CatalogSlugRef
+import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzhou.rdi.client.modcatalog.ModPlatform
 
 object RemoteModLocalization {
-    fun titleByModrinthSlug(slug: String?, fallback: String): String {
-        val briefInfo = slug.modrinthBriefInfo()
-        return briefInfo?.nameCn?.takeIf(String::isNotBlank)
-            ?: briefInfo?.name?.takeIf(String::isNotBlank)
-            ?: fallback
+    suspend fun find(
+        modCatalog: ModCatalog,
+        platform: ModPlatform,
+        slug: String?
+    ): CatalogModMetadata? {
+        val normalizedSlug = slug?.trim()?.takeIf(String::isNotBlank) ?: return null
+        val ref = CatalogSlugRef(platform, normalizedSlug)
+        return modCatalog.getMetadataOrEmpty(setOf(ref))[ref]
     }
 
-    fun introByModrinthSlug(slug: String?, fallback: String): String =
-        slug.modrinthBriefInfo()?.intro?.takeIf(String::isNotBlank) ?: fallback
-
-    fun mcmodIdByModrinthSlug(slug: String?): Int? =
-        slug.modrinthBriefInfo()?.mcmodId
-
-    fun titleByCurseForgeSlug(slug: String?, fallback: String): String {
-        val briefInfo = slug.curseForgeBriefInfo()
-        return briefInfo?.nameCn?.takeIf(String::isNotBlank)
-            ?: briefInfo?.name?.takeIf(String::isNotBlank)
+    fun title(metadata: CatalogModMetadata?, fallback: String): String =
+        metadata?.nameCn?.takeIf(String::isNotBlank)
+            ?: metadata?.name?.takeIf(String::isNotBlank)
             ?: fallback
-    }
 
-    fun introByCurseForgeSlug(slug: String?, fallback: String): String =
-        slug.curseForgeBriefInfo()?.intro?.takeIf(String::isNotBlank) ?: fallback
-
-    fun mcmodIdByCurseForgeSlug(slug: String?): Int? =
-        slug.curseForgeBriefInfo()?.mcmodId
-
-    private fun String?.modrinthBriefInfo() =
-        this?.trim()?.lowercase()?.takeIf(String::isNotBlank)?.let(ModrinthService.slugBriefInfo::get)
-
-    private fun String?.curseForgeBriefInfo() =
-        this?.trim()?.lowercase()?.takeIf(String::isNotBlank)?.let(CurseForgeService.slugBriefInfo::get)
+    fun intro(metadata: CatalogModMetadata?, fallback: String): String =
+        metadata?.intro?.takeIf(String::isNotBlank) ?: fallback
 }

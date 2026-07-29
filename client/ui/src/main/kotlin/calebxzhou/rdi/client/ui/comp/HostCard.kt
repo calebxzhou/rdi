@@ -33,7 +33,7 @@ import calebxzhou.rdi.common.model.Host
 /**
  * calebxzhou @ 2026-01-14 21:48
  */
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun Host.BriefVo.HostCard(
     modifier: Modifier = Modifier,

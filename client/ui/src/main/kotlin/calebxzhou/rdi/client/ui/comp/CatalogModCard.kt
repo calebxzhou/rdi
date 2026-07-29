@@ -28,7 +28,9 @@ import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzau.rdi.client.lgr
 import calebxzhou.rdi.client.modcatalog.CatalogMod
 import calebxzhou.rdi.client.service.loadLocalIcon
+import calebxzhou.rdi.client.service.peekLocalIcon
 import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzhou.rdi.common.util.toFixed
 
 @Composable
 fun CatalogModCard(
@@ -40,8 +42,10 @@ fun CatalogModCard(
     val iconSize = if (compact) 48.dp else 76.dp
     val padding = if (compact) 8.dp else 10.dp
     val gap = if (compact) 8.dp else 10.dp
+    val cachedLocalIcon = mod.peekLocalIcon()
     val localIcon by produceState(
-        initialValue = CatalogLocalIconLookup(),
+        initialValue = cachedLocalIcon?.let { CatalogLocalIconLookup(complete = true, iconData = it.iconData) }
+            ?: CatalogLocalIconLookup(),
         key1 = mod.identity.stableKey,
         key2 = mod.sources
     ) {
@@ -103,7 +107,7 @@ fun CatalogModCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (mod.nameCn != null) {
+                /*if (mod.nameCn != null) {
                     Text(
                         text = mod.name,
                         style = MaterialTheme.typography.bodySmall,
@@ -111,7 +115,7 @@ fun CatalogModCard(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                }
+                }*/
                 Text(
                     text = mod.summary,
                     style = MaterialTheme.typography.bodySmall,
@@ -120,7 +124,7 @@ fun CatalogModCard(
                 )
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = "\uF019 ${mod.downloadCount.compactCount()}".asIconText,
+                        text = "\uF019 ${mod.downloadCount.compactCount()}",
                         color = MaterialColor.GRAY_700.color,
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -137,7 +141,7 @@ private data class CatalogLocalIconLookup(
 )
 
 internal fun Long.compactCount(): String = when {
-    this >= 100_000_000 -> "${this / 100_000_000}亿"
-    this >= 10_000 -> "${this / 10_000}万"
+    this >= 100_000_000 -> "${(this / 100_000_000.0).toFixed(2)}亿"
+    this >= 10_000 -> "${(this / 10_000.0).toFixed(2)}万"
     else -> toString()
 }

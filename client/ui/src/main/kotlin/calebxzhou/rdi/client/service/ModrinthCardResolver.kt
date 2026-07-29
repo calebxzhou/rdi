@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.modcatalog.CatalogSlugRef
+import calebxzhou.rdi.client.modcatalog.ModPlatform
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.service.ModrinthService
 
@@ -20,8 +22,11 @@ object ModrinthCardResolver : ModCardResolver {
             valueTransform = { it.file }
         )
 
+        val refs = projects.map { CatalogSlugRef(ModPlatform.MODRINTH, it.slug) }.toSet()
+        val metadata = context.modCatalog.getMetadataOrEmpty(refs)
         return projects.associate { project ->
-            project.id to project.toUiCardVo(projectIdToFile[project.id])
+            val ref = CatalogSlugRef(ModPlatform.MODRINTH, project.slug)
+            project.id to project.toUiCardVo(metadata[ref], projectIdToFile[project.id])
         }
     }
 }

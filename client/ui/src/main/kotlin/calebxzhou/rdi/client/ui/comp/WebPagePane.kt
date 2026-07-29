@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import calebxzau.rdi.client.ui.WebView
+import calebxzhou.rdi.client.webview2.WebView2
 
 @Composable
 fun WebPagePane(
@@ -13,7 +13,7 @@ fun WebPagePane(
     modifier: Modifier = Modifier
 ) {
     Box(modifier = modifier.fillMaxSize()) {
-        WebView(
+        WebView2(
             url = url,
             title = title,
             modifier = Modifier.fillMaxSize()

@@ -1,7 +1,6 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,18 +11,14 @@ import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.RadioButton as M3RadioButton
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.isShiftPressed
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -33,24 +28,19 @@ import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
-import calebxzau.rdi.client.ui.FlowRowV
+import calebxzau.rdi.client.ui.KeepAliveAnimatedTabHost
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.RThinTextField
-import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TinyClickCopyText
 import calebxzau.rdi.client.ui.TitleRow
-import calebxzau.rdi.client.ui.asIconText
-import calebxzhou.mykotutils.std.humanFileSize
-import calebxzhou.mykotutils.std.millisToHumanDateTime
-import calebxzhou.mykotutils.std.secondsToHumanDateTime
+import calebxzau.rdi.client.ui.TitleTabBar
+import calebxzau.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.auth.updateLastPlayHost
-import calebxzhou.rdi.client.modcatalog.CatalogMod
 import calebxzhou.rdi.client.modcatalog.ModCatalog
-import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
@@ -62,16 +52,13 @@ import calebxzhou.rdi.client.service.GithubRelease
 import calebxzhou.rdi.client.service.GithubReleaseAsset
 import calebxzhou.rdi.client.service.GithubRepoRef
 import calebxzhou.rdi.client.service.StartPlayResult
-import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.service.startPlay
-import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.*
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.model.isAdmin
 import calebxzhou.rdi.common.serdesJson
-import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.TaczGunpackValidator
 import calebxzhou.rdi.model.Role
 import io.ktor.client.plugins.sse.*
@@ -88,16 +75,15 @@ import org.bson.types.ObjectId
 import java.io.File
 import java.net.URI
 
-private const val TACZ_ROOT_DIR = "tacz"
+internal const val TACZ_ROOT_DIR = "tacz"
 private const val TACZ_MOD_SLUG = "timeless-and-classics-zero"
-private const val PRIVATE_THINGS_TACZ_TAB_INDEX = 3
-private const val TACZ_FILE_MAX_BYTES: Long = 100L * 1024 * 1024
-private const val TACZ_MAX_ZIP_FILES = 10
+internal const val TACZ_FILE_MAX_BYTES: Long = 100L * 1024 * 1024
+internal const val TACZ_MAX_ZIP_FILES = 10
 
 /**
  * calebxzhou @ 2026-01-15 19:38
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+
 @Composable
 fun HostInfoScreen(
     modCatalog: ModCatalog,
@@ -106,6 +92,7 @@ fun HostInfoScreen(
     onOpenModpackInfo: (String) -> Unit,
     onOpenMcPlay: (McPlayArgs) -> Unit,
     onOpenMcVersions: (McVersion?) -> Unit,
+    onOpenResourceMods: (McVersion, ModLoader) -> Unit,
     onOpenHostEdit: (Host.DetailVo) -> Unit,
     onOpenTaskList: (String) -> Unit
 ) {
@@ -114,7 +101,6 @@ fun HostInfoScreen(
     var okMessage by remember { mutableStateOf<String?>(null) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(true) }
-    var extraModsLoading by remember { mutableStateOf(false) }
     var hostDetail by remember { mutableStateOf<Host.DetailVo?>(null) }
     var modpackDetail by remember { mutableStateOf<Modpack.DetailVo?>(null) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -124,23 +110,15 @@ fun HostInfoScreen(
     var transferConfirm by remember { mutableStateOf<ObjectId?>(null) }
     var kickConfirm by remember { mutableStateOf<ObjectId?>(null) }
     var quitConfirm by remember { mutableStateOf(false) }
-    var stopConfirm by remember { mutableStateOf(false) }
-    var restartConfirm by remember { mutableStateOf(false) }
-    var forceStopConfirm by remember { mutableStateOf(false) }
     var startPlayLoading by remember { mutableStateOf(false) }
-    var showCommandDialog by remember { mutableStateOf(false) }
-    var hostCommand by remember { mutableStateOf("") }
-    var hostCommandSending by remember { mutableStateOf(false) }
-    var hostCommandResult by remember { mutableStateOf<String?>(null) }
-    var selectedTab by remember { mutableStateOf(0) }
-    var consoleState by remember { mutableStateOf(ConsoleState()) }
+    var selectedTab by rememberSaveable(hostId) { mutableStateOf(HostInfoTab.Info) }
+    val consoleState = remember(hostId) { ConsoleState() }
     var logStreamSseJob by remember { mutableStateOf<Job?>(null) }
     var showInviteDialog by remember { mutableStateOf(false) }
     var inviteQq by remember { mutableStateOf("") }
     var installConfirmTask by remember { mutableStateOf<StartPlayResult.NeedInstall?>(null) }
     var showAddExtraModAdvancedDialog by remember { mutableStateOf(false) }
     var addExtraModLoading by remember { mutableStateOf(false) }
-    var selectAllExtraMods by remember { mutableStateOf(false) }
     var addExtraModLoadingText by remember { mutableStateOf("") }
     var addExtraModDialogError by remember { mutableStateOf<String?>(null) }
     var extraModPlatform by remember { mutableStateOf("github") }
@@ -154,23 +132,11 @@ fun HostInfoScreen(
     var extraModGithubReleases by remember { mutableStateOf<List<GithubRelease>>(emptyList()) }
     var selectedGithubAsset by remember { mutableStateOf<GithubReleaseAsset?>(null) }
     var extraModSide by remember { mutableStateOf(Mod.Side.BOTH) }
-    var showRemoteModOverlay by remember { mutableStateOf(false) }
-    var remoteModOverlayStack by remember { mutableStateOf<List<CatalogMod>>(emptyList()) }
-    var privateThingsSubTab by remember { mutableStateOf(0) }
-    var selectedExtraModKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
     var disabledMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
-    var selectAllModListMods by remember { mutableStateOf(false) }
-    var selectedModListKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var selectAllDisabledMods by remember { mutableStateOf(false) }
-    var selectedDisabledModKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var removeExtraModConfirm by remember { mutableStateOf<Mod?>(null) }
-    var hydratedExtraUiMods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
-    var extraModsLoadVersion by remember { mutableStateOf(0) }
-
-    val memberTabIndex = 0
-    val extraModsTabIndex = 1
-    val consoleTabIndex = 2
-    val configTabIndex = 3
+    var removeExtraModsConfirm by remember { mutableStateOf<List<Mod>?>(null) }
+    val mainTabs = remember {
+        HostInfoTab.entries.map { TitleTabItem(it, it.icon, it.label) }
+    }
 
     fun resetAddExtraModAdvancedDialog() {
         addExtraModLoading = false
@@ -189,37 +155,8 @@ fun HostInfoScreen(
         extraModSide = Mod.Side.BOTH
     }
 
-    fun refreshExtraMods(rawMods: List<Mod>, currentHostId: ObjectId?) {
-        val loadVersion = extraModsLoadVersion + 1
-        extraModsLoadVersion = loadVersion
-        hydratedExtraUiMods = emptyList()
-        extraModsLoading = rawMods.isNotEmpty()
-        if (rawMods.isEmpty()) return
-        if (currentHostId == null) {
-            extraModsLoading = false
-            return
-        }
-        scope.launch {
-            try {
-                val hydratedUiMods = withContext(Dispatchers.IO) {
-                    runCatching { rawMods.hydrateToUiMods() }
-                        .getOrDefault(rawMods.toUiMods())
-                }
-                if (hostDetail?._id == currentHostId && extraModsLoadVersion == loadVersion) {
-                    hydratedExtraUiMods = hydratedUiMods
-                }
-            } finally {
-                if (hostDetail?._id == currentHostId && extraModsLoadVersion == loadVersion) {
-                    extraModsLoading = false
-                }
-            }
-        }
-    }
-
     fun applyExtraMods(updatedMods: List<Mod>) {
-        val currentHostId = hostDetail?._id
         hostDetail = hostDetail?.copy(extraMods = updatedMods)
-        refreshExtraMods(updatedMods, currentHostId)
     }
 
     fun applyDisabledMods(updatedMods: List<Mod>) {
@@ -240,7 +177,6 @@ fun HostInfoScreen(
                     return@rdiRequest
                 }
                 hostDetail = detail
-                refreshExtraMods(detail.extraMods, detail._id)
                 applyDisabledMods(detail.disabledMods)
                 scope.rdiRequest<Modpack.DetailVo>(
                     path = "modpack/${detail.modpack.id}",
@@ -262,18 +198,8 @@ fun HostInfoScreen(
     }
 
     LaunchedEffect(hostId) {
-        privateThingsSubTab = 0
-        hydratedExtraUiMods = emptyList()
-        selectedExtraModKeys = emptySet()
         disabledMods = emptyList()
-        selectedModListKeys = emptySet()
-        selectedDisabledModKeys = emptySet()
         reload()
-    }
-    LaunchedEffect(selectedTab) {
-        if (selectedTab > configTabIndex) {
-            selectedTab = memberTabIndex
-        }
     }
     LaunchedEffect(okMessage) {
         okMessage?.let {
@@ -288,11 +214,6 @@ fun HostInfoScreen(
     val canManageExtraMods = meAdmin || meOwner
     val canManageConfigFiles = meAdmin || meOwner
     val extraMods = host?.extraMods.orEmpty()
-    val extraUiMods = when {
-        hydratedExtraUiMods.isNotEmpty() -> hydratedExtraUiMods
-        extraMods.isNotEmpty() -> extraMods.toUiMods()
-        else -> emptyList()
-    }
     val baseVersionMods = modpackDetail?.versions
         ?.firstOrNull { it.name == host?.packVer }
         ?.mods
@@ -394,41 +315,8 @@ fun HostInfoScreen(
         }
     }
 
-    LaunchedEffect(extraMods) {
-        val currentKeys = extraMods.map(::extraModKey).toSet()
-        selectedExtraModKeys = selectedExtraModKeys.intersect(currentKeys)
-    }
-
-    LaunchedEffect(extraMods, selectedExtraModKeys) {
-        selectAllExtraMods = extraMods.isNotEmpty() && selectedExtraModKeys.size == extraMods.size
-    }
-
-    LaunchedEffect(baseVersionMods) {
-        val currentKeys = baseVersionMods.map(::extraModKey).toSet()
-        selectedModListKeys = selectedModListKeys.intersect(currentKeys)
-    }
-
-    LaunchedEffect(baseVersionMods, selectedModListKeys) {
-        selectAllModListMods = baseVersionMods.isNotEmpty() && selectedModListKeys.size == baseVersionMods.size
-    }
-
-    LaunchedEffect(disabledMods) {
-        val currentKeys = disabledMods.map(::extraModKey).toSet()
-        selectedDisabledModKeys = selectedDisabledModKeys.intersect(currentKeys)
-    }
-
-    LaunchedEffect(disabledMods, selectedDisabledModKeys) {
-        selectAllDisabledMods = disabledMods.isNotEmpty() && selectedDisabledModKeys.size == disabledMods.size
-    }
-
-    LaunchedEffect(hasTacz, privateThingsSubTab) {
-        if (!hasTacz && privateThingsSubTab == PRIVATE_THINGS_TACZ_TAB_INDEX) {
-            privateThingsSubTab = 0
-        }
-    }
-
     DisposableEffect(selectedTab, hostId) {
-        if (selectedTab != consoleTabIndex) {
+        if (selectedTab != HostInfoTab.Info) {
             onDispose { }
         } else {
             consoleState.clear()
@@ -445,12 +333,7 @@ fun HostInfoScreen(
                         return@sse
                     }
                     val payload = event.data?.ifBlank { null } ?: return@sse
-                    scope.launch {
-                        payload.lineSequence()
-                            .map { it.trimEnd('\r') }
-                            .filter { it.isNotBlank() }
-                            .forEach { consoleState.append(it) }
-                    }
+                    consoleState.append(payload)
                 },
                 onError = { throwable ->
                     errorMessage = "读取日志错误: ${throwable.message}"
@@ -491,7 +374,6 @@ fun HostInfoScreen(
                 is StartPlayResult.NeedMod -> {
                     errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先前往模组界面添加。"
                     startPlayLoading = false
-                  //  onOpenResourceMods(host.modpack.mcVer)
                 }
                 is StartPlayResult.NeedInstall -> {
                     installConfirmTask = args
@@ -516,24 +398,19 @@ fun HostInfoScreen(
         ScreenContentSurface(size = ScreenContentSize.LARGE) {
             TitleRow(title = host?.name ?: "房间详情", onBack = onBack) {
                 host?.let { host ->
-
                     Column {
-
-                        TinyClickCopyText("hid", hostId.toHexString()) {
-                            okMessage = "已复制hid"
-                        }
-                        TinyClickCopyText("mid", host.modpack.id.toHexString()) {
-                            okMessage = "已复制mid"
-                        }
-                        TinyClickCopyText("wid", host.worldId?.toHexString()) {
-                            okMessage = "已复制wid"
-                        }
+                        TinyClickCopyText("hid", host._id.toHexString())
+                        TinyClickCopyText("mid", host.modpack.id.toHexString())
+                        TinyClickCopyText("wid", host.worldId?.toHexString())
                     }
-                    HeadButton(host.ownerId)
+                    TitleTabBar(
+                        items = mainTabs,
+                        selected = selectedTab,
+                        onSelect = { selectedTab = it }
+                    )
                     CircleIconButton(
                         icon = "\uF04B",
-                        tooltip = "开始",
-                        bgColor = MaterialColor.GREEN_900.color,
+                        tooltip = "开玩",
                         enabled = !startPlayLoading,
                     ) {
                         startPlay(host)
@@ -549,7 +426,8 @@ fun HostInfoScreen(
                         CircleIconButton(
                             icon = "\uF013",
                             tooltip = "设置",
-                            bgColor = MaterialColor.YELLOW_900.color
+                            showText = false,
+                            bgColor = MaterialTheme.colorScheme.secondary
                         ) {
                             onOpenHostEdit(host)
                         }
@@ -557,7 +435,8 @@ fun HostInfoScreen(
 
                             CircleIconButton(
                                 icon = "\uDB80\uDFD5",
-                                tooltip = "更新"
+                                tooltip = "更新",
+                                showText = false,
                             ) { showUpdateConfirm = true }
                         }
                     }
@@ -566,7 +445,8 @@ fun HostInfoScreen(
                         CircleIconButton(
                             icon = "\uEA81",
                             tooltip = "删除",
-                            bgColor = MaterialColor.RED_900.color
+                            showText = false,
+                            bgColor = MaterialTheme.colorScheme.error
                         ) {
                             deleteWorldWhenDeleteHost = false
                             showDeleteConfirm = true
@@ -595,480 +475,61 @@ fun HostInfoScreen(
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        val hostInfoSection = @Composable {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val difficultyText = when (host.difficulty) {
-                                    0 -> "和平"
-                                    1 -> "简单"
-                                    2 -> "普通"
-                                    3 -> "困难"
-                                    else -> host.difficulty.toString()
-                                }
-                                val gameModeText = when (host.gameMode) {
-                                    0 -> "生存"
-                                    1 -> "创造"
-                                    2 -> "冒险"
-                                    3 -> "旁观"
-                                    else -> host.gameMode.toString()
-                                }
-                                Text("难度：$difficultyText")
-                                Text("游戏模式：$gameModeText")
-                                Text("世界类型：${host.levelType}")
-                                Text("白名单：${if (host.whitelist) "开启" else "关闭"}")
-                                Text("允许作弊：${if (host.allowCheats) "开启" else "关闭"}")
-                                if (host.gameRules.isNotEmpty()) {
-                                    Text("游戏规则覆盖：")
-                                    host.gameRules.entries
-                                        .sortedBy { it.key }
-                                        .forEach { (rule, value) ->
-                                            Text(" - $rule = $value")
-                                        }
-                                } else {
-                                    Text("游戏规则覆盖：无")
-                                }
-                            }
-                        }
-
-                        val tabs = listOf(
-                            "\uEF69 信息",
-                            "\uF02D 私货",
-                            "\uDB80\uDD8D 后台",
-                            "\uE5FC 配置"
-                        )
-                        PrimaryTabRow(
-                            selectedTabIndex = selectedTab,
-                            containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        ) {
-                            tabs.forEachIndexed { index, title ->
-                                Tab(
-                                    modifier = Modifier.padding(0.dp),
-                                    selected = selectedTab == index,
-                                    onClick = { selectedTab = index },
-                                    text = {
-                                        Text(
-                                            text = title.asIconText,
-                                            maxLines = 1,
-                                            softWrap = false,
-                                            overflow = TextOverflow.Clip,
-                                            letterSpacing = TextUnit(0f, TextUnitType.Sp)
-                                        )
-                                    }
+                        key(hostId) {
+                            KeepAliveAnimatedTabHost(
+                                selected = selectedTab,
+                                order = HostInfoTab.entries::indexOf,
+                                modifier = Modifier.fillMaxSize()
+                            ) { activeTab ->
+                                when (activeTab) {
+                                HostInfoTab.Info -> HostOverviewPane(
+                                    host = host,
+                                    hostId = hostId,
+                                    consoleState = consoleState,
+                                    meAdmin = meAdmin,
+                                    meOwner = meOwner,
+                                    onOpenModpackInfo = onOpenModpackInfo,
+                                    onInvite = { showInviteDialog = true },
+                                    onTransfer = { transferConfirm = it },
+                                    onChangeRole = { memberId, role ->
+                                        roleChangeConfirm = RoleChange(memberId, role)
+                                    },
+                                    onKick = { kickConfirm = it },
+                                    onQuit = { quitConfirm = true },
+                                    onOk = { okMessage = it },
+                                    onError = { errorMessage = it }
                                 )
-                            }
-                        }
 
-                        when (selectedTab) {
-                            0 -> {
-                                val meMember = host.members.any { it.id == loggedAccount._id }
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    item {
-                                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                                            val infoColumn = @Composable {
-                                                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                                    Text("整合包：${host.modpack.name} ${host.packVer}".asIconText)
-                                                    FlowRowV {
-                                                        Text("在线人数：${host.onlinePlayerIds.size}人")
-                                                        Space8w()
-                                                        host.onlinePlayerIds.forEach {
-                                                            HeadButton(it)
-                                                        }
-                                                    }
-                                                    Row {
-                                                        Text("创建时间：${host._id.timestamp.secondsToHumanDateTime}".asIconText)
-                                                    }
-                                                }
-                                            }
-                                            val modpackCard = @Composable {
-                                                host.modpack.ModpackCard(
-                                                    modifier = Modifier.width(300.dp),
-                                                    onClick = { onOpenModpackInfo?.invoke(host.modpack.id.toHexString()) }
-                                                )
-                                            }
-                                            val compactLayout = maxWidth < 760.dp
-                                            if (compactLayout) {
-                                                Column(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                                ) {
-                                                    infoColumn()
-                                                    modpackDetail?.let {
-                                                        Row(
-                                                            modifier = Modifier.fillMaxWidth(),
-                                                            horizontalArrangement = Arrangement.End
-                                                        ) {
-                                                            modpackCard()
-                                                        }
-                                                    }
-                                                }
-                                            } else {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.Top
-                                                ) {
-                                                    infoColumn()
-                                                    modpackDetail?.let {
-                                                        modpackCard()
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        hostInfoSection()
-                                    }
-                                    item {
-                                        Divider(
-                                            modifier = Modifier.padding(vertical = 8.dp),
-                                            color = MaterialColor.GRAY_300.color
-                                        )
-                                        Space8h()
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Text("受邀成员：")
-                                            if (meAdmin) {
-                                                CircleIconButton(
-                                                    icon = "\uF067",
-                                                    tooltip = "邀请成员",
-                                                    size = 20,
-                                                    bgColor = MaterialColor.PURPLE_700.color,
-                                                    contentPadding = PaddingValues(0.dp)
-                                                ) {
-                                                    showInviteDialog = true
-                                                }
-                                            }
-                                        }
-                                        Space8h()
-                                    }
-                                    items(
-                                        items = host.members,
-                                        key = { member -> member.id }
-                                    ) { member ->
-                                        val memberColor = when (member.role) {
-                                            Role.OWNER -> MaterialColor.YELLOW_900.color
-                                            Role.ADMIN -> Color(0xFFC0C0C0)
-                                            Role.MEMBER -> Color(0xFFCD7F32)
-                                            else -> Color.White
-                                        }
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                HeadButton(
-                                                    uid = member.id,
-                                                    avatarSize = 28.dp,
-                                                    showName = true
-                                                )
-                                                Space8w()
-                                                Box(
-                                                    modifier = Modifier
-                                                        .background(memberColor, RoundedCornerShape(8.dp))
-                                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = when (member.role) {
-                                                            Role.OWNER -> "所有者"
-                                                            Role.ADMIN -> "管理员"
-                                                            Role.MEMBER -> "成员"
-                                                            else -> ""
-                                                        },
-                                                        fontSize = 12.sp,
-                                                        color = Color.White
-                                                    )
-                                                }
-                                            }
-                                            Spacer(modifier = Modifier.weight(1f))
-                                            FlowRowV {
-                                                if (meOwner && member.role != Role.OWNER) {
-                                                    CircleIconButton(
-                                                        "\uDB81\uDEAE", "转让",
-                                                        showText = false
-                                                    ) {
-                                                        transferConfirm = member.id
-                                                    }
-                                                }
-                                                if (meOwner && member.role != Role.OWNER) {
-                                                    Space8w()
-                                                    val newRole =
-                                                        if (member.role == Role.ADMIN) Role.MEMBER else Role.ADMIN
-                                                    CircleIconButton(
-                                                        "\uEFA6",
-                                                        if (member.role == Role.ADMIN) "取消管理员" else "设为管理员",
-                                                        showText = false, bgColor = MaterialColor.TEAL_900.color
-                                                    ) {
-                                                        roleChangeConfirm = RoleChange(member.id, newRole)
-                                                    }
-                                                }
-                                                if (meAdmin && member.role != Role.OWNER) {
-                                                    Space8w()
-                                                    CircleIconButton(
-                                                        "\uF2FE",
-                                                        "踢出",
-                                                        bgColor = MaterialColor.RED_900.color,
-                                                        showText = false
-                                                    ) { kickConfirm = member.id }
+                                HostInfoTab.PrivateThings -> HostPrivateThingsPane(
+                                    modCatalog = modCatalog,
+                                    hostId = hostId,
+                                    extraMods = extraMods,
+                                    baseVersionMods = baseVersionMods,
+                                    disabledMods = disabledMods,
+                                    hasTacz = hasTacz,
+                                    canManage = canManageExtraMods,
+                                    addExtraModLoading = addExtraModLoading,
+                                    addExtraModLoadingText = addExtraModLoadingText,
+                                    onDisabledModsChanged = ::applyDisabledMods,
+                                    onRemoveExtraMods = { removeExtraModsConfirm = it },
+                                    onOpenResourceMods = {
+                                        onOpenResourceMods(host.modpack.mcVer, host.modpack.modloader)
+                                    },
+                                    onAddExtraModAdvanced = {
+                                        resetAddExtraModAdvancedDialog()
+                                        showAddExtraModAdvancedDialog = true
+                                    },
+                                    onOk = { okMessage = it },
+                                    onError = { errorMessage = it },
+                                    onOpenTaskList = onOpenTaskList
+                                )
 
-                                                }
-                                            }
-                                        }
-                                    }
-                                    item {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            if (meMember && !meOwner) {
-                                                TextButton(onClick = { quitConfirm = true }) {
-                                                    Text("退出受邀成员列表", color = MaterialColor.RED_900.color)
-                                                }
-                                            }
-                                        }
-                                    }
+                                HostInfoTab.Config -> HostConfigPane(
+                                    hostId = hostId,
+                                    canManage = canManageConfigFiles
+                                )
                                 }
                             }
-
-                            extraModsTabIndex -> {
-                                val selectedExtraMods =
-                                    extraMods.filter { extraModKey(it) in selectedExtraModKeys }
-                                val selectedModListMods =
-                                    baseVersionMods.filter { extraModKey(it) in selectedModListKeys }
-                                val selectedDisabledMods =
-                                    disabledMods.filter { extraModKey(it) in selectedDisabledModKeys }
-                                val selectedPrivateThingsSubTab = when {
-                                    privateThingsSubTab == PRIVATE_THINGS_TACZ_TAB_INDEX && hasTacz -> PRIVATE_THINGS_TACZ_TAB_INDEX
-                                    privateThingsSubTab in 0..2 -> privateThingsSubTab
-                                    else -> 0
-                                }
-                                Column(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    SecondaryTabRow(
-                                        selectedTabIndex = selectedPrivateThingsSubTab,
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                                    ) {
-                                        Tab(
-                                            selected = selectedPrivateThingsSubTab == 0,
-                                            onClick = { privateThingsSubTab = 0 },
-                                            text = { Text("附加mod") }
-                                        )
-                                        Tab(
-                                            selected = selectedPrivateThingsSubTab == 1,
-                                            onClick = { privateThingsSubTab = 1 },
-                                            text = { Text("mod总表") }
-                                        )
-                                        Tab(
-                                            selected = selectedPrivateThingsSubTab == 2,
-                                            onClick = { privateThingsSubTab = 2 },
-                                            text = { Text("已停用的mod") }
-                                        )
-                                        if (hasTacz) {
-                                            Tab(
-                                                selected = selectedPrivateThingsSubTab == PRIVATE_THINGS_TACZ_TAB_INDEX,
-                                                onClick = { privateThingsSubTab = PRIVATE_THINGS_TACZ_TAB_INDEX },
-                                                text = { Text("TaCZ枪包") }
-                                            )
-                                        }
-                                    }
-                                    when (selectedPrivateThingsSubTab) {
-                                        0 -> HostExtraModsPane(
-                                            extraUiMods = extraUiMods,
-                                            selectedExtraMods = selectedExtraMods,
-                                            selectedExtraModKeys = selectedExtraModKeys,
-                                            selectAllExtraMods = selectAllExtraMods,
-                                            extraModsLoading = extraModsLoading,
-                                            canManageExtraMods = canManageExtraMods,
-                                            addExtraModLoading = addExtraModLoading,
-                                            addExtraModLoadingText = addExtraModLoadingText,
-                                            onToggleSelectAll = {
-                                                selectAllExtraMods = it
-                                                selectedExtraModKeys =
-                                                    if (it) extraMods.map(::extraModKey).toSet() else emptySet()
-                                            },
-                                            onToggleSelected = { mod, selected ->
-                                                val key = extraModKey(mod)
-                                                selectedExtraModKeys = if (selected) {
-                                                    selectedExtraModKeys + key
-                                                } else {
-                                                    selectedExtraModKeys - key
-                                                }
-                                            },
-                                            onDownloadSelected = {
-                                                val runId = ClientTaskManager.submit(
-                                                    ModService.downloadModsTask2(selectedExtraMods)
-                                                )
-                                                if (onOpenTaskList != null) {
-                                                    onOpenTaskList(runId)
-                                                } else {
-                                                    okMessage = "已加入任务列表"
-                                                }
-                                            },
-                                            onRemoveSelected = {
-                                                removeExtraModConfirm = selectedExtraMods.firstOrNull()
-                                            },
-                                            onOpenResourceMods = {
-                                                remoteModOverlayStack = emptyList()
-                                                showRemoteModOverlay = true
-                                            },
-                                            onAddExtraModAdvanced = {
-                                                resetAddExtraModAdvancedDialog()
-                                                showAddExtraModAdvancedDialog = true
-                                            }
-                                        )
-
-                                        1 -> HostModListPane(
-                                            baseVersionMods = baseVersionMods,
-                                            selectedModListMods = selectedModListMods,
-                                            selectedModListKeys = selectedModListKeys,
-                                            selectAllModListMods = selectAllModListMods,
-                                            onToggleSelectAll = {
-                                                selectAllModListMods = it
-                                                selectedModListKeys = if (it) {
-                                                    baseVersionMods.map(::extraModKey).toSet()
-                                                } else {
-                                                    emptySet()
-                                                }
-                                            },
-                                            onToggleSelected = { mod, selected ->
-                                                val key = extraModKey(mod)
-                                                selectedModListKeys = if (selected) {
-                                                    selectedModListKeys + key
-                                                } else {
-                                                    selectedModListKeys - key
-                                                }
-                                            },
-                                            onDisableSelected = {
-                                                scope.rdiRequest<List<Mod>>(
-                                                    path = "host/$hostId/mods/disabled",
-                                                    method = HttpMethod.Post,
-                                                    body = serdesJson.encodeToString(selectedModListMods),
-                                                    onOk = { response ->
-                                                        applyDisabledMods(response.data ?: emptyList())
-                                                        selectedModListKeys = emptySet()
-                                                        okMessage = "已停用选中的mod，重启房间后生效"
-                                                    },
-                                                    onErr = { errorMessage = it.message ?: "停用mod失败" }
-                                                )
-                                            }
-                                        )
-
-                                        2 -> HostDisabledModsPane(
-                                            disabledMods = disabledMods,
-                                            selectedDisabledMods = selectedDisabledMods,
-                                            selectedDisabledModKeys = selectedDisabledModKeys,
-                                            selectAllDisabledMods = selectAllDisabledMods,
-                                            onToggleSelectAll = {
-                                                selectAllDisabledMods = it
-                                                selectedDisabledModKeys = if (it) {
-                                                    disabledMods.map(::extraModKey).toSet()
-                                                } else {
-                                                    emptySet()
-                                                }
-                                            },
-                                            onToggleSelected = { mod, selected ->
-                                                val key = extraModKey(mod)
-                                                selectedDisabledModKeys = if (selected) {
-                                                    selectedDisabledModKeys + key
-                                                } else {
-                                                    selectedDisabledModKeys - key
-                                                }
-                                            },
-                                            onEnableSelected = {
-                                                scope.rdiRequest<List<Mod>>(
-                                                    path = "host/$hostId/mods/disabled",
-                                                    method = HttpMethod.Delete,
-                                                    body = serdesJson.encodeToString(selectedDisabledMods),
-                                                    onOk = { response ->
-                                                        applyDisabledMods(response.data ?: emptyList())
-                                                        selectedDisabledModKeys = emptySet()
-                                                        okMessage = "已恢复选中的mod，重启房间后生效"
-                                                    },
-                                                    onErr = { errorMessage = it.message ?: "启用mod失败" }
-                                                )
-                                            }
-                                        )
-
-                                        PRIVATE_THINGS_TACZ_TAB_INDEX -> HostTaczPackPane(
-                                            hostId = hostId,
-                                            canManage = canManageExtraMods,
-                                            onOk = { okMessage = it },
-                                            onError = { errorMessage = it },
-                                            onOpenTaskList = onOpenTaskList
-                                        )
-
-                                        else -> {}
-                                    }
-                                }
-                            }
-
-                            consoleTabIndex -> {
-                                Box(modifier = Modifier.fillMaxSize()) {
-                                    Console(state = consoleState, modifier = Modifier.fillMaxSize())
-                                    Column(
-                                        modifier = Modifier
-                                            .align(Alignment.BottomEnd)
-                                            .padding(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        horizontalAlignment = Alignment.End
-                                    ) {
-                                        CircleIconButton(
-                                            icon = "\uF04B",
-                                            tooltip = "启动",
-                                            bgColor = MaterialColor.GREEN_900.color,
-                                            showText = false
-                                        ) {
-                                            scope.rdiRequestU(
-                                                path = "host/$hostId/start",
-                                                method = HttpMethod.Post,
-                                                onOk = { okMessage = "启动指令已发送" },
-                                                onErr = { errorMessage = it.message ?: "启动失败" }
-                                            )
-                                        }
-                                        if (meAdmin || meOwner) {
-                                            CircleIconButton(
-                                                icon = "\uF120",
-                                                tooltip = "发送命令",
-                                                bgColor = MaterialColor.TEAL_900.color,
-                                                showText = false
-                                            ) {
-                                                hostCommandResult = null
-                                                showCommandDialog = true
-                                            }
-                                        }
-                                        CircleIconButton(
-                                            icon = "\uF01E",
-                                            tooltip = "重启",
-                                            bgColor = MaterialTheme.colorScheme.primary,
-                                            showText = false
-                                        ) {
-                                            restartConfirm = true
-                                        }
-                                        CircleIconButton(
-                                            icon = "\uF04D",
-                                            tooltip = "停止",
-                                            bgColor = MaterialColor.RED_700.color,
-                                            showText = false
-                                        ) {
-                                            stopConfirm = true
-                                        }
-                                        CircleIconButton(
-                                            icon = "\uF05E",
-                                            tooltip = "强制停止",
-                                            bgColor = MaterialColor.RED_900.color,
-                                            showText = false
-                                        ) {
-                                            forceStopConfirm = true
-                                        }
-                                    }
-                                }
-                            }
-
-                            configTabIndex -> {
-                                if (!canManageConfigFiles) {
-                                    Text("仅房间管理员可编辑配置文件", color = MaterialColor.GRAY_700.color)
-                                } else {
-                                    HostFileExplorer(hostId = hostId)
-                                }
-                            }
-
                         }
                     }
                 }
@@ -1148,7 +609,7 @@ fun HostInfoScreen(
     if (showUpdateConfirm && modpackDetail != null) {
         ConfirmDialog(
             title = "确认更新",
-            message = "将更新房间当前的整合包《${modpackDetail!!.name}》到最新版本。",
+            message = "将更新房间当前的整合包《${modpackDetail!!.name}》到最新版本。所有修改过的配置都会丢失。",
             onConfirm = {
                 scope.rdiRequestU(
                     path = "host/$hostId/update",
@@ -1206,154 +667,6 @@ fun HostInfoScreen(
                 }
             }
         )
-    }
-
-    if (showCommandDialog) {
-        val normalizedCommand = hostCommand.trim().removePrefix("/")
-        AlertDialog(
-            onDismissRequest = {
-                if (!hostCommandSending) {
-                    showCommandDialog = false
-                }
-            },
-            title = { Text("发送服务器命令") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("命令会以服务器控制台身份执行，不需要输入开头的/")
-                    OutlinedTextField(
-                        value = hostCommand,
-                        onValueChange = {
-                            hostCommand = it
-                            hostCommandResult = null
-                        },
-                        enabled = !hostCommandSending,
-                        singleLine = true,
-                        label = { Text("命令") },
-                        placeholder = { Text("say hello") },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    hostCommandResult?.let { result ->
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("命令返回：")
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color(0xFF1B1D1F), RoundedCornerShape(8.dp))
-                                    .padding(12.dp)
-                            ) {
-                                Text(
-                                    text = result,
-                                    color = Color(0xFFE0E0E0),
-                                    fontSize = 14.sp
-                                )
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    enabled = normalizedCommand.isNotBlank() && !hostCommandSending,
-                    onClick = {
-                        hostCommandSending = true
-                        hostCommandResult = null
-                        scope.rdiRequest<String>(
-                            path = "host/$hostId/command",
-                            method = HttpMethod.Post,
-                            params = mapOf("command" to normalizedCommand),
-                            onOk = { response ->
-                                hostCommandResult = response.data?.ifBlank { "OK" } ?: "OK"
-                                okMessage = "命令已执行"
-                            },
-                            onErr = { errorMessage = it.message ?: "发送命令失败" },
-                            onDone = { hostCommandSending = false }
-                        )
-                    }
-                ) {
-                    Text(if (hostCommandSending) "发送中..." else "发送")
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    enabled = !hostCommandSending,
-                    onClick = { showCommandDialog = false }
-                ) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-
-    if (showRemoteModOverlay && host != null) {
-        Dialog(
-            onDismissRequest = {
-                remoteModOverlayStack = emptyList()
-                showRemoteModOverlay = false
-            },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(0.8f)
-                    .fillMaxHeight(0.8f),
-                shape = RoundedCornerShape(20.dp),
-                color = Color.White
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(18.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = "附加Mod",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = "MC${host.modpack.mcVer.mcVer}",
-                            color = MaterialColor.GRAY_700.color
-                        )
-                        CircleIconButton(
-                            icon = "\uF00D",
-                            tooltip = "关闭",
-                            showText = false,
-                            bgColor = MaterialColor.GRAY_200.color,
-                            iconColor = MaterialColor.GRAY_900.color
-                        ) {
-                            remoteModOverlayStack = emptyList()
-                            showRemoteModOverlay = false
-                        }
-                    }
-                    val currentRemoteMod = remoteModOverlayStack.lastOrNull()
-                    if (currentRemoteMod == null) {
-                        RemoteModScreen(
-                            catalog = modCatalog,
-                            requiredMcVer = host.modpack.mcVer,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f),
-                            onOpenMod = { remoteModOverlayStack = remoteModOverlayStack + it }
-                        )
-                    } else {
-                        RemoteModInfoScreen(
-                            catalog = modCatalog,
-                            mod = currentRemoteMod,
-                            onBack = { remoteModOverlayStack = remoteModOverlayStack.dropLast(1) },
-                            onOpenDependencyMod = { remoteModOverlayStack = remoteModOverlayStack + it },
-                            targetHostId = hostId,
-                            targetHostMcVer = host.modpack.mcVer
-                        )
-                    }
-                }
-            }
-        }
     }
 
     if (showAddExtraModAdvancedDialog) {
@@ -1650,19 +963,15 @@ fun HostInfoScreen(
 
     // options dialog removed
 
-    removeExtraModConfirm?.let { mod ->
-        val selectedProjectIds = extraMods
-            .filter { extraModKey(it) in selectedExtraModKeys }
-            .map { it.projectId }
-            .distinct()
-        val targetProjectIds = selectedProjectIds.ifEmpty { listOf(mod.projectId) }
+    removeExtraModsConfirm?.let { mods ->
+        val targetProjectIds = mods.map { it.projectId }.distinct()
         val removeCount = targetProjectIds.size
         ConfirmDialog(
             title = "删除附加Mod",
             message = if (removeCount > 1) {
                 "确定删除已选择的${removeCount}个附加Mod吗？"
             } else {
-                "确定删除附加Mod《${mod.displaySlugOrProject}》吗？"
+                "确定删除附加Mod《${mods.single().displaySlugOrProject}》吗？"
             },
             onConfirm = {
                 scope.rdiRequest<List<Mod>>(
@@ -1671,14 +980,13 @@ fun HostInfoScreen(
                     body = serdesJson.encodeToString(targetProjectIds),
                     onOk = { response ->
                         applyExtraMods(response.data ?: emptyList())
-                        selectedExtraModKeys = emptySet()
                         okMessage = "已删除附加Mod"
                     },
                     onErr = { errorMessage = it.message ?: "删除附加Mod失败" }
                 )
-                removeExtraModConfirm = null
+                removeExtraModsConfirm = null
             },
-            onDismiss = { removeExtraModConfirm = null }
+            onDismiss = { removeExtraModsConfirm = null }
         )
     }
 
@@ -1743,57 +1051,6 @@ fun HostInfoScreen(
         )
     }
 
-    if (restartConfirm) {
-        ConfirmDialog(
-            title = "确认重启",
-            message = "确定重启该房间吗？",
-            onConfirm = {
-                scope.rdiRequestU(
-                    path = "host/$hostId/restart",
-                    method = HttpMethod.Post,
-                    onOk = { okMessage = "重启指令已发送" },
-                    onErr = { errorMessage = it.message ?: "重启失败" }
-                )
-                restartConfirm = false
-            },
-            onDismiss = { restartConfirm = false }
-        )
-    }
-
-    if (stopConfirm) {
-        ConfirmDialog(
-            title = "确认停止",
-            message = "确定停止该房间吗？",
-            onConfirm = {
-                scope.rdiRequestU(
-                    path = "host/$hostId/stop",
-                    method = HttpMethod.Post,
-                    onOk = { okMessage = "停止指令已发送" },
-                    onErr = { errorMessage = it.message ?: "停止失败" }
-                )
-                stopConfirm = false
-            },
-            onDismiss = { stopConfirm = false }
-        )
-    }
-
-    if (forceStopConfirm) {
-        ConfirmDialog(
-            title = "确认强制停止",
-            message = "确定强制停止该房间吗？",
-            onConfirm = {
-                scope.rdiRequestU(
-                    path = "host/$hostId/force-stop",
-                    method = HttpMethod.Post,
-                    onOk = { okMessage = "强制停止指令已发送" },
-                    onErr = { errorMessage = it.message ?: "强制停止失败" }
-                )
-                forceStopConfirm = false
-            },
-            onDismiss = { forceStopConfirm = false }
-        )
-    }
-
     if (quitConfirm) {
         ConfirmDialog(
             title = "退出房间",
@@ -1816,532 +1073,12 @@ fun HostInfoScreen(
 }
 
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun HostExtraModsPane(
-    extraUiMods: List<UiMod>,
-    selectedExtraMods: List<Mod>,
-    selectedExtraModKeys: Set<String>,
-    selectAllExtraMods: Boolean,
-    extraModsLoading: Boolean,
-    canManageExtraMods: Boolean,
-    addExtraModLoading: Boolean,
-    addExtraModLoadingText: String,
-    onToggleSelectAll: (Boolean) -> Unit,
-    onToggleSelected: (Mod, Boolean) -> Unit,
-    onDownloadSelected: () -> Unit,
-    onRemoveSelected: () -> Unit,
-    onOpenResourceMods: () -> Unit,
-    onAddExtraModAdvanced: () -> Unit
-) {
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val compactToolbar = maxWidth < 560.dp
-        val actionRow: @Composable () -> Unit = {
-            var addExtraModShiftPressed by remember { mutableStateOf(false) }
-            FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "已选择${selectedExtraMods.size}个",
-                    color = MaterialColor.GRAY_700.color
-                )
-                Checkbox(selectAllExtraMods, onCheckedChange = { onToggleSelectAll(it) })
-                Text("全选")
-                CircleIconButton(
-                    icon = "\uF019",
-                    tooltip = "下载",
-                    enabled = selectedExtraMods.isNotEmpty(),
-                    bgColor = MaterialColor.GREEN_900.color,
-                ) {
-                    onDownloadSelected()
-                }
-                if (canManageExtraMods) {
-                    CircleIconButton(
-                        icon = "\uEA81",
-                        tooltip = "删除",
-                        enabled = selectedExtraMods.isNotEmpty(),
-                        bgColor = MaterialColor.RED_900.color,
-                    ) {
-                        onRemoveSelected()
-                    }
-                    Box(
-                        modifier = Modifier.pointerInput(Unit) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    addExtraModShiftPressed = awaitPointerEvent().keyboardModifiers.isShiftPressed
-                                }
-                            }
-                        }
-                    ) {
-                        CircleIconButton(
-                            icon = "\uF067",
-                            tooltip = if (addExtraModLoading) {
-                                addExtraModLoadingText.ifBlank { "匹配中..." }
-                            } else {
-                                "附加Mod"
-                            },
-                            enabled = !addExtraModLoading,
-                            bgColor = MaterialColor.PURPLE_700.color,
-                        ) {
-                            if (addExtraModShiftPressed) {
-                                onAddExtraModAdvanced()
-                            } else {
-                                onOpenResourceMods()
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (compactToolbar) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "可以在整合包之外再添加更多Mod。",
-                    color = MaterialColor.GRAY_700.color,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                actionRow()
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "可以在整合包之外再添加更多Mod。",
-                    color = MaterialColor.GRAY_700.color,
-                    modifier = Modifier.weight(1f)
-                )
-                actionRow()
-            }
-        }
-    }
-
-    if (extraModsLoading) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                CircularProgressIndicator()
-                Text("正在载入附加Mod信息...", color = MaterialColor.GRAY_700.color)
-            }
-        }
-    }
-
-    if (!extraModsLoading && extraUiMods.isEmpty()) {
-        Text("当前没有附加Mod", color = MaterialColor.GRAY_700.color)
-    } else if (!extraModsLoading) {
-        ModGrid(
-            mods = extraUiMods,
-            modifier = Modifier.fillMaxSize(),
-            selectedKeys = selectedExtraModKeys,
-            emptyText = "当前没有附加Mod",
-            onModClick = { uiMod ->
-                val selected = uiMod.key in selectedExtraModKeys
-                onToggleSelected(uiMod.mod, !selected)
-            }
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun HostModListPane(
-    baseVersionMods: List<Mod>,
-    selectedModListMods: List<Mod>,
-    selectedModListKeys: Set<String>,
-    selectAllModListMods: Boolean,
-    onToggleSelectAll: (Boolean) -> Unit,
-    onToggleSelected: (Mod, Boolean) -> Unit,
-    onDisableSelected: () -> Unit
-) {
-    val uiMods by produceState(initialValue = baseVersionMods.toUiMods(), baseVersionMods) {
-        value = if (baseVersionMods.isEmpty()) {
-            emptyList()
-        } else {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    baseVersionMods.hydrateToUiMods()
-                }
-            }.getOrDefault(baseVersionMods.toUiMods())
-        }
-    }
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val compactToolbar = maxWidth < 560.dp
-        val actionRow: @Composable () -> Unit = {
-            FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "已选择${selectedModListMods.size}个",
-                    color = MaterialColor.GRAY_700.color
-                )
-                Checkbox(selectAllModListMods, onCheckedChange = { onToggleSelectAll(it) })
-                Text("全选")
-                CircleIconButton(
-                    icon = "\uF2ED",
-                    tooltip = "停用选中的mod",
-                    enabled = selectedModListMods.isNotEmpty(),
-                    bgColor = MaterialColor.RED_900.color,
-                ) {
-                    onDisableSelected()
-                }
-            }
-        }
-
-        if (compactToolbar) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "可以停用整合包中的mod",
-                    color = MaterialColor.GRAY_700.color,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                actionRow()
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "可以停用整合包中的mod",
-                    color = MaterialColor.GRAY_700.color,
-                    modifier = Modifier.weight(1f)
-                )
-                actionRow()
-            }
-        }
-    }
-
-    if (baseVersionMods.isEmpty()) {
-        Text("当前整合包版本没有可显示的Mod", color = MaterialColor.GRAY_700.color)
-    } else {
-        ModGrid(
-            mods = uiMods,
-            modifier = Modifier.fillMaxSize(),
-            selectedKeys = selectedModListKeys,
-            emptyText = "当前整合包版本没有可显示的Mod",
-            onModClick = { uiMod ->
-                val selected = uiMod.key in selectedModListKeys
-                onToggleSelected(uiMod.mod, !selected)
-            }
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun HostDisabledModsPane(
-    disabledMods: List<Mod>,
-    selectedDisabledMods: List<Mod>,
-    selectedDisabledModKeys: Set<String>,
-    selectAllDisabledMods: Boolean,
-    onToggleSelectAll: (Boolean) -> Unit,
-    onToggleSelected: (Mod, Boolean) -> Unit,
-    onEnableSelected: () -> Unit
-) {
-    val uiMods by produceState(initialValue = disabledMods.toUiMods(), disabledMods) {
-        value = if (disabledMods.isEmpty()) {
-            emptyList()
-        } else {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    disabledMods.hydrateToUiMods()
-                }
-            }.getOrDefault(disabledMods.toUiMods())
-        }
-    }
-    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-        val compactToolbar = maxWidth < 560.dp
-        val actionRow: @Composable () -> Unit = {
-            FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = "已选择${selectedDisabledMods.size}个",
-                    color = MaterialColor.GRAY_700.color
-                )
-                Checkbox(selectAllDisabledMods, onCheckedChange = { onToggleSelectAll(it) })
-                Text("全选")
-                CircleIconButton(
-                    icon = "\uF0E2",
-                    tooltip = "启用选中的mod",
-                    enabled = selectedDisabledMods.isNotEmpty(),
-                    bgColor = MaterialColor.GREEN_900.color,
-                ) {
-                    onEnableSelected()
-                }
-            }
-        }
-
-        if (compactToolbar) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "可以重新启用已停用的mod",
-                    color = MaterialColor.GRAY_700.color,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                actionRow()
-            }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "可以重新启用已停用的mod",
-                    color = MaterialColor.GRAY_700.color,
-                    modifier = Modifier.weight(1f)
-                )
-                actionRow()
-            }
-        }
-    }
-
-    if (disabledMods.isEmpty()) {
-        Text("当前没有停用mod", color = MaterialColor.GRAY_700.color)
-    } else {
-        ModGrid(
-            mods = uiMods,
-            modifier = Modifier.fillMaxSize(),
-            selectedKeys = selectedDisabledModKeys,
-            emptyText = "当前没有停用mod",
-            onModClick = { uiMod ->
-                val selected = uiMod.key in selectedDisabledModKeys
-                onToggleSelected(uiMod.mod, !selected)
-            }
-        )
-    }
-}
 
 private data class RoleChange(
     val memberId: ObjectId,
     val newRole: Role
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun HostTaczPackPane(
-    hostId: ObjectId,
-    canManage: Boolean,
-    onOk: (String) -> Unit,
-    onError: (String) -> Unit,
-    onOpenTaskList: (String) -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    var files by remember(hostId) { mutableStateOf<List<Host.FileEntry>>(emptyList()) }
-    var loading by remember(hostId) { mutableStateOf(false) }
-    var deletingPath by remember(hostId) { mutableStateOf<String?>(null) }
-    var deleteConfirmFile by remember(hostId) { mutableStateOf<Host.FileEntry?>(null) }
-
-    fun loadFiles() {
-        loading = true
-        scope.rdiRequest<List<Host.FileEntry>>(
-            path = "host/$hostId/files",
-            params = mapOf("path" to TACZ_ROOT_DIR),
-            onOk = { response ->
-                files = response.data.orEmpty().filter { it.isTaczZipFileEntry() }
-            },
-            onErr = { onError(it.message ?: "读取TaCZ枪包失败") },
-            onDone = { loading = false }
-        )
-    }
-
-    fun uploadFiles() {
-        if (!canManage) return
-        val selectedFiles = selectHostTaczFiles() ?: return
-        val notZipFile = selectedFiles.firstOrNull { !it.extension.equals("zip", ignoreCase = true) }
-        if (notZipFile != null) {
-            onError("${notZipFile.name}不是zip文件，TaCZ枪包只允许上传zip")
-            return
-        }
-        if (selectedFiles.size > TACZ_MAX_ZIP_FILES) {
-            onError("TaCZ枪包最多只能上传${TACZ_MAX_ZIP_FILES}个zip文件")
-            return
-        }
-        val tooLargeFile = selectedFiles.firstOrNull { it.length() > TACZ_FILE_MAX_BYTES }
-        if (tooLargeFile != null) {
-            onError("${tooLargeFile.name}超过100MB，单个文件最大允许100MB")
-            return
-        }
-        val task = createHostTaczUploadTask(
-            hostId = hostId,
-            files = selectedFiles,
-            onUploaded = {
-                withContext(Dispatchers.Main) {
-                    onOk("已上传TaCZ枪包文件${selectedFiles.size}个")
-                    loadFiles()
-                }
-            }
-        )
-        val runId = ClientTaskManager.submit(task)
-        onOpenTaskList(runId)
-    }
-
-    fun deleteFile(file: Host.FileEntry) {
-        if (!canManage || deletingPath != null) return
-        deletingPath = file.path
-        scope.rdiRequestU(
-            path = "host/$hostId/files/file",
-            method = HttpMethod.Delete,
-            body = serdesJson.encodeToString(Host.FileDeleteDto(file.path)),
-            onOk = {
-                onOk("已删除${file.name}")
-                loadFiles()
-            },
-            onErr = { onError(it.message ?: "删除TaCZ枪包文件失败") },
-            onDone = { deletingPath = null }
-        )
-    }
-
-    LaunchedEffect(hostId) {
-        loadFiles()
-    }
-
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        shape = RoundedCornerShape(8.dp),
-        color = Color.White,
-        border = BorderStroke(1.dp, MaterialColor.GRAY_200.color),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("TaCZ枪包", fontWeight = FontWeight.Bold, color = MaterialColor.GRAY_900.color)
-                    Text(TACZ_ROOT_DIR, color = MaterialColor.GRAY_700.color, fontSize = 13.sp)
-                }
-                CircleIconButton(
-                    icon = "\uF021",
-                    tooltip = "刷新",
-                    showText = false,
-                    bgColor = MaterialColor.GRAY_200.color,
-                    iconColor = MaterialColor.GRAY_900.color,
-                    enabled = !loading
-                ) {
-                    loadFiles()
-                }
-                if (canManage) {
-                    CircleIconButton(
-                        icon = "\uF093",
-                        tooltip = "上传文件",
-                        showText = false,
-                        bgColor = MaterialColor.GREEN_900.color,
-                        enabled = !loading
-                    ) {
-                        uploadFiles()
-                    }
-                }
-            }
-
-            when {
-                loading -> Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-
-                files.isEmpty() -> Text("当前目录没有枪包文件", color = MaterialColor.GRAY_700.color)
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(files, key = { it.path }) { file ->
-                        HostTaczFileRow(
-                            file = file,
-                            canManage = canManage,
-                            deleting = deletingPath == file.path,
-                            onDelete = { deleteConfirmFile = file }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    deleteConfirmFile?.let { file ->
-        ConfirmDialog(
-            title = "确认删除TaCZ枪包",
-            message = "确定删除${file.name}吗？删除后需要重新上传才能恢复。",
-            onConfirm = {
-                deleteConfirmFile = null
-                deleteFile(file)
-            },
-            onDismiss = { deleteConfirmFile = null }
-        )
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun HostTaczFileRow(
-    file: Host.FileEntry,
-    canManage: Boolean,
-    deleting: Boolean,
-    onDelete: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialColor.GRAY_50.color, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "\uF15B".asIconText,
-            color = MaterialColor.GRAY_700.color,
-            fontSize = 18.sp
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = file.name,
-                color = MaterialColor.GRAY_900.color,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "${file.size.humanFileSize} · ${file.updateTime.takeIf { it > 0 }?.millisToHumanDateTime ?: "--"}",
-                color = MaterialColor.GRAY_700.color,
-                fontSize = 13.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (canManage) {
-            CircleIconButton(
-                icon = "\uF1F8",
-                tooltip = "删除文件",
-                size = 28,
-                showText = false,
-                bgColor = MaterialColor.RED_700.color,
-                enabled = !deleting
-            ) {
-                onDelete()
-            }
-        }
-    }
-}
 
 @Composable
 private fun GithubReleaseAssetRow(
@@ -2380,8 +1117,6 @@ private fun GithubReleaseAssetRow(
         }
     }
 }
-
-private fun extraModKey(mod: Mod): String = "${mod.platform}:${mod.projectId}:${mod.fileId}"
 
 private fun buildManualExtraMod(
     platform: String,
@@ -2468,7 +1203,7 @@ private fun extraModSlugIdentity(mod: Mod): String = mod.normalizedSlug.ifBlank 
     mod.normalizedProjectId.lowercase()
 }
 
-private fun Host.FileEntry.isTaczZipFileEntry(): Boolean =
+internal fun Host.FileEntry.isTaczZipFileEntry(): Boolean =
     !directory && name.endsWith(".zip", ignoreCase = true)
 
 private fun hostTaczChildPath(fileName: String): String {
@@ -2477,7 +1212,7 @@ private fun hostTaczChildPath(fileName: String): String {
     return "$TACZ_ROOT_DIR/$normalizedName"
 }
 
-private fun createHostTaczUploadTask(
+internal fun createHostTaczUploadTask(
     hostId: ObjectId,
     files: List<File>,
     onUploaded: suspend () -> Unit

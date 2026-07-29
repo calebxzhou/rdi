@@ -1,14 +1,11 @@
 package calebxzau.rdi.client.ui
 
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import calebxzhou.mykotutils.std.canCreateSymlink
 import calebxzhou.mykotutils.std.jarResource
 import calebxzau.rdi.client.RDIClient
 import calebxzhou.rdi.client.service.UpdateService
-import calebxzhou.rdi.client.ui.comp.WebViewHost
 import calebxzhou.rdi.client.ui.pickAwtDirectory
 import calebxzhou.rdi.client.ui.pickAwtSaveFile
 import com.sun.management.OperatingSystemMXBean
@@ -42,15 +39,6 @@ fun openMsaVerificationUrl(url: String) {
     if (Desktop.isDesktopSupported()) {
         Desktop.getDesktop().browse(URI(url))
     }
-}
-
-@Composable
-fun WebView(
-    url: String,
-    title: String?,
-    modifier: Modifier
-) {
-    WebViewHost(url = url, title = title, modifier = modifier)
 }
 
 suspend fun pickSaveFile(suggestedName: String, extension: String): File? =

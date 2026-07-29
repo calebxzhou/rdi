@@ -11,7 +11,6 @@ import calebxzhou.rdi.common.net.LocalArtifactHashAlgorithm
 import calebxzhou.rdi.common.net.LocalArtifactRequest
 import calebxzhou.rdi.common.net.LocalArtifactReuse
 import calebxzhou.rdi.common.net.downloadFileFrom
-import calebxzhou.rdi.common.serdesJson
 import kotlinx.serialization.decodeFromString
 import net.peanuuutz.tomlkt.Toml
 import java.io.ByteArrayInputStream
@@ -29,13 +28,6 @@ object ModService {
     var preferMirror = true
     var rdiModDownloadUrlProvider: (Mod) -> String? = { null }
     var rdiModDownloadHeadersProvider: (String) -> Map<String, String> = { emptyMap() }
-    val briefInfo: List<ModBriefInfo> by lazy { loadBriefInfo() }
-    private val nameSearchIgnoredChars = setOf(
-        ' ', '\t', '\r', '\n',
-        '[', ']', '【', '】', '(', ')', '（', '）',
-        '{', '}', '<', '>', '《', '》', '「', '」', '『', '』',
-        ':', '：', '-', '_'
-    )
     const val NEOFORGE_CONFIG_PATH = "META-INF/neoforge.mods.toml"
     const val FABRIC_CONFIG_PATH = "fabric.mod.json"
     const val FORGE_CONFIG_PATH = "META-INF/mods.toml"
@@ -46,103 +38,6 @@ object ModService {
 
     val downloadedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
     var installedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
-
-    fun resolveModrinthSlugsByChineseName(query: String, maxResults: Int = 5): List<String> =
-        resolveRemoteSlugsByChineseName(query, maxResults) { it.modrinthSlugs }
-
-    fun resolveCurseForgeSlugsByChineseName(query: String, maxResults: Int = 5): List<String> =
-        resolveRemoteSlugsByChineseName(query, maxResults) { it.curseforgeSlugs }
-
-    private fun resolveRemoteSlugsByChineseName(
-        query: String,
-        maxResults: Int,
-        slugSelector: (ModBriefInfo) -> List<String>
-    ): List<String> {
-        val normalizedQuery = query.normalizeModSearchName()
-        if (normalizedQuery.isBlank() || query.none { it.isCjkChar() }) return emptyList()
-
-        return briefInfo.asSequence()
-            .mapIndexedNotNull { index, info ->
-                val slugs = slugSelector(info)
-                    .asSequence()
-                    .map(String::trim)
-                    .filter(String::isNotBlank)
-                    .distinct()
-                    .toList()
-                if (slugs.isEmpty()) return@mapIndexedNotNull null
-
-                val nameCnCandidates = info.nameCn
-                    ?.let { listOf(it, it.withoutLeadingModNameTags()) }
-                    .orEmpty()
-                    .map { it.normalizeModSearchName() }
-                    .filter(String::isNotBlank)
-                    .distinct()
-                val nameCandidates = listOf(info.name, info.name.withoutLeadingModNameTags())
-                    .map { it.normalizeModSearchName() }
-                    .filter(String::isNotBlank)
-                    .distinct()
-                val match = bestRemoteSlugNameMatch(normalizedQuery, nameCnCandidates, nameCandidates)
-                    ?: return@mapIndexedNotNull null
-                RemoteSlugNameMatch(slugs, match.score, match.nameLength, index)
-            }
-            .sortedWith(
-                compareBy<RemoteSlugNameMatch> { it.score }
-                    .thenBy { it.nameLength }
-                    .thenBy { it.index }
-            )
-            .flatMap { it.slugs }
-            .distinct()
-            .take(maxResults)
-            .toList()
-    }
-
-    private data class RemoteSlugNameMatch(
-        val slugs: List<String>,
-        val score: Int,
-        val nameLength: Int,
-        val index: Int
-    )
-
-    private data class NameMatchScore(
-        val score: Int,
-        val nameLength: Int
-    )
-
-    private fun bestRemoteSlugNameMatch(
-        query: String,
-        nameCnCandidates: List<String>,
-        nameCandidates: List<String>
-    ): NameMatchScore? =
-        (nameCnCandidates.mapNotNull { name ->
-            when {
-                name == query -> NameMatchScore(0, name.length)
-                name.startsWith(query) -> NameMatchScore(1, name.length)
-                name.contains(query) -> NameMatchScore(2, name.length)
-                else -> null
-            }
-        } + nameCandidates.mapNotNull { name ->
-            if (name.contains(query)) NameMatchScore(3, name.length) else null
-        }).minWithOrNull(compareBy<NameMatchScore> { it.score }.thenBy { it.nameLength })
-
-    private fun String.normalizeModSearchName(): String =
-        buildString(length) {
-            this@normalizeModSearchName.lowercase().forEach { char ->
-                if (char !in nameSearchIgnoredChars) append(char)
-            }
-        }
-
-    private fun String.withoutLeadingModNameTags(): String {
-        var value = trim()
-        listOf('[' to ']', '【' to '】', '(' to ')', '（' to '）').forEach { (open, close) ->
-            if (value.startsWith(open)) {
-                val closeIndex = value.indexOf(close)
-                if (closeIndex in 1..16) value = value.substring(closeIndex + 1).trim()
-            }
-        }
-        return value
-    }
-
-    private fun Char.isCjkChar(): Boolean = this in '\u4e00'..'\u9fff'
 
     fun JarFile.readNeoForgeConfig(): ModsTomlConfig? {
         return supportedModsTomlPaths.firstNotNullOfOrNull(::getJarEntry)?.let { modsTomlEntry ->
@@ -213,20 +108,6 @@ object ModService {
             .ifBlank { null }
 
     private val builtinDependencyIds = setOf("minecraft", "forge", "neoforge", "fabricloader")
-
-    fun ModBriefInfo.toVo(modFile: File? = null): Mod.CardVo {
-        val iconBytes = modFile?.let {
-            runCatching { JarFile(it).use { jar -> jar.modLogo } }.getOrNull()
-        }
-        return Mod.CardVo(
-            name = name,
-            nameCn = nameCn,
-            intro = intro,
-            iconData = iconBytes,
-            iconUrls = buildIconUrls(logoUrl),
-            side = Mod.Side.BOTH
-        )
-    }
 
     fun List<File>.filterServerOnlyMods() =
         filterNot { file ->
@@ -446,83 +327,6 @@ object ModService {
             .replace("staging-api.modrinth.com", "mod.mcimirror.top/modrinth")
             .replace("cdn.modrinth.com", "mod.mcimirror.top")
             .replace("api.curseforge.com", "mod.mcimirror.top/curseforge")
-
-    private fun readResourceText(resourcePath: String): String? {
-        val classLoaders = listOfNotNull(
-            ModService::class.java.classLoader,
-            Thread.currentThread().contextClassLoader,
-            ClassLoader.getSystemClassLoader()
-        ).distinct()
-
-        val resourceCandidates = listOf(
-            resourcePath,
-            "/$resourcePath",
-            "assets/$resourcePath",
-            "resources/$resourcePath"
-        )
-
-        classLoaders.forEach { loader ->
-            resourceCandidates.forEach { candidate ->
-                val normalized = candidate.removePrefix("/")
-                val text = runCatching {
-                    loader.getResourceAsStream(normalized)?.bufferedReader()?.use { it.readText() }
-                }.getOrNull()
-                if (!text.isNullOrBlank()) return text
-            }
-        }
-
-        val fileCandidates = listOf(
-            File(resourcePath),
-            File("common/src/main/resources/$resourcePath"),
-            File("client/ui/src/main/resources/$resourcePath")
-        )
-        fileCandidates.forEach { file ->
-            val text = runCatching {
-                if (file.exists()) file.readText() else null
-            }.getOrNull()
-            if (!text.isNullOrBlank()) return text
-        }
-        return null
-    }
-
-    fun loadBriefInfo(): List<ModBriefInfo> {
-        val resourcePath = "mod_brief_info.json"
-        val raw = runCatching {
-            readResourceText(resourcePath)
-        }.onFailure {
-            lgr.error { "Failed to read $resourcePath" + "\n" + it }
-        }.getOrNull()
-
-        if (raw.isNullOrBlank()) {
-            lgr.warn { "mod_brief_info.json is missing or empty; fallback to empty brief info list" }
-            return emptyList()
-        }
-
-        return runCatching { serdesJson.decodeFromString<List<ModBriefInfo>>(raw) }
-            .onFailure { err -> lgr.error { "Failed to decode mod_brief_info.json" + "\n" + err } }
-            .getOrElse { emptyList() }
-    }
-
-    fun buildSlugMap(
-        data: List<ModBriefInfo>,
-        slugSelector: (ModBriefInfo) -> List<String>
-    ): Map<String, ModBriefInfo> {
-        val map = linkedMapOf<String, ModBriefInfo>()
-        data.forEach { info ->
-            slugSelector(info)
-                .asSequence()
-                .map { it.trim() }
-                .filter { it.isNotEmpty() }
-                .forEach { slug ->
-                    val normalized = slug.lowercase()
-                    val previous = map.put(normalized, info)
-                    if (previous != null && previous !== info) {
-                        lgr.debug { "Duplicated slug '$slug' now mapped to ${info.mcmodId}, previously ${previous.mcmodId}" }
-                    }
-                }
-        }
-        return map
-    }
 
     fun downloadModsTask2(mods: List<Mod>): Task2 {
         if (mods.isEmpty()) return Task2.Group("下载Mod", emptyList())

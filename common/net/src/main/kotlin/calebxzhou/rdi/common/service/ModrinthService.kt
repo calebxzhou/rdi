@@ -9,7 +9,6 @@ import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.net.ktorClient
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.CurseForgeService.fillCurseForgeVo
-import calebxzhou.rdi.common.service.ModService.briefInfo
 import calebxzhou.rdi.common.service.ModService.buildIconUrls
 import calebxzhou.rdi.common.service.ModService.modLogo
 import calebxzhou.rdi.common.service.ModService.ofMirrorUrl
@@ -26,16 +25,6 @@ object ModrinthService {
     private val lgr by Loggers
     const val OFFICIAL_URL = "https://api.modrinth.com/v2"
     const val V3_OFFICIAL_URL = "https://api.modrinth.com/v3"
-    val slugBriefInfo: Map<String, ModBriefInfo> by lazy { ModService.buildSlugMap(briefInfo) { it.modrinthSlugs } }
-
-    //mr - cf slug, 没查到就返回自身
-    val String.mr2CfSlug: String
-        get() {
-            if (isBlank()) return this
-            val info = slugBriefInfo[trim().lowercase()] ?: return this
-            return info.curseforgeSlugs.firstOrNull { it.isNotBlank() }?.trim() ?: this
-        }
-
     data class LoadedModpack(
         val index: ModrinthModpackIndex,
         val file: File,
@@ -44,7 +33,10 @@ object ModrinthService {
         val modloader: ModLoader
     )
 
-    suspend fun loadModpack(modpackFile: File): Result<LoadedModpack> = runCatching {
+    suspend fun loadModpack(
+        modpackFile: File,
+        resolveModrinthSlugs: suspend (Set<String>) -> Map<String, String> = { emptyMap() }
+    ): Result<LoadedModpack> = runCatching {
         if (!modpackFile.exists()) {
             throw ModpackError("找不到整合包文件: ${modpackFile.path}")
         }
@@ -133,13 +125,7 @@ object ModrinthService {
 
         // Some CF files are also on Modrinth but with different binary/hash.
         // Resolve side info by CF slug -> MR slug mapping, then batch query MR projects.
-        val cfSlugToMrSlug = cfModInfos.associate { info ->
-            val mrSlug = CurseForgeService.slugBriefInfo[info.slug.trim().lowercase()]
-                ?.modrinthSlugs
-                ?.firstOrNull { it.isNotBlank() }
-                ?.trim()
-            info.slug to mrSlug
-        }
+        val cfSlugToMrSlug = resolveModrinthSlugs(cfModInfos.map { it.slug }.toSet())
         val mrCandidates = buildSet {
             cfModInfos.forEach { info ->
                 cfSlugToMrSlug[info.slug]?.takeIf { it.isNotBlank() }?.let { add(it) }
@@ -215,9 +201,8 @@ object ModrinthService {
     }
 
     fun ModrinthProject.toCardVo(modFile: File? = null): Mod.CardVo {
-        val briefInfo = slugBriefInfo[slug.trim().lowercase()]
-        val icons = buildIconUrls(iconUrl, briefInfo?.logoUrl)
-        val resolvedName = briefInfo?.name ?: (title ?: slug).ifBlank { slug }
+        val icons = buildIconUrls(iconUrl)
+        val resolvedName = (title ?: slug).ifBlank { slug }
         val localMeta = modFile?.readLocalModCardMeta()
         val introText = description?.takeIf { it.isNotBlank() }?.trim()
             ?: localMeta?.description
@@ -225,8 +210,8 @@ object ModrinthService {
 
         return Mod.CardVo(
             name = resolvedName,
-            nameCn = briefInfo?.nameCn,
-            intro = briefInfo?.intro ?: introText,
+            nameCn = null,
+            intro = introText,
             iconData = localMeta?.iconBytes,
             iconUrls = icons,
             side = Mod.Side.BOTH

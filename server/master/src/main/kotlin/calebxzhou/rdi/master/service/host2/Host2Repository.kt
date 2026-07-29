@@ -132,6 +132,7 @@ class Host2Repository {
         Host2Table.update({ Host2Table.id eq id }) {
             dto.name?.let { value -> it[name] = value }
             dto.intro?.let { value -> it[intro] = value }
+            dto.iconUrl?.let { value -> it[iconUrl] = value.ifBlank { null } }
             dto.whitelist?.let { value -> it[whitelist] = value }
             dto.mcVersion?.let { value -> it[mcVersion] = value.name }
             dto.modLoader?.let { value -> it[modLoader] = value.name }
@@ -181,6 +182,7 @@ data class Host2Record(
     val id: UUID,
     val name: String,
     val intro: String,
+    val iconUrl: String?,
     val ownerId: UUID,
     val mcVersion: McVersion,
     val modLoader: ModLoader,
@@ -204,6 +206,7 @@ private object Host2Table : Table("host2") {
     val id = javaUUID("id").databaseGenerated()
     val name = text("name")
     val intro = text("intro")
+    val iconUrl = text("icon_url").nullable()
     val ownerId = javaUUID("owner_id")
     val mcVersion = text("mc_version")
     val modLoader = text("mod_loader")
@@ -238,6 +241,7 @@ private fun ResultRow.toHost2Record(): Host2Record = Host2Record(
     id = this[Host2Table.id],
     name = this[Host2Table.name],
     intro = this[Host2Table.intro],
+    iconUrl = this[Host2Table.iconUrl],
     ownerId = this[Host2Table.ownerId],
     mcVersion = McVersion.valueOf(this[Host2Table.mcVersion]),
     modLoader = ModLoader.valueOf(this[Host2Table.modLoader]),

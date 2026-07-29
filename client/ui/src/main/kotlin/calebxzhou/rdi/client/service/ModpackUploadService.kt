@@ -4,6 +4,9 @@ import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.*
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.model.toUiMod
+import calebxzhou.rdi.client.modcatalog.CatalogSlugRef
+import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzhou.rdi.client.modcatalog.ModPlatform
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.archive.TarZstArchiveWriter
@@ -64,6 +67,7 @@ data class LoadedServerPackResult(
 )
 
 suspend fun loadLocalModpack(
+    modCatalog: ModCatalog,
     file: File,
     onProgress: LoadProgressConsumer
 ): Result<LoadedLocalModpack> = withContext(Dispatchers.IO) {
@@ -89,6 +93,7 @@ suspend fun loadLocalModpack(
             }
         )
         val mods = loadUploadPayloadMods(
+            modCatalog = modCatalog,
             payload = parsedPayload,
             onProgress = onProgress
         ).getOrThrow()
@@ -180,6 +185,7 @@ fun parseUploadPayload(
 }
 
 suspend fun loadUploadPayloadMods(
+    modCatalog: ModCatalog,
     payload: UploadPayload,
     onProgress: (LoadProgress) -> Unit
 ): Result<MutableList<Mod>> {
@@ -203,7 +209,14 @@ suspend fun loadUploadPayloadMods(
     val resolvedMods = when (payload.sourceType) {
         LocalModpackSourceType.MODRINTH -> {
             onProgress(LoadProgress.Phase("解析Modrinth整合包索引"))
-            val loaded = ModrinthService.loadModpack(sourceDir).getOrThrow()
+            val loaded = ModrinthService.loadModpack(sourceDir) { curseForgeSlugs ->
+                val refs = curseForgeSlugs.map { CatalogSlugRef(ModPlatform.CURSEFORGE, it) }.toSet()
+                val metadata = modCatalog.getMetadataOrEmpty(refs)
+                curseForgeSlugs.mapNotNull { slug ->
+                    val local = metadata[CatalogSlugRef(ModPlatform.CURSEFORGE, slug)] ?: return@mapNotNull null
+                    local.project(ModPlatform.MODRINTH)?.slug?.let { slug to it }
+                }.toMap()
+            }.getOrThrow()
             (loaded.mods + embeddedMatches.mods.map { it.withFile(null).toMod() })
                 .distinctBy { "${it.platform}:${it.projectId}:${it.fileId}:${it.hash}" }
                 .toMutableList()

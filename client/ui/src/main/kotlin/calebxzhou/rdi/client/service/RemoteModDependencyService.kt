@@ -1,5 +1,8 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.modcatalog.CatalogSlugRef
+import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzhou.rdi.client.modcatalog.ModPlatform
 import calebxzhou.rdi.client.model.ModrinthProjectCategoryVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
 import calebxzhou.rdi.client.model.RemoteModCardVo
@@ -11,7 +14,10 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
 object RemoteModDependencyService {
-    suspend fun loadRequiredDependencyCards(versions: List<ModrinthProjectVersionVo>): List<RemoteModCardVo> =
+    suspend fun loadRequiredDependencyCards(
+        modCatalog: ModCatalog,
+        versions: List<ModrinthProjectVersionVo>
+    ): List<RemoteModCardVo> =
         coroutineScope {
             val requiredDependencies = versions
                 .flatMap { it.dependencies }
@@ -43,8 +49,30 @@ object RemoteModDependencyService {
                 }
             }
 
-            (modrinthCards.await() + curseForgeCards.await())
+            val cards = (modrinthCards.await() + curseForgeCards.await())
                 .distinctBy { "${it.source}:${it.projectId}" }
+            val refs = cards.mapNotNull { card ->
+                val platform = if (card.source == RemoteModSource.MODRINTH) {
+                    ModPlatform.MODRINTH
+                } else {
+                    ModPlatform.CURSEFORGE
+                }
+                card.slug?.let { CatalogSlugRef(platform, it) }
+            }.toSet()
+            val metadata = modCatalog.getMetadataOrEmpty(refs)
+            cards.map { card ->
+                val platform = if (card.source == RemoteModSource.MODRINTH) {
+                    ModPlatform.MODRINTH
+                } else {
+                    ModPlatform.CURSEFORGE
+                }
+                val local = card.slug?.let { metadata[CatalogSlugRef(platform, it)] } ?: return@map card
+                card.copy(
+                    title = local.nameCn?.takeIf(String::isNotBlank) ?: local.name,
+                    summary = local.intro?.takeIf(String::isNotBlank) ?: card.summary,
+                    iconUrl = card.iconUrl ?: local.logoUrl
+                )
+            }
         }
 }
 
@@ -57,9 +85,9 @@ private fun ModrinthProject.toRemoteModCardVo(): RemoteModCardVo {
         source = RemoteModSource.MODRINTH,
         projectId = id,
         slug = slug,
-        title = RemoteModLocalization.titleByModrinthSlug(slug, title),
+        title = title,
         author = "Modrinth",
-        summary = RemoteModLocalization.introByModrinthSlug(slug, description?.takeIf(String::isNotBlank) ?: "暂无简介"),
+        summary = description?.takeIf(String::isNotBlank) ?: "暂无简介",
         iconUrl = iconUrl,
         downloadsText = downloads.toCompactCountText(),
         followsText = followers.toSeparatedCountText(),

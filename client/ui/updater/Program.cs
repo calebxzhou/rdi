@@ -44,6 +44,14 @@ internal static partial class Program
         try
         {
             var launchOptions = ParseLaunchOptions(args);
+            var startupSelection = IsLeftShiftPressed()
+                ? ShowStartupOptions()
+                : new StartupSelection(null, false, false, false);
+            launchOptions = launchOptions with
+            {
+                Debug = launchOptions.Debug || startupSelection.Debug,
+                NoUpdate = launchOptions.NoUpdate || startupSelection.NoUpdate
+            };
             RServerUrl = launchOptions.Debug ? DebugRServerUrl : OfficialRServerUrl;
             if (launchOptions.NoUpdate)
                 WriteInfo("已关闭自动更新");
@@ -68,9 +76,6 @@ internal static partial class Program
             if (!Directory.Exists(libDirectory) || !Directory.EnumerateFiles(libDirectory, "*.jar").Any())
                 return Fail("缺少UI库文件。\r\n请确认客户端已完整解压，或检查网络后重试。");
 
-            var startupSelection = IsLeftShiftPressed()
-                ? ShowStartupOptions()
-                : new StartupSelection(null, false);
             var bestJava = startupSelection.Jdk ?? ResolveBestJdk25();
             var javaExe = Path.Combine(bestJava.JavaHome, "bin", launchOptions.AppLogs ? "java.exe" : "javaw.exe");
             if (!File.Exists(javaExe))
@@ -157,13 +162,14 @@ internal static partial class Program
 
     private static StartupSelection ShowStartupOptions()
     {
-        string[] options = ["重新手动选择JDK25", "本次以实心窗口启动"];
+        string[] options = ["重新手动选择Java25", "本次以实心窗口启动", "launch w/o upd", "launch w/ dbg"];
         var selectedIndex = 0;
 
         while (true)
         {
             Console.Clear();
             Console.WriteLine("启动选项（使用↑/↓选择，按Enter确认）");
+            Console.WriteLine("按Esc键正常启动，不要选择你看不懂的选项");
             Console.WriteLine();
             foreach (var (index, option) in options.Index())
             {
@@ -182,11 +188,18 @@ internal static partial class Program
                 case ConsoleKey.DownArrow:
                     selectedIndex = (selectedIndex + 1) % options.Length;
                     break;
+                case ConsoleKey.Escape:
+                    Console.Clear();
+                    return new(null, false, false, false);
                 case ConsoleKey.Enter:
                     Console.Clear();
-                    return selectedIndex == 0
-                        ? new(SelectManualJdk25(), false)
-                        : new(null, true);
+                    return selectedIndex switch
+                    {
+                        0 => new(SelectManualJdk25(), false, false, false),
+                        1 => new(null, true, false, false),
+                        2 => new(null, false, false, true),
+                        _ => new(null, false, true, false)
+                    };
             }
         }
     }
@@ -247,9 +260,9 @@ internal static partial class Program
     {
         Console.WriteLine();
         Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine("未找到可用的64位Java25。");
+        Console.WriteLine("没找到完整版Java25");
         Console.ForegroundColor = ConsoleColor.Yellow;
-        Console.WriteLine("按空格键下载并安装Java25，按回车键手动选择JDK安装目录，按任意其他键重新授权并搜索。");
+        Console.WriteLine("按空格键下载并安装Java25，按回车键手动选择Java安装目录，随便按一个键重新搜索");
         Console.ResetColor();
     }
 
@@ -486,7 +499,7 @@ internal static partial class Program
 
         if (ReadCachedJdkList() is { Count: > 0 } cachedJavaHomes)
         {
-            WriteInfo("优先使用JDK缓存列表");
+            WriteInfo("优先使用Java缓存列表");
             var cachedCandidates = ConvertJavaHomesToCandidateSet(cachedJavaHomes);
             if (FindFirstValidJdk25Candidate(cachedCandidates, "缓存校验") is { } cachedJava)
             {
@@ -528,7 +541,7 @@ internal static partial class Program
     {
         if (!File.Exists(JdkCacheFile))
         {
-            WriteInfo("未发现JDK缓存文件avaliable_jdks.txt");
+            WriteInfo("未发现Java缓存文件avaliable_jdks.txt");
             return [];
         }
 
@@ -537,7 +550,7 @@ internal static partial class Program
             .Where(line => line.Length > 0)
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToList();
-        WriteInfo($"读取JDK缓存成功，共{javaHomes.Count}条");
+        WriteInfo($"读取Java缓存成功，共{javaHomes.Count}条");
         return javaHomes;
     }
 
@@ -549,7 +562,7 @@ internal static partial class Program
             .Order()
             .ToArray();
         File.WriteAllLines(JdkCacheFile, javaHomes, Encoding.UTF8);
-        WriteInfo($"已写入JDK缓存到avaliable_jdks.txt，共{javaHomes.Length}条");
+        WriteInfo($"已写入Java缓存到avaliable_jdks.txt，共{javaHomes.Length}条");
     }
 
     private static HashSet<string> ConvertJavaHomesToCandidateSet(IEnumerable<string> javaHomes)
@@ -910,7 +923,7 @@ internal static partial class Program
     private sealed record MftSearchResult(bool Succeeded, HashSet<string> Candidates);
     private sealed record SearchDirectory(string Path, bool ForceDeep, int Depth);
     private sealed record LaunchOptions(bool Debug, bool AppLogs, bool NoUpdate, List<string> JvmArguments);
-    private sealed record StartupSelection(JdkCandidate? Jdk, bool SolidWindow);
+    private sealed record StartupSelection(JdkCandidate? Jdk, bool SolidWindow, bool Debug, bool NoUpdate);
 
 }
 

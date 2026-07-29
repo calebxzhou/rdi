@@ -42,6 +42,20 @@ internal class DefaultModCatalog(
         cachePolicy.negativeTtl
     )
 
+    override suspend fun getMetadata(
+        refs: Set<CatalogSlugRef>
+    ): Result<Map<CatalogSlugRef, CatalogModMetadata>> = catalogResult {
+        identityIndex.findAll(refs).mapValues { (ref, record) -> record.toMetadata(ref.platform) }
+    }
+
+    override suspend fun searchMetadata(
+        query: String,
+        limit: Int
+    ): Result<List<CatalogModMetadata>> = catalogResult {
+        require(limit > 0) { "Metadata search limit must be positive" }
+        identityIndex.search(query, 0, limit).map { it.toMetadata() }
+    }
+
     override suspend fun search(
         request: CatalogSearchRequest
     ): Result<CatalogOutcome<CatalogSearchPage>> = catalogResult {
@@ -523,7 +537,10 @@ internal class DefaultModCatalog(
             primaryRef = primary.ref,
             sources = distinctBy(CatalogProjectSource::ref),
             name = identityRecord?.name ?: primary.name,
-            nameCn = identityRecord?.nameCn,
+            nameCn = identityRecord?.projects
+                ?.firstOrNull { it.platform == primary.ref.platform }
+                ?.nameCnOverride
+                ?: identityRecord?.nameCn,
             summary = identityRecord?.intro?.takeIf(String::isNotBlank) ?: primary.summary,
             mcmodIconUrl = identityRecord?.logoUrl,
             downloadCount = sumOf(CatalogProjectSource::downloadCount),
@@ -660,3 +677,12 @@ internal class DefaultModCatalog(
         }
     }
 }
+
+private fun CatalogIdentityRecord.toMetadata(platform: ModPlatform? = null) = CatalogModMetadata(
+    mcmodId = mcmodId,
+    name = name,
+    nameCn = projects.firstOrNull { it.platform == platform }?.nameCnOverride ?: nameCn,
+    intro = intro,
+    logoUrl = logoUrl,
+    projects = projects.map { CatalogMetadataProject(it.platform, it.slug, it.nameCnOverride) }
+)

@@ -3,6 +3,7 @@ package calebxzhou.rdi.client.model
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.displaySlugOrProject
 import java.io.File
+import java.util.Locale
 
 data class UiMod(
     val mod: Mod,
@@ -10,7 +11,7 @@ data class UiMod(
     val file: File? = null
 ) {
     val key: String
-        get() = "${mod.platform}:${mod.projectId}:${mod.fileId}"
+        get() = mod.uiModKey
 
     val platform: String
         get() = mod.platform
@@ -36,16 +37,32 @@ data class UiMod(
     val displayNameCn: String?
         get() = card?.nameCn?.takeIf { it.isNotBlank() }
 
-    val searchText: String
-        get() = buildString {
-            append(displayName)
-            append('\n')
-            append(displayNameCn.orEmpty())
-            append('\n')
-            append(slug)
-            append('\n')
-            append(projectId)
-        }.lowercase()
+    val primaryName: String
+        get() = displayNameCn?.trim() ?: displayName.trim()
+
+    val secondaryName: String?
+        get() = when {
+            displayNameCn != null -> displayName.trim().takeIf(String::isNotEmpty)
+            card == null -> slug.trim().takeIf { it.isNotEmpty() && !it.equals(primaryName, ignoreCase = true) }
+            else -> null
+        }
+
+    val intro: String
+        get() = card?.intro.orEmpty()
+
+    val iconData: ByteArray?
+        get() = card?.iconData
+
+    val iconUrls: List<String>
+        get() = card?.iconUrls.orEmpty()
+
+    val searchText: String = listOfNotNull(
+        primaryName,
+        secondaryName,
+        slug,
+        projectId,
+        mod.fileName
+    ).joinToString("\n").lowercase(Locale.ROOT)
 
     fun withMod(mod: Mod): UiMod = copy(mod = mod)
 
@@ -69,6 +86,9 @@ data class UiMod(
         it.file = file
     }
 }
+
+val Mod.uiModKey: String
+    get() = "$platform:$projectId:$fileId:$hash"
 
 fun Mod.toUiMod(): UiMod = UiMod(
     mod = this,

@@ -5,6 +5,7 @@ import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.supportsForgeguard
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.McServerPinger
 import calebxzhou.rdi.common.util.ioScope
@@ -18,6 +19,8 @@ import calebxzhou.rdi.master.service.ChatService
 import calebxzhou.rdi.master.service.DockerService
 import calebxzhou.rdi.master.service.MailService
 import calebxzhou.rdi.master.service.host.HostPresenceService
+import calebxzhou.rdi.master.service.host.HostContainerService.FORGEGUARD_CONTAINER_PATH
+import calebxzhou.rdi.master.service.host.HostContainerService.forgeguardMount
 import calebxzhou.rdi.master.service.host.HostRuntimeService
 import com.github.dockerjava.api.model.Mount
 import com.github.dockerjava.api.model.MountType
@@ -275,6 +278,9 @@ object Host2RuntimeService {
             Mount().withType(MountType.BIND).withSource(platformMod.absolutePath)
                 .withTarget("/opt/server/mods/${platformMod.name}")
         )
+        if (host.mcVersion.supportsForgeguard(host.modLoader)) {
+            mounts += forgeguardMount()
+        }
         if (kotlinForForge != null) {
             mounts += Mount().withType(MountType.BIND).withSource(kotlinForForge.absolutePath)
                 .withTarget("/opt/server/mods/${kotlinForForge.name}")
@@ -304,6 +310,7 @@ object Host2RuntimeService {
     private fun buildJvmArgs(host: Host2Record) = buildList {
         add("-Xmx8G")
         add("-Drdi.onlySaveFirmSections=true")
+        if (host.mcVersion.supportsForgeguard(host.modLoader)) add("-javaagent:$FORGEGUARD_CONTAINER_PATH")
         if (host.mcVersion != McVersion.V192) add("-XX:+UseCompactObjectHeaders")
         if (host.mcVersion in setOf(McVersion.V071, McVersion.V122)) add("-Dfml.queryResult=confirm")
     }

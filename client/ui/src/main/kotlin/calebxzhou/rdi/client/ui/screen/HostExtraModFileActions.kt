@@ -3,6 +3,8 @@ package calebxzhou.rdi.client.ui.screen
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.model.toUiMod
+import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModsTomlConfig
@@ -41,6 +43,7 @@ fun selectHostTaczFiles(): List<File>? {
 }
 
 suspend fun matchHostExtraModFiles(
+    modCatalog: ModCatalog,
     files: List<File>,
     hostMcVersion: McVersion,
     onProgress: (String) -> Unit
@@ -69,7 +72,9 @@ suspend fun matchHostExtraModFiles(
     val selectedMods = selectLatestMatchedMods(mrResult.mods + cfResult.mods)
 
     HostExtraModMatchResult(
-        matchedMods = selectedMods.map(UiMod::toMod),
+        matchedMods = selectedMods.map(UiMod::toMod)
+            .hydrateToUiMods(modCatalog)
+            .map(UiMod::toMod),
         rejectedFiles = versionCheck.rejectedFiles + cfResult.rejectedFiles
     )
 }

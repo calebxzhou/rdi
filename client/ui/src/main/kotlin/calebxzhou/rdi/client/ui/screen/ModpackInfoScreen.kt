@@ -30,6 +30,7 @@ import calebxzau.rdi.client.ui.asIconText
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.millisToHumanDateTime
 import calebxzhou.rdi.client.model.UiMod
+import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
@@ -52,9 +53,9 @@ import kotlin.text.isNotBlank
 /**
  * calebxzhou @ 2026-01-17 20:44
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModpackInfoScreen(
+    modCatalog: ModCatalog,
     modpackId: String,
     onBack: () -> Unit,
     onOpenTaskList: ((String) -> Unit)? = null,
@@ -98,7 +99,7 @@ fun ModpackInfoScreen(
                     scope.launch {
                         val loaded = withContext(Dispatchers.IO) {
                             runCatching {
-                                latest.mods.hydrateToUiMods()
+                                latest.mods.hydrateToUiMods(modCatalog)
                             }.getOrElse {
                                 it.printStackTrace();
                                 emptyList()
@@ -159,20 +160,17 @@ fun ModpackInfoScreen(
                 pack?.let { pack ->
                     TinyClickCopyText("mid", pack._id.toString())
                     HeadButton(pack.authorId, showName = false)
-                    Space8w()
-                    ImageIconButton("grass_block")
-                    Text(pack.mcVer.mcVer)
-                    ImageIconButton(pack.modloader.name)
+                    Text(pack.mcVer.simpleVer)
                 }
                 if (isAuthor) {
                     CircleIconButton(
                         icon = "\uF01F",
                         tooltip = "修改信息",
+                        showText = false,
                         bgColor = MaterialColor.YELLOW_900.color
                     ) {
                         showEditDialog = true
                     }
-                    Space8w()
                     CircleIconButton(
                         icon = "\uEA81",
                         tooltip = "删除整合包",

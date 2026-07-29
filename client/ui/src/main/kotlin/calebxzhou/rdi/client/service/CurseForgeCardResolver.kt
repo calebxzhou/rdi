@@ -2,6 +2,8 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.service.CurseForgeService
+import calebxzhou.rdi.client.modcatalog.CatalogSlugRef
+import calebxzhou.rdi.client.modcatalog.ModPlatform
 
 object CurseForgeCardResolver : ModCardResolver {
     override val platform: String = "cf"
@@ -21,9 +23,13 @@ object CurseForgeCardResolver : ModCardResolver {
             valueTransform = { it.file }
         )
 
-        return CurseForgeService.getModsInfo(projectIds).associate { info ->
+        val infos = CurseForgeService.getModsInfo(projectIds)
+        val refs = infos.map { CatalogSlugRef(ModPlatform.CURSEFORGE, it.slug) }.toSet()
+        val metadata = context.modCatalog.getMetadataOrEmpty(refs)
+        return infos.associate { info ->
             val projectKey = info.id.toString()
-            projectKey to info.toUiCardVo(projectIdToFile[projectKey])
+            val ref = CatalogSlugRef(ModPlatform.CURSEFORGE, info.slug)
+            projectKey to info.toUiCardVo(metadata[ref], projectIdToFile[projectKey])
         }
     }
 }

@@ -8,26 +8,26 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.UiMod
 import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzhou.rdi.client.ui.MaterialColor
-import calebxzau.rdi.client.ui.RowV
+import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8w
 import calebxzhou.rdi.common.model.Mod
+import java.util.Locale
 
 /**
  * calebxzhou @ 2026-04-02 13:27
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ModGrid(
     mods: List<UiMod>,
@@ -38,33 +38,32 @@ fun ModGrid(
     onModClick: ((UiMod) -> Unit)? = null,
     onSideChange: ((UiMod, Mod.Side) -> Unit)? = null
 ) {
-    var modSearch by remember { mutableStateOf("") }
-    var showSearchBox by remember { mutableStateOf(false) }
+    var modSearch by rememberSaveable { mutableStateOf("") }
+    var showSearchBox by rememberSaveable { mutableStateOf(false) }
+    var iconOnly by rememberSaveable { mutableStateOf(false) }
     val clipboardManager = LocalClipboardManager.current
     val sortedMods = remember(mods) {
         mods.sortedWith(
             compareBy(
                 String.CASE_INSENSITIVE_ORDER
             ) { mod ->
-                mod.displayName
+                mod.primaryName
             }
         )
     }
     val filteredMods = remember(sortedMods, modSearch) {
-        val query = modSearch.trim().lowercase()
+        val query = modSearch.trim().lowercase(Locale.ROOT)
         if (query.isBlank()) sortedMods
         else sortedMods.filter { mod ->
             mod.searchText.contains(query)
         }
     }
-    val selectedBackground = Color(243, 236, 255)
-    val unselectedFallbackBackground = Color(255, 255, 255, 235)
     Box(modifier = modifier.fillMaxWidth()) {
         LazyVerticalGrid(
             state = gridState,
-            columns = GridCells.Adaptive(320.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            columns = GridCells.Adaptive(if (iconOnly) 64.dp else 320.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (iconOnly) 4.dp else 12.dp),
+            verticalArrangement = Arrangement.spacedBy(if (iconOnly) 8.dp else 12.dp),
             contentPadding = PaddingValues(
                 top = if (showSearchBox) 56.dp else 8.dp,
                 end = 18.dp,
@@ -73,7 +72,7 @@ fun ModGrid(
             modifier = Modifier.fillMaxWidth()
         ) {
             if (filteredMods.isEmpty()) {
-                item(key = "mod-grid-empty") {
+                item(key = "mod-grid-empty", span = { GridItemSpan(maxLineSpan) }) {
                     Text(
                         text = emptyText,
                         modifier = Modifier.padding(vertical = 12.dp)
@@ -81,7 +80,6 @@ fun ModGrid(
                 }
             }
             items(filteredMods, key = { it.key }) { mod ->
-                val card = mod.card
                 val selected = mod.key in selectedKeys
                 var showContextMenu by remember(mod.key) { mutableStateOf(false) }
                 val clickableModifier = if (onModClick != null) {
@@ -99,73 +97,49 @@ fun ModGrid(
                         }
                     }
                 }
-                if (card != null) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (selected) selectedBackground else Color.Transparent,
-                                RoundedCornerShape(18.dp)
-                            )
-                            .padding(2.dp)
-                            .then(clickableModifier)
-                            .then(contextMenuModifier)
-                    ) {
-                        card.ModCard(
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                            RoundedCornerShape(18.dp)
+                        )
+                        .padding(2.dp)
+                        .then(clickableModifier)
+                        .then(contextMenuModifier)
+                ) {
+                    if (iconOnly) {
+                        SimpleTooltip(mod.primaryName) {
+                            Box(
+                                modifier = Modifier.fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                UiModIcon(
+                                    mod = mod,
+                                    modifier = Modifier
+                                        .size(64.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                                )
+                            }
+                        }
+                    } else {
+                        UiModCard(
+                            mod = mod,
                             modifier = Modifier.fillMaxWidth(),
-                            currentSide = mod.side,
                             onSideChange = onSideChange?.let { callback ->
                                 { nextSide -> callback(mod, nextSide) }
                             }
                         )
-                        ModGridContextMenu(
-                            expanded = showContextMenu,
-                            onDismissRequest = { showContextMenu = false },
-                            onCopyFileName = {
-                                clipboardManager.setText(AnnotatedString(mod.mod.fileName))
-                                showContextMenu = false
-                            }
-                        )
                     }
-                } else {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(
-                                if (selected) selectedBackground else unselectedFallbackBackground,
-                                RoundedCornerShape(16.dp)
-                            )
-                            .then(clickableModifier)
-                            .then(contextMenuModifier)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = mod.displayName,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                color = MaterialColor.GRAY_900.color
-                            )
-                            if (!mod.slug.equals(mod.displayName, ignoreCase = true)) {
-                                Text(
-                                    text = mod.slug,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = MaterialColor.BLUE_600.color
-                                )
-                            }
+                    ModGridContextMenu(
+                        expanded = showContextMenu,
+                        onDismissRequest = { showContextMenu = false },
+                        onCopyFileName = {
+                            clipboardManager.setText(AnnotatedString(mod.mod.fileName))
+                            showContextMenu = false
                         }
-                        ModGridContextMenu(
-                            expanded = showContextMenu,
-                            onDismissRequest = { showContextMenu = false },
-                            onCopyFileName = {
-                                clipboardManager.setText(AnnotatedString(mod.mod.fileName))
-                                showContextMenu = false
-                            }
-                        )
-                    }
+                    )
                 }
             }
         }
@@ -188,7 +162,7 @@ fun ModGrid(
                 .align(Alignment.TopEnd)
                 .padding(top = 8.dp, end = 18.dp)
         ) {
-            RowV(horizontalArrangement = Arrangement.End) {
+            Row(verticalAlignment = Alignment.Top) {
                 if (showSearchBox) {
                     OutlinedTextField(
                         value = modSearch,
@@ -208,18 +182,32 @@ fun ModGrid(
                     )
                     Space8w()
                 }
-                CircleIconButton(
-                    icon = if (showSearchBox) "\uF00D" else "\uF002",
-                    tooltip = if (showSearchBox) "隐藏搜索" else "显示搜索",
-                    bgColor = MaterialTheme.colorScheme.primary,
-                    size = 32,
-                    showText = false
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    horizontalAlignment = Alignment.End
                 ) {
-                    if (showSearchBox) {
-                        showSearchBox = false
-                        modSearch = ""
-                    } else {
-                        showSearchBox = true
+                    CircleIconButton(
+                        icon = if (showSearchBox) "\uF00D" else "\uF002",
+                        tooltip = if (showSearchBox) "隐藏搜索" else "显示搜索",
+                        bgColor = MaterialTheme.colorScheme.primary,
+                        size = 32,
+                        showText = false
+                    ) {
+                        if (showSearchBox) {
+                            showSearchBox = false
+                            modSearch = ""
+                        } else {
+                            showSearchBox = true
+                        }
+                    }
+                    CircleIconButton(
+                        icon = if (iconOnly) "\uF03A" else "\uF00A",
+                        tooltip = if (iconOnly) "卡片模式" else "仅图标模式",
+                        bgColor = MaterialTheme.colorScheme.primary,
+                        size = 32,
+                        showText = false
+                    ) {
+                        iconOnly = !iconOnly
                     }
                 }
             }

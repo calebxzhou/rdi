@@ -1,0 +1,261 @@
+// Temporarily excluded from Kotlin compilation because local artifact reuse is disabled.
+package calebxzhou.rdi.client.service
+
+import calebxzhou.mykotutils.log.Loggers
+import calebxzhou.rdi.common.net.LocalArtifactRequest
+import calebxzhou.rdi.common.net.LocalArtifactReuse
+import calebxzhou.rdi.common.net.LocalArtifactReuser
+import calebxzhou.rdi.common.serdesJson
+import com.sun.jna.platform.win32.Kernel32
+import com.sun.jna.platform.win32.WinBase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import java.io.File
+import java.nio.file.AtomicMoveNotSupportedException
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.io.path.extension
+
+sealed interface LocalMinecraftScanState {
+    data object Idle : LocalMinecraftScanState
+    data class Scanning(val previousCount: Int) : LocalMinecraftScanState
+    data class Completed(val foundCount: Int, val scannedAt: Long) : LocalMinecraftScanState
+    data class Failed(val reason: String, val foundCount: Int) : LocalMinecraftScanState
+}
+
+@Serializable
+data class LocalMinecraftInstallationRecord(
+    val path: String,
+    val runtimeRoot: Boolean,
+    val gameInstance: Boolean
+)
+
+@Serializable
+data class LocalMinecraftCache(
+    val lastFullScanAt: Long? = null,
+    val installations: List<LocalMinecraftInstallationRecord> = emptyList(),
+    val hashes: List<CachedLocalFileHash> = emptyList()
+)
+
+object LocalMinecraftScanPolicy {
+    const val FULL_SCAN_INTERVAL_MS = 12L * 60 * 60 * 1000
+
+    fun needsFullScan(lastFullScanAt: Long?, now: Long): Boolean =
+        lastFullScanAt == null || now - lastFullScanAt >= FULL_SCAN_INTERVAL_MS
+}
+
+class LocalMinecraftCacheStore(private val file: Path) {
+    fun load(): Result<LocalMinecraftCache> = runCatching {
+        if (!Files.isRegularFile(file, NOFOLLOW_LINKS)) LocalMinecraftCache()
+        else serdesJson.decodeFromString<LocalMinecraftCache>(Files.readString(file))
+    }
+
+    fun save(cache: LocalMinecraftCache): Result<Unit> = runCatching {
+        file.parent?.let { Files.createDirectories(it) }
+        val temporary = file.resolveSibling("${file.fileName}.writing")
+        try {
+            Files.writeString(temporary, serdesJson.encodeToString(cache))
+            try {
+                Files.move(
+                    temporary,
+                    file,
+                    StandardCopyOption.ATOMIC_MOVE,
+                    StandardCopyOption.REPLACE_EXISTING
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(temporary, file, StandardCopyOption.REPLACE_EXISTING)
+            }
+        } finally {
+            Files.deleteIfExists(temporary)
+        }
+    }
+}
+
+object LocalMinecraftReuseService : LocalArtifactReuser {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scanMutex = Mutex()
+    private val scanner = LocalMinecraftScanner()
+    private val cacheStore = LocalMinecraftCacheStore(
+        ClientDirs.toolsDir.toPath().resolve("local-minecraft-cache.json")
+    )
+    private val downloadsDirectory = Path.of(System.getProperty("user.home"), "Downloads")
+    private val mutableState = MutableStateFlow<LocalMinecraftScanState>(LocalMinecraftScanState.Idle)
+    private val cacheWriteLock = Any()
+    private val sourceUpdateLock = Any()
+
+    @Volatile
+    private var cache = LocalMinecraftCache()
+
+    @Volatile
+    private var sources = LocalArtifactSources()
+
+    @Volatile
+    private var fileReuser = LocalArtifactFileReuser(::sources)
+
+    val state: StateFlow<LocalMinecraftScanState> = mutableState.asStateFlow()
+
+    fun start() {
+        if (!isWindows()) return
+        LocalArtifactReuse.install(this)
+        scope.launch { refresh(false) }
+    }
+
+    fun rescan() {
+        if (!isWindows()) return
+        scope.launch { refresh(true) }
+    }
+
+    override suspend fun reuse(request: LocalArtifactRequest, target: Path): Result<Path?> {
+        val result = fileReuser.reuse(request, target)
+        persistCache()
+        return result
+    }
+
+    private suspend fun refresh(force: Boolean) {
+        if (!scanMutex.tryLock()) return
+        try {
+            val loaded = cacheStore.load().getOrElse {
+                lgr.warn(it) { "读取本地Minecraft缓存失败，将重新扫描" }
+                LocalMinecraftCache()
+            }
+            cache = loaded
+            fileReuser = LocalArtifactFileReuser(::sources, loaded.hashes)
+            val cachedInstallations = loaded.installations.mapNotNull { record ->
+                scanner.recognize(Path.of(record.path))
+                    ?: knownRdiInstallation(Path.of(record.path))
+            }
+            val immediatelyAvailable = (cachedInstallations + rdiInstallations()).distinctBy(LocalMinecraftInstallation::path)
+            sources = LocalArtifactSources(
+                runtimeRoots = immediatelyAvailable.filter(LocalMinecraftInstallation::runtimeRoot)
+                    .map(LocalMinecraftInstallation::path),
+                searchFiles = collectSearchFiles(immediatelyAvailable)
+            )
+            val now = System.currentTimeMillis()
+            val runFullScan = force || LocalMinecraftScanPolicy.needsFullScan(loaded.lastFullScanAt, now)
+            mutableState.value = LocalMinecraftScanState.Scanning(immediatelyAvailable.size)
+            val scanned = if (runFullScan) {
+                val progressive = ConcurrentHashMap(
+                    immediatelyAvailable.associateBy(LocalMinecraftInstallation::path)
+                )
+                scanner.scan(fixedDrives().getOrThrow()) { installation ->
+                    progressive[installation.path] = installation
+                    publishDiscoveredSource(installation, progressive.values.size)
+                }.getOrThrow()
+            } else {
+                cachedInstallations
+            }
+            val installations = (scanned + rdiInstallations())
+                .distinctBy { it.path.toAbsolutePath().normalize() }
+            sources = LocalArtifactSources(
+                runtimeRoots = installations.filter(LocalMinecraftInstallation::runtimeRoot).map(LocalMinecraftInstallation::path),
+                searchFiles = collectSearchFiles(installations)
+            )
+            cache = LocalMinecraftCache(
+                lastFullScanAt = if (runFullScan) now else loaded.lastFullScanAt,
+                installations = installations.map {
+                    LocalMinecraftInstallationRecord(it.path.toString(), it.runtimeRoot, it.gameInstance)
+                },
+                hashes = fileReuser.cachedHashes()
+            )
+            persistCache()
+            mutableState.value = LocalMinecraftScanState.Completed(installations.size, now)
+            lgr.info { "本地Minecraft实例扫描完成，共${installations.size}个" }
+        } catch (error: Exception) {
+            lgr.warn(error) { "本地Minecraft实例扫描失败" }
+            mutableState.value = LocalMinecraftScanState.Failed(error.message ?: "扫描失败", cache.installations.size)
+        } finally {
+            scanMutex.unlock()
+        }
+    }
+
+    private fun rdiInstallations(): List<LocalMinecraftInstallation> = buildList {
+        val root = ClientDirs.mcDir.toPath().toAbsolutePath().normalize()
+        add(LocalMinecraftInstallation(root, runtimeRoot = true, gameInstance = false))
+        ClientDirs.versionsDir.listFiles()
+            ?.asSequence()
+            ?.filter(File::isDirectory)
+            ?.filter { it.resolve("mods").isDirectory }
+            ?.forEach { add(LocalMinecraftInstallation(it.toPath().toAbsolutePath().normalize(), false, true)) }
+    }
+
+    private fun knownRdiInstallation(path: Path): LocalMinecraftInstallation? =
+        rdiInstallations().firstOrNull { it.path == path.toAbsolutePath().normalize() }
+
+    private fun collectSearchFiles(installations: List<LocalMinecraftInstallation>): List<Path> {
+        val modFiles = installations.asSequence()
+            .filter(LocalMinecraftInstallation::gameInstance)
+            .flatMap { installation ->
+                regularFiles(installation.path.resolve("mods"), 1)
+                    .getOrElse {
+                        lgr.warn(it) { "读取实例Mod目录失败：${installation.path}" }
+                        emptyList()
+                    }
+                    .asSequence()
+            }
+        val downloads = regularFiles(downloadsDirectory, DOWNLOAD_DEPTH).getOrElse {
+            lgr.warn(it) { "读取Downloads失败，将跳过该目录" }
+            emptyList()
+        }
+        return (modFiles + downloads.asSequence())
+            .filterNot { it.fileName.toString().contains(".downloading") || it.extension == "part" }
+            .distinct()
+            .toList()
+    }
+
+    private fun publishDiscoveredSource(installation: LocalMinecraftInstallation, foundCount: Int) {
+        synchronized(sourceUpdateLock) {
+            val runtimeRoots = if (installation.runtimeRoot) {
+                (sources.runtimeRoots + installation.path).distinct()
+            } else {
+                sources.runtimeRoots
+            }
+            val modFiles = if (installation.gameInstance) {
+                regularFiles(installation.path.resolve("mods"), 1).getOrElse {
+                    lgr.warn(it) { "读取实例Mod目录失败：${installation.path}" }
+                    emptyList()
+                }
+            } else {
+                emptyList()
+            }
+            sources = LocalArtifactSources(runtimeRoots, (sources.searchFiles + modFiles).distinct())
+            mutableState.value = LocalMinecraftScanState.Scanning(foundCount)
+        }
+    }
+
+    private fun regularFiles(directory: Path, depth: Int): Result<List<Path>> = runCatching {
+        if (!Files.isDirectory(directory, NOFOLLOW_LINKS)) return@runCatching emptyList()
+        Files.walk(directory, depth).use { paths ->
+            paths.filter { Files.isRegularFile(it, NOFOLLOW_LINKS) }.toList()
+        }
+    }
+
+    private fun fixedDrives(): Result<List<Path>> = runCatching {
+        File.listRoots()
+            .filter { Kernel32.INSTANCE.GetDriveType(it.path) == WinBase.DRIVE_FIXED }
+            .map(File::toPath)
+    }
+
+    private fun persistCache() {
+        synchronized(cacheWriteLock) {
+            cache = cache.copy(hashes = fileReuser.cachedHashes())
+            cacheStore.save(cache).onFailure { lgr.warn(it) { "保存本地Minecraft缓存失败" } }
+        }
+    }
+
+    private fun isWindows(): Boolean = System.getProperty("os.name").startsWith("Windows", ignoreCase = true)
+
+    private const val DOWNLOAD_DEPTH = 3
+    private val lgr by Loggers
+}

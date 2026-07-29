@@ -13,7 +13,7 @@ import calebxzhou.rdi.client.ui.comp.WebPagePane
 
 private const val MCMOD_PAGE_URL = "https://play.mcmod.cn/sv20188037.html"
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun McmodScreen(
     onBack: () -> Unit = {}

@@ -121,7 +121,7 @@ internal static partial class UiLibraryUpdater
 
             api = api.Trim();
             var backupUrl = api.Contains("://", StringComparison.Ordinal) ? api : $"https://{api}";
-            writeInfo($"将优先使用加速API: {backupUrl}");
+            writeInfo($"将优先使用加速API，非常快");
             return backupUrl;
         }
         catch (Exception exception)
@@ -145,7 +145,7 @@ internal static partial class UiLibraryUpdater
                     JsonOptions);
                 if (response is { Code: 0, Data: not null })
                     return response.Data;
-                writeInfo($"API未返回UI库信息: {apiUrl}");
+                writeInfo($"API未返回UI库信息");
             }
             catch (Exception exception)
             {

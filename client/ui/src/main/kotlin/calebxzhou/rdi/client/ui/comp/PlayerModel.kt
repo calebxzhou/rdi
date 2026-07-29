@@ -33,7 +33,7 @@ import kotlinx.coroutines.withContext
  * OpenGL player model renderer.
  * Input: a standard Minecraft skin (64x64 or 64x32) and optional cape.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun PlayerModel(
     skin: ImageBitmap?,

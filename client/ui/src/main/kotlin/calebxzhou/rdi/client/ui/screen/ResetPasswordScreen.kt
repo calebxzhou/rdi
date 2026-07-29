@@ -44,7 +44,7 @@ private enum class ResetPasswordMode {
     MSA, QQ_MAIL
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun ResetPasswordScreen(
     onBack: () -> Unit,

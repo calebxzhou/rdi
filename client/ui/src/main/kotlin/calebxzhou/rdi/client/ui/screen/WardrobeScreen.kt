@@ -36,7 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun WardrobeScreen(
     onBack: (() -> Unit) = {},

@@ -16,7 +16,8 @@ data class ModrinthProjectInfoVo(
     val loaders: List<String>,
     val versionIds: List<String>,
     val versions: List<ModrinthProjectVersionVo>,
-    val sourceUrl: String? = null
+    val sourceUrl: String? = null,
+    val mcmodId: Int? = null
 )
 
 data class ModrinthProjectGalleryVo(

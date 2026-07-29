@@ -8,6 +8,7 @@ import calebxzhou.rdi.master.DB
 import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.idPathParam
+import calebxzhou.rdi.master.net.isClientDisconnect
 import calebxzhou.rdi.master.net.pathParamNull
 import calebxzhou.rdi.master.service.*
 import calebxzhou.rdi.master.service.host.HostQueryService.getById
@@ -18,8 +19,6 @@ import com.mongodb.client.model.Indexes
 import io.ktor.server.application.*
 import io.ktor.server.sse.*
 import io.ktor.sse.*
-import io.ktor.util.cio.*
-import io.ktor.utils.io.*
 import io.ktor.websocket.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.Channel
@@ -182,7 +181,13 @@ object HostService {
                 val started = hasContainer && DockerService.isStarted(containerName)
                 if (!started) {
                     if (!sentFileTail) {
-                        runCatching { sendLatestLogTail(session, host.dir) }
+                        try {
+                            sendLatestLogTail(session, host.dir)
+                        } catch (cancel: KxCancellationException) {
+                            throw cancel
+                        } catch (t: Throwable) {
+                            if (t.isClientDisconnect()) return
+                        }
                         sentFileTail = true
                     }
                     sentContainerTail = false
@@ -191,7 +196,7 @@ object HostService {
                 }
 
                 if (!sentContainerTail) {
-                    runCatching {
+                    try {
                         DockerService.getLog(containerName, startLine = 0, endLine = 200)
                             .lineSequence()
                             .map { it.trimEnd('\r') }
@@ -199,6 +204,10 @@ object HostService {
                             .toList()
                             .asReversed()
                             .forEach { session.send(ServerSentEvent(data = it)) }
+                    } catch (cancel: KxCancellationException) {
+                        throw cancel
+                    } catch (t: Throwable) {
+                        if (t.isClientDisconnect()) return
                     }
                     sentContainerTail = true
                     sentFileTail = false
@@ -220,16 +229,10 @@ object HostService {
                     }
                 } catch (t: KxCancellationException) {
                     throw t
-                } catch (t: ClosedWriteChannelException) {
-                    return
-                } catch (t: ChannelWriteException) {
-                    return
                 } catch (t: NotFoundException) {
                     sentContainerTail = false
                 } catch (t: Throwable) {
-                    if (t.message?.contains("Cannot write to channel", ignoreCase = true) == true) {
-                        return
-                    }
+                    if (t.isClientDisconnect()) return
                     throw t
                 } finally {
                     runCatching { subscription.close() }
@@ -239,10 +242,7 @@ object HostService {
         } catch (cancel: KxCancellationException) {
             //"已取消载入日志"
         } catch (t: Throwable) {
-            val ignore = t is ClosedWriteChannelException ||
-                    t is ChannelWriteException ||
-                    t.message?.contains("Cannot write to channel", ignoreCase = true) == true
-            if (!ignore) {
+            if (!t.isClientDisconnect()) {
                 runCatching { session.send(ServerSentEvent(event = "error", data = t.message ?: "unknown")) }
             }
         }

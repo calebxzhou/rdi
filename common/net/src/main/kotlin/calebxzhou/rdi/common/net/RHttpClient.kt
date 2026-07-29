@@ -1,5 +1,6 @@
 package calebxzhou.rdi.common.net
 
+import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.DIR
@@ -7,8 +8,6 @@ import calebxzhou.rdi.common.serdesJson
 import io.ktor.client.*
 import io.ktor.client.engine.okhttp.*
 import io.ktor.client.plugins.*
-import io.ktor.client.plugins.cache.*
-import io.ktor.client.plugins.cache.storage.*
 import io.ktor.client.plugins.compression.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.sse.*
@@ -36,7 +35,8 @@ fun HttpRequestBuilder.json() = contentType(ContentType.Application.Json)
  * Defaults to DIR/cache/http.
  */
 var httpCacheDir: File = DIR.resolve("cache").resolve("http").apply { mkdirs() }
-private const val HTTP_CACHE_SIZE_BYTES = 4*1024L * 1024 * 1024 // 1GB
+private const val HTTP_CACHE_SIZE_BYTES = 4 * 1024L * 1024 * 1024 // 4GiB
+private val httpLgr by Loggers
 
 val ktorClient by lazy {
     HttpClient(OkHttp) {
@@ -48,6 +48,7 @@ val ktorClient by lazy {
                 readTimeout(0, TimeUnit.SECONDS)
                 proxySelector(DynamicProxySelector())
                 cache(Cache(httpCacheDir.apply { mkdirs() }, HTTP_CACHE_SIZE_BYTES))
+                configureDebugRequestLogging()
                 configureDebugTlsForSelfSigned()
             }
         }
@@ -55,9 +56,6 @@ val ktorClient by lazy {
         install(ContentNegotiation) {
             json(serdesJson)
 
-        }
-        install(HttpCache) {
-            publicStorage(FileStorage(httpCacheDir))
         }
         install(SSE) {
             maxReconnectionAttempts = 4
@@ -74,6 +72,15 @@ val ktorClient by lazy {
             connectTimeoutMillis = 10_000
             socketTimeoutMillis = 60_000
         }
+    }
+}
+
+internal fun OkHttpClient.Builder.configureDebugRequestLogging() {
+    if (!DEBUG) return
+    addInterceptor { chain ->
+        val request = chain.request()
+        httpLgr.info { "HTTP ${request.method} ${request.url}" }
+        chain.proceed(request)
     }
 }
 

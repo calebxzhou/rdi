@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzhou.rdi.client.modcatalog.ModPlatform
 import calebxzhou.rdi.client.model.ModrinthProjectCategoryVo
 import calebxzhou.rdi.client.model.ModrinthProjectGalleryVo
 import calebxzhou.rdi.client.model.ModrinthProjectInfoVo
@@ -16,6 +18,7 @@ import kotlin.math.abs
 
 object ModrinthProjectInfoService {
     suspend fun loadProjectInfo(
+        modCatalog: ModCatalog,
         projectId: String,
         mcVersion: String? = null,
         loader: String? = null
@@ -27,7 +30,8 @@ object ModrinthProjectInfoService {
             loaders = loader?.trim()?.takeIf(String::isNotBlank)?.let { listOf(it) } ?: emptyList(),
             includeChangelog = true
         )
-        return project.toModrinthProjectInfoVo(versions)
+        val metadata = RemoteModLocalization.find(modCatalog, ModPlatform.MODRINTH, project.slug)
+        return project.toModrinthProjectInfoVo(versions, metadata)
     }
 
     suspend fun loadProjectVersions(
@@ -46,14 +50,17 @@ object ModrinthProjectInfoService {
             .map(ModrinthV3Version::toModrinthProjectVersionVo)
 }
 
-private fun ModrinthV3Project.toModrinthProjectInfoVo(versions: List<ModrinthV3Version>): ModrinthProjectInfoVo {
+private fun ModrinthV3Project.toModrinthProjectInfoVo(
+    versions: List<ModrinthV3Version>,
+    metadata: calebxzhou.rdi.client.modcatalog.CatalogModMetadata?
+): ModrinthProjectInfoVo {
     val selectedCategories = (categories + loaders).distinct().take(6)
     return ModrinthProjectInfoVo(
         projectId = id,
         slug = slug,
-        title = RemoteModLocalization.titleByModrinthSlug(slug, name),
-        summary = RemoteModLocalization.introByModrinthSlug(slug, summary?.takeIf(String::isNotBlank) ?: "暂无简介"),
-        description = RemoteModLocalization.introByModrinthSlug(slug, description?.takeIf(String::isNotBlank) ?: "暂无描述"),
+        title = RemoteModLocalization.title(metadata, name),
+        summary = RemoteModLocalization.intro(metadata, summary?.takeIf(String::isNotBlank) ?: "暂无简介"),
+        description = RemoteModLocalization.intro(metadata, description?.takeIf(String::isNotBlank) ?: "暂无描述"),
         downloadsText = downloads.toCompactCountText(),
         followsText = followers.toSeparatedCountText(),
         iconUrl = iconUrl,
@@ -66,7 +73,8 @@ private fun ModrinthV3Project.toModrinthProjectInfoVo(versions: List<ModrinthV3V
         versions = versions
             .newestFirst()
             .map(ModrinthV3Version::toModrinthProjectVersionVo),
-        sourceUrl = "https://modrinth.com/mod/$slug"
+        sourceUrl = "https://modrinth.com/mod/$slug",
+        mcmodId = metadata?.mcmodId
     )
 }
 

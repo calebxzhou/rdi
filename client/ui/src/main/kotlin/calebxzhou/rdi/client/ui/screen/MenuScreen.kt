@@ -26,13 +26,14 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.PlayerModel
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.util.periodOfDay
 import org.bson.types.ObjectId
 
 /**
  * calebxzhou @ 2026-02-25 17:51
  */
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+
 @Composable
 fun MenuScreen(
     onOpenResources: () -> Unit,
@@ -183,12 +184,15 @@ private fun MenuActionButtons(
         ) {
             onOpenHostLobby()
         }
-       /* CircleIconButton(
-            icon = "\uF1B3",
-            tooltip = "新版房间"
-        ) {
-            onOpenHost2Lobby()
-        }*/
+        if(DEBUG){
+
+            CircleIconButton(
+                icon = "\uF1B3",
+                tooltip = "新版房间"
+            ) {
+                onOpenHost2Lobby()
+            }
+        }
         ImageIconButton(
             icon = "mcmod",
             tooltip = "百科"

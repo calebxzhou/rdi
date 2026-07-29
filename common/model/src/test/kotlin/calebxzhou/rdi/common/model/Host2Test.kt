@@ -14,6 +14,7 @@ class Host2Test {
         val detail = Host2.DetailVo(
             id = hostId,
             name = "新版房间",
+            iconUrl = "https://cdn.modrinth.com/data/example/icon.png",
             ownerId = ownerId,
             mcVersion = McVersion.V211,
             modLoader = ModLoader.neoforge,

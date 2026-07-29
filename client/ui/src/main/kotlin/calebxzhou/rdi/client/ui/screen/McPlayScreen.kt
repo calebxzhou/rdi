@@ -43,6 +43,7 @@ import calebxzhou.rdi.client.service.ensureGtnhRuntime
 import calebxzhou.rdi.client.service.startDesktop
 import calebxzhou.rdi.client.service.syncHostExtraMods
 import calebxzhou.rdi.client.service.syncHostManagedBaseMods
+import calebxzau.rdi.client.RDIClient
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
@@ -55,13 +56,12 @@ import calebxzhou.rdi.client.ui.McPlayStore
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.Console
-import calebxzhou.rdi.common.model.GTO_GUARD_AGENT_FILE_NAME
+import calebxzhou.rdi.common.model.FORGEGUARD_AGENT_FILE_NAME
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Task2Progress
-import calebxzhou.rdi.common.model.isGtoModpackName
-import java.io.File
+import calebxzhou.rdi.common.model.supportsForgeguard
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
+
 @Composable
 fun McPlayScreen(
     launchArgs: McPlayArgs? = null,
@@ -143,11 +143,10 @@ fun McPlayScreen(
 
                 val launchJvmArgs = buildList {
                     addAll(extraJvmArgs.filterNot { it.startsWith("-Drdi.play=") })
-                    if (args.modpackName.isGtoModpackName()) {
-                        val versionDir = args.versionDir?.let(::File) ?: GameService.versionListDir.resolve(args.versionId)
-                        val gtoGuardAgent = versionDir.resolve(GTO_GUARD_AGENT_FILE_NAME)
-                        require(gtoGuardAgent.isFile) { "缺少GTO启动保护文件: ${gtoGuardAgent.absolutePath}" }
-                        add("\"-javaagent:${gtoGuardAgent.absolutePath}\"")
+                    if (args.mcVer.supportsForgeguard(args.modLoader)) {
+                        val forgeguardAgent = RDIClient.DIR.resolve("lib/$FORGEGUARD_AGENT_FILE_NAME")
+                        require(forgeguardAgent.isFile) { "缺少Forgeguard启动保护文件: ${forgeguardAgent.absolutePath}" }
+                        add("\"-javaagent:${forgeguardAgent.absolutePath}\"")
                     }
                     LocalMcProxy.start(McPlayStore::appendProxyLog)
                     val proxiedPlayArg = args.playArg.withGameAddr(LocalMcProxy.gameAddr)

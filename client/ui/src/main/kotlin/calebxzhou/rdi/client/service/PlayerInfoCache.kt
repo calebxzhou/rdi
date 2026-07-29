@@ -3,6 +3,7 @@ package calebxzhou.rdi.client.service
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.milliseconds
@@ -23,7 +24,7 @@ class PlayerInfoCache<T>(
 
     private data class Entry<T>(val value: T, val mark: TimeSource.Monotonic.ValueTimeMark)
 
-    private val cache = mutableMapOf<String, Entry<T>>()
+    private val cache = ConcurrentHashMap<String, Entry<T>>()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val pending = LinkedHashMap<String, CompletableDeferred<T>>()
     private val mutex = Mutex()
@@ -39,10 +40,12 @@ class PlayerInfoCache<T>(
         val entry = cache[key] ?: return null
         return if (entry.mark.elapsedNow() < expiration) entry.value
         else {
-            cache.remove(key)
+            cache.remove(key, entry)
             null
         }
     }
+
+    fun peek(key: String): T? = getFromCache(key)
 
     fun invalidate(key: String) {
         cache.remove(key)

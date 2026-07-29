@@ -104,7 +104,7 @@ enum class McVersion(
     val vMajor get() = mcVer.split(".")[0]
     val vMinor get() = mcVer.split(".")[1]
     val vPatch get() = mcVer.split(".")[2]
-    val simpleVer get() = "$vMajor.$vMinor"
+    val simpleVer get() = "MC$vMinor"
     fun supportsConfiguredJava(major: Int): Boolean = major in supportedJreVers
 
     fun supportsCurrentJava(major: Int): Boolean = supportsConfiguredJava(major)
@@ -114,6 +114,10 @@ enum class McVersion(
         fun fromProtocolVer(protocolVer: Int): McVersion? = entries.firstOrNull { it.protocolVer == protocolVer }
     }
 }
+
+fun McVersion.supportsForgeguard(modLoader: ModLoader): Boolean =
+    this == McVersion.V201 && modLoader == ModLoader.forge
+
 /*V182(
       "1.18.2",
       "copper.png", 21,21,

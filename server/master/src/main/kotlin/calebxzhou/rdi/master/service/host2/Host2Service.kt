@@ -8,6 +8,7 @@ import calebxzhou.rdi.common.model.Host2Operation
 import calebxzhou.rdi.common.model.Host2SetupStatus
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.common.model.isDav
+import calebxzhou.rdi.common.service.validateIconUrl
 import calebxzhou.rdi.common.util.toUUID
 import calebxzhou.rdi.master.HOST2_DIR
 import calebxzhou.rdi.master.infra.postgres.DatabaseProvider
@@ -82,6 +83,10 @@ class Host2Service(
             throw RequestError("MC版本与ModLoader必须同时修改")
         }
         val dto = rawDto.normalized()
+        if (rawDto.iconUrl != null) {
+            requireAdmin(player, id)
+            validateIconUrl(dto.iconUrl).getOrThrow()
+        }
         database.transaction {
             val record = repository.findByIdForUpdate(id) ?: throw RequestError("无此新版房间")
             val role = roleOf(record, player)
@@ -251,6 +256,7 @@ class Host2Service(
         id = id,
         name = name,
         intro = intro,
+        iconUrl = iconUrl,
         ownerId = ownerId,
         mcVersion = mcVersion,
         modLoader = modLoader,
@@ -266,6 +272,7 @@ class Host2Service(
         id = id,
         name = name,
         intro = intro,
+        iconUrl = iconUrl,
         ownerId = ownerId,
         mcVersion = mcVersion,
         modLoader = modLoader,
@@ -304,7 +311,8 @@ private fun Host2.CreateDto.normalized() = copy(
 
 private fun Host2.OptionsDto.normalized() = copy(
     name = name?.let(::normalizeHost2Name),
-    intro = intro?.let(::normalizeHost2Intro)
+    intro = intro?.let(::normalizeHost2Intro),
+    iconUrl = iconUrl?.trim()
 )
 
 private fun normalizeHost2Name(raw: String): String {

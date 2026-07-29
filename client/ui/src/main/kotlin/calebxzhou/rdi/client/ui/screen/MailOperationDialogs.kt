@@ -32,7 +32,7 @@ import org.bson.types.ObjectId
 
 fun newOperationMailTitle(): String = "rdi-opr-${ObjectId()}"
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun MailOperationGuideDialog(
     operationName: String,
@@ -91,7 +91,7 @@ fun MailOperationGuideDialog(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 private fun RowScope.MailCopyButton(
     value: String

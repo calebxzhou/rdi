@@ -41,7 +41,7 @@ import calebxzhou.rdi.common.model.GameRuleValueType
 import java.text.Collator
 import java.util.Locale
 
-@OptIn(ExperimentalMaterial3Api::class)
+
 @Composable
 fun GameRuleModal(
     show: Boolean,
