@@ -45,6 +45,36 @@ class PlatformAdapterTest {
     }
 
     @Test
+    fun `curseforge exact slug lookup uses one filtered search request`() = runBlocking {
+        var requestCount = 0
+        val engine = MockEngine { request ->
+            requestCount++
+            assertEquals("jei", request.url.parameters["slug"])
+            assertEquals(null, request.url.parameters["searchFilter"])
+            assertEquals("1.21.1", request.url.parameters["gameVersion"])
+            assertEquals("6", request.url.parameters["modLoaderType"])
+            respond(
+                content = """{"data":[{"id":238222,"name":"JEI","slug":"jei","classId":6}],"pagination":{"index":0,"resultCount":1,"totalCount":1}}""",
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+            )
+        }
+        val adapter = CurseForgeAdapter(
+            HttpClient(engine),
+            CurseForgeConfig(apiKey = "secret"),
+            CatalogNetworkPolicy(preferMirror = false),
+            json
+        )
+
+        val project = adapter.findProjectBySlug(
+            "jei",
+            CatalogTarget(McVersion.V211, ModLoader.neoforge)
+        )
+
+        assertEquals("238222", project?.ref?.projectId)
+        assertEquals(1, requestCount)
+    }
+
+    @Test
     fun `curseforge key reaches mirror and invalid mirror falls back to official`() = runBlocking {
         val requests = mutableListOf<Pair<String, String?>>()
         val engine = MockEngine { request ->

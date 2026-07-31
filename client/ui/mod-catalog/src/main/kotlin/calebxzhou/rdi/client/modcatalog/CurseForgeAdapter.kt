@@ -63,6 +63,21 @@ internal class CurseForgeAdapter(
         return SourcePage(items, next, total)
     }
 
+    override suspend fun findProjectBySlug(slug: String, target: CatalogTarget): CatalogProjectSource? =
+        get<CfSearchResponse>(
+            "mods/search",
+            mapOf(
+                "gameId" to MINECRAFT_GAME_ID.toString(),
+                "classId" to MOD_CLASS_ID.toString(),
+                "slug" to slug,
+                "gameVersion" to target.minecraftVersion.mcVer,
+                "modLoaderType" to target.loader.curseForgeType().toString(),
+                "pageSize" to "1"
+            )
+        ).data.firstOrNull {
+            normalizeProjectSlug(it.slug) == normalizeProjectSlug(slug)
+        }?.toSource()
+
     override suspend fun getProjects(ids: Set<String>): AdapterResult<CatalogProjectSource> {
         if (ids.isEmpty()) return AdapterResult(emptyMap(), emptySet())
         val numericIds = ids.mapNotNull(String::toIntOrNull)

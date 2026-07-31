@@ -5,6 +5,9 @@ import calebxzau.util.netty.writeUtf8String
 import calebxzau.util.netty.writeVarInt
 import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.mc.proxy.MinecraftFrameDecoder
+import calebxzhou.rdi.mc.proxy.disableZstdFrameEncoding
+import calebxzhou.rdi.mc.proxy.isZstdFrameEnabled
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled

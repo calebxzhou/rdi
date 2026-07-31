@@ -3,9 +3,12 @@ package calebxzhou.rdi.client.ui.screen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -21,14 +24,24 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.TitleTabBar
 import calebxzau.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.Const
+import calebxzhou.rdi.client.auth.LocalCredentials
+import calebxzhou.rdi.client.auth.updateLastPlayHost
 import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.net.rdiRequest
+import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
+import calebxzhou.rdi.client.service.startPlay
+import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.client.ui.comp.ModpackDownloadMethodDialog
 import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.isDav
+import calebxzhou.rdi.common.serdesJson
+import io.ktor.http.HttpMethod
+import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 
 /**
@@ -53,11 +66,19 @@ enum class HostTab(
 fun HostListScreen(
     onBack: (() -> Unit),
     onOpenHostInfo: ((String, Boolean) -> Unit),
+    onOpenHostMembers: ((String, Boolean) -> Unit),
+    onOpenHostMods: ((String, Boolean) -> Unit),
+    onOpenHostFiles: ((String, Boolean) -> Unit),
+    onOpenHostBackend: ((String, Boolean) -> Unit),
+    onOpenHostSettings: ((String, Boolean) -> Unit),
+    onOpenMcPlay: ((McPlayArgs, Boolean) -> Unit),
+    onOpenMcVersions: ((McVersion?, Boolean) -> Unit),
     onOpenHostCreate: (() -> Unit),
     onOpenTaskList: ((String) -> Unit),
     initialTab: HostTab = HostTab.MyHosts,
 ) {
     var currentTab by remember(initialTab) { mutableStateOf(initialTab) }
+    val launchingHost = remember { mutableStateOf<String?>(null) }
 
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.LARGE) {
@@ -81,6 +102,14 @@ fun HostListScreen(
                             emptyStateText = "暂无你的房间，点击上方创建新房间或等待朋友邀请",
                             listPathForPage = { pageIndex -> "host/my/$pageIndex" },
                             onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, false) },
+                            onOpenHostMembers = { hostId -> onOpenHostMembers(hostId, false) },
+                            onOpenHostMods = { hostId -> onOpenHostMods(hostId, false) },
+                            onOpenHostFiles = { hostId -> onOpenHostFiles(hostId, false) },
+                            onOpenHostBackend = { hostId -> onOpenHostBackend(hostId, false) },
+                            onOpenHostSettings = { hostId -> onOpenHostSettings(hostId, false) },
+                            onOpenMcPlay = { onOpenMcPlay(it, false) },
+                            onOpenMcVersions = { onOpenMcVersions(it, false) },
+                            launchingHost = launchingHost,
                             onOpenTaskList = onOpenTaskList
                         ) {
                             FlowRowV(
@@ -98,6 +127,14 @@ fun HostListScreen(
                             emptyStateText = "暂无可展示的房间",
                             listPathForPage = { pageIndex -> "host/list/$pageIndex" },
                             onOpenHostInfo = { hostId -> onOpenHostInfo(hostId, true) },
+                            onOpenHostMembers = { hostId -> onOpenHostMembers(hostId, true) },
+                            onOpenHostMods = { hostId -> onOpenHostMods(hostId, true) },
+                            onOpenHostFiles = { hostId -> onOpenHostFiles(hostId, true) },
+                            onOpenHostBackend = { hostId -> onOpenHostBackend(hostId, true) },
+                            onOpenHostSettings = { hostId -> onOpenHostSettings(hostId, true) },
+                            onOpenMcPlay = { onOpenMcPlay(it, true) },
+                            onOpenMcVersions = { onOpenMcVersions(it, true) },
+                            launchingHost = launchingHost,
                             onOpenTaskList = onOpenTaskList
                         )
 
@@ -120,6 +157,14 @@ fun HostBrowserPane(
     emptyStateText: String,
     listPathForPage: (Int) -> String,
     onOpenHostInfo: ((String) -> Unit),
+    onOpenHostMembers: ((String) -> Unit),
+    onOpenHostMods: ((String) -> Unit),
+    onOpenHostFiles: ((String) -> Unit),
+    onOpenHostBackend: ((String) -> Unit),
+    onOpenHostSettings: ((String) -> Unit),
+    onOpenMcPlay: ((McPlayArgs) -> Unit),
+    onOpenMcVersions: ((McVersion?) -> Unit),
+    launchingHost: MutableState<String?>,
     onOpenTaskList: ((String) -> Unit),
     modifier: Modifier = Modifier,
     headerActions: (@Composable ColumnScope.() -> Unit)? = null
@@ -127,12 +172,72 @@ fun HostBrowserPane(
     val scope = rememberCoroutineScope()
     var hosts by remember { mutableStateOf<List<Host.BriefVo>>(emptyList()) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+    var okMessage by remember { mutableStateOf<String?>(null) }
     var installConfirmTask by remember { mutableStateOf<StartPlayResult.NeedInstall?>(null) }
+    var deleteHost by remember { mutableStateOf<Host.DetailVo?>(null) }
+    var deleteWorld by remember { mutableStateOf(false) }
     var page by remember { mutableStateOf(0) }
     var loadingMore by remember { mutableStateOf(false) }
     var initialLoading by remember { mutableStateOf(true) }
     var reachedEnd by remember { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
+
+    fun startHost(host: Host.BriefVo) {
+        if (launchingHost.value != null) return
+        val hostId = host._id.toHexString()
+        launchingHost.value = hostId
+        scope.rdiRequest<Host.DetailVo>(
+            path = "host/$hostId/detail",
+            onOk = { response ->
+                val detail = response.data
+                if (detail == null) {
+                    errorMessage = "无法加载房间信息"
+                    launchingHost.value = null
+                    return@rdiRequest
+                }
+                scope.launch {
+                    runCatching { detail.startPlay() }
+                        .onSuccess { result ->
+                            when (result) {
+                                is StartPlayResult.Ready -> {
+                                    LocalCredentials.read().updateLastPlayHost(hostId, detail.name)
+                                    onOpenMcPlay(result.args)
+                                }
+                                is StartPlayResult.NeedMod -> {
+                                    errorMessage = "房间缺少必要Mod：${result.modSlugs.joinToString("、")}。请先前往模组界面添加。"
+                                }
+                                is StartPlayResult.NeedInstall -> installConfirmTask = result
+                                is StartPlayResult.Installing -> {
+                                    errorMessage = "整合包正在下载，请等待下载完成后再启动"
+                                    onOpenTaskList(result.runId)
+                                }
+                                is StartPlayResult.NeedMc -> {
+                                    errorMessage = "请更新MC${result.ver.mcVer}版本资源"
+                                    onOpenMcVersions(result.ver)
+                                }
+                            }
+                        }
+                        .onFailure { errorMessage = it.message ?: "无法开始游玩" }
+                    launchingHost.value = null
+                }
+            },
+            onErr = {
+                errorMessage = it.message ?: "无法加载房间信息"
+                launchingHost.value = null
+            }
+        )
+    }
+
+    fun prepareDelete(host: Host.BriefVo) {
+        scope.rdiRequest<Host.DetailVo>(
+            path = "host/${host._id}/detail",
+            onOk = { response ->
+                deleteHost = response.data
+                deleteWorld = false
+            },
+            onErr = { errorMessage = it.message ?: "无法加载房间信息" }
+        )
+    }
 
     fun resetList() {
         page = 0
@@ -184,6 +289,10 @@ fun HostBrowserPane(
             Spacer(modifier = Modifier.height(8.dp))
             Text(errorMessage!!, color = MaterialTheme.colorScheme.error)
         }
+        okMessage?.let {
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(it, color = MaterialTheme.colorScheme.primary)
+        }
         if (headerActions != null) {
             Spacer(modifier = Modifier.height(8.dp))
             headerActions.invoke(this)
@@ -213,7 +322,16 @@ fun HostBrowserPane(
                 host.HostCard(
                     onClick = {
                         onOpenHostInfo.invoke(host._id.toHexString())
-                    }
+                    },
+                    onPlay = ::startHost,
+                    onOpenMembers = { onOpenHostMembers(host._id.toHexString()) },
+                    onOpenMods = { onOpenHostMods(host._id.toHexString()) },
+                    onOpenFiles = { onOpenHostFiles(host._id.toHexString()) },
+                    onOpenBackend = { onOpenHostBackend(host._id.toHexString()) },
+                    onOpenSettings = { onOpenHostSettings(host._id.toHexString()) },
+                    onDelete = ::prepareDelete,
+                    playEnabled = launchingHost.value == null,
+                    playLoading = launchingHost.value == host._id.toHexString()
                 )
             }
 
@@ -274,6 +392,46 @@ fun HostBrowserPane(
             },
             onOpenTaskList = onOpenTaskList,
             onImportError = { errorMessage = it }
+        )
+    }
+
+    deleteHost?.let { host ->
+        AlertDialog(
+            onDismissRequest = { deleteHost = null },
+            title = { Text("确认删除") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("确认删除房间吗？")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = deleteWorld,
+                            enabled = host.worldId != null,
+                            onCheckedChange = { deleteWorld = it }
+                        )
+                        Text(if (host.worldId == null) "该房间没有关联存档" else "同时删除关联存档（不可恢复）")
+                    }
+                    Text(if (deleteWorld && host.worldId != null) "房间和存档都会被删除，无法恢复。" else "默认仅删除房间，存档会保留，可导出或复用。")
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.rdiRequestU(
+                        path = "host/${host._id}",
+                        method = HttpMethod.Delete,
+                        body = serdesJson.encodeToString(Host.DeleteDto(deleteWorld && host.worldId != null)),
+                        onOk = {
+                            hosts = hosts.filterNot { it._id == host._id }
+                            errorMessage = null
+                            okMessage = "已删除"
+                            deleteHost = null
+                        },
+                        onErr = { errorMessage = it.message ?: "删除失败" }
+                    )
+                }) { Text("删除") }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteHost = null }) { Text("取消") }
+            }
         )
     }
 }

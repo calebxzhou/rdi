@@ -117,7 +117,7 @@ fun RemoteModScreen(
                 CatalogSearchRequest(
                     query = query,
                     target = CatalogTarget(selectedMcVersion, selectedLoader),
-                    sort = CatalogSort.RELEVANCE,
+                    sort = CatalogSort.DOWNLOADS,
                     cursor = if (reset) null else nextCursor
                 )
             ).getOrThrow()

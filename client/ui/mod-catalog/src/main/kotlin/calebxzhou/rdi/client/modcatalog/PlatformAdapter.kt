@@ -25,6 +25,11 @@ internal interface PlatformAdapter {
         limit: Int
     ): SourcePage
 
+    suspend fun findProjectBySlug(slug: String, target: CatalogTarget): CatalogProjectSource? =
+        search(slug, target, CatalogSort.RELEVANCE, 0, 5).items.firstOrNull {
+            normalizeProjectSlug(it.slug) == normalizeProjectSlug(slug)
+        }
+
     suspend fun getProjects(ids: Set<String>): AdapterResult<CatalogProjectSource>
 
     suspend fun getDetails(ref: CatalogProjectRef): CatalogModDetailsSource

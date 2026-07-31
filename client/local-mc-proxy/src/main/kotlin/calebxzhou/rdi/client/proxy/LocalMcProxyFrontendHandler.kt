@@ -1,7 +1,10 @@
 package calebxzhou.rdi.client.proxy
 
-import calebxzhou.rdi.common.DEBUG
+import calebxzhou.rdi.mc.proxy.MinecraftFrameDecoder
+import calebxzhou.rdi.mc.proxy.ZstdFrameDecoder
+import calebxzhou.rdi.mc.proxy.ZstdFrameEncoder
 import io.netty.bootstrap.Bootstrap
+import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
 import io.netty.channel.ChannelFutureListener
@@ -17,31 +20,23 @@ import io.netty.util.ReferenceCountUtil
 internal class LocalMcProxyFrontendHandler(
     private val backendGroup: EventLoopGroup,
     private val resolveEndpoint: () -> ProxyEndpoint,
+    private val config: LocalMcProxyConfig,
     private val reportLog: (String) -> Unit
 ) : ChannelInboundHandlerAdapter() {
     private var backendChannel: Channel? = null
     private val pendingBuffer = mutableListOf<Any>()
     private var firstMinecraftFrameHandled = false
-    private val metrics = if (LocalMcProxyMetricsConfig.enabled) LocalMcProxyMetricsSession.create() else null
+    private val metrics = LocalMcProxyMetricsSession.create(config)
 
     override fun channelRead(ctx: ChannelHandlerContext, msg: Any) {
         if (!firstMinecraftFrameHandled) {
             firstMinecraftFrameHandled = true
-            val endpoint = if(DEBUG) ProxyEndpoint("localhost",65230) else resolveEndpoint()
+            val endpoint = resolveEndpoint()
             connectToBackend(ctx, endpoint)
             recordMetrics("c2s", msg)
             forwardToBackend(ctx, msg)
-            if (metrics == null) {
-                ctx.pipeline().remove(MinecraftFrameDecoder::class.java)
-            }
-            if(DEBUG)
-            {
-                reportLog(
-                    "bridge ${ctx.channel().remoteAddress()} -> ${endpoint.host}:${endpoint.port}"
-                )
-            }else{
-                reportLog("bridge ${ctx.channel().remoteAddress()}")
-            }
+            if (metrics == null) ctx.pipeline().remove(MinecraftFrameDecoder::class.java)
+            reportLog("bridge ${ctx.channel().remoteAddress()} -> ${endpoint.host}:${endpoint.port}")
             return
         }
         recordMetrics("c2s", msg)
@@ -49,11 +44,14 @@ internal class LocalMcProxyFrontendHandler(
     }
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
-        if (backendChannel?.isActive == true) {
-            closeOnFlush(backendChannel!!)
-        }
+        backendChannel?.takeIf { it.isActive }?.let(::closeOnFlush)
         releasePendingBuffer()
-        metrics?.closeAndSave()?.let { reportLog("net metrics saved: ${it.absolutePath}") }
+        metrics?.closeAndSave()?.fold(
+            onSuccess = { file -> file?.let { reportLog("net metrics saved: ${it.absolutePath}") } },
+            onFailure = { error ->
+                reportLog("net metrics save failed: ${error.message ?: error.javaClass.simpleName}")
+            }
+        )
     }
 
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
@@ -70,14 +68,9 @@ internal class LocalMcProxyFrontendHandler(
         ctx.fireChannelWritabilityChanged()
     }
 
-    private fun connectToBackend(
-        ctx: ChannelHandlerContext,
-        endpoint: ProxyEndpoint
-    ) {
+    private fun connectToBackend(ctx: ChannelHandlerContext, endpoint: ProxyEndpoint) {
         val frontendChannel = ctx.channel()
-        if (!frontendChannel.isActive) {
-            return
-        }
+        if (!frontendChannel.isActive) return
         frontendChannel.config().isAutoRead = false
 
         val bootstrap = Bootstrap()
@@ -88,27 +81,22 @@ internal class LocalMcProxyFrontendHandler(
             .option(ChannelOption.SO_KEEPALIVE, true)
             .handler(object : ChannelInitializer<SocketChannel>() {
                 override fun initChannel(ch: SocketChannel) {
-                    if (LocalMcProxyCompression.enabled) {
+                    if (config.compressionEnabled) {
                         ch.pipeline().addLast(
-                            ZstdFrameDecoder(),
-                            ZstdFrameEncoder()
+                            ZstdFrameDecoder(config.maxFrameSize),
+                            ZstdFrameEncoder(config.compressionLevel, config.compressionThreshold)
                         )
                     }
-                    if (metrics != null) {
-                        ch.pipeline().addLast(MinecraftFrameDecoder())
-                    }
+                    if (metrics != null) ch.pipeline().addLast(MinecraftFrameDecoder())
                     ch.pipeline().addLast(LocalMcProxyBackendHandler(frontendChannel, reportLog, metrics))
                 }
             })
 
         val future = bootstrap.connect(endpoint.host, endpoint.port)
         backendChannel = future.channel()
-
         future.addListener { connectFuture ->
             if (!frontendChannel.isActive) {
-                if (connectFuture.isSuccess) {
-                    future.channel().close()
-                }
+                if (connectFuture.isSuccess) future.channel().close()
                 releasePendingBuffer()
                 return@addListener
             }
@@ -119,7 +107,8 @@ internal class LocalMcProxyFrontendHandler(
                 LocalMcProxyFlowControl.resumePeerIfWritable(future.channel())
             } else {
                 reportLog(
-                    "backend connect failed ${endpoint.host}:${endpoint.port}: ${connectFuture.cause()?.message ?: "unknown"}"
+                    "backend connect failed ${endpoint.host}:${endpoint.port}: " +
+                        (connectFuture.cause()?.message ?: "unknown")
                 )
                 releasePendingBuffer()
                 frontendChannel.close()
@@ -139,9 +128,7 @@ internal class LocalMcProxyFrontendHandler(
             LocalMcProxyFlowControl.pauseSourceIfTargetNotWritable(frontendChannel, target)
             target.write(msg).addListener { future ->
                 if (!future.isSuccess) {
-                    reportLog(
-                        "backend write failed: ${future.cause()?.message ?: "unknown"}"
-                    )
+                    reportLog("backend write failed: ${future.cause()?.message ?: "unknown"}")
                     frontendChannel.close()
                 }
             }
@@ -152,38 +139,32 @@ internal class LocalMcProxyFrontendHandler(
     }
 
     private fun flushPendingBuffer(ctx: ChannelHandlerContext) {
-        if (pendingBuffer.isEmpty()) {
-            return
-        }
-        val compositeBuf = ctx.alloc().compositeBuffer(pendingBuffer.size)
+        if (pendingBuffer.isEmpty()) return
+        val compositeBuffer = ctx.alloc().compositeBuffer(pendingBuffer.size)
         pendingBuffer.forEach { bufferedMsg ->
-            if (bufferedMsg is io.netty.buffer.ByteBuf) {
-                compositeBuf.addComponent(true, bufferedMsg)
-            } else {
-                ReferenceCountUtil.release(bufferedMsg)
-            }
+            if (bufferedMsg is ByteBuf) compositeBuffer.addComponent(true, bufferedMsg)
+            else ReferenceCountUtil.release(bufferedMsg)
         }
         pendingBuffer.clear()
-        if (compositeBuf.isReadable) {
-            val target = backendChannel
-            if (target == null) {
-                compositeBuf.release()
-                return
-            }
-            LocalMcProxyFlowControl.pauseSourceIfTargetNotWritable(ctx.channel(), target)
-            target.write(compositeBuf).addListener { future ->
-                if (!future.isSuccess) {
-                    reportLog(
-                        "backend write failed: ${future.cause()?.message ?: "unknown"}"
-                    )
-                    ctx.channel().close()
-                }
-            }
-            LocalMcProxyFlowControl.pauseSourceIfTargetNotWritable(ctx.channel(), target)
-            target.flush()
-        } else {
-            compositeBuf.release()
+
+        if (!compositeBuffer.isReadable) {
+            compositeBuffer.release()
+            return
         }
+        val target = backendChannel
+        if (target == null) {
+            compositeBuffer.release()
+            return
+        }
+        LocalMcProxyFlowControl.pauseSourceIfTargetNotWritable(ctx.channel(), target)
+        target.write(compositeBuffer).addListener { future ->
+            if (!future.isSuccess) {
+                reportLog("backend write failed: ${future.cause()?.message ?: "unknown"}")
+                ctx.channel().close()
+            }
+        }
+        LocalMcProxyFlowControl.pauseSourceIfTargetNotWritable(ctx.channel(), target)
+        target.flush()
     }
 
     private fun releasePendingBuffer() {
@@ -192,15 +173,12 @@ internal class LocalMcProxyFrontendHandler(
     }
 
     private fun recordMetrics(direction: String, msg: Any) {
-        if (metrics != null && msg is io.netty.buffer.ByteBuf) {
-            metrics.record(direction, msg)
-        }
+        if (metrics != null && msg is ByteBuf) metrics.record(direction, msg)
     }
 
-    private fun closeOnFlush(ch: Channel) {
-        if (ch.isActive) {
-            ch.writeAndFlush(Unpooled.EMPTY_BUFFER)
-                .addListener(ChannelFutureListener.CLOSE)
+    private fun closeOnFlush(channel: Channel) {
+        if (channel.isActive) {
+            channel.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE)
         }
     }
 }

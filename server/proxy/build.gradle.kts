@@ -18,6 +18,7 @@ repositories {
 
 dependencies {
     testImplementation(kotlin("test"))
+    implementation(project(":mc-proxy"))
     implementation(project(":misc"))
     implementation(project(":model"))
 //    implementation(project(":net"))

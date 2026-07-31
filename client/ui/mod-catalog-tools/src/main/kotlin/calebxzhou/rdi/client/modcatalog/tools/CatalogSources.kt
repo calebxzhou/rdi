@@ -170,8 +170,8 @@ internal object McmodPageParser {
             val link = block.selectFirst("a[href^=/class/]") ?: return@mapNotNull null
             val id = classIdRegex.find(link.attr("href"))?.groupValues?.get(1)?.toIntOrNull()
                 ?: return@mapNotNull null
-            val image = block.selectFirst("img")
-            val logo = image?.let {
+            val image: Element? = block.selectFirst("img")
+            val logo: String = image?.let {
                 sequenceOf(it.absUrl("data-original"), it.absUrl("data-src"), it.absUrl("src"))
                     .firstOrNull(String::isNotBlank)
             }.orEmpty()

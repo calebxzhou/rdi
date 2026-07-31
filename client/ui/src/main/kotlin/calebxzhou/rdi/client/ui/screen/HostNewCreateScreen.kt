@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.MaxBox
@@ -81,6 +82,9 @@ fun HostNewCreateScreen(
     var noSave by remember { mutableStateOf(false) }
     var showResult by remember { mutableStateOf<String?>(null) }
     var submitting by remember { mutableStateOf(false) }
+    var editHost by remember { mutableStateOf<Host.DetailVo?>(null) }
+    var showUpdateConfirm by remember { mutableStateOf(false) }
+    var updateMessage by remember { mutableStateOf<String?>(null) }
 
     var editHostId by remember { mutableStateOf<ObjectId?>(null) }
     var editWorldId by remember { mutableStateOf<ObjectId?>(null) }
@@ -168,6 +172,7 @@ fun HostNewCreateScreen(
             path = "host/$rawHostId/detail",
             onOk = { resp ->
                 val detail = resp.data ?: return@rdiRequest
+                editHost = detail
                 title = "编辑房间 · ${detail.name}"
                 hostName = detail.name
                 modpackIdText = detail.modpack.id.toHexString()
@@ -369,8 +374,21 @@ fun HostNewCreateScreen(
                 CircleIconButton("\uDB82\uDE50", bgColor = MaterialColor.GREEN_900.color) {
                     submit()
                 }
+                if (editHost != null) {
+                    CircleIconButton(
+                        icon = "\uDB80\uDFD5",
+                        tooltip = "更新",
+                        showText = false
+                    ) {
+                        showUpdateConfirm = true
+                    }
+                }
             }
             ContentBody(scrollable = true) {
+                updateMessage?.let {
+                    Text(it, color = MaterialTheme.colorScheme.primary)
+                    Space8h()
+                }
                 statusMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                     Space8h()
@@ -729,6 +747,26 @@ fun HostNewCreateScreen(
             show = true,
             overrideRules = overrideRules,
             onClose = { showRules = false }
+        )
+    }
+
+    if (showUpdateConfirm) {
+        val currentHost = editHost
+        ConfirmDialog(
+            title = "确认更新",
+            message = "将更新房间当前的整合包《${currentHost?.modpack?.name.orEmpty()}》到最新版本。所有修改过的配置都会丢失。",
+            onConfirm = {
+                showUpdateConfirm = false
+                currentHost?.let { host ->
+                    scope.rdiRequestU(
+                        path = "host/${host._id}/update",
+                        method = HttpMethod.Post,
+                        onOk = { updateMessage = "已提交更新" },
+                        onErr = { errorMessage = it.message ?: "更新失败" }
+                    )
+                }
+            },
+            onDismiss = { showUpdateConfirm = false }
         )
     }
 

@@ -35,8 +35,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.encodeBase64
-import calebxzhou.rdi.client.proxy.LocalMcProxy
 import calebxzhou.rdi.client.service.GameService
+import calebxzhou.rdi.client.service.LocalMcProxyService
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.ensureDesktopLaunchLibraries
 import calebxzhou.rdi.client.service.ensureGtnhRuntime
@@ -73,17 +73,23 @@ fun McPlayScreen(
     var duplicateLaunchArgs by remember { mutableStateOf<McPlayArgs?>(null) }
     val screenFocusRequester = remember { FocusRequester() }
 
+    fun stopLocalMcProxy() {
+        LocalMcProxyService.stop().onFailure { error ->
+            McPlayStore.appendProxyLog("[LocalMcProxy] 停止失败: ${error.message ?: error.javaClass.simpleName}")
+        }
+    }
+
     fun markSessionExited(session: McGameSession, message: String? = null) {
         McPlayStore.markExited(session.id, message)
         if (!McPlayStore.hasAliveSessions()) {
-            LocalMcProxy.stop()
+            stopLocalMcProxy()
         }
     }
 
     fun stopSession(session: McGameSession, force: Boolean = false) {
         session.requestStop(force)
         if (!McPlayStore.hasAliveSessions()) {
-            LocalMcProxy.stop()
+            stopLocalMcProxy()
         }
     }
 
@@ -148,8 +154,8 @@ fun McPlayScreen(
                         require(forgeguardAgent.isFile) { "缺少Forgeguard启动保护文件: ${forgeguardAgent.absolutePath}" }
                         add("\"-javaagent:${forgeguardAgent.absolutePath}\"")
                     }
-                    LocalMcProxy.start(McPlayStore::appendProxyLog)
-                    val proxiedPlayArg = args.playArg.withGameAddr(LocalMcProxy.gameAddr)
+                    val localGameAddr = LocalMcProxyService.start(McPlayStore::appendProxyLog).getOrThrow()
+                    val proxiedPlayArg = args.playArg.withGameAddr(localGameAddr)
                     add("-Drdi.play=${proxiedPlayArg.encodeBase64}")
                 }
                 if (session.stopRequested) return@launchSessionTask

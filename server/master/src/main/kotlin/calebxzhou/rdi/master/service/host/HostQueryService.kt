@@ -8,6 +8,7 @@ import calebxzhou.rdi.master.service.ModpackService
 import calebxzhou.rdi.master.service.ModpackService.toBriefVo
 import calebxzhou.rdi.master.service.host.HostControlService.status
 import calebxzhou.rdi.master.service.host.HostPresenceService.getOnlinePlayers
+import calebxzhou.rdi.model.Role
 import com.mongodb.client.model.Filters.and
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.Sorts
@@ -86,6 +87,11 @@ object HostQueryService {
                     val modpack = ModpackService.getById(host.modpackId)
                     val onlinePlayers = host.getOnlinePlayers()
                     val isMember = host.ownerId == requesterId || host.members.any { it.id == requesterId }
+                    val role = if (host.ownerId == requesterId) {
+                        Role.OWNER
+                    } else {
+                        host.members.firstOrNull { it.id == requesterId }?.role
+                    }
                     val playable = when {
                         isMember -> true
                         host.isPublic -> true
@@ -103,6 +109,7 @@ object HostQueryService {
                         port = host.port,
                         playable = playable,
                         isMember = isMember,
+                        role = role,
                         onlinePlayerIds = onlinePlayers
                     )
                 }

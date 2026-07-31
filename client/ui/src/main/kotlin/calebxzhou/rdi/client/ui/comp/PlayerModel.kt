@@ -4,7 +4,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -17,15 +16,15 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.decodeImageBitmap
 import calebxzhou.rdi.client.service.playermodel.GpuPlayerModelRenderService
 import calebxzhou.rdi.client.service.playermodel.PlayerTexturePixels
-import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.client.ui.MaterialColor
-import calebxzau.rdi.client.ui.decodeImageBitmap
 import calebxzhou.rdi.common.net.httpRequest
-import io.ktor.client.request.url
-import io.ktor.client.statement.bodyAsBytes
-import io.ktor.http.isSuccess
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
+import io.ktor.http.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 

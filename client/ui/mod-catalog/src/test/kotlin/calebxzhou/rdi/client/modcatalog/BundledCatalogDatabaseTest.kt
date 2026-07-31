@@ -28,6 +28,9 @@ class BundledCatalogDatabaseTest {
                 ).size
             )
             assertEquals(2021, index.search("机械动力", 0, 10).first().mcmodId)
+            assertEquals(2, index.findExactFullPinyin("gongyeshidai2")?.mcmodId)
+            assertEquals(null, index.findExactFullPinyin("gysd2"))
+            assertEquals(null, index.findExactFullPinyin("工业时代2"))
         } finally {
             index.close()
             Files.deleteIfExists(directory.resolve("mod_catalog.db"))

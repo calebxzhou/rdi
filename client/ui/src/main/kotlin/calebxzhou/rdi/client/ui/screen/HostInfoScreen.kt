@@ -13,7 +13,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.*
 import androidx.compose.material3.RadioButton as M3RadioButton
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -28,7 +27,6 @@ import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
-import calebxzau.rdi.client.ui.KeepAliveAnimatedTabHost
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
@@ -36,23 +34,15 @@ import calebxzau.rdi.client.ui.RThinTextField
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TinyClickCopyText
 import calebxzau.rdi.client.ui.TitleRow
-import calebxzau.rdi.client.ui.TitleTabBar
-import calebxzau.rdi.client.ui.TitleTabItem
-import calebxzhou.rdi.client.auth.LocalCredentials
-import calebxzhou.rdi.client.auth.updateLastPlayHost
 import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.server
-import calebxzhou.rdi.client.net.sse
-import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.GithubExtraModService
 import calebxzhou.rdi.client.service.GithubRelease
 import calebxzhou.rdi.client.service.GithubReleaseAsset
 import calebxzhou.rdi.client.service.GithubRepoRef
-import calebxzhou.rdi.client.service.StartPlayResult
-import calebxzhou.rdi.client.service.startPlay
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.*
 import calebxzhou.rdi.common.exception.RequestError
@@ -60,14 +50,11 @@ import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.model.isAdmin
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.TaczGunpackValidator
-import calebxzhou.rdi.model.Role
-import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.forms.*
 import io.ktor.client.request.setBody
 import io.ktor.http.*
 import io.ktor.utils.io.streams.asInput
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.io.buffered
@@ -84,16 +71,51 @@ internal const val TACZ_MAX_ZIP_FILES = 10
  * calebxzhou @ 2026-01-15 19:38
  */
 
+private enum class HostScreenPage {
+    Info,
+    Mods
+}
+
 @Composable
 fun HostInfoScreen(
+    hostId: ObjectId,
+    onBack: () -> Unit = {},
+    onOpenModpackInfo: (String) -> Unit
+) = HostScreen(
+    page = HostScreenPage.Info,
+    modCatalog = null,
+    hostId = hostId,
+    onBack = onBack,
+    onOpenModpackInfo = onOpenModpackInfo,
+    onOpenResourceMods = null,
+    onOpenTaskList = {}
+)
+
+@Composable
+fun HostModsScreen(
     modCatalog: ModCatalog,
+    hostId: ObjectId,
+    onBack: () -> Unit,
+    onOpenResourceMods: (McVersion, ModLoader) -> Unit,
+    onOpenTaskList: (String) -> Unit
+) = HostScreen(
+    page = HostScreenPage.Mods,
+    modCatalog = modCatalog,
+    hostId = hostId,
+    onBack = onBack,
+    onOpenModpackInfo = {},
+    onOpenResourceMods = onOpenResourceMods,
+    onOpenTaskList = onOpenTaskList
+)
+
+@Composable
+private fun HostScreen(
+    page: HostScreenPage,
+    modCatalog: ModCatalog?,
     hostId: ObjectId,
     onBack: () -> Unit = {},
     onOpenModpackInfo: (String) -> Unit,
-    onOpenMcPlay: (McPlayArgs) -> Unit,
-    onOpenMcVersions: (McVersion?) -> Unit,
-    onOpenResourceMods: (McVersion, ModLoader) -> Unit,
-    onOpenHostEdit: (Host.DetailVo) -> Unit,
+    onOpenResourceMods: ((McVersion, ModLoader) -> Unit)?,
     onOpenTaskList: (String) -> Unit
 ) {
     val scope = rememberCoroutineScope()
@@ -103,20 +125,6 @@ fun HostInfoScreen(
     var loading by remember { mutableStateOf(true) }
     var hostDetail by remember { mutableStateOf<Host.DetailVo?>(null) }
     var modpackDetail by remember { mutableStateOf<Modpack.DetailVo?>(null) }
-    var showDeleteConfirm by remember { mutableStateOf(false) }
-    var deleteWorldWhenDeleteHost by remember { mutableStateOf(false) }
-    var showUpdateConfirm by remember { mutableStateOf(false) }
-    var roleChangeConfirm by remember { mutableStateOf<RoleChange?>(null) }
-    var transferConfirm by remember { mutableStateOf<ObjectId?>(null) }
-    var kickConfirm by remember { mutableStateOf<ObjectId?>(null) }
-    var quitConfirm by remember { mutableStateOf(false) }
-    var startPlayLoading by remember { mutableStateOf(false) }
-    var selectedTab by rememberSaveable(hostId) { mutableStateOf(HostInfoTab.Info) }
-    val consoleState = remember(hostId) { ConsoleState() }
-    var logStreamSseJob by remember { mutableStateOf<Job?>(null) }
-    var showInviteDialog by remember { mutableStateOf(false) }
-    var inviteQq by remember { mutableStateOf("") }
-    var installConfirmTask by remember { mutableStateOf<StartPlayResult.NeedInstall?>(null) }
     var showAddExtraModAdvancedDialog by remember { mutableStateOf(false) }
     var addExtraModLoading by remember { mutableStateOf(false) }
     var addExtraModLoadingText by remember { mutableStateOf("") }
@@ -134,10 +142,6 @@ fun HostInfoScreen(
     var extraModSide by remember { mutableStateOf(Mod.Side.BOTH) }
     var disabledMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
     var removeExtraModsConfirm by remember { mutableStateOf<List<Mod>?>(null) }
-    val mainTabs = remember {
-        HostInfoTab.entries.map { TitleTabItem(it, it.icon, it.label) }
-    }
-
     fun resetAddExtraModAdvancedDialog() {
         addExtraModLoading = false
         addExtraModLoadingText = ""
@@ -211,8 +215,10 @@ fun HostInfoScreen(
     val host = hostDetail
     val meAdmin = host?.let { it.isAdmin(loggedAccount) || loggedAccount.isDav } ?: false
     val meOwner = host?.let { it.ownerId == loggedAccount._id || loggedAccount.isDav } ?: false
+    val canViewMods = host?.let {
+        it.ownerId == loggedAccount._id || it.members.any { member -> member.id == loggedAccount._id } || loggedAccount.isDav
+    } ?: false
     val canManageExtraMods = meAdmin || meOwner
-    val canManageConfigFiles = meAdmin || meOwner
     val extraMods = host?.extraMods.orEmpty()
     val baseVersionMods = modpackDetail?.versions
         ?.firstOrNull { it.name == host?.packVer }
@@ -315,142 +321,26 @@ fun HostInfoScreen(
         }
     }
 
-    DisposableEffect(selectedTab, hostId) {
-        if (selectedTab != HostInfoTab.Info) {
-            onDispose { }
-        } else {
-            consoleState.clear()
-            logStreamSseJob?.cancel()
-            logStreamSseJob = scope.sse(
-                path = "host/$hostId/log/stream",
-                bufferPolicy = SSEBufferPolicy.LastEvents(50),
-                onEvent = { event ->
-                    if (event.event == "heartbeat") return@sse
-                    if (event.event == "error") {
-                        errorMessage = "读取日志错误: ${event.data ?: "unknown"}"
-                        logStreamSseJob?.cancel()
-                        logStreamSseJob = null
-                        return@sse
-                    }
-                    val payload = event.data?.ifBlank { null } ?: return@sse
-                    consoleState.append(payload)
-                },
-                onError = { throwable ->
-                    errorMessage = "读取日志错误: ${throwable.message}"
-                    logStreamSseJob?.cancel()
-                    logStreamSseJob = null
-                }
-            )
-            onDispose {
-                logStreamSseJob?.cancel()
-                logStreamSseJob = null
-            }
-        }
-    }
-
     errorMessage?.let { message ->
         AlertErr(message) { errorMessage = null }
     }
 
-    fun startPlay(host: Host.DetailVo) {
-        if (startPlayLoading) return
-        startPlayLoading = true
-        scope.launch {
-            val args = try {
-                host.startPlay()
-            } catch (e: Exception) {
-                errorMessage = e.message ?: "无法开始游玩"
-                startPlayLoading = false
-                return@launch
-            }
-            when (args) {
-                is StartPlayResult.Ready -> {
-                    LocalCredentials.read().updateLastPlayHost(
-                        id = host._id.toHexString(),
-                        name = host.name
-                    )
-                    onOpenMcPlay(args.args)
-                }
-                is StartPlayResult.NeedMod -> {
-                    errorMessage = "房间缺少必要Mod：${args.modSlugs.joinToString("、")}。请先前往模组界面添加。"
-                    startPlayLoading = false
-                }
-                is StartPlayResult.NeedInstall -> {
-                    installConfirmTask = args
-                    startPlayLoading = false
-                }
-                is StartPlayResult.Installing -> {
-                    errorMessage = "整合包正在下载，请等待下载完成后再启动"
-                    startPlayLoading = false
-                    onOpenTaskList?.invoke(args.runId)
-                }
-
-                is StartPlayResult.NeedMc -> {
-                    errorMessage = "请更新MC${args.ver.mcVer}版本资源"
-                    startPlayLoading = false
-                    onOpenMcVersions?.invoke(args.ver)
-                }
-            }
-        }
-    }
-
     MaxBox {
-        ScreenContentSurface(size = ScreenContentSize.LARGE) {
-            TitleRow(title = host?.name ?: "房间详情", onBack = onBack) {
-                host?.let { host ->
+        ScreenContentSurface(
+            size = if (page == HostScreenPage.Info) ScreenContentSize.SMALL else ScreenContentSize.LARGE
+        ) {
+            TitleRow(
+                title = when (page) {
+                    HostScreenPage.Info -> host?.name ?: "房间详情"
+                    HostScreenPage.Mods -> host?.let { "${it.name} - 模组" } ?: "房间模组"
+                },
+                onBack = onBack
+            ) {
+                if (page == HostScreenPage.Info) host?.let { host ->
                     Column {
                         TinyClickCopyText("hid", host._id.toHexString())
                         TinyClickCopyText("mid", host.modpack.id.toHexString())
                         TinyClickCopyText("wid", host.worldId?.toHexString())
-                    }
-                    TitleTabBar(
-                        items = mainTabs,
-                        selected = selectedTab,
-                        onSelect = { selectedTab = it }
-                    )
-                    CircleIconButton(
-                        icon = "\uF04B",
-                        tooltip = "开玩",
-                        enabled = !startPlayLoading,
-                    ) {
-                        startPlay(host)
-                    }
-                    if (startPlayLoading) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(20.dp),
-                            strokeWidth = 2.dp
-                        )
-                    }
-
-                    if (meAdmin) {
-                        CircleIconButton(
-                            icon = "\uF013",
-                            tooltip = "设置",
-                            showText = false,
-                            bgColor = MaterialTheme.colorScheme.secondary
-                        ) {
-                            onOpenHostEdit(host)
-                        }
-                        if (modpackDetail != null) {
-
-                            CircleIconButton(
-                                icon = "\uDB80\uDFD5",
-                                tooltip = "更新",
-                                showText = false,
-                            ) { showUpdateConfirm = true }
-                        }
-                    }
-                    if (meOwner) {
-
-                        CircleIconButton(
-                            icon = "\uEA81",
-                            tooltip = "删除",
-                            showText = false,
-                            bgColor = MaterialTheme.colorScheme.error
-                        ) {
-                            deleteWorldWhenDeleteHost = false
-                            showDeleteConfirm = true
-                        }
                     }
                 }
 
@@ -470,38 +360,21 @@ fun HostInfoScreen(
                     }
                 }
 
-                else -> {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        key(hostId) {
-                            KeepAliveAnimatedTabHost(
-                                selected = selectedTab,
-                                order = HostInfoTab.entries::indexOf,
-                                modifier = Modifier.fillMaxSize()
-                            ) { activeTab ->
-                                when (activeTab) {
-                                HostInfoTab.Info -> HostOverviewPane(
+                page == HostScreenPage.Mods && !canViewMods -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("仅房间成员可查看模组", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+
+                else -> key(hostId) {
+                    when (page) {
+                        HostScreenPage.Info -> HostOverviewPane(
                                     host = host,
-                                    hostId = hostId,
-                                    consoleState = consoleState,
-                                    meAdmin = meAdmin,
-                                    meOwner = meOwner,
-                                    onOpenModpackInfo = onOpenModpackInfo,
-                                    onInvite = { showInviteDialog = true },
-                                    onTransfer = { transferConfirm = it },
-                                    onChangeRole = { memberId, role ->
-                                        roleChangeConfirm = RoleChange(memberId, role)
-                                    },
-                                    onKick = { kickConfirm = it },
-                                    onQuit = { quitConfirm = true },
-                                    onOk = { okMessage = it },
-                                    onError = { errorMessage = it }
+                                    onOpenModpackInfo = onOpenModpackInfo
                                 )
 
-                                HostInfoTab.PrivateThings -> HostPrivateThingsPane(
-                                    modCatalog = modCatalog,
+                        HostScreenPage.Mods -> HostModsPane(
+                                    modCatalog = requireNotNull(modCatalog),
                                     hostId = hostId,
                                     extraMods = extraMods,
                                     baseVersionMods = baseVersionMods,
@@ -513,7 +386,7 @@ fun HostInfoScreen(
                                     onDisabledModsChanged = ::applyDisabledMods,
                                     onRemoveExtraMods = { removeExtraModsConfirm = it },
                                     onOpenResourceMods = {
-                                        onOpenResourceMods(host.modpack.mcVer, host.modpack.modloader)
+                                        onOpenResourceMods?.invoke(host.modpack.mcVer, host.modpack.modloader)
                                     },
                                     onAddExtraModAdvanced = {
                                         resetAddExtraModAdvancedDialog()
@@ -523,150 +396,12 @@ fun HostInfoScreen(
                                     onError = { errorMessage = it },
                                     onOpenTaskList = onOpenTaskList
                                 )
-
-                                HostInfoTab.Config -> HostConfigPane(
-                                    hostId = hostId,
-                                    canManage = canManageConfigFiles
-                                )
-                                }
-                            }
-                        }
                     }
                 }
-
                 }
             }
         }
         BottomSnakebarM3(snackbarHostState)
-    }
-
-    if (showDeleteConfirm) {
-        AlertDialog(
-            onDismissRequest = { showDeleteConfirm = false },
-            title = { Text("确认删除") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("确认删除房间吗？")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(
-                            checked = deleteWorldWhenDeleteHost,
-                            enabled = hostDetail?.worldId != null,
-                            onCheckedChange = { deleteWorldWhenDeleteHost = it }
-                        )
-                        Text(
-                            if (hostDetail?.worldId != null) {
-                                "同时删除关联存档（不可恢复）"
-                            } else {
-                                "该房间没有关联存档"
-                            },
-                            color = if (hostDetail?.worldId != null) {
-                                MaterialTheme.colorScheme.onSurface
-                            } else {
-                                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                            }
-                        )
-                    }
-                    Text(
-                        if (deleteWorldWhenDeleteHost && hostDetail?.worldId != null) {
-                            "房间和存档都会被删除，无法恢复。"
-                        } else {
-                            "默认仅删除房间，存档会保留，可导出或复用。"
-                        }
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        scope.rdiRequestU(
-                            path = "host/$hostId",
-                            method = HttpMethod.Delete,
-                            body = serdesJson.encodeToString(
-                                Host.DeleteDto(
-                                    deleteWorld = deleteWorldWhenDeleteHost && hostDetail?.worldId != null
-                                )
-                            ),
-                            onOk = {
-                                okMessage = "已删除"
-                                onBack()
-                            },
-                            onErr = { errorMessage = it.message ?: "删除失败" }
-                        )
-                        showDeleteConfirm = false
-                    }
-                ) {
-                    Text("删除")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDeleteConfirm = false }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-
-    if (showUpdateConfirm && modpackDetail != null) {
-        ConfirmDialog(
-            title = "确认更新",
-            message = "将更新房间当前的整合包《${modpackDetail!!.name}》到最新版本。所有修改过的配置都会丢失。",
-            onConfirm = {
-                scope.rdiRequestU(
-                    path = "host/$hostId/update",
-                    method = HttpMethod.Post,
-                    onOk = {
-                        okMessage = "已提交更新"
-                        reload()
-                    },
-                    onErr = { errorMessage = it.message ?: "更新失败" }
-                )
-                showUpdateConfirm = false
-            },
-            onDismiss = { showUpdateConfirm = false }
-        )
-    }
-
-    if (showInviteDialog) {
-        AlertDialog(
-            onDismissRequest = { showInviteDialog = false },
-            title = { Text("邀请成员") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("请输入对方QQ号：")
-                    OutlinedTextField(
-                        value = inviteQq,
-                        onValueChange = { inviteQq = it },
-                        singleLine = true
-                    )
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val qq = inviteQq.trim()
-                    if (qq.isBlank()) {
-                        errorMessage = "QQ不能为空"
-                        return@TextButton
-                    }
-                    scope.rdiRequestU(
-                        path = "host/$hostId/member/$qq",
-                        method = HttpMethod.Post,
-                        onOk = {
-                            okMessage = "已发送邀请"
-                            reload()
-                        },
-                        onErr = { errorMessage = it.message ?: "邀请失败" }
-                    )
-                    showInviteDialog = false
-                }) {
-                    Text("邀请")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showInviteDialog = false }) {
-                    Text("取消")
-                }
-            }
-        )
     }
 
     if (showAddExtraModAdvancedDialog) {
@@ -940,27 +675,6 @@ fun HostInfoScreen(
         }
     }
 
-    installConfirmTask?.let { install ->
-        val currentHost = hostDetail
-        ModpackDownloadMethodDialog(
-            packName = currentHost?.modpack?.name ?: install.task.title,
-            packVer = currentHost?.packVer.orEmpty(),
-            onDismiss = { installConfirmTask = null },
-            onDirectDownload = {
-                installConfirmTask = null
-                val runId = ClientTaskManager.submit(install.task, dedupeKey = install.dedupeKey)
-                if (onOpenTaskList != null) {
-                    onOpenTaskList(runId)
-                } else {
-                    okMessage = "已加入任务列表"
-                }
-            },
-            onOpenTaskList = onOpenTaskList,
-            onImportMessage = { okMessage = it },
-            onImportError = { errorMessage = it }
-        )
-    }
-
     // options dialog removed
 
     removeExtraModsConfirm?.let { mods ->
@@ -990,94 +704,7 @@ fun HostInfoScreen(
         )
     }
 
-    roleChangeConfirm?.let { change ->
-        val msg = if (change.newRole == Role.ADMIN) "确定设置该成员为管理员？" else "确定取消管理员身份？"
-        ConfirmDialog(
-            title = "确认操作",
-            message = msg,
-            onConfirm = {
-                scope.rdiRequestU(
-                    path = "host/$hostId/member/${change.memberId}/role/${change.newRole.name}",
-                    method = HttpMethod.Put,
-                    onOk = {
-                        okMessage = "已更新"
-                        reload()
-                    },
-                    onErr = { errorMessage = it.message ?: "操作失败" }
-                )
-                roleChangeConfirm = null
-            },
-            onDismiss = { roleChangeConfirm = null }
-        )
-    }
-
-    transferConfirm?.let { memberId ->
-        ConfirmDialog(
-            title = "确认转让",
-            message = "确定将房间所有权转让给该成员吗？",
-            onConfirm = {
-                scope.rdiRequestU(
-                    path = "host/$hostId/transfer/$memberId",
-                    method = HttpMethod.Post,
-                    onOk = {
-                        okMessage = "已转让"
-                        reload()
-                    },
-                    onErr = { errorMessage = it.message ?: "转让失败" }
-                )
-                transferConfirm = null
-            },
-            onDismiss = { transferConfirm = null }
-        )
-    }
-
-    kickConfirm?.let { memberId ->
-        ConfirmDialog(
-            title = "确认踢出",
-            message = "要踢出该成员吗？",
-            onConfirm = {
-                scope.rdiRequestU(
-                    path = "host/$hostId/member/$memberId",
-                    method = HttpMethod.Delete,
-                    onOk = {
-                        okMessage = "已踢出"
-                        reload()
-                    },
-                    onErr = { errorMessage = it.message ?: "踢出失败" }
-                )
-                kickConfirm = null
-            },
-            onDismiss = { kickConfirm = null }
-        )
-    }
-
-    if (quitConfirm) {
-        ConfirmDialog(
-            title = "退出房间",
-            message = "确定退出该房间吗？",
-            onConfirm = {
-                scope.rdiRequestU(
-                    path = "host/$hostId/quit",
-                    method = HttpMethod.Put,
-                    onOk = {
-                        okMessage = "已退出房间"
-                        reload()
-                    },
-                    onErr = { errorMessage = it.message ?: "退出失败" }
-                )
-                quitConfirm = false
-            },
-            onDismiss = { quitConfirm = false }
-        )
-    }
 }
-
-
-
-private data class RoleChange(
-    val memberId: ObjectId,
-    val newRole: Role
-)
 
 
 @Composable
@@ -1199,20 +826,20 @@ private fun filterExtraModsForAdding(candidateMods: List<Mod>, existingMods: Lis
     )
 }
 
-private fun extraModSlugIdentity(mod: Mod): String = mod.normalizedSlug.ifBlank {
+fun extraModSlugIdentity(mod: Mod): String = mod.normalizedSlug.ifBlank {
     mod.normalizedProjectId.lowercase()
 }
 
-internal fun Host.FileEntry.isTaczZipFileEntry(): Boolean =
+fun Host.FileEntry.isTaczZipFileEntry(): Boolean =
     !directory && name.endsWith(".zip", ignoreCase = true)
 
-private fun hostTaczChildPath(fileName: String): String {
+fun hostTaczChildPath(fileName: String): String {
     val normalizedName = fileName.replace('\\', '/').substringAfterLast('/').trim()
     require(normalizedName.isNotBlank()) { "文件名不能为空" }
     return "$TACZ_ROOT_DIR/$normalizedName"
 }
 
-internal fun createHostTaczUploadTask(
+fun createHostTaczUploadTask(
     hostId: ObjectId,
     files: List<File>,
     onUploaded: suspend () -> Unit

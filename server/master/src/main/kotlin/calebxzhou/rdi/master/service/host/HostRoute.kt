@@ -4,6 +4,7 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.ProxyHostRoute
+import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.master.CONF
 import calebxzhou.rdi.master.net.clientIp
 import calebxzhou.rdi.master.net.err
@@ -47,6 +48,7 @@ import calebxzhou.rdi.master.service.host.HostService.hostContext
 import calebxzhou.rdi.master.service.host.HostService.listenLogs
 import calebxzhou.rdi.master.service.host.HostService.needAdmin
 import calebxzhou.rdi.master.service.host.HostService.needOwner
+import calebxzhou.rdi.master.service.host.HostService.needInvitedMember
 import calebxzhou.rdi.master.service.host.HostQueryService.listAllHosts
 import calebxzhou.rdi.master.service.host.HostQueryService.toDetailVo
 import calebxzhou.rdi.master.service.player
@@ -149,10 +151,16 @@ fun Route.hostRoutes() = route("/host") {
                 response(data = it)
             } ?: err("无此房间")
         }
-        get("detail") {
-            HostQueryService.getById(idParam("hostId"))?.let {
-                response(data = it.toDetailVo())
-            } ?: err("无此房间")
+        get("/detail") {
+            val host = HostQueryService.getById(idParam("hostId")) ?: throw RequestError("无此房间")
+            val player = call.player()
+            val canViewMembers = host.ownerId == player._id ||
+                host.members.any { it.id == player._id } || player.isDav
+            val detail = host.toDetailVo()
+            response(data = if (canViewMembers) detail else detail.copy(members = emptyList()))
+        }
+        get("/members") {
+            response(data = call.hostContext().needInvitedMember.host.members)
         }
         route("/mods") {
             route("/extra"){
@@ -227,7 +235,7 @@ fun Route.hostRoutes() = route("/host") {
         route("/log") {
             sse("/stream") {
                 val ctx = try {
-                    call.hostContext()
+                    call.hostContext().needInvitedMember
                 } catch (err: NotFoundException) {
                     send(ServerSentEvent(event = "error", data = "此房间已被删除"))
                     return@sse
@@ -249,7 +257,7 @@ fun Route.hostRoutes() = route("/host") {
                 ok()
             }
             delete {
-                call.hostContext().needOwner.delMember()
+                call.hostContext().needAdmin.delMember()
                 ok()
             }
         }

@@ -12,9 +12,7 @@ internal object LocalMcProxyFlowControl {
     }
 
     fun pauseSourceIfTargetNotWritable(source: Channel, target: Channel) {
-        if (!target.isWritable) {
-            source.config().isAutoRead = false
-        }
+        if (!target.isWritable) source.config().isAutoRead = false
     }
 
     fun resumePeerIfWritable(channel: Channel) {

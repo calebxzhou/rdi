@@ -87,6 +87,7 @@ data class Host(
         var port: Int,
         val playable: Boolean = true,
         val isMember: Boolean = false,
+        val role: Role? = null,
         val onlinePlayerIds: List<@Contextual ObjectId> = arrayListOf(),
     ) {
         companion object {

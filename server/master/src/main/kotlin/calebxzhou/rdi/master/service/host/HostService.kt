@@ -125,6 +125,13 @@ object HostService {
 
 
     val HostContext.needMember get() = requireRole(Role.MEMBER)
+    val HostContext.needInvitedMember: HostContext
+        get() {
+            if (member.role == Role.GUEST && host.ownerId != player._id && !player.isDav) {
+                throw RequestError("仅房间成员可查看")
+            }
+            return this
+        }
     val HostContext.needAdmin get() = requireRole(Role.ADMIN)
     val HostContext.needOwner get() = requireRole(Role.OWNER)
     fun HostContext.requireRole(level: Role): HostContext {

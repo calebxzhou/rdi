@@ -4,12 +4,11 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.hoverable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -24,11 +23,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import calebxzau.rdi.client.ui.CursorPositionBox
 import calebxzau.rdi.client.ui.DEFAULT_HOST_ICON
+import calebxzau.rdi.client.ui.OffsetFirstItemUnderCursor
+import calebxzau.rdi.client.ui.RDropdownMenuItem
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.baseShapeRadius
 import calebxzau.rdi.client.ui.baseRoundCornerShape
+import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.model.isDav
+import calebxzhou.rdi.model.Role
 
 /**
  * calebxzhou @ 2026-01-14 21:48
@@ -39,19 +44,32 @@ fun Host.BriefVo.HostCard(
     modifier: Modifier = Modifier,
     miniMode: Boolean = false,
     selected: Boolean = false,
-    //onClickPlay: ((Host.BriefVo) -> Unit)? = null,
-    onClick: ((Host.BriefVo) -> Unit)? = null
+    onClick: ((Host.BriefVo) -> Unit)? = null,
+    onPlay: ((Host.BriefVo) -> Unit)? = null,
+    onOpenMembers: ((Host.BriefVo) -> Unit)? = null,
+    onOpenMods: ((Host.BriefVo) -> Unit)? = null,
+    onOpenFiles: ((Host.BriefVo) -> Unit)? = null,
+    onOpenBackend: ((Host.BriefVo) -> Unit)? = null,
+    onOpenSettings: ((Host.BriefVo) -> Unit)? = null,
+    onDelete: ((Host.BriefVo) -> Unit)? = null,
+    playEnabled: Boolean = true,
+    playLoading: Boolean = false
 ) {
     val isClickable = (miniMode || playable) && onClick != null
+    var menuExpanded by remember { mutableStateOf(false) }
     val cardModifier = if (isClickable) {
         modifier
             .clip(baseRoundCornerShape)
-            .clickable { onClick(this) }
+            .clickable {
+                if (miniMode) onClick(this) else menuExpanded = true
+            }
     } else {
         modifier
     }
-    val interactionSource = remember { MutableInteractionSource() }
-    val isHovered by interactionSource.collectIsHoveredAsState()
+    val isDav = loggedAccount.isDav
+    val isOwner = ownerId == loggedAccount._id || role == Role.OWNER || isDav
+    val canManage = role == Role.OWNER || role == Role.ADMIN || isDav
+    val canUseMemberFeatures = isMember || isOwner || isDav
 
     if (miniMode) {
         val miniContentColor = if (selected) {
@@ -60,9 +78,7 @@ fun Host.BriefVo.HostCard(
             MaterialTheme.colorScheme.onSurface
         }
         Surface(
-            modifier = cardModifier
-                .fillMaxWidth()
-                .hoverable(interactionSource),
+            modifier = cardModifier.fillMaxWidth(),
             color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
             contentColor = miniContentColor,
             shape = baseRoundCornerShape,
@@ -96,97 +112,164 @@ fun Host.BriefVo.HostCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-               /* if (isHovered && onClickPlay != null && playable) {
-                    CircleIconButton(
-                        icon = "\uF04B",
-                        tooltip = "启动MC 玩这个房间",
-                        size = 26,
-                        contentPadding = PaddingValues(2.dp, 0.dp, 0.dp, 0.dp),
-                        bgColor = MaterialTheme.colorScheme.primary,
-                        showText = false
-                    ) {
-                        onClickPlay.invoke(this@HostCard)
-                    }
-                }*/
             }
         }
         return
     }
 
-    Surface(
-        modifier = cardModifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        shape = baseRoundCornerShape,
-        tonalElevation = 1.dp
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .hoverable(interactionSource)
-                .background(Color.Transparent)
-                .alpha(if (playable) 1f else 0.45f)
-                .padding(8.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+    CursorPositionBox(
+        cursorContent = {
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+                offset = OffsetFirstItemUnderCursor
             ) {
-                HostIcon(size = 64)
-                Space8w()
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(2.dp)
+                RDropdownMenuItem(
+                    text = if (playLoading) "启动中..." else "开玩",
+                    icon = "\uF04B",
+                    enabled = playable && playEnabled && !playLoading,
+                    onClick = {
+                        menuExpanded = false
+                        onPlay?.invoke(this@HostCard)
+                    }
+                )
+                RDropdownMenuItem(
+                    text = "详情",
+                    icon = "\uF05A",
+                    onClick = {
+                        menuExpanded = false
+                        onClick?.invoke(this@HostCard)
+                    }
+                )
+                if (canUseMemberFeatures) {
+                    RDropdownMenuItem(
+                        text = "成员",
+                        icon = "\uF0C0",
+                        onClick = {
+                            menuExpanded = false
+                            onOpenMembers?.invoke(this@HostCard)
+                        }
+                    )
+                    RDropdownMenuItem(
+                        text = "模组",
+                        icon = "\uDB85\uDCD3",
+                        onClick = {
+                            menuExpanded = false
+                            onOpenMods?.invoke(this@HostCard)
+                        }
+                    )
+                }
+                if (canManage) {
+                    RDropdownMenuItem(
+                        text = "文件",
+                        icon = "\uF07C",
+                        onClick = {
+                            menuExpanded = false
+                            onOpenFiles?.invoke(this@HostCard)
+                        }
+                    )
+                }
+                if (canUseMemberFeatures) {
+                    RDropdownMenuItem(
+                        text = "后台",
+                        icon = "\uDB80\uDD8D",
+                        onClick = {
+                            menuExpanded = false
+                            onOpenBackend?.invoke(this@HostCard)
+                        }
+                    )
+                }
+                if (canManage) {
+                    RDropdownMenuItem(
+                        text = "设置",
+                        icon = "\uEAF8",
+                        onClick = {
+                            menuExpanded = false
+                            onOpenSettings?.invoke(this@HostCard)
+                        }
+                    )
+                }
+                if (isOwner) {
+                    HorizontalDivider()
+                    RDropdownMenuItem(
+                        text = "删除",
+                        icon = "\uEA81",
+                        danger = true,
+                        onClick = {
+                            menuExpanded = false
+                            onDelete?.invoke(this@HostCard)
+                        }
+                    )
+                }
+            }
+        }
+    ) {
+        Surface(
+            modifier = cardModifier.fillMaxWidth(),
+            color = MaterialTheme.colorScheme.surface,
+            shape = baseRoundCornerShape,
+            tonalElevation = 1.dp
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Transparent)
+                    .alpha(if (playable) 1f else 0.45f)
+                    .padding(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = name,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "$modpackName $packVer",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically
+                    HostIcon(size = 64)
+                    Space8w()
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
                     ) {
-                        HeadButton(
-                            ownerId,
-                            avatarSize = 18.dp,
-                            nameFontSize = 14.sp,
-                            showName = true
+                        Text(
+                            text = name,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
-                        Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        onlinePlayerIds.forEach {
+                        Text(
+                            text = "$modpackName $packVer",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             HeadButton(
-                                it,
+                                ownerId,
                                 avatarSize = 18.dp,
-                                showName = false
+                                nameFontSize = 14.sp,
+                                showName = true
                             )
+                            Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            onlinePlayerIds.forEach {
+                                HeadButton(
+                                    it,
+                                    avatarSize = 18.dp,
+                                    showName = false
+                                )
+                            }
                         }
                     }
                 }
-            }
 
-           /* if (isHovered && onClickPlay != null && playable) {
-                Box(modifier = Modifier.align(Alignment.TopEnd)) {
-                    CircleIconButton(
-                        icon = "\uF04B",
-                        tooltip = "启动MC 玩这个房间",
-                        size = 26,
-                        contentPadding = PaddingValues(2.dp, 0.dp, 0.dp, 0.dp),
-                        bgColor = MaterialTheme.colorScheme.primary,
-                        showText = false
-                    ) {
-                        onClickPlay.invoke(this@HostCard)
-                    }
+                if (playLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.align(Alignment.TopEnd).size(22.dp),
+                        strokeWidth = 2.dp
+                    )
                 }
-            }*/
+            }
         }
     }
 }

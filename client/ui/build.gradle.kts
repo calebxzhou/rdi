@@ -66,7 +66,6 @@ dependencies {
     implementation(libs.tomlkt)
     implementation(libs.jna)
     implementation(libs.jna.platform)
-    implementation(libs.bundles.netty.desktop)
     implementation(libs.oshi.core.desktop)
     implementation(libs.logback.classic)
     implementation(libs.snakeyaml)
@@ -90,6 +89,7 @@ dependencies {
     implementation(project(":mod-catalog"))
     implementation(project(":webview2"))
     implementation(project(":forgeguard"))
+    implementation(project(":local-mc-proxy"))
 
     val lwjglVersion = libs.versions.lwjgl.get()
     listOf("", "glfw", "opengl").forEach { component ->

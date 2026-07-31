@@ -332,8 +332,6 @@ internal data class SearchCursorState(
     val platformOffsets: Map<ModPlatform, Int>,
     val platformBuffers: Map<ModPlatform, List<CatalogProjectSource>>,
     val exhausted: Set<ModPlatform>,
-    val localOffset: Int,
-    val localBuffer: List<CatalogIdentityRecord>,
     val seenIdentities: Set<String>
 )
 

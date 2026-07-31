@@ -59,14 +59,15 @@ internal class DefaultModCatalog(
     override suspend fun search(
         request: CatalogSearchRequest
     ): Result<CatalogOutcome<CatalogSearchPage>> = catalogResult {
+        if (request.cursor == null) {
+            searchExactFullPinyin(request)?.let { return@catalogResult it }
+        }
         val requestKey = request.requestKey()
         val initial = request.cursor?.state ?: SearchCursorState(
             requestKey = requestKey,
             platformOffsets = adapters.keys.associateWith { 0 },
             platformBuffers = emptyMap(),
             exhausted = emptySet(),
-            localOffset = 0,
-            localBuffer = loadLocalIdentityBuffer(request.query),
             seenIdentities = emptySet()
         )
         require(initial.requestKey == requestKey) { "Search cursor belongs to a different request" }
@@ -109,23 +110,13 @@ internal class DefaultModCatalog(
             result.value.nextOffset?.let { offsets[result.platform] = it } ?: exhausted.add(result.platform)
         }
 
-        var localOffset = initial.localOffset
-        val localMods = mutableListOf<CatalogMod>()
-        while (localOffset < initial.localBuffer.size && localMods.size < request.pageSize) {
-            currentCoroutineContext().ensureActive()
-            val record = initial.localBuffer[localOffset++]
-            findProjectsForIdentity(record, request.target, issues)
-                .takeIf { it.isNotEmpty() }
-                ?.let { localMods += it.toCatalogMod(record) }
-        }
-
         val remoteSources = buffers.values.flatten()
         val remoteGroups = groupSourcesByIdentity(remoteSources)
         val orderedRemoteMods = remoteGroups.map { (record, sources) -> sources.toCatalogMod(record) }
             .sortedWith(request.sort.comparator())
         val seen = initial.seenIdentities.toMutableSet()
         val page = buildList {
-            (localMods + orderedRemoteMods).forEach { mod ->
+            orderedRemoteMods.forEach { mod ->
                 if (size >= request.pageSize) return@forEach
                 if (seen.add(mod.identity.stableKey)) add(mod)
             }
@@ -140,8 +131,7 @@ internal class DefaultModCatalog(
                 identityFor(source).first.stableKey in retainedIdentities
             }
         }
-        val hasNext = localOffset < initial.localBuffer.size ||
-            buffers.values.any { it.isNotEmpty() } ||
+        val hasNext = buffers.values.any { it.isNotEmpty() } ||
             exhausted.size < adapters.size
         val nextState = if (hasNext) {
             SearchCursorState(
@@ -149,8 +139,6 @@ internal class DefaultModCatalog(
                 platformOffsets = offsets,
                 platformBuffers = buffers,
                 exhausted = exhausted,
-                localOffset = localOffset,
-                localBuffer = initial.localBuffer,
                 seenIdentities = seen
             )
         } else {
@@ -469,13 +457,30 @@ internal class DefaultModCatalog(
         identityIndex.close()
     }
 
-    private suspend fun loadLocalIdentityBuffer(query: String): List<CatalogIdentityRecord> = try {
-        identityIndex.search(query, 0, LOCAL_RESULT_LIMIT)
-    } catch (cause: CancellationException) {
-        throw cause
-    } catch (cause: Exception) {
-        onWarning(cause)
-        emptyList()
+    private suspend fun searchExactFullPinyin(
+        request: CatalogSearchRequest
+    ): CatalogOutcome<CatalogSearchPage>? {
+        val record = try {
+            identityIndex.findExactFullPinyin(request.query)
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Exception) {
+            onWarning(cause)
+            null
+        } ?: return null
+        val issues = mutableListOf<CatalogIssue>()
+        identityIssue()?.let(issues::add)
+        val mod = findProjectsForIdentity(record, request.target, issues)
+            .takeIf { it.isNotEmpty() }
+            ?.toCatalogMod(record)
+        return CatalogOutcome(
+            CatalogSearchPage(
+                items = listOfNotNull(mod),
+                nextCursor = null,
+                estimatedTotal = if (mod == null) 0 else 1
+            ),
+            issues
+        )
     }
 
     private suspend fun findProjectsForIdentity(
@@ -483,15 +488,13 @@ internal class DefaultModCatalog(
         target: CatalogTarget,
         issues: MutableList<CatalogIssue>
     ): List<CatalogProjectSource> = supervisorScope {
-        val results = record.projects.map { project ->
+        val results = record.projects.distinctBy(CatalogIdentityProject::platform).map { project ->
             async {
                 val adapter = adapters[project.platform] ?: return@async null
                 when (val result = runSource(project.platform) {
-                    adapter.search(project.slug, target, CatalogSort.RELEVANCE, 0, 5)
+                    adapter.findProjectBySlug(project.slug, target)
                 }) {
-                    is SourceCall.Success -> LocalProjectCall.Found(result.value.items.firstOrNull {
-                        normalizeSearchText(it.slug) == normalizeSearchText(project.slug)
-                    })
+                    is SourceCall.Success -> LocalProjectCall.Found(result.value)
                     is SourceCall.Failure -> LocalProjectCall.Failed(result.platform, result.cause)
                 }
             }
@@ -638,8 +641,6 @@ internal class DefaultModCatalog(
     }
 
     companion object {
-        private const val LOCAL_RESULT_LIMIT = 100
-
         fun create(
             httpClient: HttpClient,
             identityDatabaseMaterializationDir: Path,

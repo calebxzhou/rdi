@@ -19,6 +19,8 @@ internal interface CatalogIdentityIndex : AutoCloseable {
     suspend fun findAll(refs: Set<CatalogSlugRef>): Map<CatalogSlugRef, CatalogIdentityRecord>
 
     suspend fun search(query: String, offset: Int, limit: Int): List<CatalogIdentityRecord>
+
+    suspend fun findExactFullPinyin(query: String): CatalogIdentityRecord?
 }
 
 internal class UnavailableIdentityIndex(
@@ -29,6 +31,8 @@ internal class UnavailableIdentityIndex(
     override suspend fun findAll(refs: Set<CatalogSlugRef>) = emptyMap<CatalogSlugRef, CatalogIdentityRecord>()
 
     override suspend fun search(query: String, offset: Int, limit: Int) = emptyList<CatalogIdentityRecord>()
+
+    override suspend fun findExactFullPinyin(query: String) = null
 
     override fun close() = Unit
 }
@@ -81,6 +85,15 @@ internal class SqliteCatalogIdentityIndex private constructor(
             resultOffset = offset.toLong(),
             mapper = ::mapRow
         ).executeAsList().toIdentityRecords()
+    }
+
+    override suspend fun findExactFullPinyin(query: String): CatalogIdentityRecord? = query {
+        val normalized = normalizeSearchText(query)
+        if (normalized.isEmpty()) return@query null
+        database.modCatalogQueries.searchExactFullPinyinIdentity(
+            normalizedQuery = normalized,
+            mapper = ::mapRow
+        ).executeAsList().toIdentityRecords().singleOrNull()
     }
 
     override fun close() {

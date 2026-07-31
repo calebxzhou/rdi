@@ -153,6 +153,60 @@ class CatalogDomainTest {
     }
 
     @Test
+    fun `exact full pinyin resolves only the best local identity`() = runBlocking {
+        val record = CatalogIdentityRecord(
+            mcmodId = 459,
+            name = "Just Enough Items",
+            nameCn = "JEI物品管理器",
+            intro = "查看物品及配方",
+            logoUrl = null,
+            projects = listOf(
+                CatalogIdentityProject(ModPlatform.MODRINTH, "jei", null),
+                CatalogIdentityProject(ModPlatform.MODRINTH, "jei-alias", null),
+                CatalogIdentityProject(ModPlatform.CURSEFORGE, "jei", null),
+                CatalogIdentityProject(ModPlatform.CURSEFORGE, "jei-alias", null)
+            )
+        )
+        val modrinth = FakeAdapter(
+            ModPlatform.MODRINTH,
+            searchItems = listOf(source(ModPlatform.MODRINTH, "1", "jei"))
+        )
+        val curseForge = FakeAdapter(
+            ModPlatform.CURSEFORGE,
+            searchItems = listOf(source(ModPlatform.CURSEFORGE, "2", "jei"))
+        )
+        val catalog = testCatalog(
+            mapOf(ModPlatform.MODRINTH to modrinth, ModPlatform.CURSEFORGE to curseForge),
+            FakeIdentityIndex(fullPinyinRecords = mapOf("jeiwupinguanliqi" to record))
+        )
+
+        val page = catalog.search(searchRequest(query = "jeiwupinguanliqi")).getOrThrow().value
+
+        assertEquals(listOf("jei"), modrinth.searchQueries)
+        assertEquals(listOf("jei"), curseForge.searchQueries)
+        assertEquals("mcmod:459", page.items.single().identity.stableKey)
+        assertEquals(2, page.items.single().sources.size)
+        assertEquals(null, page.nextCursor)
+    }
+
+    @Test
+    fun `ordinary query skips local identity expansion`() = runBlocking {
+        val adapter = FakeAdapter(
+            ModPlatform.MODRINTH,
+            searchItems = listOf(source(ModPlatform.MODRINTH, "1", "jei"))
+        )
+        val catalog = testCatalog(
+            mapOf(ModPlatform.MODRINTH to adapter),
+            FakeIdentityIndex(searchFailure = AssertionError("ordinary search must not query local candidates"))
+        )
+
+        val page = catalog.search(searchRequest(query = "jei")).getOrThrow().value
+
+        assertEquals(listOf("jei"), adapter.searchQueries)
+        assertEquals("modrinth:1", page.items.single().identity.stableKey)
+    }
+
+    @Test
     fun `dependency resolver reports cycles`() = runBlocking {
         val root = file("root", "root-project")
         val child = file(
@@ -209,8 +263,11 @@ class CatalogDomainTest {
         onWarning = { throw AssertionError(it) }
     )
 
-    private fun searchRequest(cursor: CatalogSearchCursor? = null) = CatalogSearchRequest(
-        query = "a",
+    private fun searchRequest(
+        cursor: CatalogSearchCursor? = null,
+        query: String = "a"
+    ) = CatalogSearchRequest(
+        query = query,
         target = CatalogTarget(McVersion.V211, ModLoader.neoforge),
         pageSize = 2,
         cursor = cursor
@@ -223,7 +280,9 @@ class CatalogDomainTest {
 }
 
 private class FakeIdentityIndex(
-    private val records: Map<String, CatalogIdentityRecord> = emptyMap()
+    private val records: Map<String, CatalogIdentityRecord> = emptyMap(),
+    private val fullPinyinRecords: Map<String, CatalogIdentityRecord> = emptyMap(),
+    private val searchFailure: Throwable? = null
 ) : CatalogIdentityIndex {
     override val unavailableCause: Throwable? = null
 
@@ -235,7 +294,12 @@ private class FakeIdentityIndex(
             records["${ref.platform.name}:${ref.slug}"]?.let { ref to it }
         }.toMap()
 
-    override suspend fun search(query: String, offset: Int, limit: Int) = emptyList<CatalogIdentityRecord>()
+    override suspend fun search(query: String, offset: Int, limit: Int): List<CatalogIdentityRecord> {
+        searchFailure?.let { throw it }
+        return emptyList()
+    }
+
+    override suspend fun findExactFullPinyin(query: String): CatalogIdentityRecord? = fullPinyinRecords[query]
 
     override fun close() = Unit
 }
@@ -246,6 +310,8 @@ private class FakeAdapter(
     private val files: Map<String, CatalogFile> = emptyMap(),
     private val searchFailure: Throwable? = null
 ) : PlatformAdapter {
+    val searchQueries = mutableListOf<String>()
+
     override suspend fun search(
         query: String,
         target: CatalogTarget,
@@ -253,6 +319,7 @@ private class FakeAdapter(
         offset: Int,
         limit: Int
     ): SourcePage {
+        searchQueries += query
         searchFailure?.let { throw it }
         return SourcePage(
             items = if (offset == 0) searchItems.take(limit) else emptyList(),

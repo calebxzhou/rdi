@@ -1,6 +1,5 @@
 package calebxzhou.rdi.client.proxy
 
-import calebxzhou.rdi.client.service.ClientDirs
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
 import java.io.File
@@ -10,13 +9,10 @@ import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.Inflater
 
-internal object LocalMcProxyMetricsConfig {
-    val enabled: Boolean = System.getProperty("rdi.netMetrics").toBoolean()
-}
-
-class LocalMcProxyMetricsSession private constructor(
+internal class LocalMcProxyMetricsSession private constructor(
     private val connectionId: String,
-    private val startedAtMs: Long
+    private val startedAtMs: Long,
+    private val metricsDir: File
 ) {
     private val metrics = linkedMapOf<MetricKey, PacketMetric>()
     private var compressionEnabled = false
@@ -41,18 +37,19 @@ class LocalMcProxyMetricsSession private constructor(
     }
 
     @Synchronized
-    fun closeAndSave(): File? {
-        if (closed) return null
+    fun closeAndSave(): Result<File?> = runCatching {
+        if (closed) return@runCatching null
         closed = true
-        if (metrics.isEmpty()) return null
-        val dir = ClientDirs.mcDir.parentFile.resolve("net-metrics").apply { mkdirs() }
-        val file = dir.resolve("localmcproxy-$connectionId.csv")
-        file.writeText(buildCsv())
-        return file
+        if (metrics.isEmpty()) return@runCatching null
+        metricsDir.mkdirs()
+        metricsDir.resolve("localmcproxy-$connectionId.csv").also { it.writeText(buildCsv()) }
     }
 
     private fun buildCsv(): String = buildString {
-        appendLine("connection_id,direction,packet_id,packet_count,total_frame_size_bytes,total_packet_length,first_seen_ms,last_seen_ms")
+        appendLine(
+            "connection_id,direction,packet_id,packet_count,total_frame_size_bytes," +
+                "total_packet_length,first_seen_ms,last_seen_ms"
+        )
         metrics.forEach { (key, metric) ->
             append(connectionId).append(',')
             append(key.direction).append(',')
@@ -68,9 +65,7 @@ class LocalMcProxyMetricsSession private constructor(
     private fun parseFrame(frame: ByteBuf): ParsedPacket {
         val input = frame.slice()
         val packetLength = input.readVarIntOrNull() ?: return ParsedPacket(frame.readableBytes(), null)
-        if (input.readableBytes() < packetLength) {
-            return ParsedPacket(packetLength, null)
-        }
+        if (input.readableBytes() < packetLength) return ParsedPacket(packetLength, null)
         val payload = input.readSlice(packetLength)
         if (!compressionEnabled) {
             val packetId = payload.readVarIntOrNull()
@@ -79,9 +74,7 @@ class LocalMcProxyMetricsSession private constructor(
         }
 
         val dataLength = payload.readVarIntOrNull() ?: return ParsedPacket(packetLength, null)
-        if (dataLength == 0) {
-            return ParsedPacket(packetLength, payload.readVarIntOrNull())
-        }
+        if (dataLength == 0) return ParsedPacket(packetLength, payload.readVarIntOrNull())
 
         val packetPayload = inflate(payload, dataLength)
         return try {
@@ -98,12 +91,7 @@ class LocalMcProxyMetricsSession private constructor(
         val inflater = Inflater()
         return try {
             inflater.setInput(compressed)
-            val inflatedSize = inflater.inflate(output)
-            if (inflatedSize == expectedSize) {
-                Unpooled.wrappedBuffer(output)
-            } else {
-                Unpooled.wrappedBuffer(output, 0, inflatedSize)
-            }
+            Unpooled.wrappedBuffer(output, 0, inflater.inflate(output))
         } finally {
             inflater.end()
         }
@@ -113,18 +101,17 @@ class LocalMcProxyMetricsSession private constructor(
         private val counter = AtomicLong()
         private val timestampFormat = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.ROOT)
 
-        fun create(): LocalMcProxyMetricsSession {
+        fun create(config: LocalMcProxyConfig): LocalMcProxyMetricsSession? {
+            val metricsDir = config.metricsDir
+            if (!config.metricsEnabled || metricsDir == null) return null
             val now = System.currentTimeMillis()
             val id = "${timestampFormat.format(Date(now))}-${counter.incrementAndGet()}"
-            return LocalMcProxyMetricsSession(id, now)
+            return LocalMcProxyMetricsSession(id, now, metricsDir)
         }
     }
 }
 
-private data class MetricKey(
-    val direction: String,
-    val packetId: String
-)
+private data class MetricKey(val direction: String, val packetId: String)
 
 private data class PacketMetric(
     var packetCount: Long = 0,
