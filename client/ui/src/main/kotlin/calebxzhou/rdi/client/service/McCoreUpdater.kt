@@ -2,9 +2,9 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.client.net.server
-import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.net.downloadFileFrom
 import java.io.File
 import java.io.FileInputStream
@@ -12,47 +12,47 @@ import java.io.FileOutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-data class McCoreUpdateResult(
-    val checkedCount: Int,
-    val updatedCount: Int
-)
+data class McCoreUpdateResult(val updated: Boolean)
 
 object McCoreUpdater {
+    fun slug(mcVersion: McVersion, modLoader: ModLoader) =
+        "${mcVersion.mcVer}-${modLoader.name.lowercase()}"
+
+    fun cacheFile(mcVersion: McVersion, modLoader: ModLoader) =
+        ClientDirs.dlModsDir.resolve("rdi-5-mc-client-${slug(mcVersion, modLoader)}.jar").absoluteFile
+
     suspend fun update(
+        mcVersion: McVersion,
+        modLoader: ModLoader,
         onStatus: (String) -> Unit,
         onDetail: (String) -> Unit
     ): Result<McCoreUpdateResult> = runCatching {
-        val targets = McVersion.entries.filter { it.enabled }.flatMap { mcVersion ->
-            mcVersion.loaderVersions.keys.map { loader ->
-                val slug = "${mcVersion.mcVer}-${loader.name.lowercase()}"
-                slug to DL_MOD_DIR.resolve("rdi-5-mc-client-$slug.jar").absoluteFile
-            }
+        val slug = slug(mcVersion, modLoader)
+        val targetFile = cacheFile(mcVersion, modLoader)
+        onStatus("检查RDI核心版本...")
+        val expectedSha1 = server.makeRequest<String>("update/mc/$slug/hash").data
+            ?.trim()
+            ?.takeIf { it.matches(Regex("^[0-9a-fA-F]{40}$")) }
+            ?: throw RequestError("获取MC核心版本信息失败: $slug")
+        if (targetFile.exists() && targetFile.sha1.equals(expectedSha1, true)) {
+            return@runCatching McCoreUpdateResult(updated = false)
         }
-        var updatedCount = 0
-        targets.forEach { (slug, targetFile) ->
-            val expectedSha1 = server.makeRequest<String>("update/mc/$slug/hash").data
-                ?: throw RequestError("获取MC核心版本信息失败: $slug")
-            if (targetFile.exists() && targetFile.sha1.equals(expectedSha1, true)) return@forEach
 
-            onStatus("准备下载${targetFile.name}...")
-            downloadAndReplace(
-                targetFile = targetFile,
-                downloadUrl = "${server.hqUrl}/update/mc/$slug",
-                expectedSha1 = expectedSha1,
-                label = targetFile.name,
-                onDetail = onDetail
-            ).getOrThrow()
-            updatedCount++
-            onStatus("${targetFile.name}更新完成")
-        }
-        McCoreUpdateResult(targets.size, updatedCount)
+        onStatus("准备下载${targetFile.name}...")
+        downloadAndReplace(
+            targetFile = targetFile,
+            downloadUrl = "${server.hqUrl}/update/mc/$slug",
+            expectedSha1 = expectedSha1,
+            onDetail = onDetail
+        ).getOrThrow()
+        onStatus("${targetFile.name}更新完成")
+        McCoreUpdateResult(updated = true)
     }
 
     private suspend fun downloadAndReplace(
         targetFile: File,
         downloadUrl: String,
         expectedSha1: String,
-        label: String,
         onDetail: (String) -> Unit
     ): Result<Unit> {
         val parentDir = targetFile.absoluteFile.parentFile ?: File(".")
@@ -66,75 +66,58 @@ object McCoreUpdater {
                     if (path.toFile().sha1.equals(expectedSha1, true)) Result.success(Unit)
                     else Result.failure(IllegalStateException("文件损坏了，请重下"))
                 }
-            ) { onDetail(it.detailText(label)) }.getOrThrow()
-            replaceDownloadedFile(tempFile, targetFile, onDetail).getOrThrow()
+            ) { onDetail(it.detailText(targetFile.name)) }.getOrThrow()
+            replaceCoreContents(tempFile, targetFile, expectedSha1).getOrThrow()
             onDetail("核心文件已更新至最新版本")
         }.onFailure {
             tempFile.delete()
             onDetail(it.message ?: "下载失败，请检查网络后重试")
         }
     }
-}
 
-private fun replaceDownloadedFile(
-    tempFile: File,
-    targetFile: File,
-    onDetail: (String) -> Unit
-): Result<Unit> {
-    val parentDir = targetFile.absoluteFile.parentFile ?: File(".")
-
-    fun deleteWithRetry(file: File): Boolean {
-        repeat(5) {
-            if (!file.exists() || file.delete()) return true
-            Thread.sleep(200)
+    internal fun replaceCoreContents(
+        downloadedFile: File,
+        targetFile: File,
+        expectedSha1: String
+    ): Result<Unit> {
+        if (!targetFile.exists()) {
+            return runCatching {
+                Files.move(downloadedFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                check(targetFile.sha1.equals(expectedSha1, true)) { "核心文件替换后校验失败" }
+            }.onFailure {
+                targetFile.delete()
+            }
         }
-        return !file.exists()
+
+        val backupFile = targetFile.parentFile.resolve("${targetFile.name}.replacing-backup")
+        return runCatching {
+            targetFile.copyTo(backupFile, overwrite = true)
+            overwriteFileContents(downloadedFile, targetFile)
+            check(targetFile.sha1.equals(expectedSha1, true)) { "核心文件替换后校验失败" }
+            downloadedFile.delete()
+            Unit
+        }.recoverCatching { replaceError ->
+            runCatching { overwriteFileContents(backupFile, targetFile) }
+                .onFailure(replaceError::addSuppressed)
+            backupFile.delete()
+            throw replaceError
+        }.onSuccess {
+            backupFile.delete()
+        }
     }
 
-    fun overwriteLockedFile(source: File, target: File): Boolean = runCatching {
+    private fun overwriteFileContents(source: File, target: File) {
         FileInputStream(source).channel.use { input ->
             FileOutputStream(target, false).channel.use { output ->
                 output.truncate(0)
                 var position = 0L
                 while (position < input.size()) {
                     val transferred = input.transferTo(position, 1024 * 1024, output)
-                    if (transferred <= 0) break
+                    check(transferred > 0) { "核心文件写入不完整" }
                     position += transferred
                 }
+                output.force(true)
             }
         }
-        true
-    }.getOrElse { false }
-
-    val backupFile = targetFile.takeIf(File::exists)
-        ?.let { File(parentDir, "${targetFile.name}.backup.${System.currentTimeMillis()}") }
-    return runCatching {
-        backupFile?.let { targetFile.copyTo(it, overwrite = true) }
-        if (targetFile.exists() && !deleteWithRetry(targetFile)) {
-            targetFile.deleteOnExit()
-            if (!overwriteLockedFile(tempFile, targetFile)) {
-                throw IllegalStateException("无法删除旧文件: ${targetFile.absolutePath}")
-            }
-            tempFile.delete()
-            return@runCatching
-        }
-        Files.move(tempFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
-        Unit
-    }.recoverCatching {
-        if (targetFile.exists() && !deleteWithRetry(targetFile)) {
-            targetFile.deleteOnExit()
-            if (!overwriteLockedFile(tempFile, targetFile)) {
-                throw IllegalStateException("无法删除旧文件: ${targetFile.absolutePath}")
-            }
-            tempFile.delete()
-        } else {
-            Files.copy(tempFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
-            tempFile.delete()
-        }
-        Unit
-    }.onSuccess {
-        backupFile?.delete()
-    }.onFailure {
-        onDetail("替换核心文件失败")
     }
 }

@@ -70,7 +70,7 @@ private fun syncHostExtraModLinks(
             ?: error("缺少附加Mod文件: ${mod.targetFile.absolutePath}")
         val target = modsDir.resolve(extraModTargetFileName(mod))
         if (!target.pointsTo(source)) {
-            linkOrCopyMod(source, target)
+            hardLinkFile(source, target).getOrThrow()
         }
         val fraction = (index + 1).toFloat() / extraMods.size
         ctx.emit(Task2Progress("已同步附加Mod ${index + 1}/${extraMods.size}", fraction))

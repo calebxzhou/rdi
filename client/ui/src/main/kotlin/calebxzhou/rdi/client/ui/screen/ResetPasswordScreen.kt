@@ -23,10 +23,10 @@ import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzau.rdi.client.ui.AlertErr
 import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.ScrollableContentBody
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.PasswordField
 import calebxzau.rdi.client.ui.openMsaVerificationUrl
@@ -130,8 +130,7 @@ fun ResetPasswordScreen(
             TitleRow("重置密码", onBack = onBack)
             val fieldShape = RoundedCornerShape(28.dp)
 
-            ContentBody(
-                scrollable = true,
+            ScrollableContentBody(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Column(

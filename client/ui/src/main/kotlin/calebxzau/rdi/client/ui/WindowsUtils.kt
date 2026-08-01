@@ -2,16 +2,19 @@ package calebxzau.rdi.client.ui
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
-import calebxzhou.mykotutils.std.canCreateSymlink
 import calebxzhou.mykotutils.std.jarResource
+import calebxzau.rdi.mediaproc.FfmpegAvifDecoder
 import calebxzau.rdi.client.RDIClient
-import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.ui.pickAwtDirectory
 import calebxzhou.rdi.client.ui.pickAwtSaveFile
 import com.sun.management.OperatingSystemMXBean
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.jetbrains.skia.ColorAlphaType
+import org.jetbrains.skia.ColorSpace
+import org.jetbrains.skia.ColorType
 import org.jetbrains.skia.Image
+import org.jetbrains.skia.ImageInfo
 import java.awt.Desktop
 import java.awt.FileDialog
 import java.awt.Frame
@@ -139,21 +142,6 @@ suspend fun pickJavaExecutable(title: String): String? =
         }
     }
 
-fun checkCanCreateSymlink(): Boolean {
-    return canCreateSymlink()
-}
-
-suspend fun runUpdateFlow(
-    onStatus: (String) -> Unit,
-    onDetail: (String) -> Unit,
-    onRestart: suspend () -> Unit
-) {
-    UpdateService.startUpdateFlow(
-        onStatus = onStatus,
-        onDetail = onDetail
-    )
-}
-
 fun loadResourceStream(name: String): InputStream {
     return RDIClient.jarResource(name)
 }
@@ -165,9 +153,9 @@ fun exportResource(name: String, target: File) {
     }
 }
 
-fun loadImageBitmap(resourceName: String): ImageBitmap {
-    return loadResourceStream(resourceName).use { stream ->
-        Image.makeFromEncoded(stream.readBytes()).toComposeImageBitmap()
+fun loadImageBitmap(resourceName: String): Result<ImageBitmap> = runCatching {
+    loadResourceStream(resourceName).use { stream ->
+        decodeImageBitmap(stream.readBytes()).getOrThrow()
     }
 }
 
@@ -182,8 +170,28 @@ fun openFolder(path: String) {
     }
 }
 
-fun decodeImageBitmap(bytes: ByteArray): ImageBitmap {
-    return Image.makeFromEncoded(bytes).toComposeImageBitmap()
+fun decodeImageBitmap(bytes: ByteArray): Result<ImageBitmap> = runCatching {
+    val image = if (FfmpegAvifDecoder.isAvif(bytes)) {
+        val decoded = FfmpegAvifDecoder.decode(bytes).getOrThrow()
+        Image.makeRaster(
+            ImageInfo(
+                decoded.width,
+                decoded.height,
+                ColorType.RGBA_8888,
+                ColorAlphaType.UNPREMUL,
+                ColorSpace.sRGB
+            ),
+            decoded.pixels,
+            decoded.width * 4
+        )
+    } else {
+        Image.makeFromEncoded(bytes)
+    }
+    try {
+        image.toComposeImageBitmap()
+    } finally {
+        image.close()
+    }
 }
 
 fun imageBitmapFromArgb(

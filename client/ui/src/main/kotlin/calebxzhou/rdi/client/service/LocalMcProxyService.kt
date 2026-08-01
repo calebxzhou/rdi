@@ -19,10 +19,8 @@ object LocalMcProxyService {
             metricsDir = ClientDirs.mcDir.parentFile.resolve("net-metrics")
         ),
         onLog = { line ->
-            if (DEBUG) {
-                println(line)
-                runCatching { logSink(line) }.onFailure { it.printStackTrace() }
-            }
+            if (DEBUG) println(line)
+            runCatching { logSink(line) }.onFailure { it.printStackTrace() }
         }
     )
 

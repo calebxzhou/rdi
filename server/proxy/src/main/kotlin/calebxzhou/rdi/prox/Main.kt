@@ -53,11 +53,7 @@ val ktorClient by lazy {
  */
 
 fun main() {
-    lgr.info {
-        "proxy zstd=required-for-login level=${Const.ZSTD_LEVEL} " +
-            "threshold=${Const.ZSTD_THRESHOLD} maxFrameSize=${Const.ZSTD_MAX_FRAME_SIZE}"
-    }
-    // Start the basic proxy with binary control packet support
+    lgr.info { "proxy minecraft frame relay enabled" }
     val proxy = TcpReverseProxy()
-    proxy.start("0.0.0.0", Const.SERVER_PORT, "127.0.0.1", 25565)
+    proxy.start("0.0.0.0", Const.SERVER_PORT, Const.BACKEND_HOST, 25565)
 }

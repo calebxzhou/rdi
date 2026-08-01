@@ -44,7 +44,7 @@ enum class McVersion(
             )
         )
     ),
-    V192(
+    /*V192(
         "1.19.2",
         "frog", 25,
         760,
@@ -57,7 +57,7 @@ enum class McVersion(
             )
         )
 
-    ),
+    ),*/
 
     V122(
         "1.12.2",

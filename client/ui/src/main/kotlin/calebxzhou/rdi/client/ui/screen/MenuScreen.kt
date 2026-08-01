@@ -6,11 +6,13 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ImageIconButton
@@ -21,13 +23,25 @@ import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.RDIClient
 import calebxzhou.rdi.client.auth.LocalCredentials
+import calebxzhou.rdi.client.auth.updateLastPlayHost
 import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.net.lgr
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.StartPlayResult
+import calebxzhou.rdi.client.service.startHostPlay
+import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.HeadButton
+import calebxzhou.rdi.client.ui.comp.HostCard
+import calebxzhou.rdi.client.ui.comp.ModpackDownloadMethodDialog
 import calebxzhou.rdi.client.ui.comp.PlayerModel
 import calebxzhou.rdi.common.DEBUG
+import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.util.periodOfDay
+import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
 
 /**
@@ -41,18 +55,71 @@ fun MenuScreen(
     onOpenSponsor: () -> Unit,
     onOpenHostLobby: () -> Unit,
     onOpenHost2Lobby: () -> Unit,
-    onOpenHostInfo: (String) -> Unit,
-    onOpenWardrobe: () -> Unit
+    onOpenWardrobe: () -> Unit,
+    onOpenMcPlay: (McPlayArgs) -> Unit,
+    onOpenMcVersions: (McVersion?) -> Unit,
+    onOpenTaskList: (String) -> Unit
 ) {
     val lastPlayHost = remember { LocalCredentials.read().lastPlayHost }
+    val scope = rememberCoroutineScope()
+    var lastPlayHostBrief by remember { mutableStateOf<Host.BriefVo?>(null) }
+    var launchingHostId by remember { mutableStateOf<String?>(null) }
+    var installConfirmTask by remember { mutableStateOf<StartPlayResult.NeedInstall?>(null) }
+    var playError by remember { mutableStateOf<String?>(null) }
     var onlinePlayerIds by remember { mutableStateOf<List<ObjectId>>(emptyList()) }
     var showOldMainWarning by remember { mutableStateOf(RDIClient.OLD_MAIN) }
+
+    LaunchedEffect(lastPlayHost?.id) {
+        lastPlayHostBrief = null
+        val hostId = lastPlayHost?.id ?: return@LaunchedEffect
+        runCatching {
+            server.makeRequest<Host.BriefVo>("host/$hostId/brief").let { response ->
+                if (!response.ok) throw RequestError(response.msg)
+                response.data
+            }
+        }.onSuccess { host ->
+            lastPlayHostBrief = host
+        }.onFailure { error ->
+            lgr.warn(error) { "加载最近游玩房间失败" }
+        }
+    }
 
     LaunchedEffect(Unit) {
         runCatching {
             server.makeRequest<List<ObjectId>>("host/online-player-ids").data ?: emptyList()
         }.onSuccess { ids ->
             onlinePlayerIds = ids.distinct()
+        }
+    }
+
+    fun startHost(host: Host.BriefVo) {
+        if (launchingHostId != null) return
+        val hostId = host._id.toHexString()
+        launchingHostId = hostId
+        scope.launch {
+            startHostPlay(hostId)
+                .onSuccess { result ->
+                    when (result) {
+                        is StartPlayResult.Ready -> {
+                            LocalCredentials.read().updateLastPlayHost(hostId, host.name)
+                            onOpenMcPlay(result.args)
+                        }
+                        is StartPlayResult.NeedMod -> {
+                            playError = "房间缺少必要Mod：${result.modSlugs.joinToString("、")}。请先前往模组界面添加。"
+                        }
+                        is StartPlayResult.NeedInstall -> installConfirmTask = result
+                        is StartPlayResult.Installing -> {
+                            playError = "整合包正在下载，请等待下载完成后再启动"
+                            onOpenTaskList(result.runId)
+                        }
+                        is StartPlayResult.NeedMc -> {
+                            playError = "请更新MC${result.ver.mcVer}版本资源"
+                            onOpenMcVersions(result.ver)
+                        }
+                    }
+                }
+                .onFailure { playError = it.message ?: "无法开始游玩" }
+            launchingHostId = null
         }
     }
 
@@ -97,35 +164,67 @@ fun MenuScreen(
                         )
                     }
 
-                    MenuActionButtons(
-                        modifier = Modifier.widthIn(min = 220.dp),
-                        onOpenResources = onOpenResources,
-                        onOpenHostLobby = onOpenHostLobby,
-                        onOpenHost2Lobby = onOpenHost2Lobby,
-                        onOpenMcmod = onOpenMcmod,
-                        onOpenSponsor = onOpenSponsor
-                    )
-                }
-
-                RowV(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(start = 24.dp, bottom = 24.dp)
-                ) {
-                    Column {
-                        lastPlayHost?.let { host ->
-                            CircleIconButton(
-                                icon = "\uF04B",
-                                tooltip = "继续游玩房间:${host.name}",
-                                bgColor = MaterialColor.GREEN_900.color
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(20.dp)
+                    ) {
+                        MenuActionButtons(
+                            modifier = Modifier.widthIn(min = 220.dp),
+                            onOpenResources = onOpenResources,
+                            onOpenHostLobby = onOpenHostLobby,
+                            onOpenHost2Lobby = onOpenHost2Lobby,
+                            onOpenMcmod = onOpenMcmod,
+                            onOpenSponsor = onOpenSponsor
+                        )
+                        lastPlayHostBrief?.let { host ->
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                onOpenHostInfo(host.id)
+                                Text("最近游玩", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
+                                host.HostCard(
+                                    modifier = Modifier.width(320.dp),
+                                    onDirectClick = ::startHost,
+                                    playEnabled = launchingHostId == null,
+                                    playLoading = launchingHostId == host._id.toHexString()
+                                )
                             }
                         }
                     }
                 }
             }
         }
+    }
+
+    playError?.let { error ->
+        AlertDialog(
+            onDismissRequest = { playError = null },
+            title = { Text("无法开始游玩") },
+            text = { Text(error) },
+            confirmButton = {
+                CircleIconButton(
+                    icon = "\uF00C",
+                    tooltip = "知道了"
+                ) {
+                    playError = null
+                }
+            }
+        )
+    }
+
+    installConfirmTask?.let { install ->
+        ModpackDownloadMethodDialog(
+            packName = install.task.title,
+            packVer = "",
+            onDismiss = { installConfirmTask = null },
+            onDirectDownload = {
+                installConfirmTask = null
+                val runId = ClientTaskManager.submit(install.task, dedupeKey = install.dedupeKey)
+                onOpenTaskList(runId)
+            },
+            onOpenTaskList = onOpenTaskList,
+            onImportError = { playError = it }
+        )
     }
 }
 

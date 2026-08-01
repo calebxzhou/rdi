@@ -17,11 +17,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
-import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.ScrollableContentBody
 import calebxzau.rdi.client.ui.RowV
 import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8h
@@ -384,7 +384,7 @@ fun HostNewCreateScreen(
                     }
                 }
             }
-            ContentBody(scrollable = true) {
+            ScrollableContentBody {
                 updateMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.primary)
                     Space8h()

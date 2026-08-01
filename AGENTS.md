@@ -12,7 +12,7 @@ when you wanna change the code, you should gimme plan
 - Source layout is standard Gradle Kotlin:
   - `src/main/kotlin`, `src/main/resources`
   - tests in `src/test/kotlin`.
-- UI assets/icons are under `client/ui/src/main/resources/assets`.
+- UI assets/icons are under `client/ui/assets/src/main/resources/assets`.
 - use CircleIconButton as more as possible when you are making buttons.
 - do not remove any project files, for any dir or file to be removed, move to /DEL dir instead.
 - use Syntactic sugar as more as possible
@@ -23,12 +23,8 @@ when you wanna change the code, you should gimme plan
 - for models with uuid needed, use uuidv7
 ## Build, Test, and Development Commands
 no need to execute gradle commands unless explictly declared
-no need execute javac i wanna execute it manually and tell you error
-no need static check
+no need execute javac i wanna execute it manually and tell you error 
 no need care about CRLF/LF issue, but Dockerfile and *.sh files must be LF
-you are not required to run git diff for static check
-you are not required to run git diff for static check
-you are not required to run git diff for static check
 - on wsl, when you wanna read gradle cache, go windows host to read, not read ~
 ## Coding Style & Naming Conventions
 - Kotlin, 4-space indentation, UTF-8.

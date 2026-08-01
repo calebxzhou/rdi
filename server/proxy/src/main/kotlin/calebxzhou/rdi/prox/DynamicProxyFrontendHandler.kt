@@ -6,8 +6,6 @@ import calebxzau.util.netty.writeVarInt
 import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.mc.proxy.MinecraftFrameDecoder
-import calebxzhou.rdi.mc.proxy.disableZstdFrameEncoding
-import calebxzhou.rdi.mc.proxy.isZstdFrameEnabled
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
@@ -147,24 +145,17 @@ class DynamicProxyFrontendHandler(
             // Handle status request (Server List Ping)
             if (nextState == 1) {
                 isStatusRequest = true
-                ctx.channel().disableZstdFrameEncoding()
                 lgr.info { "Status request detected, will respond locally" }
                 // Keep the frame decoder for status packets
                 return
             }
 
             // nextState == 2: Login flow - determine backend based on port
-            if (!ctx.channel().isZstdFrameEnabled()) {
-                lgr.info { "Client login without zstd frame support, disconnecting" }
-                disconnectPlayerWithReason(ctx.channel(), "you must update client")
-                return
-            }
             forwardToBackend(ctx, buffer.retain())
             ctx.channel().config().isAutoRead = false
             if (Const.DEBUG && port == 25565) {
                 currentBackendHost = defaultBackendHost
                 currentBackendPort = defaultBackendPort
-                installBandwidthLimiter(ctx, port)
                 connectToBackend(ctx)
                 return
             }
@@ -187,7 +178,6 @@ class DynamicProxyFrontendHandler(
                     }
                     currentBackendHost = route.backendHost
                     currentBackendPort = route.backendPort
-                    installBandwidthLimiter(ctx, route.backendPort)
                     connectToBackend(ctx)
                 }.onFailure { err ->
                     lgr.warn { "Host $port route lookup failed: ${err.message}\n$err" }
@@ -199,21 +189,10 @@ class DynamicProxyFrontendHandler(
 
     private val HostStatus.disconnectReason: String
         get() = when (this) {
-            HostStatus.STOPPED -> "请前往房间后台，点击启动按钮"
+            HostStatus.STOPPED -> "房间未启动，请前往房间后台，点击启动按钮"
             HostStatus.STARTED -> "房间启动中，请稍等"
             else -> "无法连接房间，请稍后再试"
         }
-
-    private fun installBandwidthLimiter(ctx: ChannelHandlerContext, port: Int) {
-        val limiterName = "host-bandwidth-limiter-$port"
-        if (ctx.pipeline().get(limiterName) != null) return
-        ctx.pipeline().addBefore(
-            ctx.name(),
-            limiterName,
-            ProxyBandwidthLimiter.forHostPort(port)
-        )
-        lgr.info { "Installed bandwidth limiter for host port $port: 10Mbps tx/rx" }
-    }
 
     private fun connectToBackend(ctx: ChannelHandlerContext) {
         val frontendChannel = ctx.channel()
@@ -229,13 +208,14 @@ class DynamicProxyFrontendHandler(
         bootstrap.group(backendGroup)
             .channel(NioSocketChannel::class.java)
             .option(ChannelOption.AUTO_READ, true)
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
             .option(ChannelOption.TCP_NODELAY, true)
             .option(ChannelOption.SO_KEEPALIVE, true)
             .handler(object : ChannelInitializer<NioSocketChannel>() {
                 override fun initChannel(ch: NioSocketChannel) {
                     ch.pipeline().addLast(
                         MinecraftFrameDecoder(),
-                        ProxyBackendHandler(frontendChannel, mcVersion)
+                        ProxyBackendHandler(frontendChannel)
                     )
                 }
             })
@@ -260,6 +240,7 @@ class DynamicProxyFrontendHandler(
 
             if (connectFuture.isSuccess) {
                 lgr.info { "Connected to backend: $currentBackendHost:$currentBackendPort" }
+                ProxyFlowControl.bind(frontendChannel, future.channel())
 
                 // Send any pending buffered data immediately
                 if (pendingBuffer.isNotEmpty()) {
@@ -267,6 +248,8 @@ class DynamicProxyFrontendHandler(
                     pendingBuffer.forEach { bufferedMsg ->
                         if (bufferedMsg is ByteBuf) {
                             compositeBuf.addComponent(true, bufferedMsg)
+                        } else {
+                            ReferenceCountUtil.release(bufferedMsg)
                         }
                     }
                     pendingBuffer.clear()
@@ -303,18 +286,32 @@ class DynamicProxyFrontendHandler(
         }
 
         if (backendChannel?.isActive == true) {
-            // Forward data to backend immediately with flush
-            backendChannel?.writeAndFlush(msg)?.addListener { future ->
+            val target = backendChannel ?: run {
+                ReferenceCountUtil.release(msg)
+                return
+            }
+            ProxyFlowControl.pauseSourceIfTargetNotWritable(frontendChannel, target)
+            target.write(msg).addListener { future ->
                 if (!future.isSuccess) {
                     // Write failed, close connection
                     lgr.info { "Failed to write to backend: ${future.cause()?.message}" }
                     ctx.channel().close()
                 }
             }
+            ProxyFlowControl.pauseSourceIfTargetNotWritable(frontendChannel, target)
         } else {
             // Backend not available or not yet chosen: buffer the message
             pendingBuffer.add(msg)
         }
+    }
+
+    override fun channelReadComplete(ctx: ChannelHandlerContext) {
+        backendChannel?.flush()
+    }
+
+    override fun channelWritabilityChanged(ctx: ChannelHandlerContext) {
+        ProxyFlowControl.resumePeerIfWritable(ctx.channel())
+        ctx.fireChannelWritabilityChanged()
     }
 
     override fun channelInactive(ctx: ChannelHandlerContext) {

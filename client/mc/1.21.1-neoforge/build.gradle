@@ -199,6 +199,8 @@ sourceSets.named('main') {
 neoForge.ideSyncTask(tasks.named('generateModMetadata'))
 
 dependencies {
+    compileOnly project(':mediaproc')
+    additionalRuntimeClasspath project(':mediaproc')
     implementation project(':c-mc-common')
     additionalRuntimeClasspath project(':c-mc-common')
     implementation project(':rmcp-common')

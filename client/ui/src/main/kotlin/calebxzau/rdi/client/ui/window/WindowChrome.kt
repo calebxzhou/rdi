@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
+import calebxzau.rdi.client.ui.CodeFontFamily
 import calebxzau.rdi.client.ui.RDropdownMenuItem
 import calebxzau.rdi.client.ui.IconFontFamily
 import calebxzau.rdi.client.ui.UIFontFamily
@@ -185,8 +186,8 @@ private fun TitleBar(
                 ) {
                     Text(
                         text = buildAnnotatedString {
-                            append("rdi")
-                            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("5") }
+                            append("start")
+                            withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("rdi") }
                         },
                         color = titleTextColor,
                         fontFamily = UIFontFamily,

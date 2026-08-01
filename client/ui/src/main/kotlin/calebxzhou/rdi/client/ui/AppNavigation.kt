@@ -49,6 +49,12 @@ fun AppNavigation(
             McPlayStore.onBack = onBack
             navController.navigate(McPlayView)
         }
+        val returnToHostList: (Boolean) -> Unit = { fromAllHosts ->
+            if (!navController.popBackStack()) {
+                val tab = if (fromAllHosts) HostTab.AllHosts else HostTab.MyHosts
+                navController.navigateAbsolute(HostRoute(tab.name))
+            }
+        }
 
         NavHost(
             navController = navController,
@@ -77,8 +83,16 @@ fun AppNavigation(
                     onOpenSponsor = { navController.navigate(Sponsor) },
                     onOpenHostLobby = { navController.navigate(HostRoute(HostTab.MyHosts.name)) },
                     onOpenHost2Lobby = { navController.navigate(Host2Lobby) },
-                    onOpenHostInfo = { hostId -> navController.navigate(HostInfo(hostId)) },
-                    onOpenWardrobe = { navController.navigate(Wardrobe) }
+                    onOpenWardrobe = { navController.navigate(Wardrobe) },
+                    onOpenMcPlay = { args ->
+                        openMcPlay(args) { navController.navigateAbsolute(Menu) }
+                    },
+                    onOpenMcVersions = { mcVersion ->
+                        navController.navigate(ResourceRoute(ResourceTab.McResources.name, mcVersion?.mcVer))
+                    },
+                    onOpenTaskList = { runId ->
+                        navController.navigate(TaskList(selectedRunId = runId))
+                    }
                 )
             }
             composable<Mcmod> {
@@ -243,14 +257,10 @@ fun AppNavigation(
             }
             composable<HostMembers> {
                 val route = it.toRoute<HostMembers>()
-                val returnToHostList = {
-                    val tab = if (route.fromAllHosts) HostTab.AllHosts else HostTab.MyHosts
-                    navController.navigateAbsolute(HostRoute(tab.name))
-                }
                 HostMembersScreen(
                     hostId = ObjectId(route.hostId),
-                    onBack = returnToHostList,
-                    onQuit = returnToHostList
+                    onBack = { returnToHostList(route.fromAllHosts) },
+                    onQuit = { returnToHostList(route.fromAllHosts) }
                 )
             }
             composable<HostMods> {
@@ -258,10 +268,7 @@ fun AppNavigation(
                 HostModsScreen(
                     modCatalog = modCatalog,
                     hostId = ObjectId(route.hostId),
-                    onBack = {
-                        val tab = if (route.fromAllHosts) HostTab.AllHosts else HostTab.MyHosts
-                        navController.navigateAbsolute(HostRoute(tab.name))
-                    },
+                    onBack = { returnToHostList(route.fromAllHosts) },
                     onOpenResourceMods = { mcVersion, modLoader ->
                         navController.navigate(
                             ResourceRoute(
@@ -299,10 +306,7 @@ fun AppNavigation(
                 val route = it.toRoute<HostBackend>()
                 HostBackendScreen(
                     hostId = ObjectId(route.hostId),
-                    onBack = {
-                        val tab = if (route.fromAllHosts) HostTab.AllHosts else HostTab.MyHosts
-                        navController.navigateAbsolute(HostRoute(tab.name))
-                    }
+                    onBack = { returnToHostList(route.fromAllHosts) }
                 )
             }
             /*composable<WorldBirdView> {

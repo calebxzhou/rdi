@@ -257,7 +257,7 @@ object Host2RuntimeService {
             null
         }
         val args = when (host.mcVersion) {
-            McVersion.V192, McVersion.V201, McVersion.V211 -> listOf(loaderVersion.serverArgsPath(true))
+            McVersion.V201, McVersion.V211 -> listOf(loaderVersion.serverArgsPath(true))
             McVersion.V122 -> listOf("-jar", loaderVersion.serverJarName)
             McVersion.V071 -> {
                 val launcher = hostDir.resolve("lwjgl3ify-forgePatches.jar")
@@ -311,7 +311,7 @@ object Host2RuntimeService {
         add("-Xmx8G")
         add("-Drdi.onlySaveFirmSections=true")
         if (host.mcVersion.supportsForgeguard(host.modLoader)) add("-javaagent:$FORGEGUARD_CONTAINER_PATH")
-        if (host.mcVersion != McVersion.V192) add("-XX:+UseCompactObjectHeaders")
+        add("-XX:+UseCompactObjectHeaders")
         if (host.mcVersion in setOf(McVersion.V071, McVersion.V122)) add("-Dfml.queryResult=confirm")
     }
 

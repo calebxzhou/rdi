@@ -1,63 +1,76 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+
 object UpdateService {
-    suspend fun startUpdateFlow(
+    private val coreUpdates = mutableMapOf<String, CompletableDeferred<Result<McCoreUpdateResult>>>()
+
+    suspend fun updateUpdater(
         onStatus: (String) -> Unit,
         onDetail: (String) -> Unit
-    ): UpdateFlowResult = startUpdateFlow(
-        onStatus = onStatus,
-        onDetail = onDetail,
-        updateMcCores = McCoreUpdater::update,
-        updateUpdater = UpdaterUpdater::update
-    )
+    ): Result<UpdaterUpdateResult> = updateUpdater(onStatus, onDetail, UpdaterUpdater::update)
 
-    internal suspend fun startUpdateFlow(
+    internal suspend fun updateUpdater(
         onStatus: (String) -> Unit,
         onDetail: (String) -> Unit,
-        updateMcCores: suspend ((String) -> Unit, (String) -> Unit) -> Result<McCoreUpdateResult>,
-        updateUpdater: suspend ((String) -> Unit, (String) -> Unit) -> Result<UpdaterUpdateResult>
-    ): UpdateFlowResult {
-        onStatus("正在检查更新...")
-
-        val mcCoreResult = updateMcCores(onStatus, onDetail).onFailure {
-            it.printStackTrace()
-            onDetail("MC核心更新失败: ${it.message ?: "未知错误"}")
-        }
-        val updaterResult = updateUpdater(onStatus, onDetail).onFailure {
-            it.printStackTrace()
-            onDetail("启动程序更新失败，已继续启动: ${it.message ?: "未知错误"}")
-        }
-
-        val result = UpdateFlowResult(mcCoreResult, updaterResult)
-        onStatus(result.statusText)
-        if (result.succeeded) onDetail("")
-        return result
+        update: suspend ((String) -> Unit, (String) -> Unit) -> Result<UpdaterUpdateResult>
+    ): Result<UpdaterUpdateResult> = withContext(Dispatchers.IO) {
+        update(onStatus, onDetail)
     }
-}
 
-data class UpdateFlowResult(
-    val mcCore: Result<McCoreUpdateResult>,
-    val updater: Result<UpdaterUpdateResult>
-) {
-    val succeeded
-        get() = mcCore.isSuccess && updater.isSuccess
+    suspend fun prepareMcCore(
+        mcVersion: McVersion,
+        modLoader: ModLoader,
+        modsDir: File,
+        onStatus: (String) -> Unit,
+        onDetail: (String) -> Unit
+    ): Result<McCoreUpdateResult> = prepareMcCore(
+        mcVersion = mcVersion,
+        modLoader = modLoader,
+        modsDir = modsDir,
+        onStatus = onStatus,
+        onDetail = onDetail,
+        updateCore = McCoreUpdater::update,
+        linkCore = ModpackService::installRdiCore
+    )
 
-    val statusText: String
-        get() {
-            val mcCoreUpdate = mcCore.getOrNull()
-            val updaterUpdate = updater.getOrNull()
-            return when {
-                mcCore.isFailure && updater.isFailure -> "核心和启动程序更新失败"
-                mcCore.isFailure && updaterUpdate == UpdaterUpdateResult.UPDATED ->
-                    "MC核心更新失败，启动程序更新完成，下次启动生效"
-                mcCore.isFailure -> "MC核心更新失败，启动程序检查已完成"
-                updater.isFailure -> "核心更新完成，启动程序更新失败"
-                updaterUpdate == UpdaterUpdateResult.UPDATED -> "启动程序更新完成，下次启动生效"
-                updaterUpdate == UpdaterUpdateResult.SKIPPED_LOG_MODE ->
-                    if (mcCoreUpdate?.updatedCount == 0) "核心已是最新版，日志模式下已跳过启动程序更新"
-                    else "核心更新完成，日志模式下已跳过启动程序更新"
-                mcCoreUpdate?.updatedCount == 0 -> "当前已是最新版核心"
-                else -> "核心更新完成"
-            }
+    internal suspend fun prepareMcCore(
+        mcVersion: McVersion,
+        modLoader: ModLoader,
+        modsDir: File,
+        onStatus: (String) -> Unit,
+        onDetail: (String) -> Unit,
+        updateCore: suspend (McVersion, ModLoader, (String) -> Unit, (String) -> Unit) -> Result<McCoreUpdateResult>,
+        linkCore: (McVersion, ModLoader, File) -> Unit
+    ): Result<McCoreUpdateResult> {
+        val slug = McCoreUpdater.slug(mcVersion, modLoader)
+        val pending = CompletableDeferred<Result<McCoreUpdateResult>>()
+        val activeUpdate = synchronized(coreUpdates) {
+            coreUpdates[slug] ?: pending.also { coreUpdates[slug] = it }
         }
+
+        if (activeUpdate === pending) {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    updateCore(mcVersion, modLoader, onStatus, onDetail).getOrThrow()
+                }
+            }
+            pending.complete(result)
+            synchronized(coreUpdates) {
+                if (coreUpdates[slug] === pending) coreUpdates.remove(slug)
+            }
+        } else {
+            onStatus("等待相同RDI核心检查...")
+        }
+
+        return activeUpdate.await().mapCatching {
+            linkCore(mcVersion, modLoader, modsDir)
+            it
+        }
+    }
 }

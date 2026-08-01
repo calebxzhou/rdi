@@ -241,8 +241,9 @@ object WorldService {
     }
 
     suspend fun reset(uid: ObjectId, worldId: ObjectId) {
+        val player = PlayerService.getById(uid)?: throw RequestError("玩家不存在")
         val world = getById(worldId) ?: throw RequestError("存档不存在")
-        if (world.ownerId != uid) throw RequestError("无权限")
+        if (world.ownerId != uid && !player.isDav) throw RequestError("无权限")
         if (worldSurfaceBuildInProgress.contains(worldId.toHexString())) {
             throw RequestError("地图缓存正在构建中，请稍后再重置存档")
         }
@@ -264,8 +265,9 @@ object WorldService {
     }
 
     suspend fun delete(uid: ObjectId, worldId: ObjectId) {
+        val player = PlayerService.getById(uid)?: throw RequestError("玩家不存在")
         val world = getById(worldId) ?: throw RequestError("存档不存在")
-        if (world.ownerId != uid) throw RequestError("无权限")
+        if (world.ownerId != uid && !player.isDav) throw RequestError("无权限")
         HostQueryService.findByWorld(worldId)?.let { throw RequestError("须先删除房间“${it.name}”，再删除此区块数据") }
         dbcl.deleteOne(eq("_id", worldId))
         worldSurfaceCol.deleteMany(eq("worldId", worldId))

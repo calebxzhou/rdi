@@ -8,6 +8,9 @@ import calebxzhou.rdi.client.modcatalog.CatalogSlugRef
 import calebxzhou.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.modcatalog.ModPlatform
 import calebxzhou.rdi.client.net.server
+import calebxzau.rdi.client.ui.loadResourceStream
+import calebxzau.rdi.mediaproc.MediaProcUnavailableException
+import calebxzau.rdi.mediaproc.OggTranscoder
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.archive.TarZstArchiveWriter
 import calebxzhou.rdi.common.archive.extractArchiveToDir
@@ -1004,7 +1007,7 @@ private suspend fun writeProcessedEntry(
     out: TarZstArchiveWriter,
     addedDirs: MutableSet<String>,
     readAllBytes: () -> ByteArray,
-    resourcepackBytes: (() -> ByteArray?)?,
+    resourcepackBytes: (suspend () -> ByteArray?)?,
     nestedZipBytes: (suspend () -> ByteArray)?,
     skipCacheDirectory: Boolean = true,
     preprocessedBytes: ByteArray? = null
@@ -1042,7 +1045,7 @@ private suspend fun writeProcessedNestedZipEntry(
     out: ZipOutputStream,
     addedDirs: MutableSet<String>,
     readAllBytes: () -> ByteArray,
-    resourcepackBytes: (() -> ByteArray?)?,
+    resourcepackBytes: (suspend () -> ByteArray?)?,
     nestedZipBytes: (suspend () -> ByteArray)?,
     skipCacheDirectory: Boolean = true,
     preprocessedBytes: ByteArray? = null
@@ -1071,7 +1074,7 @@ private suspend fun writeProcessedNestedZipEntry(
     out.closeEntry()
 }
 
-private fun readResourcepackEntry(
+private suspend fun readResourcepackEntry(
     source: java.util.zip.ZipFile,
     entry: ZipEntry,
     relativeLower: String,
@@ -1116,9 +1119,6 @@ private val disallowedClientPathKeywords = setOf(
 private val allowedQuestLangFiles = setOf("en_us.snbt", "zh_cn.snbt")
 private const val QUEST_LANG_PREFIX = "config/ftbquests/quests/lang/"
 private const val RESOURCEPACK_MAX_SIZE_BYTES = 1*1024L * 1024
-private const val OGG_MAX_DURATION_SECONDS = 5
-private const val OGG_OUTPUT_SAMPLE_RATE = 16_000
-
 private fun isQuestLangEntryDisallowed(relativeLower: String, isDirectory: Boolean): Boolean {
     if (!relativeLower.startsWith(QUEST_LANG_PREFIX)) return false
     val remainder = relativeLower.removePrefix(QUEST_LANG_PREFIX)
@@ -1128,7 +1128,7 @@ private fun isQuestLangEntryDisallowed(relativeLower: String, isDirectory: Boole
     return remainder !in allowedQuestLangFiles
 }
 
-private fun readResourcepackFile(file: File, relativeLower: String, preprocessedBytes: ByteArray? = null): ByteArray? {
+private suspend fun readResourcepackFile(file: File, relativeLower: String, preprocessedBytes: ByteArray? = null): ByteArray? {
     val isOgg = relativeLower.endsWith(".ogg")
     //不接受>1M资源包
     if (!isOgg && file.length() > RESOURCEPACK_MAX_SIZE_BYTES) return null
@@ -1161,7 +1161,7 @@ private suspend fun preprocessAssetInputsInParallel(
     onProgress: (done: Int, total: Int, currentPath: String) -> Unit = { _, _, _ -> }
 ): Map<String, ByteArray> {
     if (inputs.isEmpty()) return emptyMap()
-    val semaphore = Semaphore(4)
+    val semaphore = Semaphore(8)
     val doneCount = AtomicInteger(0)
     val total = inputs.size
     return coroutineScope {
@@ -1181,62 +1181,33 @@ private suspend fun preprocessAssetInputsInParallel(
     }
 }
 
-private fun processOggBytes(rawBytes: ByteArray, entryName: String, workDir: File = ClientDirs.packProcDir): ByteArray {
-    val ffmpeg = resolveFfmpegExecutable()
-    val inputFile = Files.createTempFile(workDir.toPath(), "ogg-", ".input.ogg").toFile()
-    val outputFile = Files.createTempFile(workDir.toPath(), "ogg-", ".output.ogg").toFile()
-    return runCatching {
-        inputFile.writeBytes(rawBytes)
-        transcodeOggWithFfmpeg(ffmpeg, inputFile, outputFile)
-        outputFile.readBytes()
-    }.onFailure { err ->
-        lgr.warn { "ffmpeg处理ogg失败，保留原文件: $entryName\n$err" }
-    }.getOrElse { rawBytes }
-        .also {
-            runCatching { inputFile.delete() }
-            runCatching { outputFile.delete() }
-        }
-}
-
-private fun resolveFfmpegExecutable(): File {
-    return sequenceOf(
-        ClientDirs.toolsDir.resolve("ffmpeg/ffmpeg.exe"),
-        ClientDirs.toolsDir.resolve("ffmpeg/ffmpeg")
-    ).firstOrNull { it.exists() && it.isFile }
-        ?: throw ModpackError("未找到“传包工具包”，请查看群文档整合包上传章节，进行安装")
-}
-
-fun ensureUploadFfmpegReady() {
-    resolveFfmpegExecutable()
-}
-
-private fun transcodeOggWithFfmpeg(ffmpeg: File, inputFile: File, outputFile: File) {
-    val process = ProcessBuilder(
-        ffmpeg.absolutePath,
-        "-y",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-i",
-        inputFile.absolutePath,
-        "-ar",
-        OGG_OUTPUT_SAMPLE_RATE.toString(),
-        "-t",
-        OGG_MAX_DURATION_SECONDS.toString(),
-        "-c:a",
-        "libvorbis",
-        "-b:a",
-        "96k",
-        outputFile.absolutePath
-    ).redirectErrorStream(true)
-        .start()
-    val output = process.inputStream.bufferedReader().use { it.readText() }
-    val exitCode = process.waitFor()
-    if (exitCode != 0) {
-        throw ModpackError("音频转码失败(code=$exitCode): $output")
+private val emptyOggBytes: ByteArray by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+    runCatching {
+        loadResourceStream("assets/empty.ogg").use { it.readBytes() }
+    }.getOrElse { error ->
+        lgr.error(error) { "无法读取RDI空音频资源assets/empty.ogg" }
+        throw ModpackError("音频处理模块损坏，请更新客户端", error)
     }
-    if (!outputFile.exists() || outputFile.length() <= 0L) {
-        throw ModpackError("未生成有效音频文件")
+}
+
+private suspend fun processOggBytes(
+    rawBytes: ByteArray,
+    entryName: String,
+    workDir: File = ClientDirs.packProcDir
+): ByteArray {
+    val result = OggTranscoder.transcodeOgg(rawBytes, workDir.toPath())
+    result.exceptionOrNull()?.let { error ->
+        if (error is MediaProcUnavailableException) {
+            throw ModpackError("音频处理模块损坏，请更新客户端", error)
+        }
+        lgr.error(error) { "OGG处理失败，已替换为空音频: $entryName" }
+    }
+    return result.getOrElse { emptyOggBytes }
+}
+
+fun ensureUploadAudioReady() {
+    OggTranscoder.ensureReady().getOrElse { error ->
+        throw ModpackError("音频处理模块损坏，请更新客户端", error)
     }
 }
 

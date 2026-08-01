@@ -16,21 +16,32 @@ data class LastPlayHostInfo(
 private data class CredentialsData(
     var loginInfos: MutableMap<String, LoginInfo> = hashMapOf(),
     var lastPlayHost: LastPlayHostInfo? = null,
+    var autoLoginDisabled: Boolean = false,
 )
 
 class LocalCredentials {
     var loginInfos: MutableMap<String, LoginInfo> = hashMapOf()
     var lastPlayHost: LastPlayHostInfo? = null
+    var autoLoginDisabled: Boolean = false
 
     val lastLogged: LoginInfo?
         get() = loginInfos.values.maxByOrNull { it.lastLoggedTime }
 
+    val autoLoginAccount: LoginInfo?
+        get() = lastLogged.takeUnless { autoLoginDisabled }
+
     fun save() {
         val data = CredentialsData(
             loginInfos = loginInfos,
-            lastPlayHost = lastPlayHost
+            lastPlayHost = lastPlayHost,
+            autoLoginDisabled = autoLoginDisabled,
         )
         file.writeText(serdesJson.encodeToString(data))
+    }
+
+    fun setAutoLoginDisabled(disabled: Boolean): Result<Unit> = runCatching {
+        autoLoginDisabled = disabled
+        save()
     }
 
     companion object {
@@ -45,6 +56,7 @@ class LocalCredentials {
             LocalCredentials().apply {
                 loginInfos = data.loginInfos
                 lastPlayHost = data.lastPlayHost
+                autoLoginDisabled = data.autoLoginDisabled
             }
         } catch (e: Exception) {
             e.printStackTrace()

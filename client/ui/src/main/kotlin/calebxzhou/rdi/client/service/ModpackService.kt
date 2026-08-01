@@ -244,14 +244,20 @@ object ModpackService {
         modLoader: ModLoader,
         modsDir: File
     ) {
-        val mcSlug = "${mcVersion.mcVer}-${modLoader.name.lowercase()}"
-        val mcCoreSource = ClientDirs.dlModsDir.resolve("rdi-5-mc-client-$mcSlug.jar")
-        val mcCoreTarget = modsDir.resolve("rdi-5-mc-client-$mcSlug.jar")
-        if (mcCoreSource.exists()) {
-            linkOrCopyMod(mcCoreSource, mcCoreTarget)
-        } else {
-            throw IllegalStateException("缺少核心文件: ${mcCoreSource.absolutePath}")
+        check(installCachedRdiCore(mcVersion, modLoader, modsDir)) {
+            "缺少核心文件: ${McCoreUpdater.cacheFile(mcVersion, modLoader).absolutePath}"
         }
+    }
+
+    private fun installCachedRdiCore(
+        mcVersion: McVersion,
+        modLoader: ModLoader,
+        modsDir: File
+    ): Boolean {
+        val mcCoreSource = McCoreUpdater.cacheFile(mcVersion, modLoader)
+        if (!mcCoreSource.isFile) return false
+        hardLinkFile(mcCoreSource, modsDir.resolve(mcCoreSource.name)).getOrThrow()
+        return true
     }
 
 
@@ -379,11 +385,11 @@ object ModpackService {
                         ?: modFile.name
                 }
                 val target = modsDir.resolve(targetFileName)
-                linkOrCopyMod(modFile, target)
+                hardLinkFile(modFile, target).getOrThrow()
                 val fraction = (index + 1).toFloat() / modFiles.size.coerceAtLeast(1)
                 ctx.emit(Task2Progress("已处理 ${index + 1}/${modFiles.size}", fraction))
             }
-            installRdiCore(mcVersion, modLoader, modsDir)
+            installCachedRdiCore(mcVersion, modLoader, modsDir)
             ctx.emit(Task2Progress("完成", 1f))
         }
 
@@ -408,9 +414,6 @@ object ModpackService {
             when (mcVersion) {
                 McVersion.V211,
                 McVersion.V201,
-                McVersion.V192,
-                //McVersion.V182,
-                //McVersion.V165
                     -> {
                     put("darkMojangStudiosBackground", "true")
                     put("lang", "zh_cn")

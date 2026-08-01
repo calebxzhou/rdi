@@ -3,9 +3,14 @@ package calebxzau.rdi.client
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,12 +41,15 @@ import calebxzhou.mykotutils.std.decodeBase64
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.rdi.client.auth.AccountSessionStore
+import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ClientTaskManager
 // import calebxzhou.rdi.client.service.LocalMinecraftReuseService
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.PlayerService
+import calebxzhou.rdi.client.service.UpdateService
+import calebxzhou.rdi.client.service.UpdaterUpdateResult
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzhou.rdi.client.modcatalog.createModCatalog
 import calebxzhou.rdi.client.ui.AppNavigation
@@ -108,6 +116,25 @@ fun main() {
         val activeTasks = remember(taskEntries) { taskEntries.filter(::isActiveTask) }
         val runningMcSessions = activeMcSessions(McPlayStore.sessions)
         var showExitConfirm by remember { mutableStateOf(false) }
+        val globalSnackbar = remember { SnackbarHostState() }
+
+        LaunchedEffect(Unit) {
+            if (!Const.NO_UPDATE) {
+                UpdateService.updateUpdater(
+                    onStatus = { lgr.info { it } },
+                    onDetail = { if (it.isNotBlank()) lgr.info { it } }
+                ).onSuccess {
+                    if (it == UpdaterUpdateResult.UPDATED) {
+                        globalSnackbar.showSnackbar(
+                            message = "启动程序已更新，下次启动生效",
+                            duration = SnackbarDuration.Short
+                        )
+                    }
+                }.onFailure {
+                    lgr.warn(it) { "启动程序后台更新失败" }
+                }
+            }
+        }
 
         fun performExit(terminateActiveWork: Boolean) {
             if (terminateActiveWork) {
@@ -169,6 +196,9 @@ fun main() {
                         },
                         onLogin = { navController.navigateRoot(Login) },
                         onLogout = {
+                            LocalCredentials.read().setAutoLoginDisabled(true).onFailure {
+                                lgr.error(it) { "保存自动登录设置失败" }
+                            }
                             AccountSessionStore.logout()
                             navController.navigateRoot(Login)
                         },
@@ -186,6 +216,12 @@ fun main() {
                                 contentScale = ContentScale.Crop
                             )
                             AppNavigation(navController, modCatalog)
+                            SnackbarHost(
+                                hostState = globalSnackbar,
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .padding(16.dp)
+                            )
                         }
                         if (showExitConfirm) {
                             AlertDialog(

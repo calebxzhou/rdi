@@ -1,53 +1,86 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class UpdateServiceTest {
     @Test
-    fun `updater still runs when MC core update fails`() = runBlocking {
+    fun `updater flow delegates without checking MC cores`() = runBlocking {
         var updaterRan = false
-        val statuses = mutableListOf<String>()
 
-        val result = UpdateService.startUpdateFlow(
-            onStatus = statuses::add,
+        val result = UpdateService.updateUpdater(
+            onStatus = {},
             onDetail = {},
-            updateMcCores = { _, _ -> Result.failure(IllegalStateException("MC failed")) },
-            updateUpdater = { _, _ ->
+            update = { _, _ ->
                 updaterRan = true
-                Result.success(UpdaterUpdateResult.UP_TO_DATE)
+                Result.success(UpdaterUpdateResult.UPDATED)
             }
         )
 
         assertTrue(updaterRan)
-        assertTrue(result.mcCore.isFailure)
-        assertTrue(result.updater.isSuccess)
-        assertEquals("MC核心更新失败，启动程序检查已完成", statuses.last())
+        assertEquals(UpdaterUpdateResult.UPDATED, result.getOrThrow())
     }
 
     @Test
-    fun `updated launcher is reported independently from unchanged MC cores`() = runBlocking {
-        val result = UpdateService.startUpdateFlow(
-            onStatus = {},
-            onDetail = {},
-            updateMcCores = { _, _ -> Result.success(McCoreUpdateResult(3, 0)) },
-            updateUpdater = { _, _ -> Result.success(UpdaterUpdateResult.UPDATED) }
-        )
+    fun `simultaneous launches share one core update and link both modpacks`() = runBlocking {
+        val updateStarted = CompletableDeferred<Unit>()
+        val finishUpdate = CompletableDeferred<Unit>()
+        val updateCount = AtomicInteger()
+        val linkedDirs = mutableListOf<java.io.File>()
+        val root = Files.createTempDirectory("core-dedupe").toFile()
+        val update: suspend (McVersion, ModLoader, (String) -> Unit, (String) -> Unit) -> Result<McCoreUpdateResult> =
+            { _, _, _, _ ->
+                updateCount.incrementAndGet()
+                updateStarted.complete(Unit)
+                finishUpdate.await()
+                Result.success(McCoreUpdateResult(updated = true))
+            }
+        val link: (McVersion, ModLoader, java.io.File) -> Unit = { _, _, dir ->
+            synchronized(linkedDirs) { linkedDirs += dir }
+        }
 
-        assertEquals("启动程序更新完成，下次启动生效", result.statusText)
-    }
+        try {
+            val first = async(start = CoroutineStart.UNDISPATCHED) {
+                UpdateService.prepareMcCore(
+                    McVersion.V201,
+                    ModLoader.forge,
+                    root.resolve("first"),
+                    {},
+                    {},
+                    update,
+                    link
+                )
+            }
+            updateStarted.await()
+            val second = async(start = CoroutineStart.UNDISPATCHED) {
+                UpdateService.prepareMcCore(
+                    McVersion.V201,
+                    ModLoader.forge,
+                    root.resolve("second"),
+                    {},
+                    {},
+                    update,
+                    link
+                )
+            }
+            finishUpdate.complete(Unit)
 
-    @Test
-    fun `both failures produce a combined status`() = runBlocking {
-        val result = UpdateService.startUpdateFlow(
-            onStatus = {},
-            onDetail = {},
-            updateMcCores = { _, _ -> Result.failure(IllegalStateException("MC failed")) },
-            updateUpdater = { _, _ -> Result.failure(IllegalStateException("updater failed")) }
-        )
-
-        assertEquals("核心和启动程序更新失败", result.statusText)
+            first.await().getOrThrow()
+            second.await().getOrThrow()
+            assertEquals(1, updateCount.get())
+            assertEquals(setOf("first", "second"), linkedDirs.map { it.name }.toSet())
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
     }
 }

@@ -35,7 +35,7 @@ internal class DesktopPlaceholderWebViewBackend(
             buildString {
                 appendLine(reason ?: "当前desktop内嵌网页暂不可用。")
                 appendLine()
-                appendLine("可先使用系统浏览器(system browser)打开该页面。")
+                appendLine("可先使用系统浏览器打开该页面。")
                 appendLine()
                 append("目标地址: $url")
             }

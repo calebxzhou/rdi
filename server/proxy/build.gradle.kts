@@ -4,8 +4,8 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
 plugins {
-    kotlin("jvm") version "2.3.20"
-    kotlin("plugin.serialization") version "2.3.20" apply false
+    kotlin("jvm") version "2.4.0"
+    kotlin("plugin.serialization") version "2.4.0" apply false
     id("com.gradleup.shadow") version "9.2.0"
 }
 
@@ -23,7 +23,6 @@ dependencies {
     implementation(project(":model"))
 //    implementation(project(":net"))
     implementation(kotlin("reflect"))
-    implementation(libs.knbt)
     implementation(libs.ktor.client.core)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.ktor.client.content.negotiation)
@@ -38,7 +37,6 @@ dependencies {
     implementation(libs.netty.common)
     implementation(libs.netty.handler)
     implementation(libs.netty.transport)
-    implementation(libs.zstd.jni)
 }
 
 kotlin {
@@ -51,9 +49,6 @@ tasks.named<Jar>("jar") {
     manifest {
         attributes("Main-Class" to "calebxzhou.rdi.prox.MainKt")
     }
-}
-tasks.named<Test>("test") {
-    enabled = false
 }
 tasks.test {
     useJUnitPlatform()
@@ -74,7 +69,7 @@ tasks.register("出core") {
         if (!jarFile.exists()) {
             throw GradleException("未找到构建产物: $jarFile")
         }
-            val targetDir = layout.projectDirectory.dir("\\\\rdi\\rdi55\\prox2\\").asFile
+            val targetDir = layout.projectDirectory.dir("\\\\rdi\\rdi55\\prox\\").asFile
             val destFile = targetDir.resolve(jarFile.name)
             Files.copy(
                 jarFile.toPath(),

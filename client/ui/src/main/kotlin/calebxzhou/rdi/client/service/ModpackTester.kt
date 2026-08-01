@@ -434,11 +434,8 @@ private fun createServerTestBaseDir(loadedModpack: LoadedLocalModpack): File {
     val libsSource = ClientDirs.librariesDir
     if (libsSource.exists()) {
         val libsTarget = testDir.resolve("libraries")
-        runCatching {
-            Files.deleteIfExists(libsTarget.toPath())
-            Files.createSymbolicLink(libsTarget.toPath(), libsSource.toPath())
-        }.getOrElse {
-            throw IllegalStateException("创建测试目录libraries软链接失败: ${it.message}")
+        hardLinkDirectory(libsSource, libsTarget).getOrElse {
+            throw IllegalStateException("创建测试目录libraries硬链接失败: ${it.message}")
         }
     }
     copyTestPackBaseContent(
@@ -1262,7 +1259,7 @@ private fun stageSourceModFiles(
                 val matchedMod = findMatchedSourceMod(source, mods)
                 if (matchedMod != null && !includeMod(matchedMod)) return@forEach
                 val targetName = matchedMod?.fileName ?: source.name
-                linkOrCopyFile(source, modsDir.resolve(targetName))
+                hardLinkFile(source, modsDir.resolve(targetName)).getOrThrow()
             }
     }
 }
@@ -1314,14 +1311,5 @@ private fun stageDownloadedMods(
 
 private fun stageDownloadedModFile(modsDir: File, mod: Mod) {
     val source = mod.candidateFiles.firstOrNull(File::exists) ?: return
-    linkOrCopyFile(source, modsDir.resolve(mod.fileName))
-}
-
-private fun linkOrCopyFile(source: File, target: File) {
-    runCatching {
-        Files.deleteIfExists(target.toPath())
-        Files.createSymbolicLink(target.toPath(), source.toPath())
-    }.onFailure {
-        Files.copy(source.toPath(), target.toPath(), StandardCopyOption.REPLACE_EXISTING)
-    }
+    hardLinkFile(source, modsDir.resolve(mod.fileName)).getOrThrow()
 }

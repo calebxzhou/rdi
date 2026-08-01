@@ -68,7 +68,7 @@ internal fun ensureGtnhRuntimeMods(versionDir: File, extensionRoot: File) {
     val target = versionDir.resolve("mods").resolve(source.name)
     if (target.isFile) return
     target.parentFile?.mkdirs()
-    linkOrCopyMod(source, target)
+    hardLinkFile(source, target).getOrThrow()
 }
 
 internal fun buildGtnhLoaderManifest(extensionRoot: File, versionId: String): MojangVersionManifest {

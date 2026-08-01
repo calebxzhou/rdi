@@ -55,6 +55,9 @@ object HostQueryService {
 
     suspend fun RAccount.ownHosts() = getByOwner(_id)
 
+    suspend fun RAccount.getBriefHost(id: ObjectId): Host.BriefVo? =
+        getById(id)?.toBriefVo(_id)
+
     suspend fun RAccount.listAllHosts(
         page: Int,
         myOnly: Boolean,
@@ -84,37 +87,41 @@ object HostQueryService {
         return coroutineScope {
             visibleHosts.map { host ->
                 async {
-                    val modpack = ModpackService.getById(host.modpackId)
-                    val onlinePlayers = host.getOnlinePlayers()
-                    val isMember = host.ownerId == requesterId || host.members.any { it.id == requesterId }
-                    val role = if (host.ownerId == requesterId) {
-                        Role.OWNER
-                    } else {
-                        host.members.firstOrNull { it.id == requesterId }?.role
-                    }
-                    val playable = when {
-                        isMember -> true
-                        host.isPublic -> true
-                        host.status == HostStatus.PLAYABLE && !host.whitelist -> true
-                        else -> false
-                    }
-                    Host.BriefVo(
-                        _id = host._id,
-                        intro = host.intro,
-                        name = host.name,
-                        ownerId = host.ownerId,
-                        modpackName = modpack?.name ?: "未知整合包",
-                        iconUrl = modpack?.iconUrl,
-                        packVer = host.packVer,
-                        port = host.port,
-                        playable = playable,
-                        isMember = isMember,
-                        role = role,
-                        onlinePlayerIds = onlinePlayers
-                    )
+                    host.toBriefVo(requesterId)
                 }
             }.awaitAll()
         }
+    }
+
+    private suspend fun Host.toBriefVo(requesterId: ObjectId): Host.BriefVo {
+        val modpack = ModpackService.getById(modpackId)
+        val onlinePlayers = getOnlinePlayers()
+        val isMember = ownerId == requesterId || members.any { it.id == requesterId }
+        val role = if (ownerId == requesterId) {
+            Role.OWNER
+        } else {
+            members.firstOrNull { it.id == requesterId }?.role
+        }
+        val playable = when {
+            isMember -> true
+            isPublic -> true
+            status == HostStatus.PLAYABLE && !whitelist -> true
+            else -> false
+        }
+        return Host.BriefVo(
+            _id = _id,
+            intro = intro,
+            name = name,
+            ownerId = ownerId,
+            modpackName = modpack?.name ?: "未知整合包",
+            iconUrl = modpack?.iconUrl,
+            packVer = packVer,
+            port = port,
+            playable = playable,
+            isMember = isMember,
+            role = role,
+            onlinePlayerIds = onlinePlayers
+        )
     }
 
     suspend fun Host.toDetailVo(): Host.DetailVo {

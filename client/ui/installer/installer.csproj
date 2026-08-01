@@ -11,7 +11,7 @@
     <TrimMode>full</TrimMode>
     <StripSymbols>true</StripSymbols>
     <AssemblyName>rdi-installer</AssemblyName>
-    <ApplicationIcon>..\src\main\resources\icon.ico</ApplicationIcon>
+    <ApplicationIcon>..\assets\src\main\resources\icon.ico</ApplicationIcon>
     <AssemblyTitle>RDI Client Installer</AssemblyTitle>
     <Description>RDI Client Installer</Description>
     <Product>rdi</Product>

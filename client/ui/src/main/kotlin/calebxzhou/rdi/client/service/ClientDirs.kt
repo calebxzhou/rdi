@@ -4,6 +4,9 @@ import calebxzau.rdi.client.RDIClient
 import java.io.File
 
 object ClientDirs {
+    val logsDir: File = File(System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"))
+        .resolve(".rdi/logs")
+        .also { it.mkdirs() }
     val dlPacksDir: File = RDIClient.DIR.resolve("dl-packs").also { it.mkdirs() }
     val dlModsDir: File = RDIClient.DIR.resolve("dl-mods").also { it.mkdirs() }
     val packProcDir: File = RDIClient.DIR.resolve("pack-proc").also { it.mkdirs() }

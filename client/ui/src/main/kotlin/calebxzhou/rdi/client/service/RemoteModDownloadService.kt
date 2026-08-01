@@ -112,7 +112,7 @@ object RemoteModDownloadService {
                         }
                         pendingPlans.forEach { plan ->
                             val target = modsDir.resolve(plan.mod.fileName)
-                            linkOrCopyMod(plan.source, target)
+                            hardLinkFile(plan.source, target).getOrThrow()
                             linkedTargets += target
                         }
                         LocalContentInstallStore.replace(

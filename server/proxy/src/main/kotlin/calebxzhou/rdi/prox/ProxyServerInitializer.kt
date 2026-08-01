@@ -1,8 +1,6 @@
 package calebxzhou.rdi.prox
 
 import calebxzhou.rdi.mc.proxy.MinecraftFrameDecoder
-import calebxzhou.rdi.mc.proxy.ZstdFrameAutoDecoder
-import calebxzhou.rdi.mc.proxy.ZstdFrameEncoder
 import io.netty.channel.ChannelInitializer
 import io.netty.channel.ChannelOption
 import io.netty.channel.EventLoopGroup
@@ -26,16 +24,6 @@ class ProxyServerInitializer(
             //记录包的内容
             ch.pipeline().addLast(LoggingHandler(LogLevel.INFO))
         }
-        ch.pipeline().addLast(
-            ZstdFrameAutoDecoder(Const.ZSTD_MAX_FRAME_SIZE) { enabled ->
-                lgr.info { "client zstd frame mode=$enabled" }
-            },
-            ZstdFrameEncoder(
-                level = Const.ZSTD_LEVEL,
-                threshold = Const.ZSTD_THRESHOLD,
-                onlyWhenDetected = true
-            )
-        )
         ch.pipeline().addLast(
             // Use Minecraft framing to handle packet boundaries
             MinecraftFrameDecoder(),

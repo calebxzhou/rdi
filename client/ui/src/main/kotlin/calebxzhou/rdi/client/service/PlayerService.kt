@@ -70,6 +70,7 @@ object PlayerService {
         account.jwt = resp.headers["jwt"]
         val loginInfo = LoginInfo(account.qq, account.name, account.pwd, System.currentTimeMillis())
         creds.loginInfos += account._id.toHexString() to loginInfo
+        creds.autoLoginDisabled = false
         creds.save()
         loggedAccount = account
         account

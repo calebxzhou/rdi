@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.service
 
 import androidx.compose.ui.graphics.ImageBitmap
+import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.ui.decodeImageBitmap
 import calebxzhou.rdi.common.net.httpRequest
 import io.ktor.client.request.url
@@ -54,7 +55,8 @@ data class HttpImageState(
                     clearInFlight(url)
                     waiting.cancel(err)
                     throw err
-                } catch (_: Throwable) {
+                } catch (error: Throwable) {
+                    lgr.warn(error) { "网络图片加载失败: $url" }
                     val result = failed()
                     putCache(url, result)
                     waiting.complete(result)
@@ -68,7 +70,7 @@ data class HttpImageState(
                 return failed()
             }
             val bytes = response.bodyAsBytes()
-            val bitmap = decodeImageBitmap(bytes)
+            val bitmap = decodeImageBitmap(bytes).getOrThrow()
             return HttpImageState(bitmap, null, false)
         }
 

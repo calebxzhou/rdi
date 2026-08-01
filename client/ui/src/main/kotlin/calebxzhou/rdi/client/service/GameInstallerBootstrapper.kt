@@ -159,13 +159,22 @@ internal fun GameService.startDesktopInDir(
     val (physicalWidth, physicalHeight) = resolvePhysicalScreenSize()
     gameArgs += listOf("--width", "$physicalWidth", "--height", "$physicalHeight")
     val resolvedJvmArgs = manifest.resolveJvmArgumentList() + loaderManifest.resolveJvmArgumentList()
+    val mediaProcClasspath = if (mcVer == McVersion.V211) {
+        MediaProcGameClasspath.resolve().getOrElse { error ->
+            lgr.error(error) { "MC1.21.1音频模块不可用" }
+            throw RequestError("音频模块缺失或损坏，请先修复", error)
+        }
+    } else {
+        emptyList()
+    }
     val launchClasspath = buildLaunchClasspath(
         manifest = manifest,
         loaderManifest = loaderManifest,
         versionDir = versionDir,
         versionId = versionId,
         baseLibraries = launchBaseLibraries,
-        gtnhExtensionRoot = gtnhLibRoot
+        gtnhExtensionRoot = gtnhLibRoot,
+        additionalClasspath = mediaProcClasspath
     )
     val classpath = launchClasspath.joinToString(File.pathSeparator)
     val legacyLaunch = resolvedJvmArgs.isEmpty() &&
@@ -184,7 +193,9 @@ internal fun GameService.startDesktopInDir(
     val processedJvmArgs = buildList {
         var skipNextClasspathValue = false
         resolvedJvmArgs.forEach { rawArg ->
-            val arg = rawArg.replaceLaunchTokens(nativesDir, versionDir, jvmVersionName, classpath)
+            val arg = rawArg
+                .replaceLaunchTokens(nativesDir, versionDir, jvmVersionName, classpath)
+                .appendBootstrapIgnoreFiles(mediaProcClasspath)
             if (gtnhLaunch) {
                 if (skipNextClasspathValue) {
                     skipNextClasspathValue = false
@@ -297,9 +308,11 @@ private fun GameService.buildLaunchClasspath(
     versionDir: File,
     versionId: String,
     gtnhExtensionRoot: File? = null,
-    baseLibraries: List<MojangLibrary> = launchBaseLibraries(manifest, gtnhExtensionRoot)
+    baseLibraries: List<MojangLibrary> = launchBaseLibraries(manifest, gtnhExtensionRoot),
+    additionalClasspath: List<File> = emptyList()
 ): List<String> {
     val entries = LinkedHashSet<String>()
+    additionalClasspath.forEach { entries += it.absolutePath }
     if (gtnhExtensionRoot != null) {
         entries += buildGtnhJava25Classpath(gtnhExtensionRoot)
     }
@@ -385,6 +398,13 @@ internal fun String.replaceLaunchTokens(
     .replace("\${classpath}", classpath)
     .replace("\${classpath_separator}", File.pathSeparator)
 
+internal fun String.appendBootstrapIgnoreFiles(files: List<File>): String {
+    val prefix = "-DignoreList="
+    if (!startsWith(prefix) || files.isEmpty()) return this
+    val ignoredNames = removePrefix(prefix).split(',') + files.map { it.name }
+    return prefix + ignoredNames.filter(String::isNotBlank).distinct().joinToString(",")
+}
+
 fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Version, workDir: File, onLine: (String) -> Unit): Process {
     if (mcVer == McVersion.V071) {
         throw RequestError("不支持GTNH本地测试服务器")
@@ -398,8 +418,6 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
         *utf8LoggingJvmArgs.toTypedArray(),
     ).apply {
         when (mcVer) {
-            //McVersion.V182,
-            McVersion.V192,
             McVersion.V201,
             McVersion.V211 -> {
                 this += loaderVer.serverArgsPath(hostOs.isUnixLike)
@@ -464,16 +482,8 @@ fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Versio
 }
 
 internal fun linkServerRuntimeFile(link: File, source: File) {
-    if (!source.isFile) {
-        throw RequestError("缺少服务端文件: ${source.absolutePath}")
-    }
-    if (link.exists()) return
     link.parentFile?.mkdirs()
-    runCatching {
-        Files.createSymbolicLink(link.toPath(), source.toPath())
-    }.getOrElse {
-        Files.copy(source.toPath(), link.toPath(), StandardCopyOption.REPLACE_EXISTING)
-    }
+    hardLinkFile(source, link).getOrThrow()
 }
 
 private fun resolvePhysicalScreenSize(): Pair<Int, Int> {

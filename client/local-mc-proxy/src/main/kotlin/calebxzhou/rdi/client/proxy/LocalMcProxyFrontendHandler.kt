@@ -1,8 +1,6 @@
 package calebxzhou.rdi.client.proxy
 
 import calebxzhou.rdi.mc.proxy.MinecraftFrameDecoder
-import calebxzhou.rdi.mc.proxy.ZstdFrameDecoder
-import calebxzhou.rdi.mc.proxy.ZstdFrameEncoder
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.ByteBuf
 import io.netty.buffer.Unpooled
@@ -77,16 +75,11 @@ internal class LocalMcProxyFrontendHandler(
             .group(backendGroup)
             .channel(NioSocketChannel::class.java)
             .option(ChannelOption.AUTO_READ, true)
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)
             .option(ChannelOption.TCP_NODELAY, true)
             .option(ChannelOption.SO_KEEPALIVE, true)
             .handler(object : ChannelInitializer<SocketChannel>() {
                 override fun initChannel(ch: SocketChannel) {
-                    if (config.compressionEnabled) {
-                        ch.pipeline().addLast(
-                            ZstdFrameDecoder(config.maxFrameSize),
-                            ZstdFrameEncoder(config.compressionLevel, config.compressionThreshold)
-                        )
-                    }
                     if (metrics != null) ch.pipeline().addLast(MinecraftFrameDecoder())
                     ch.pipeline().addLast(LocalMcProxyBackendHandler(frontendChannel, reportLog, metrics))
                 }

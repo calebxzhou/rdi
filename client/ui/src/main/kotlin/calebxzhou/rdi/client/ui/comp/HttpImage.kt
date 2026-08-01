@@ -72,7 +72,7 @@ fun rememberLocalFirstImage(
 ): ImageBitmap? {
     val localBitmap = remember(iconData) {
         iconData?.let { bytes ->
-            runCatching { decodeImageBitmap(bytes) }
+            decodeImageBitmap(bytes)
                 .onFailure { lgr.warn(it) { "读取本地Mod图标失败，将尝试网络图标" } }
                 .getOrNull()
         }

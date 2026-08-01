@@ -16,6 +16,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.decodeImageBitmap
 import calebxzhou.rdi.client.service.playermodel.GpuPlayerModelRenderService
@@ -174,8 +175,9 @@ fun PlayerModel(
             runCatching {
                 val response = httpRequest { url(skinUrl) }
                 if (!response.status.isSuccess()) return@runCatching null
-                decodeImageBitmap(response.bodyAsBytes())
-            }.getOrNull()
+                decodeImageBitmap(response.bodyAsBytes()).getOrThrow()
+            }.onFailure { lgr.warn(it) { "玩家皮肤图片解码失败" } }
+                .getOrNull()
         }
     }.value
     val cape = produceState<ImageBitmap?>(initialValue = null, capeUrl) {
@@ -187,8 +189,9 @@ fun PlayerModel(
             runCatching {
                 val response = httpRequest { url(capeUrl) }
                 if (!response.status.isSuccess()) return@runCatching null
-                decodeImageBitmap(response.bodyAsBytes())
-            }.getOrNull()
+                decodeImageBitmap(response.bodyAsBytes()).getOrThrow()
+            }.onFailure { lgr.warn(it) { "玩家披风图片解码失败" } }
+                .getOrNull()
         }
     }.value
     PlayerModel(

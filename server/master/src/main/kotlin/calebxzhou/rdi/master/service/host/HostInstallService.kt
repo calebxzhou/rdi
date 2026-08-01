@@ -166,9 +166,6 @@ object HostInstallService {
         }
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此包")
         val version = modpack.getVersion(host.packVer) ?: throw RequestError("无此版本")
-        /*if (modpack.mcVer == McVersion.V192) {
-            throw RequestError("MC1.19.2暂不支持创建房间")
-        }*/
         if (version.status != Modpack.Status.OK) {
             throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
         }

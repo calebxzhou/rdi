@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.LocalMcProxyService
-import calebxzhou.rdi.client.service.ModpackService
+import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.ensureDesktopLaunchLibraries
 import calebxzhou.rdi.client.service.ensureGtnhRuntime
 import calebxzhou.rdi.client.service.startDesktop
@@ -122,12 +122,13 @@ fun McPlayScreen(
                 }
                 if (session.stopRequested) return@launchSessionTask
 
-                session.appendLog("[RDI] 检查RDI核心Mod...")
-                ModpackService.installRdiCore(
-                    args.mcVer,
-                    args.modLoader,
-                    GameService.versionListDir.resolve(args.versionId).resolve("mods")
-                )
+                UpdateService.prepareMcCore(
+                    mcVersion = args.mcVer,
+                    modLoader = args.modLoader,
+                    modsDir = GameService.versionListDir.resolve(args.versionId).resolve("mods"),
+                    onStatus = { session.appendLog("[RDI] $it") },
+                    onDetail = { if (it.isNotBlank()) session.appendLog("[RDI] $it") }
+                ).getOrThrow()
                 session.appendLog("[RDI] RDI核心Mod已同步")
                 if (session.stopRequested) return@launchSessionTask
 

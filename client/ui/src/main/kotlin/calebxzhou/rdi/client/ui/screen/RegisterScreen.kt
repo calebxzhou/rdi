@@ -12,10 +12,10 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.ScrollableContentBody
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.copyToClipboard
 import calebxzau.rdi.client.ui.openMsaVerificationUrl
@@ -111,8 +111,7 @@ fun RegisterScreen(
             TitleRow(title = "注册", onBack = onBack)
             val fieldShape = RoundedCornerShape(24.dp)
 
-            ContentBody(
-                scrollable = true,
+            ScrollableContentBody(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Column(

@@ -32,7 +32,7 @@ import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
-import calebxzhou.rdi.client.service.startPlay
+import calebxzhou.rdi.client.service.startHostPlay
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.client.ui.comp.ModpackDownloadMethodDialog
@@ -186,46 +186,31 @@ fun HostBrowserPane(
         if (launchingHost.value != null) return
         val hostId = host._id.toHexString()
         launchingHost.value = hostId
-        scope.rdiRequest<Host.DetailVo>(
-            path = "host/$hostId/detail",
-            onOk = { response ->
-                val detail = response.data
-                if (detail == null) {
-                    errorMessage = "无法加载房间信息"
-                    launchingHost.value = null
-                    return@rdiRequest
-                }
-                scope.launch {
-                    runCatching { detail.startPlay() }
-                        .onSuccess { result ->
-                            when (result) {
-                                is StartPlayResult.Ready -> {
-                                    LocalCredentials.read().updateLastPlayHost(hostId, detail.name)
-                                    onOpenMcPlay(result.args)
-                                }
-                                is StartPlayResult.NeedMod -> {
-                                    errorMessage = "房间缺少必要Mod：${result.modSlugs.joinToString("、")}。请先前往模组界面添加。"
-                                }
-                                is StartPlayResult.NeedInstall -> installConfirmTask = result
-                                is StartPlayResult.Installing -> {
-                                    errorMessage = "整合包正在下载，请等待下载完成后再启动"
-                                    onOpenTaskList(result.runId)
-                                }
-                                is StartPlayResult.NeedMc -> {
-                                    errorMessage = "请更新MC${result.ver.mcVer}版本资源"
-                                    onOpenMcVersions(result.ver)
-                                }
-                            }
+        scope.launch {
+            startHostPlay(hostId)
+                .onSuccess { result ->
+                    when (result) {
+                        is StartPlayResult.Ready -> {
+                            LocalCredentials.read().updateLastPlayHost(hostId, host.name)
+                            onOpenMcPlay(result.args)
                         }
-                        .onFailure { errorMessage = it.message ?: "无法开始游玩" }
-                    launchingHost.value = null
+                        is StartPlayResult.NeedMod -> {
+                            errorMessage = "房间缺少必要Mod：${result.modSlugs.joinToString("、")}。请先前往模组界面添加。"
+                        }
+                        is StartPlayResult.NeedInstall -> installConfirmTask = result
+                        is StartPlayResult.Installing -> {
+                            errorMessage = "整合包正在下载，请等待下载完成后再启动"
+                            onOpenTaskList(result.runId)
+                        }
+                        is StartPlayResult.NeedMc -> {
+                            errorMessage = "请更新MC${result.ver.mcVer}版本资源"
+                            onOpenMcVersions(result.ver)
+                        }
+                    }
                 }
-            },
-            onErr = {
-                errorMessage = it.message ?: "无法加载房间信息"
-                launchingHost.value = null
-            }
-        )
+                .onFailure { errorMessage = it.message ?: "无法开始游玩" }
+            launchingHost.value = null
+        }
     }
 
     fun prepareDelete(host: Host.BriefVo) {

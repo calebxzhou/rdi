@@ -49,12 +49,8 @@ object HostContainerService {
         worldId: ObjectId?
     ): MutableList<String> {
         val serverArgs = when (mcv) {
-            //McVersion.V182,
-            McVersion.V192,
             McVersion.V201,
             McVersion.V211 -> listOf(loaderVersion.serverArgsPath(true))
-
-            //McVersion.V165 -> McVersion.V165.plusJvmArgs + listOf("-jar", loaderVersion.serverJarName)
             McVersion.V122 -> McVersion.V122.plusJvmArgs + listOf("-jar", loaderVersion.serverJarName)
             McVersion.V071 -> buildList {
                 if (lwjgl3ifyRuntime != null) {
@@ -71,9 +67,9 @@ object HostContainerService {
 
             "-Drdi.onlySaveFirmSections=true",
         ).apply {
-            if(modpack.mcVer != McVersion.V192){
-                this.add("-XX:+UseCompactObjectHeaders")
-            }
+
+            this.add("-XX:+UseCompactObjectHeaders")
+
             if(modpack.mcVer == McVersion.V071 || modpack.mcVer == McVersion.V122){
                 this.add("-Dfml.queryResult=confirm")
             }

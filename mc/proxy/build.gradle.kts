@@ -16,14 +16,12 @@ dependencies {
     compileOnly(libs.netty.codec)
     compileOnly(libs.netty.common)
     compileOnly(libs.netty.transport)
-    compileOnly(libs.zstd.jni)
 
     testImplementation(kotlin("test"))
     testImplementation(libs.netty.buffer)
     testImplementation(libs.netty.codec)
     testImplementation(libs.netty.common)
     testImplementation(libs.netty.transport)
-    testImplementation(libs.zstd.jni)
 }
 
 tasks.withType<Test>().configureEach {

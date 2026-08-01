@@ -15,7 +15,7 @@ internal class LocalMcProxyMetricsSession private constructor(
     private val metricsDir: File
 ) {
     private val metrics = linkedMapOf<MetricKey, PacketMetric>()
-    private var compressionEnabled = false
+    private var minecraftCompressionEnabled = false
     private var closed = false
 
     @Synchronized
@@ -24,8 +24,8 @@ internal class LocalMcProxyMetricsSession private constructor(
         val now = System.currentTimeMillis()
         val frameSize = frame.readableBytes()
         val parsed = parseFrame(frame)
-        if (direction == "s2c" && !compressionEnabled && parsed.compressionThreshold != null) {
-            compressionEnabled = true
+        if (direction == "s2c" && !minecraftCompressionEnabled && parsed.compressionThreshold != null) {
+            minecraftCompressionEnabled = true
         }
         val packetId = parsed.packetId?.let { "0x${it.toString(16)}" } ?: "unknown"
         val key = MetricKey(direction, packetId)
@@ -67,7 +67,7 @@ internal class LocalMcProxyMetricsSession private constructor(
         val packetLength = input.readVarIntOrNull() ?: return ParsedPacket(frame.readableBytes(), null)
         if (input.readableBytes() < packetLength) return ParsedPacket(packetLength, null)
         val payload = input.readSlice(packetLength)
-        if (!compressionEnabled) {
+        if (!minecraftCompressionEnabled) {
             val packetId = payload.readVarIntOrNull()
             val compressionThreshold = if (packetId == 0x03) payload.readVarIntOrNull() else null
             return ParsedPacket(packetLength, packetId, compressionThreshold)

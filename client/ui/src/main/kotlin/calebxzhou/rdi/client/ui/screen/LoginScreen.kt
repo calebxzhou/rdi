@@ -23,11 +23,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzau.rdi.client.ui.checkCanCreateSymlink
-import calebxzau.rdi.client.ui.runUpdateFlow
 import calebxzhou.rdi.client.Const
 import calebxzau.rdi.client.ui.CodeFontFamily
-import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
@@ -41,7 +38,6 @@ import calebxzhou.rdi.common.DEBUG
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.system.exitProcess
 
 
 /**
@@ -66,15 +62,12 @@ fun LoginScreen(
     var submitting by remember { mutableStateOf(false) }
     var showAccounts by remember { mutableStateOf(false) }
     var loginError by remember { mutableStateOf<String?>(null) }
-    var updateStatus by remember { mutableStateOf("正在检查更新...") }
-    var updateDetail by remember { mutableStateOf("") }
-    var symlinkError by remember { mutableStateOf<String?>(null) }
-    var updateCheckComplete by remember { mutableStateOf(false) }
     var showMsAccountDialog by remember { mutableStateOf(false) }
 
-    fun attemptLogin() {
-        val qq = qqState.text.toString()
-        val pwd = pwdState.text.toString()
+    fun attemptLogin(
+        qq: String = qqState.text.toString(),
+        pwd: String = pwdState.text.toString(),
+    ) {
         if (qq.isBlank() || pwd.isBlank()) {
             loginError = "未填写完整"
             return
@@ -95,29 +88,14 @@ fun LoginScreen(
         }
     }
 
-    LaunchedEffect(storedAccounts) {
-        if (qqState.text.isBlank() && pwdState.text.isBlank()) {
-            creds.lastLogged?.let {
-                qqState.setTextAndPlaceCursorAtEnd(it.qq)
-                pwdState.setTextAndPlaceCursorAtEnd(it.pwd)
-            }
-        }
-    }
     LaunchedEffect(Unit) {
-        if (!checkCanCreateSymlink()) {
-            symlinkError = "请打开系统设置启动“开发人员模式”，否则无法下包\n详见群文档。"
+        creds.lastLogged?.let {
+            qqState.setTextAndPlaceCursorAtEnd(it.qq)
+            pwdState.setTextAndPlaceCursorAtEnd(it.pwd)
         }
-        if(Const.NO_UPDATE){
-            updateCheckComplete=true
-            updateDetail = "自动更新已关闭"
-            return@LaunchedEffect
+        creds.autoLoginAccount?.let {
+            attemptLogin(it.qq, it.pwd)
         }
-        runUpdateFlow(
-            onStatus = { updateStatus = it },
-            onDetail = { updateDetail = it },
-            onRestart = { exitProcess(0) }
-        )
-        updateCheckComplete = true
     }
     MaxBox {
         BoxWithConstraints(
@@ -274,7 +252,7 @@ fun LoginScreen(
                                 CircleIconButton(
                                     "\uDB80\uDF42",
                                     if (submitting) "登录中.." else "登录",
-                                    enabled = !submitting && updateCheckComplete,
+                                    enabled = !submitting,
                                     bgColor = if (routeState.useBackupNode) MaterialColor.YELLOW_200.color else MaterialColor.BLUE_200.color,
                                     iconColor = Color.Black
                                 ) {
@@ -304,15 +282,6 @@ fun LoginScreen(
                                     onOpenResetPassword?.invoke()
                                 }
                             }
-                            symlinkError?.let { message ->
-                                LoginMessageDialog(
-                                    title = "警告",
-                                    message = message,
-                                    confirmColor = Color(0xFFE0A800),
-                                    onDismiss = { symlinkError = null }
-                                )
-                            }
-
                             loginError?.let { message ->
                                 LoginMessageDialog(
                                     title = "错误",
@@ -337,24 +306,6 @@ fun LoginScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
-                        FlowRowV(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            Text(
-                                text = updateStatus,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            if (updateDetail.isNotBlank()) {
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = updateDetail,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            }
-                        }
                         Text(
                             "v" + Const.VERSION_NUMBER + if (DEBUG) "debug" else "",
                             style = MaterialTheme.typography.labelSmall,

@@ -95,7 +95,7 @@ private fun syncHostBaseModLinks(
             ?: error("缺少基础Mod文件: ${mod.targetFile.absolutePath}")
         val target = modsDir.resolve(mod.fileName)
         if (!target.pointsTo(source)) {
-            linkOrCopyMod(source, target)
+            hardLinkFile(source, target).getOrThrow()
         }
         val fraction = (index + 1).toFloat() / activeBaseMods.size.coerceAtLeast(1)
         ctx.emit(Task2Progress("已同步基础Mod ${index + 1}/${activeBaseMods.size}", fraction))

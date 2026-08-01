@@ -81,11 +81,14 @@ dependencies {
         artifact { classifier = "win_amd64" }
     }
 
+    implementation(project(":assets"))
+    runtimeOnly(project(":assets:fonts"))
     implementation(project(":misc"))
     implementation(project(":model"))
     implementation(project(":net"))
     implementation(project(":archive"))
     implementation(project(":anvilrw"))
+    implementation(project(":mediaproc"))
     implementation(project(":mod-catalog"))
     implementation(project(":webview2"))
     implementation(project(":forgeguard"))
@@ -103,7 +106,7 @@ dependencies {
 
 compose.desktop {
     application {
-        mainClass = "calebxzhou.rdi.client.MainKt"
+        mainClass = "calebxzau.rdi.client.MainKt"
     }
 }
 
@@ -160,6 +163,7 @@ val hotRunBaseJvmArgs = listOf(
     "-Drdi.noHttps=true",
    // "-Drdi.noUpdate=true",
     //"-Drdi.netMetrics=true",
+    "-Dskiko.renderApi=OPENGL",
     "-Drdi.account=eyJfaWQiOiI2OGIzMTRiYmFkYWY1MmRkYWI5NmI1ZWQiLCJuYW1lIjoiMTIzMTIzIiwicHdkIjoiMTIzQEBAIiwicXEiOiIxMjMxMjMifQ=="
 )
 
@@ -185,7 +189,7 @@ tasks.register<Sync>("desktopInstallLibs") {
 }
 
 tasks.named<Jar>("jar") {
-    archiveFileName.set("rdi-5-ui.jar")
+    archiveFileName.set("rdi-ui.jar")
 }
 
 
@@ -306,6 +310,7 @@ registerUpdaterTask(
         file("\\\\rdi\\rdi55\\ihq\\client-libs\\updaters"),
     )
 )
+/*
 
 tasks.register("makeShipPack") {
     notCompatibleWithConfigurationCache("uses project file operations and external process execution at execution time")
@@ -354,11 +359,12 @@ tasks.register("makeShipPack") {
         }
     }
 }
+*/
 
 tasks.register("makeShipPackZst") {
     notCompatibleWithConfigurationCache("uses project file operations and external process execution at execution time")
     val shipDir = File(System.getProperty("user.home"), "Documents/rdi5ship")
-    val filesNeed = listOf("fonts", "lib", "start.exe")
+    val filesNeed = listOf( "lib", "start.exe")
     val temporaryTar = layout.buildDirectory.file("installer/assets/client.tar").get().asFile
     val archiveFile = layout.projectDirectory.file("installer/assets/client.tar.zst").asFile
     group = "distribution"
@@ -388,7 +394,7 @@ tasks.register("makeShipPackZst") {
             val zstdExitCode = ProcessBuilder(
                 "zstd",
                 "-T0",
-                "-19",
+                "-22",
                 "-f",
                 temporaryTar.absolutePath,
                 "-o",

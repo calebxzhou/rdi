@@ -50,6 +50,7 @@ import calebxzhou.rdi.master.service.host.HostService.needAdmin
 import calebxzhou.rdi.master.service.host.HostService.needOwner
 import calebxzhou.rdi.master.service.host.HostService.needInvitedMember
 import calebxzhou.rdi.master.service.host.HostQueryService.listAllHosts
+import calebxzhou.rdi.master.service.host.HostQueryService.getBriefHost
 import calebxzhou.rdi.master.service.host.HostQueryService.toDetailVo
 import calebxzhou.rdi.master.service.player
 import calebxzhou.rdi.model.Role
@@ -148,6 +149,11 @@ fun Route.hostRoutes() = route("/host") {
         }
         get {
             HostQueryService.getById(idParam("hostId"))?.let {
+                response(data = it)
+            } ?: err("无此房间")
+        }
+        get("/brief") {
+            call.player().getBriefHost(idParam("hostId"))?.let {
                 response(data = it)
             } ?: err("无此房间")
         }

@@ -57,7 +57,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
-import calebxzhou.rdi.client.service.ensureUploadFfmpegReady
+import calebxzhou.rdi.client.service.ensureUploadAudioReady
+import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.ui.AlertErr
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.RRow
@@ -70,7 +71,9 @@ import calebxzhou.rdi.client.ui.loadResourceBitmap
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Modpack
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * calebxzhou @ 2026-05-14 11:29
@@ -99,14 +102,16 @@ fun RemoteModpackScreen(
     var compactFilterPanelExpanded by rememberSaveable { mutableStateOf(false) }
     var miniCardMode by rememberSaveable { mutableStateOf(false) }
 
-    val openUploadAfterToolCheck: () -> Unit = {
+    val openUploadAfterAudioCheck: () -> Unit = {
         scope.launch {
-            runCatching {
-                ensureUploadFfmpegReady()
-            }.onSuccess {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ensureUploadAudioReady() }
+            }
+            result.onSuccess {
                 onOpenUpload?.invoke()
             }.onFailure { error ->
-                uploadErrorText = error.message ?: "检查传包工具失败"
+                lgr.error(error) { "传包音频模块初始化失败" }
+                uploadErrorText = error.message ?: "音频处理模块损坏，请更新客户端"
             }
         }
     }
@@ -290,7 +295,7 @@ fun RemoteModpackScreen(
                     icon = "\uDB80\uDFD5",
                     tooltip = "传包"
                 ) {
-                    openUploadAfterToolCheck()
+                    openUploadAfterAudioCheck()
                 }
             }
         }

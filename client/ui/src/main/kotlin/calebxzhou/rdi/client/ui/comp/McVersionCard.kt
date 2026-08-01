@@ -43,7 +43,7 @@ fun McVersionCard(
     onClick: () -> Unit = {}
 ) {
     val iconBitmap = remember(mcver) {
-        loadImageBitmap(mcver.icon)
+        loadImageBitmap(mcver.icon).getOrThrow()
     }
     val shape = RoundedCornerShape(16.dp)
     Surface(

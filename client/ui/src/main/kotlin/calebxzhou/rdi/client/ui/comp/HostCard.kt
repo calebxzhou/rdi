@@ -45,6 +45,7 @@ fun Host.BriefVo.HostCard(
     miniMode: Boolean = false,
     selected: Boolean = false,
     onClick: ((Host.BriefVo) -> Unit)? = null,
+    onDirectClick: ((Host.BriefVo) -> Unit)? = null,
     onPlay: ((Host.BriefVo) -> Unit)? = null,
     onOpenMembers: ((Host.BriefVo) -> Unit)? = null,
     onOpenMods: ((Host.BriefVo) -> Unit)? = null,
@@ -53,15 +54,21 @@ fun Host.BriefVo.HostCard(
     onOpenSettings: ((Host.BriefVo) -> Unit)? = null,
     onDelete: ((Host.BriefVo) -> Unit)? = null,
     playEnabled: Boolean = true,
-    playLoading: Boolean = false
+    playLoading: Boolean = false,
+    allowUnplayableClick: Boolean = false
 ) {
-    val isClickable = (miniMode || playable) && onClick != null
+    val isClickable = (miniMode || playable || allowUnplayableClick) &&
+        (onClick != null || onDirectClick != null)
     var menuExpanded by remember { mutableStateOf(false) }
     val cardModifier = if (isClickable) {
         modifier
             .clip(baseRoundCornerShape)
             .clickable {
-                if (miniMode) onClick(this) else menuExpanded = true
+                when {
+                    miniMode -> onClick?.invoke(this)
+                    onDirectClick != null -> onDirectClick(this)
+                    else -> menuExpanded = true
+                }
             }
     } else {
         modifier
@@ -119,77 +126,84 @@ fun Host.BriefVo.HostCard(
 
     CursorPositionBox(
         cursorContent = {
-            DropdownMenu(
-                expanded = menuExpanded,
-                onDismissRequest = { menuExpanded = false },
-                offset = OffsetFirstItemUnderCursor
-            ) {
-                RDropdownMenuItem(
-                    text = if (playLoading) "启动中..." else "开玩",
-                    icon = "\uF04B",
-                    enabled = playable && playEnabled && !playLoading,
-                    onClick = {
-                        menuExpanded = false
-                        onPlay?.invoke(this@HostCard)
-                    }
-                )
-                RDropdownMenuItem(
-                    text = "详情",
-                    icon = "\uF05A",
-                    onClick = {
-                        menuExpanded = false
-                        onClick?.invoke(this@HostCard)
-                    }
-                )
-                if (canUseMemberFeatures) {
+            if (onDirectClick == null) {
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    offset = OffsetFirstItemUnderCursor
+                ) {
+                if (onPlay != null) {
+                    RDropdownMenuItem(
+                        text = if (playLoading) "启动中..." else "开玩",
+                        icon = "\uF04B",
+                        enabled = playable && playEnabled && !playLoading,
+                        onClick = {
+                            menuExpanded = false
+                            onPlay(this@HostCard)
+                        }
+                    )
+                }
+                if (onClick != null) {
+                    RDropdownMenuItem(
+                        text = "详情",
+                        icon = "\uF05A",
+                        onClick = {
+                            menuExpanded = false
+                            onClick(this@HostCard)
+                        }
+                    )
+                }
+                if (canUseMemberFeatures && onOpenMembers != null) {
                     RDropdownMenuItem(
                         text = "成员",
                         icon = "\uF0C0",
                         onClick = {
                             menuExpanded = false
-                            onOpenMembers?.invoke(this@HostCard)
+                            onOpenMembers(this@HostCard)
                         }
                     )
+                }
+                if (canUseMemberFeatures && onOpenMods != null) {
                     RDropdownMenuItem(
                         text = "模组",
                         icon = "\uDB85\uDCD3",
                         onClick = {
                             menuExpanded = false
-                            onOpenMods?.invoke(this@HostCard)
+                            onOpenMods(this@HostCard)
                         }
                     )
                 }
-                if (canManage) {
+                if (canManage && onOpenFiles != null) {
                     RDropdownMenuItem(
                         text = "文件",
                         icon = "\uF07C",
                         onClick = {
                             menuExpanded = false
-                            onOpenFiles?.invoke(this@HostCard)
+                            onOpenFiles(this@HostCard)
                         }
                     )
                 }
-                if (canUseMemberFeatures) {
+                if (canUseMemberFeatures && onOpenBackend != null) {
                     RDropdownMenuItem(
                         text = "后台",
                         icon = "\uDB80\uDD8D",
                         onClick = {
                             menuExpanded = false
-                            onOpenBackend?.invoke(this@HostCard)
+                            onOpenBackend(this@HostCard)
                         }
                     )
                 }
-                if (canManage) {
+                if (canManage && onOpenSettings != null) {
                     RDropdownMenuItem(
                         text = "设置",
                         icon = "\uEAF8",
                         onClick = {
                             menuExpanded = false
-                            onOpenSettings?.invoke(this@HostCard)
+                            onOpenSettings(this@HostCard)
                         }
                     )
                 }
-                if (isOwner) {
+                if (isOwner && onDelete != null) {
                     HorizontalDivider()
                     RDropdownMenuItem(
                         text = "删除",
@@ -197,9 +211,10 @@ fun Host.BriefVo.HostCard(
                         danger = true,
                         onClick = {
                             menuExpanded = false
-                            onDelete?.invoke(this@HostCard)
+                            onDelete(this@HostCard)
                         }
                     )
+                }
                 }
             }
         }

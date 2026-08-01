@@ -66,7 +66,7 @@ internal class LocalMcProxyServer(
             backendGroup = nextBackendGroup
             serverChannel = channel
 
-            reportLog("listening on ${gameAddr()}, ${config.describeCompression()}")
+            reportLog("listening on ${gameAddr()}")
             gameAddr()
         } catch (t: Throwable) {
             nextBossGroup.shutdownGracefully()
