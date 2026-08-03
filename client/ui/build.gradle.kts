@@ -1,4 +1,5 @@
 import org.gradle.api.GradleException
+import org.gradle.api.artifacts.type.ArtifactTypeDefinition
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import sun.jvmstat.monitor.MonitoredVmUtil.mainClass
@@ -16,7 +17,31 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.compose)
+    id("org.gradlex.extra-java-module-info") version "1.14.2"
     idea
+}
+
+extraJavaModuleInfo {
+    failOnMissingModuleInfo.set(false)
+    skipLocalJars.set(true)
+
+    module("org.bytedeco:javacv", "org.bytedeco.javacv") {
+        patchRealModule()
+        exportAllPackages()
+        requires("java.desktop")
+        requiresTransitive("org.bytedeco.javacpp")
+        requires("org.bytedeco.ffmpeg")
+    }
+}
+
+configurations.configureEach {
+    if (name.startsWith("composeHotReloadDev")) {
+        attributes.attribute(
+            ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE,
+            ArtifactTypeDefinition.JAR_TYPE
+        )
+        extraJavaModuleInfo.activate(this)
+    }
 }
 
 tasks.named<Wrapper>("wrapper") {
@@ -31,7 +56,7 @@ repositories {
 }
 
 base {
-    archivesName.set("rdi-5-ui")
+    archivesName.set("rdi-ui")
 }
 
 kotlin {
@@ -47,6 +72,7 @@ kotlin {
 
 dependencies {
     implementation(compose.desktop.currentOs)
+    implementation(kotlin("reflect"))
     implementation(libs.compose.runtime)
     implementation(libs.compose.foundation)
     implementation(libs.compose.ui)
@@ -56,6 +82,7 @@ dependencies {
     implementation(libs.markdown.renderer)
     implementation(libs.markdown.renderer.m3)
     implementation(libs.kotlinx.coroutines.swing)
+    implementation(libs.kotlinx.coroutines.core)
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.joml)
@@ -63,12 +90,10 @@ dependencies {
     implementation(libs.kotlin.logging.jvm)
     implementation(libs.mykotutils.std)
     implementation(libs.mykotutils.log)
-    implementation(libs.tomlkt)
     implementation(libs.jna)
     implementation(libs.jna.platform)
     implementation(libs.oshi.core.desktop)
     implementation(libs.logback.classic)
-    implementation(libs.snakeyaml)
     implementation(libs.ktor.client.okhttp)
     implementation(libs.bundles.ktor.common)
     implementation(libs.ktor.client.auth)
@@ -83,11 +108,13 @@ dependencies {
 
     implementation(project(":assets"))
     runtimeOnly(project(":assets:fonts"))
+    implementation(project(":code-editor"))
     implementation(project(":misc"))
     implementation(project(":model"))
     implementation(project(":net"))
     implementation(project(":archive"))
     implementation(project(":anvilrw"))
+    implementation(project(":blessing-skin"))
     implementation(project(":mediaproc"))
     implementation(project(":mod-catalog"))
     implementation(project(":webview2"))
@@ -163,7 +190,7 @@ val hotRunBaseJvmArgs = listOf(
     "-Drdi.noHttps=true",
    // "-Drdi.noUpdate=true",
     //"-Drdi.netMetrics=true",
-    "-Dskiko.renderApi=OPENGL",
+   // "-Dskiko.renderApi=OPENGL",
     "-Drdi.account=eyJfaWQiOiI2OGIzMTRiYmFkYWY1MmRkYWI5NmI1ZWQiLCJuYW1lIjoiMTIzMTIzIiwicHdkIjoiMTIzQEBAIiwicXEiOiIxMjMxMjMifQ=="
 )
 

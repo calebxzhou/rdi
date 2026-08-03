@@ -1,7 +1,8 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.client.modcatalog.ModCatalog
-import calebxzhou.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.CatalogModMetadata
+import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModPlatform
 import calebxzhou.rdi.client.model.ModrinthProjectCategoryVo
 import calebxzhou.rdi.client.model.ModrinthProjectGalleryVo
 import calebxzhou.rdi.client.model.ModrinthProjectInfoVo
@@ -52,7 +53,7 @@ object ModrinthProjectInfoService {
 
 private fun ModrinthV3Project.toModrinthProjectInfoVo(
     versions: List<ModrinthV3Version>,
-    metadata: calebxzhou.rdi.client.modcatalog.CatalogModMetadata?
+    metadata: CatalogModMetadata?
 ): ModrinthProjectInfoVo {
     val selectedCategories = (categories + loaders).distinct().take(6)
     return ModrinthProjectInfoVo(

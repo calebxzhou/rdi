@@ -23,10 +23,9 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import calebxzau.rdi.client.ui.asIconText
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzau.rdi.client.lgr
-import calebxzhou.rdi.client.modcatalog.CatalogMod
+import calebxzau.rdi.client.modcatalog.CatalogMod
 import calebxzhou.rdi.client.service.loadLocalIcon
 import calebxzhou.rdi.client.service.peekLocalIcon
 import calebxzhou.rdi.client.ui.MaterialColor

@@ -46,7 +46,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import calebxzhou.rdi.client.model.ModrinthProjectGalleryVo
 import calebxzhou.rdi.client.model.ModrinthProjectInfoVo
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.LocalContentInstallRecord

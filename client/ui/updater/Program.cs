@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 
@@ -38,8 +39,18 @@ internal static partial class Program
         Console.OutputEncoding = Encoding.UTF8;
         if (args is [MftSearchArgument, var resultFile])
             return RunElevatedMftSearch(resultFile);
+        if (args is [LibrarySwitchRecovery.ElevatedKillArgument, .. var targetArguments])
+            return LibrarySwitchRecovery.RunElevatedKill(LauncherRoot, targetArguments);
+        if (args is [LibrarySwitchRecovery.ElevatedSwitchArgument, var updateId])
+            return LibrarySwitchRecovery.RunElevatedSwitch(LauncherRoot, updateId);
 
         Directory.SetCurrentDirectory(LauncherRoot);
+        using var updaterMutex = new Mutex(
+            initiallyOwned: true,
+            name: GetUpdaterMutexName(),
+            createdNew: out var ownsUpdaterMutex);
+        if (!ownsUpdaterMutex)
+            return Fail("另一个启动程序正在更新，请稍后重试。");
 
         try
         {
@@ -60,16 +71,19 @@ internal static partial class Program
                 var playerIpv4 = launchOptions.Debug
                     ? null
                     : GetPublicIpv4Async().GetAwaiter().GetResult();
-                UiLibraryUpdater.TryUpdateAsync(
+                var updateResult = UiLibraryUpdater.TryUpdateAsync(
                         RServerUrl,
                         LauncherRoot,
                         WriteInfo,
                         WriteWarning,
                         RenderDownloadProgress,
                         useBackupApi: !launchOptions.Debug,
-                        playerIpv4: playerIpv4)
+                        playerIpv4: playerIpv4,
+                        promptRecovery: PromptLibraryRecovery)
                     .GetAwaiter()
                     .GetResult();
+                if (updateResult == UiLibraryUpdateResult.LaunchAborted)
+                    return 0;
             }
 
             var libDirectory = Path.Combine(LauncherRoot, "lib");
@@ -111,7 +125,7 @@ internal static partial class Program
         }
         catch (Exception exception)
         {
-            WriteWarning($"获取公网IPv4失败，将继续尝试更新: {exception.Message}");
+            WriteWarning($"获取IPv4失败，将继续尝试更新: {exception.Message}");
             return null;
         }
     }
@@ -131,6 +145,30 @@ internal static partial class Program
         Console.WriteLine(message);
         Console.ResetColor();
         MessageBox(nint.Zero, message, "RDI启动失败", 0x10);
+    }
+
+    private static string GetUpdaterMutexName()
+    {
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(LauncherRoot.ToUpperInvariant())));
+        return $"Local\\RDI-Updater-{hash[..16]}";
+    }
+
+    private static bool PromptLibraryRecovery(LibraryRecoveryPrompt prompt)
+    {
+        var occupiers = prompt.Occupiers.Count == 0
+            ? string.Empty
+            : $"\r\n\r\n占用程序: {string.Join("、", prompt.Occupiers.Select(it => $"{it.Name}(PID{it.ProcessId})"))}";
+        var (message, title) = prompt.Kind switch
+        {
+            LibraryRecoveryPromptKind.ForceCloseOccupiers => (
+                "以下程序占用RDI的UI库，无法更新，要使用管理员权限强制关闭再更新吗？" + occupiers,
+                "UI库被占用"),
+            LibraryRecoveryPromptKind.ElevateSwitch => (
+                "没有找到占用程序，但RDI目录权限不足。是否请求管理员权限完成更新？",
+                "需要管理员权限"),
+            _ => throw new ArgumentOutOfRangeException(nameof(prompt.Kind))
+        };
+        return MessageBox(nint.Zero, message, title, 0x34) == 6;
     }
 
     private static LaunchOptions ParseLaunchOptions(string[] args)

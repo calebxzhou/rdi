@@ -51,7 +51,7 @@ import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.UpdaterUpdateResult
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
-import calebxzhou.rdi.client.modcatalog.createModCatalog
+import calebxzau.rdi.client.modcatalog.createModCatalog
 import calebxzhou.rdi.client.ui.AppNavigation
 import calebxzhou.rdi.client.ui.McGameSession
 import calebxzhou.rdi.client.ui.McPlayStore

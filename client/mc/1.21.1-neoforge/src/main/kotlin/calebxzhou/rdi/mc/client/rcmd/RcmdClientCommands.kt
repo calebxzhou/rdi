@@ -4,6 +4,7 @@ import calebxzhou.rdi.mc.rcmd.RcmdDispatchResult
 import calebxzhou.rdi.mc.rcmd.RcmdResult
 import net.minecraft.client.Minecraft
 
+/*
 object RcmdClientCommands {
     @JvmStatic
     fun isRcmd(message: String?): Boolean {
@@ -18,3 +19,4 @@ object RcmdClientCommands {
         calebxzhou.rdi.mc.common2.rcmd.client.RcmdClientCommands.reply(RcmdClientBridge211(minecraft), result)
     }
 }
+*/

@@ -6,7 +6,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
@@ -18,7 +17,6 @@ import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
-import calebxzau.rdi.client.ui.ImageIconButton
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
@@ -30,7 +28,7 @@ import calebxzau.rdi.client.ui.asIconText
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.millisToHumanDateTime
 import calebxzhou.rdi.client.model.UiMod
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU

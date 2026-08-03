@@ -30,7 +30,7 @@ public class mTitleScreen extends Screen {
     }
     @Inject(method = "render",at=@At("HEAD"))
     private void RDI$RenderBG(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick, CallbackInfo ci){
-        guiGraphics.blit(ResourceLocation.tryBuild("rdi", "textures/bg/1.jpg"), 0, 0, 0, 0, this.width, this.height, this.width, this.height);
+        guiGraphics.blit(ResourceLocation.tryBuild("rdi", "textures/bg.avif"), 0, 0, 0, 0, this.width, this.height, this.width, this.height);
     }
 
     @Inject(method = "createNormalMenuOptions", at = @At("HEAD"))

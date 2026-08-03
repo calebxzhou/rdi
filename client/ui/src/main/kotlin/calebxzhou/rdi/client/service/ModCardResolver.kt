@@ -1,6 +1,6 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModrinthProject
 

@@ -1,6 +1,6 @@
 package calebxzhou.rdi.mc.client.network
 
-import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList
+import calebxzhou.rdi.mc.common.RGlobalPlayerList
 import com.google.gson.Gson
 import net.minecraft.network.FriendlyByteBuf
 import net.minecraftforge.network.NetworkEvent

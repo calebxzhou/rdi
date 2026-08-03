@@ -1,5 +1,6 @@
 package calebxzau.rdi.mediaproc
 
+import kotlinx.coroutines.sync.Semaphore
 import org.bytedeco.ffmpeg.global.avcodec
 import org.bytedeco.javacpp.Loader
 import org.bytedeco.javacv.FFmpegFrameGrabber
@@ -11,12 +12,12 @@ object MediaProcRuntimeClasspath {
     private val nativeJarPattern = Regex("ffmpeg-.+-windows-x86_64-gpl\\.jar")
 
     fun resolve(classpath: String = System.getProperty("java.class.path")): Result<List<File>> = runCatching {
-        FfmpegPcmDecoder.ensureOpusReady().getOrThrow()
         val codeSources = listOf(
             FfmpegPcmDecoder::class.java,
             FFmpegFrameGrabber::class.java,
             Loader::class.java,
-            avcodec::class.java
+            avcodec::class.java,
+            Semaphore::class.java
         ).map { type -> File(type.protectionDomain.codeSource.location.toURI()) }
         val nativeJar = findNativeJar(classpath, codeSources)
             ?: error("FFmpeg Windows x64 runtime is unavailable")
@@ -40,6 +41,9 @@ object MediaProcRuntimeClasspath {
 
     private fun isNativeJar(file: File): Boolean =
         file.isFile && nativeJarPattern.matches(file.name)
+
+    fun nativeJar(files: List<File>): File =
+        files.firstOrNull(::isNativeJar) ?: error("FFmpeg Windows x64 runtime is unavailable")
 
     private fun File.manifestClasspathEntries(): List<File> = JarFile(this).use { jar ->
         jar.manifest?.mainAttributes

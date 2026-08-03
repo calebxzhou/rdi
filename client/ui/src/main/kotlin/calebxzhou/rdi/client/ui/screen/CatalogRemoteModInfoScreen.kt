@@ -2,7 +2,6 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -50,24 +49,25 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzau.rdi.client.lgr
 import calebxzhou.mykotutils.std.humanFileSize
-import calebxzhou.rdi.client.modcatalog.CatalogDetailsRequest
-import calebxzhou.rdi.client.modcatalog.CatalogDigestAlgorithm
-import calebxzhou.rdi.client.modcatalog.CatalogFile
-import calebxzhou.rdi.client.modcatalog.CatalogFileCursor
-import calebxzhou.rdi.client.modcatalog.CatalogFileRequest
-import calebxzhou.rdi.client.modcatalog.CatalogFileRef
-import calebxzhou.rdi.client.modcatalog.CatalogMod
-import calebxzhou.rdi.client.modcatalog.CatalogModDetails
-import calebxzhou.rdi.client.modcatalog.CatalogProjectRef
-import calebxzhou.rdi.client.modcatalog.CatalogTarget
-import calebxzhou.rdi.client.modcatalog.DependencyRequest
-import calebxzhou.rdi.client.modcatalog.DependencyRequirement
-import calebxzhou.rdi.client.modcatalog.DependencyTarget
-import calebxzhou.rdi.client.modcatalog.EnvironmentRequirement
-import calebxzhou.rdi.client.modcatalog.ModCatalog
-import calebxzhou.rdi.client.modcatalog.ModPlatform
-import calebxzhou.rdi.client.modcatalog.ReleaseChannel
-import calebxzhou.rdi.client.modcatalog.ResolvedDownload
+import calebxzau.rdi.client.modcatalog.CatalogDetailsRequest
+import calebxzau.rdi.client.modcatalog.CatalogDigestAlgorithm
+import calebxzau.rdi.client.modcatalog.CatalogFile
+import calebxzau.rdi.client.modcatalog.CatalogFileCursor
+import calebxzau.rdi.client.modcatalog.CatalogFileRequest
+import calebxzau.rdi.client.modcatalog.CatalogFileRef
+import calebxzau.rdi.client.modcatalog.CatalogMod
+import calebxzau.rdi.client.modcatalog.CatalogModDetails
+import calebxzau.rdi.client.modcatalog.CatalogProjectRef
+import calebxzau.rdi.client.modcatalog.CatalogTarget
+import calebxzau.rdi.client.modcatalog.DependencyRequest
+import calebxzau.rdi.client.modcatalog.DependencyRequirement
+import calebxzau.rdi.client.modcatalog.DependencyTarget
+import calebxzau.rdi.client.modcatalog.EnvironmentCompatibility
+import calebxzau.rdi.client.modcatalog.EnvironmentRequirement
+import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.ReleaseChannel
+import calebxzau.rdi.client.modcatalog.ResolvedDownload
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
@@ -920,7 +920,7 @@ private fun CatalogMod.toLegacyMod(file: CatalogFile, resolved: ResolvedDownload
     )
 }
 
-private fun calebxzhou.rdi.client.modcatalog.EnvironmentCompatibility.toLegacySide(): Mod.Side = when {
+private fun EnvironmentCompatibility.toLegacySide(): Mod.Side = when {
     client == EnvironmentRequirement.UNSUPPORTED && server != EnvironmentRequirement.UNSUPPORTED -> Mod.Side.SERVER
     server == EnvironmentRequirement.UNSUPPORTED && client != EnvironmentRequirement.UNSUPPORTED -> Mod.Side.CLIENT
     client == EnvironmentRequirement.UNKNOWN && server == EnvironmentRequirement.UNKNOWN -> Mod.Side.UNKNOWN

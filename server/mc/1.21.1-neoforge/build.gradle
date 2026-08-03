@@ -81,6 +81,13 @@ neoForge {
             systemProperty 'neoforge.enabledGameTestNamespaces', 'rdi'
         }
 
+        register('gameTestServer') {
+            type = 'gameTestServer'
+            jvmArgument '-Xmx4G'
+            systemProperty 'neoforge.gameTestServer', 'true'
+            systemProperty 'neoforge.enabledGameTestNamespaces', 'minecraft'
+        }
+
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
             logLevel = org.slf4j.event.Level.DEBUG

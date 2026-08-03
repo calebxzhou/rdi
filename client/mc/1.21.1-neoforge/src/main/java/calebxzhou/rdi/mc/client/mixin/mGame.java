@@ -10,6 +10,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.Overlay;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.main.GameConfig;
+import net.minecraft.client.resources.sounds.SimpleSoundInstance;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.sounds.SoundEvent;
 import org.jetbrains.annotations.Nullable;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
@@ -67,5 +70,14 @@ public class mGame {
                 this.openChatScreen("\\");
             }
         }
+    }
+
+    @Inject(method = "onGameLoadFinished", at = @At("TAIL"))
+    private void RDI$playStartupSound(CallbackInfo ci) {
+        Minecraft minecraft = (Minecraft) (Object) this;
+        SoundEvent sound = SoundEvent.createVariableRangeEvent(
+                ResourceLocation.fromNamespaceAndPath("rdi", "mc_start")
+        );
+        minecraft.getSoundManager().play(SimpleSoundInstance.forUI(sound, 1.0F, 1.0F));
     }
 }

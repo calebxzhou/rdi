@@ -1,0 +1,10 @@
+{
+  "mc_start": {
+    "sounds": [
+      {
+        "name": "rdi:mc_start",
+        "stream": true
+      }
+    ]
+  }
+}

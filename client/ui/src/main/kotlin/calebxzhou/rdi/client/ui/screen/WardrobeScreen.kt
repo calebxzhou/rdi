@@ -22,27 +22,26 @@ import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.RThinTextField
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.wM
-import calebxzhou.rdi.client.model.BSSkinData
+import calebxzau.rdi.client.blessingskin.BlessingSkinClient
+import calebxzau.rdi.client.blessingskin.BlessingTextureFilter
+import calebxzau.rdi.client.blessingskin.BlessingTextureSearch
+import calebxzau.rdi.client.blessingskin.BlessingTextureSummary
 import calebxzhou.rdi.client.service.SkinService
 import calebxzhou.rdi.client.ui.comp.HttpImage
-import calebxzhou.rdi.common.net.httpRequest
-import calebxzhou.rdi.common.serdesJson
-import io.ktor.client.request.*
-import io.ktor.client.statement.*
-import io.ktor.http.*
+import calebxzhou.mykotutils.log.Loggers
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
+
+private val lgr by Loggers
 
 
 @Composable
 fun WardrobeScreen(
+    blessingSkin: BlessingSkinClient,
     onBack: (() -> Unit) = {},
-    onOpenSkinPreview: (BSSkinData) -> Unit = {}
+    onOpenSkinPreview: (Int) -> Unit = {}
 ) {
-    val urlPrefix = "https://littleskin.cn"
     val scope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -55,7 +54,12 @@ fun WardrobeScreen(
     var toastMessage by remember { mutableStateOf<String?>(null) }
     var showMojangDialog by remember { mutableStateOf(false) }
 
-    val skins = remember { mutableStateListOf<BSSkinData>() }
+    val skins = remember { mutableStateListOf<BlessingTextureSummary>() }
+
+    fun searchRequest(keyword: String): BlessingTextureSearch = BlessingTextureSearch(
+        keyword = keyword,
+        filter = if (capeMode) BlessingTextureFilter.CAPE else BlessingTextureFilter.SKIN
+    )
 
     fun refreshSkins() {
         if (loading) return
@@ -65,35 +69,43 @@ fun WardrobeScreen(
         skins.clear()
         scope.launch {
             val keyword = keywordState.text.toString()
-            val newSkins = withContext(Dispatchers.IO) {
-                querySkins(urlPrefix, page, keyword, capeMode)
-            }
-            if (newSkins.isNotEmpty()) {
-                skins.addAll(newSkins)
-            } else {
-                toastMessage = "没有找到相关皮肤"
-                hasMoreData = false
+            val result = withContext(Dispatchers.IO) {
+                blessingSkin.search(searchRequest(keyword), page = 1)
             }
             loading = false
+            result.onSuccess { resultPage ->
+                page = 1
+                skins.addAll(resultPage.items)
+                hasMoreData = resultPage.nextPage != null
+                if (resultPage.items.isEmpty()) toastMessage = "没有找到相关皮肤"
+            }.onFailure { error ->
+                lgr.warn { "Blessing Skin搜索失败\n$error" }
+                hasMoreData = false
+                toastMessage = error.message ?: "加载皮肤失败"
+            }
         }
     }
 
     fun loadMoreSkins() {
         if (loading || !hasMoreData) return
         loading = true
-        page += 1
+        val nextPage = page + 1
         scope.launch {
             val keyword = keywordState.text.toString()
-            val newSkins = withContext(Dispatchers.IO) {
-                querySkins(urlPrefix, page, keyword, capeMode)
-            }
-            if (newSkins.isNotEmpty()) {
-                skins.addAll(newSkins)
-            } else {
-                hasMoreData = false
-                toastMessage = "没有更多皮肤了"
+            val result = withContext(Dispatchers.IO) {
+                blessingSkin.search(searchRequest(keyword), page = nextPage)
             }
             loading = false
+            result.onSuccess { resultPage ->
+                page = nextPage
+                skins.addAll(resultPage.items)
+                hasMoreData = resultPage.nextPage != null
+                if (resultPage.items.isEmpty()) toastMessage = "没有更多皮肤了"
+            }.onFailure { error ->
+                lgr.warn { "Blessing Skin加载更多失败\n$error" }
+                hasMoreData = false
+                toastMessage = error.message ?: "加载更多皮肤失败"
+            }
         }
     }
 
@@ -156,12 +168,11 @@ fun WardrobeScreen(
                 ) {
                     itemsIndexed(
                         items = skins,
-                        key = { index, skin -> "${skin.tid}-$index" }
+                        key = { index, skin -> "${skin.id}-$index" }
                     ) { _, skin ->
                         SkinCard(
                             skin = skin,
-                            urlPrefix = urlPrefix,
-                            onClick = { onOpenSkinPreview(skin) }
+                            onClick = { onOpenSkinPreview(skin.id) }
                         )
                     }
                     if (loading) {
@@ -298,19 +309,16 @@ fun MojangSkinDialog(onDismiss: () -> Unit, onToast: (String) -> Unit) {
 }
 @Composable
 private fun SkinCard(
-    skin: BSSkinData,
-    urlPrefix: String,
+    skin: BlessingTextureSummary,
     onClick: () -> Unit
 ) {
-    val previewUrl = remember(skin.tid) { "$urlPrefix/preview/${skin.tid}?height=150&png" }
-
     Box(
         modifier = Modifier
             .size(150.dp)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest)
             .clickable(onClick = onClick)
     ) {
-        HttpImage(previewUrl)
+        HttpImage(skin.previewUrl)
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -327,44 +335,6 @@ private fun SkinCard(
             )
         }
     }
-}
-
-private suspend fun querySkins(
-    urlPrefix: String,
-    page: Int,
-    keyword: String,
-    cape: Boolean
-): List<BSSkinData> {
-    val datas = mutableListOf<BSSkinData>()
-    val startPage = (page - 1) * 2 + 1
-
-    for (subpage in 0..1) {
-        val currentPage = startPage + subpage
-        try {
-            val response = httpRequest {
-                url(
-                    "$urlPrefix/skinlib/list?filter=${if (cape) "cape" else "skin"}" +
-                            "&sort=likes&page=$currentPage&keyword=$keyword"
-                )
-            }
-            @Serializable
-            data class BSSkinListResp(
-                val current_page: Int,
-                val data: List<BSSkinData>
-            )
-            if (response.status.isSuccess()) {
-                val body = response.bodyAsText()
-                val skinData = serdesJson.decodeFromString<BSSkinListResp>(body).data
-                datas.addAll(skinData)
-            }
-            if (subpage < 1) {
-                delay(300)
-            }
-        } catch (_: Exception) {
-        }
-    }
-
-    return datas
 }
 
 private fun sanitizeName(name: String): String {

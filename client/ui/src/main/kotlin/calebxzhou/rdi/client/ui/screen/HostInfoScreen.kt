@@ -9,14 +9,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.clearText
 import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.*
 import androidx.compose.material3.RadioButton as M3RadioButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -24,7 +22,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import calebxzau.rdi.client.ui.AlertErr
 import calebxzau.rdi.client.ui.BottomSnakebarM3
-import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
@@ -34,7 +31,7 @@ import calebxzau.rdi.client.ui.RThinTextField
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TinyClickCopyText
 import calebxzau.rdi.client.ui.TitleRow
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
@@ -44,7 +41,6 @@ import calebxzhou.rdi.client.service.GithubRelease
 import calebxzhou.rdi.client.service.GithubReleaseAsset
 import calebxzhou.rdi.client.service.GithubRepoRef
 import calebxzhou.rdi.client.ui.*
-import calebxzhou.rdi.client.ui.comp.*
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.model.isAdmin

@@ -2,51 +2,29 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHostState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import calebxzhou.rdi.client.model.BSSkin
-import calebxzhou.rdi.client.model.BSSkinData
+import calebxzau.rdi.client.ui.*
+import calebxzau.rdi.client.blessingskin.BlessingSkinClient
+import calebxzau.rdi.client.blessingskin.ResolvedBlessingTexture
+import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.service.SkinService
-import calebxzhou.rdi.client.auth.AccountSessionStore
-import calebxzau.rdi.client.ui.BottomSnakebarM3
-import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzau.rdi.client.ui.ContentBody
-import calebxzau.rdi.client.ui.MaxBox
-import calebxzau.rdi.client.ui.ScreenContentSize
-import calebxzau.rdi.client.ui.ScreenContentSurface
-import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.PlayerModel
-import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.RAccount
-import calebxzhou.rdi.common.net.httpRequest
-import calebxzhou.rdi.common.serdesJson
-import io.ktor.client.request.url
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.isSuccess
+import calebxzhou.mykotutils.log.Loggers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+private val lgr by Loggers
+
 /**
  * calebxzhou @ 2026-02-27 19:18
  */
-private const val BLESSING_URL_PREFIX = "https://littleskin.cn"
-
 private data class PreviewCloth(
     val skinUrl: String,
     val capeUrl: String?,
@@ -54,6 +32,7 @@ private data class PreviewCloth(
 )
 
 private data class PreviewLoadState(
+    val texture: ResolvedBlessingTexture? = null,
     val cloth: PreviewCloth? = null,
     val error: String? = null
 )
@@ -61,7 +40,8 @@ private data class PreviewLoadState(
 
 @Composable
 fun SkinPreviewScreen(
-    skin: BSSkinData,
+    blessingSkin: BlessingSkinClient,
+    textureId: Int,
     onBack: () -> Unit = {}
 ) {
     val scope = rememberCoroutineScope()
@@ -70,36 +50,38 @@ fun SkinPreviewScreen(
 
     val loadState by produceState(
         initialValue = PreviewLoadState(),
-        skin.tid,
+        textureId,
         loggedAccount.cloth.skin,
         loggedAccount.cloth.cape
     ) {
         val result = withContext(Dispatchers.IO) {
-            resolvePreviewCloth(
-                urlPrefix = BLESSING_URL_PREFIX,
-                selected = skin,
-                current = loggedAccount.cloth
-            )
+            blessingSkin.resolve(textureId).map { texture ->
+                texture to resolvePreviewCloth(texture, loggedAccount.cloth)
+            }
         }
         value = result.fold(
-            onSuccess = { PreviewLoadState(cloth = it) },
-            onFailure = { err -> PreviewLoadState(error = err.message ?: "加载预览失败") }
+            onSuccess = { (texture, cloth) -> PreviewLoadState(texture, cloth) },
+            onFailure = { err ->
+                lgr.warn { "Blessing Skin预览加载失败\n$err" }
+                PreviewLoadState(error = err.message ?: "加载预览失败")
+            }
         )
     }
 
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.MEDIUM) {
-            TitleRow(title = "预览：${skin.name}", onBack = onBack) {
+            TitleRow(title = "预览：${loadState.texture?.name ?: "皮肤"}", onBack = onBack) {
                 CircleIconButton(
                     icon = "\uF00C",
                     tooltip = "确认使用",
-                    enabled = !applying && loadState.cloth != null
+                    enabled = !applying && loadState.cloth != null && loadState.texture != null
                 ) {
+                    val texture = loadState.texture ?: return@CircleIconButton
                     if (applying || loadState.cloth == null) return@CircleIconButton
                     applying = true
                     scope.launch {
                         val result = withContext(Dispatchers.IO) {
-                            SkinService.applyBlessingSkin(BLESSING_URL_PREFIX, skin)
+                            SkinService.applyBlessingTexture(loggedAccount.cloth, texture)
                         }
                         applying = false
                         result.onSuccess { cloth ->
@@ -107,6 +89,7 @@ fun SkinPreviewScreen(
                             onBack()
                         }
                         result.onFailure { err ->
+                            lgr.warn { "Blessing Skin设置失败\n$err" }
                             snackbarHostState.showSnackbar(
                                 message = err.message ?: "设置失败",
                                 duration = SnackbarDuration.Short
@@ -155,35 +138,21 @@ fun SkinPreviewScreen(
     }
 }
 
-private suspend fun resolvePreviewCloth(
-    urlPrefix: String,
-    selected: BSSkinData,
+private fun resolvePreviewCloth(
+    selected: ResolvedBlessingTexture,
     current: RAccount.Cloth
-): Result<PreviewCloth> = runCatching {
-    val data = fetchBlessingTexture(urlPrefix, selected.tid).getOrThrow()
-    val selectedUrl = "$urlPrefix/textures/${data.hash}"
-    if (selected.isCape) {
+): PreviewCloth {
+    return if (selected.type.isCape) {
         PreviewCloth(
             skinUrl = current.skin,
-            capeUrl = selectedUrl,
+            capeUrl = selected.textureUrl,
             isSlim = current.isSlim
         )
     } else {
         PreviewCloth(
-            skinUrl = selectedUrl,
+            skinUrl = selected.textureUrl,
             capeUrl = current.cape,
-            isSlim = selected.isSlim
+            isSlim = selected.type.isSlim
         )
     }
-}
-
-private suspend fun fetchBlessingTexture(
-    urlPrefix: String,
-    tid: Int
-): Result<BSSkin> = runCatching {
-    val response = httpRequest { url("$urlPrefix/texture/$tid") }
-    if (!response.status.isSuccess()) {
-        throw RequestError("获取皮肤数据失败: ${response.bodyAsText()}")
-    }
-    serdesJson.decodeFromString<BSSkin>(response.bodyAsText())
 }

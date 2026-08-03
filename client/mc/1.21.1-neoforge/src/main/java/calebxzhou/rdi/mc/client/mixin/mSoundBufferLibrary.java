@@ -1,6 +1,6 @@
 package calebxzhou.rdi.mc.client.mixin;
 
-import calebxzhou.rdi.mc.client.sound.RdiSoundStreamFactory;
+import calebxzhou.rdi.mc.client.sound.RSoundStreamFactory;
 import com.mojang.blaze3d.audio.SoundBuffer;
 import net.minecraft.Util;
 import net.minecraft.client.sounds.AudioStream;
@@ -38,7 +38,7 @@ public abstract class mSoundBufferLibrary {
         cir.setReturnValue(cache.computeIfAbsent(soundId, location -> CompletableFuture.supplyAsync(() -> {
             try (
                     InputStream input = resourceManager.open(location);
-                    FiniteAudioStream stream = RdiSoundStreamFactory.open(input)
+                    FiniteAudioStream stream = RSoundStreamFactory.open(input)
             ) {
                 return new SoundBuffer(stream.readAll(), stream.getFormat());
             } catch (IOException error) {
@@ -57,8 +57,8 @@ public abstract class mSoundBufferLibrary {
             try {
                 InputStream input = resourceManager.open(location);
                 return looping
-                        ? new LoopingAudioStream(RdiSoundStreamFactory::open, input)
-                        : RdiSoundStreamFactory.open(input);
+                        ? new LoopingAudioStream(RSoundStreamFactory::open, input)
+                        : RSoundStreamFactory.open(input);
             } catch (IOException error) {
                 throw new CompletionException(error);
             }

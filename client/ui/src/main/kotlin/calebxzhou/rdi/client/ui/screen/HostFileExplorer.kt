@@ -16,7 +16,6 @@ import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -48,9 +47,9 @@ import androidx.compose.ui.unit.sp
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
-import calebxzhou.rdi.client.service.codeeditor.CodeEditorValidation
-import calebxzhou.rdi.client.service.codeeditor.CodeLanguage
-import calebxzhou.rdi.client.service.codeeditor.validateCodeContent
+import calebxzau.rdi.client.codeeditor.CodeEditorValidation
+import calebxzau.rdi.client.codeeditor.CodeLanguage
+import calebxzau.rdi.client.codeeditor.validateCodeContent
 import calebxzau.rdi.client.ui.AlertErr
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.RRow

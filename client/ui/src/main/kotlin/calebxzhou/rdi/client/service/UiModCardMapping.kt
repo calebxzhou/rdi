@@ -1,6 +1,6 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.client.modcatalog.CatalogModMetadata
+import calebxzau.rdi.client.modcatalog.CatalogModMetadata
 import calebxzhou.rdi.common.model.CurseForgeModInfo
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModrinthProject

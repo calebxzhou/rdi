@@ -1,9 +1,9 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.client.modcatalog.CatalogModMetadata
-import calebxzhou.rdi.client.modcatalog.CatalogSlugRef
-import calebxzhou.rdi.client.modcatalog.ModCatalog
-import calebxzhou.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.CatalogModMetadata
+import calebxzau.rdi.client.modcatalog.CatalogSlugRef
+import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModPlatform
 
 object RemoteModLocalization {
     suspend fun find(

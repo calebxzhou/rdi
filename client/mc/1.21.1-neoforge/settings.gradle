@@ -18,8 +18,6 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "c21"
-include(":mediaproc")
-project(":mediaproc").projectDir = file("../../ui/mediaproc")
 include(":c-mc-common")
 project(":c-mc-common").projectDir = file("../common")
 include(":c-mc-common2")
@@ -28,6 +26,8 @@ include(":rmcp-common")
 project(":rmcp-common").projectDir = file("../../../mc/rmcp/common")
 include(":rmcp-client")
 project(":rmcp-client").projectDir = file("../../../mc/rmcp/client")
+include(":mediaproc")
+project(":mediaproc").projectDir = file("../../ui/mediaproc")
 /*include(":ktutils-std")
 project(":ktutils-std").projectDir = file("../../../ktutils/std")*/
 include(":rcmd")

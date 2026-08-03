@@ -2,7 +2,7 @@ package calebxzhou.rdi.mc.client.network
 
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.SectionPos
-import calebxzhou.rdi.mc.common2.player.RGlobalPlayerList
+import calebxzhou.rdi.mc.common.RGlobalPlayerList
 import com.google.gson.Gson
 import net.neoforged.api.distmarker.Dist
 import net.neoforged.bus.api.SubscribeEvent

@@ -1,12 +1,11 @@
 package calebxzhou.rdi.mc.client
 
-import calebxzau.mc.common2021.mc
-import calebxzhou.rdi.mc.client.mcpimpl211.McpGameImpl
 import calebxzhou.rdi.mc.client.mcp.standard.StandardMcpServer
+import calebxzhou.rdi.mc.client.mcpimpl211.McpGameImpl
 import calebxzhou.rdi.mc.client.mcpimpl211.Search
-import calebxzhou.rdi.mc.client.rcmd.RcmdClientCommands
+import calebxzhou.rdi.mc.client.rcmd.RcmdClientBridge211
 import calebxzhou.rdi.mc.common.RDI
-import calebxzhou.rdi.mc.common.SectionPos as RdiSectionPos
+import calebxzhou.rdi.mc.rcmd.RcmdClientCommands
 import com.google.common.net.HostAndPort
 import com.mojang.blaze3d.vertex.DefaultVertexFormat
 import com.mojang.blaze3d.vertex.PoseStack
@@ -35,10 +34,11 @@ import net.neoforged.neoforge.client.event.ClientChatEvent
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent
 import net.neoforged.neoforge.client.event.RegisterClientReloadListenersEvent
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent
+import java.util.*
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ThreadFactory
-import java.util.OptionalDouble
+import calebxzhou.rdi.mc.common.SectionPos as RdiSectionPos
 
 /**
  * calebxzhou @ 2026-01-10 22:33
@@ -104,12 +104,12 @@ class RDIMain {
                 return
             }
             val minecraft = Minecraft.getInstance()
-            val result = RcmdClientCommands.dispatch(minecraft, message)
+            val result = RcmdClientCommands.dispatch(RcmdClientBridge211(minecraft), message)
             if (!result.found) {
                 return
             }
             event.setCanceled(true)
-            RcmdClientCommands.reply(minecraft, result.result)
+            RcmdClientCommands.reply(RcmdClientBridge211(minecraft), result.result)
         }
 
         @SubscribeEvent

@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
@@ -27,7 +26,7 @@ import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.model.UiMod
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU

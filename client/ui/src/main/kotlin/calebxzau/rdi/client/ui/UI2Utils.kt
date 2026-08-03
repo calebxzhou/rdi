@@ -17,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -35,14 +36,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import calebxzhou.rdi.client.ui.MaterialColor
-import calebxzhou.rdi.client.ui.iconBitmap
+import calebxzhou.rdi.client.ui.iconBitmapPng
 import androidx.compose.material3.OutlinedTextField as M3OutlinedTextField
 
 /**
  * calebxzhou @ 2026-02-15 21:10
  */
-val DEFAULT_MODPACK_ICON by lazy { iconBitmap("modpack") }
-val DEFAULT_HOST_ICON by lazy { iconBitmap("host") }
+val DEFAULT_MODPACK_ICON by lazy { loadIconBitmap("modpack.avif").getOrElse { ImageBitmap(0,0) } }
+val DEFAULT_HOST_ICON by lazy { loadIconBitmap("host.avif").getOrElse { ImageBitmap(0,0) }  }
 typealias M3MaterialTheme = MaterialTheme
 
 data class TitleTabItem<T>(
@@ -798,7 +799,7 @@ fun ImageIconButton(
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             Image(
-                                bitmap = iconBitmap(icon),
+                                bitmap = iconBitmapPng(icon),
                                 contentDescription = inlineText,
                                 modifier = Modifier.size((size * 2 / 3).dp)
                             )
@@ -879,7 +880,7 @@ private fun PureImageIconButton(
             contentAlignment = Alignment.Center
         ) {
             Image(
-                bitmap = iconBitmap(icon),
+                bitmap = iconBitmapPng(icon),
                 contentDescription = contentDescription,
                 modifier = Modifier.size((size * 2 / 3).dp)
             )

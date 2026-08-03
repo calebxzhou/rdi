@@ -5,7 +5,6 @@ import org.bytedeco.ffmpeg.global.avcodec.AV_CODEC_ID_OPUS
 import org.bytedeco.ffmpeg.global.avcodec.avcodec_find_decoder
 import org.bytedeco.javacv.FFmpegFrameGrabber
 import org.bytedeco.javacv.FrameGrabber.SampleMode
-import java.io.ByteArrayOutputStream
 import java.io.Closeable
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -19,6 +18,7 @@ data class PcmAudioFormat(
 
 class FfmpegPcmStream internal constructor(
     private val grabber: FFmpegFrameGrabber,
+    private val input: InputStream,
     val format: PcmAudioFormat
 ) : Closeable {
     private var pending = ByteBuffer.allocate(0)
@@ -45,25 +45,45 @@ class FfmpegPcmStream internal constructor(
         output
     }
 
-    fun readAll(): Result<ByteBuffer> = runCatching {
-        val output = ByteArrayOutputStream()
+    fun readAll(maxBytes: Int = FfmpegPcmDecoder.DEFAULT_MAX_COMPLETE_PCM_BYTES): Result<ByteBuffer> = runCatching {
+        require(maxBytes > 0) { "maxBytes must be positive" }
+        val frameSize = format.channels * Short.SIZE_BYTES
+        val boundedSize = maxBytes - maxBytes % frameSize
+        require(boundedSize > 0) { "maxBytes must contain at least one PCM frame" }
+
+        val chunks = ArrayList<ByteBuffer>()
+        var totalBytes = 0
         while (true) {
-            val chunk = read(64 * 1024).getOrThrow()
+            val remaining = boundedSize - totalBytes
+            if (remaining == 0) {
+                val extra = read(frameSize).getOrThrow()
+                if (extra.hasRemaining()) {
+                    throw IllegalArgumentException("Decoded PCM exceeds $maxBytes bytes")
+                }
+                break
+            }
+            val chunk = read(minOf(READ_CHUNK_BYTES, remaining)).getOrThrow()
             if (!chunk.hasRemaining()) break
-            val bytes = ByteArray(chunk.remaining())
-            chunk.get(bytes)
-            output.write(bytes)
+            totalBytes += chunk.remaining()
+            chunks += chunk
         }
-        ByteBuffer.allocateDirect(output.size())
+
+        ByteBuffer.allocateDirect(totalBytes)
             .order(ByteOrder.LITTLE_ENDIAN)
-            .put(output.toByteArray())
-            .flip()
+            .apply {
+                chunks.forEach { put(it.duplicate()) }
+                flip()
+            }
     }
 
     fun closeResult(): Result<Unit> = runCatching {
         if (closed) return@runCatching
         closed = true
-        grabber.release()
+        try {
+            grabber.release()
+        } finally {
+            input.close()
+        }
     }
 
     override fun close() {
@@ -95,9 +115,15 @@ class FfmpegPcmStream internal constructor(
         target.put(source)
         source.limit(originalLimit)
     }
+
+    private companion object {
+        const val READ_CHUNK_BYTES = 64 * 1024
+    }
 }
 
 object FfmpegPcmDecoder {
+    const val DEFAULT_MAX_COMPLETE_PCM_BYTES = 32 * 1024 * 1024
+
     private val readiness: Result<Unit> by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
         runCatching {
             FFmpegFrameGrabber.tryLoad()
@@ -108,26 +134,34 @@ object FfmpegPcmDecoder {
 
     fun ensureOpusReady(): Result<Unit> = readiness
 
-    fun open(input: InputStream): Result<FfmpegPcmStream> = runCatching {
-        ensureOpusReady().getOrThrow()
-        val grabber = FFmpegFrameGrabber(input, 0).apply {
-            sampleMode = SampleMode.SHORT
-            start()
-        }
-        try {
-            check(grabber.hasAudio()) { "OGG has no audio stream" }
-            val outputChannels = if (grabber.audioChannels == 1) 1 else 2
-            grabber.audioChannels = outputChannels
+    @JvmStatic
+    fun requireOpusReady() {
+        readiness.getOrElse { throw MediaProcUnavailableException(it) }
+    }
+
+    fun open(input: InputStream): Result<FfmpegPcmStream> {
+        var grabber: FFmpegFrameGrabber? = null
+        return runCatching {
+            ensureOpusReady().getOrThrow()
+            val activeGrabber = FFmpegFrameGrabber(input, 0)
+            grabber = activeGrabber
+            activeGrabber.setCloseInputStream(false)
+            activeGrabber.sampleMode = SampleMode.SHORT
+            activeGrabber.start()
+            check(activeGrabber.hasAudio()) { "OGG has no audio stream" }
+            val outputChannels = if (activeGrabber.audioChannels == 1) 1 else 2
+            activeGrabber.audioChannels = outputChannels
             FfmpegPcmStream(
-                grabber,
+                activeGrabber,
+                input,
                 PcmAudioFormat(
-                    sampleRate = grabber.sampleRate,
+                    sampleRate = activeGrabber.sampleRate,
                     channels = outputChannels
                 )
             )
-        } catch (error: Throwable) {
-            runCatching { grabber.release() }
-            throw error
+        }.onFailure {
+            runCatching { grabber?.release() }
+            runCatching { input.close() }
         }
     }
 }

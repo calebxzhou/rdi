@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,9 +33,9 @@ import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.ModpackService.modpackInstallTaskKey
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
-import calebxzhou.rdi.client.service.codeeditor.CodeEditorValidation
-import calebxzhou.rdi.client.service.codeeditor.CodeLanguage
-import calebxzhou.rdi.client.service.codeeditor.validateCodeContent
+import calebxzau.rdi.client.codeeditor.CodeEditorValidation
+import calebxzau.rdi.client.codeeditor.CodeLanguage
+import calebxzau.rdi.client.codeeditor.validateCodeContent
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.CodeEditor

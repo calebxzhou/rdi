@@ -159,14 +159,26 @@ internal fun GameService.startDesktopInDir(
     val (physicalWidth, physicalHeight) = resolvePhysicalScreenSize()
     gameArgs += listOf("--width", "$physicalWidth", "--height", "$physicalHeight")
     val resolvedJvmArgs = manifest.resolveJvmArgumentList() + loaderManifest.resolveJvmArgumentList()
-    val mediaProcClasspath = if (mcVer == McVersion.V211) {
-        MediaProcGameClasspath.resolve().getOrElse { error ->
-            lgr.error(error) { "MC1.21.1音频模块不可用" }
-            throw RequestError("音频模块缺失或损坏，请先修复", error)
+    val gameKotlinClasspath = if (mcVer == McVersion.V201 || mcVer == McVersion.V211) {
+        GameKotlinRuntime.prepare(
+            mcVersion = mcVer,
+            modsDir = versionDir.resolve("mods")
+        ).getOrElse { error ->
+            lgr.error(error) { "Minecraft Kotlin运行库不可用" }
+            throw RequestError("Kotlin运行库冲突，无法启动游戏", error)
         }
     } else {
         emptyList()
     }
+    val mediaProcRuntime = if (mcVer == McVersion.V201 || mcVer == McVersion.V211) {
+        MediaProcGameClasspath.resolve().getOrElse { error ->
+            lgr.error(error) { "Minecraft媒体模块不可用" }
+            throw RequestError("媒体模块缺失或损坏，请先修复", error)
+        }
+    } else {
+        null
+    }
+    val mediaProcClasspath = mediaProcRuntime?.classpath.orEmpty()
     val launchClasspath = buildLaunchClasspath(
         manifest = manifest,
         loaderManifest = loaderManifest,
@@ -174,7 +186,7 @@ internal fun GameService.startDesktopInDir(
         versionId = versionId,
         baseLibraries = launchBaseLibraries,
         gtnhExtensionRoot = gtnhLibRoot,
-        additionalClasspath = mediaProcClasspath
+        additionalClasspath = gameKotlinClasspath + mediaProcClasspath
     )
     val classpath = launchClasspath.joinToString(File.pathSeparator)
     val legacyLaunch = resolvedJvmArgs.isEmpty() &&
@@ -193,9 +205,7 @@ internal fun GameService.startDesktopInDir(
     val processedJvmArgs = buildList {
         var skipNextClasspathValue = false
         resolvedJvmArgs.forEach { rawArg ->
-            val arg = rawArg
-                .replaceLaunchTokens(nativesDir, versionDir, jvmVersionName, classpath)
-                .appendBootstrapIgnoreFiles(mediaProcClasspath)
+            val arg = rawArg.replaceLaunchTokens(nativesDir, versionDir, jvmVersionName, classpath)
             if (gtnhLaunch) {
                 if (skipNextClasspathValue) {
                     skipNextClasspathValue = false
@@ -236,6 +246,10 @@ internal fun GameService.startDesktopInDir(
     processedJvmArgs.apply {
         this += useMemStr
         this += utf8LoggingJvmArgs
+        mediaProcRuntime?.let {
+            this += "-Dorg.bytedeco.javacpp.pathsFirst=true"
+            this += "-Dorg.bytedeco.javacpp.platform.preloadpath=${it.nativeLibraryDir.absolutePath}"
+        }
         if (gtnhLibRoot != null) {
             this += gtnhJava25JvmArgs(gtnhLibRoot, nativesDir, versionDir, versionId, classpath)
         }
@@ -397,13 +411,6 @@ internal fun String.replaceLaunchTokens(
     .replace("\${version_name}", versionId)
     .replace("\${classpath}", classpath)
     .replace("\${classpath_separator}", File.pathSeparator)
-
-internal fun String.appendBootstrapIgnoreFiles(files: List<File>): String {
-    val prefix = "-DignoreList="
-    if (!startsWith(prefix) || files.isEmpty()) return this
-    val ignoredNames = removePrefix(prefix).split(',') + files.map { it.name }
-    return prefix + ignoredNames.filter(String::isNotBlank).distinct().joinToString(",")
-}
 
 fun GameService.startServerDesktop(mcVer: McVersion, loaderVer: ModLoader.Version, workDir: File, onLine: (String) -> Unit): Process {
     if (mcVer == McVersion.V071) {

@@ -6,7 +6,6 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.resources.ResourceKey;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.*;
 import net.minecraft.util.RandomSource;
 import net.minecraft.util.profiling.ProfilerFiller;
@@ -25,7 +24,6 @@ import org.spongepowered.asm.mixin.injection.At;
 
 import java.util.List;
 import java.util.function.BiConsumer;
-import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
@@ -35,37 +33,6 @@ import java.util.function.Supplier;
 public class mGuardTick {
 }
 
-
-@Mixin(MinecraftServer.class)
-abstract
-class mTickInvertServer {
-    @WrapOperation(method = "tickServer",
-            at = @At(value = "INVOKE", target = "Lnet/minecraft/server/MinecraftServer;tickChildren(Ljava/util/function/BooleanSupplier;)V"))
-    private void tickServerChildrenNoCrash(
-            MinecraftServer instance,
-            BooleanSupplier bs,
-            Operation<Void> original
-    ) {
-        try {
-            original.call(instance, bs);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    @WrapOperation(method = "tickChildren", at = @At(value = "INVOKE", target = "Lnet/minecraft/server/level/ServerLevel;tick(Ljava/util/function/BooleanSupplier;)V"))
-    private void RDI$OnTickLevel(
-            ServerLevel serverlevel,
-            BooleanSupplier hasTimeLeft,
-            Operation<Void> original
-    ) {
-        try {
-            original.call(serverlevel, hasTimeLeft);
-        } catch (Throwable throwable) {
-            throwable.printStackTrace();
-        }
-    }
-}
 @Mixin(Level.class)
 abstract
 class mTickingEntity {
@@ -77,8 +44,11 @@ class mTickingEntity {
     ) {
         try {
             original.call(entityConsumer, t);
-        } catch (Exception e) {
+        } catch (Throwable e) {
             e.printStackTrace();
+            if (t instanceof Entity entity) {
+                entity.discard();
+            }
         }
     }
    /* @Overwrite

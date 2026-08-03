@@ -10,11 +10,20 @@ repositories {
     mavenLocal()
 }
 
-val javaVersion = libs.versions.java.get()
+group = "calebxzhou.rdi"
+version = libs.versions.app.get()
+
+val javaVersion = 21
+
+java {
+    toolchain.languageVersion.set(JavaLanguageVersion.of(javaVersion))
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
 
 kotlin {
-    jvmToolchain(javaVersion.toInt())
-    compilerOptions.jvmTarget.set(JvmTarget.fromTarget(javaVersion))
+    jvmToolchain(javaVersion)
+    compilerOptions.jvmTarget.set(JvmTarget.fromTarget(javaVersion.toString()))
 }
 
 dependencies {
@@ -27,7 +36,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(kotlin("test"))
-    testImplementation(project(":assets"))
+    rootProject.findProject(":assets")?.let { testImplementation(it) }
 }
 
 tasks.withType<Test>().configureEach {

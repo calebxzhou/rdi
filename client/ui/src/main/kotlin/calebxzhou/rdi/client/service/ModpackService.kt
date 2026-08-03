@@ -5,7 +5,7 @@ import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.client.model.firstLoaderDir
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2

@@ -4,7 +4,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import org.jetbrains.skia.Image
 
-fun iconBitmap(icon: String): ImageBitmap {
+fun iconBitmapPng(icon: String): ImageBitmap {
     val bytes = loadResourceBytes("assets/icons/$icon.png")
     return Image.makeFromEncoded(bytes).toComposeImageBitmap()
 }

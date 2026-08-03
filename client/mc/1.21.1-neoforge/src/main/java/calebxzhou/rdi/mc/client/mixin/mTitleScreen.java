@@ -26,7 +26,7 @@ public class mTitleScreen extends Screen {
     @Overwrite
     @Override
     public void renderPanorama(GuiGraphics guiGraphics, float partialTick) {
-        guiGraphics.blit(ResourceLocation.tryBuild("rdi","textures/bg/1.jpg"),0,0,0,0,this.width,this.height,this.width,this.height);
+        guiGraphics.blit(ResourceLocation.tryBuild("rdi","textures/bg.avif"),0,0,0,0,this.width,this.height,this.width,this.height);
     }
     @Inject(method = "createNormalMenuOptions", at = @At("HEAD"))
     private void RDI$AddMultiplayerButton(int y, int rowHeight, CallbackInfo ci) {

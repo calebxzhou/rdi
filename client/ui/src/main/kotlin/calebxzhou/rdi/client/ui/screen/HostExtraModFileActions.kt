@@ -3,7 +3,7 @@ package calebxzhou.rdi.client.ui.screen
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.model.toUiMod
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod

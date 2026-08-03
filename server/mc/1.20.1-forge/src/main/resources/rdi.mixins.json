@@ -30,8 +30,7 @@
     "mSaveBandwidth",
     "mServerLoginPacketListener",
     "mServerPlayer",
-    "mTickingEntity",
-    "mTickInvertServer"
+    "mTickingEntity"
   ],
   "client": [
   ]

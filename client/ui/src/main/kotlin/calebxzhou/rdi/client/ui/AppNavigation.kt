@@ -5,21 +5,23 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
+import calebxzau.rdi.client.blessingskin.BlessingSkinClient
 import calebxzau.rdi.client.ui.screen.PlayerInfoScreen
 import calebxzhou.rdi.client.auth.AccountSessionStore
-import calebxzhou.rdi.client.model.BSSkinData
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
 import org.bson.types.ObjectId
 
 private const val SCREEN_FADE_DURATION_MS = 500
+private const val BLESSING_SKIN_BASE_URL = "https://littleskin.cn"
 
 inline fun <reified T : Any> NavHostController.navigateAbsolute(route: T) {
     navigate(route) {
@@ -44,6 +46,7 @@ fun AppNavigation(
     modCatalog: ModCatalog,
     startDestination: Any = Login,
 ) {
+    val blessingSkin = remember { BlessingSkinClient(BLESSING_SKIN_BASE_URL) }
         val openMcPlay: (McPlayArgs, (() -> Unit)?) -> Unit = { args, onBack ->
             McPlayStore.pendingLaunch = args
             McPlayStore.onBack = onBack
@@ -137,32 +140,18 @@ fun AppNavigation(
             }
             composable<Wardrobe> {
                 WardrobeScreen(
+                    blessingSkin = blessingSkin,
                     onBack = { navController.navigateAbsolute(Menu) },
-                    onOpenSkinPreview = { skin ->
-                        navController.navigate(
-                            SkinPreview(
-                                tid = skin.tid,
-                                name = skin.name,
-                                type = skin.type,
-                                uploader = skin.uploader,
-                                isPublic = skin.public,
-                                likes = skin.likes
-                            )
-                        )
+                    onOpenSkinPreview = { textureId ->
+                        navController.navigate(SkinPreview(textureId))
                     }
                 )
             }
             composable<SkinPreview> {
                 val route = it.toRoute<SkinPreview>()
                 SkinPreviewScreen(
-                    skin = BSSkinData(
-                        tid = route.tid,
-                        name = route.name,
-                        type = route.type,
-                        uploader = route.uploader,
-                        public = route.isPublic,
-                        likes = route.likes
-                    ),
+                    blessingSkin = blessingSkin,
+                    textureId = route.textureId,
                     onBack = { navController.navigateAbsolute(Wardrobe) }
                 )
             }
@@ -375,7 +364,7 @@ fun AppNavigation(
                 )
             }
             composable<ModpackUpload> {
-                ModpackUploadScreen2(
+                ModpackUploadScreen(
                     modCatalog = modCatalog,
                     onBack = {
                         navController.navigate(ResourceRoute(ResourceTab.All.name)) {

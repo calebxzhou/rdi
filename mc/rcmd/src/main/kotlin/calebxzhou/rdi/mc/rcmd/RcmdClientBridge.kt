@@ -1,15 +1,14 @@
-package calebxzhou.rdi.mc.common2.rcmd.client;
+package calebxzhou.rdi.mc.rcmd
 
-import calebxzhou.rdi.mc.rcmd.RcmdSource;
+import calebxzhou.rdi.mc.rcmd.RcmdSource
+import java.nio.file.Path
 
-import java.nio.file.Path;
+interface RcmdClientBridge : RcmdSource {
+    fun gameDirectory(): Path
 
-public interface RcmdClientBridge extends RcmdSource {
-    Path gameDirectory();
+    fun executeOnMainThread(task: Runnable)
 
-    void executeOnMainThread(Runnable task);
+    fun toggleSetFirmSectionsVisible(): Boolean
 
-    boolean toggleSetFirmSectionsVisible();
-
-    boolean toggleNowFirmSectionVisible();
+    fun toggleNowFirmSectionVisible(): Boolean
 }

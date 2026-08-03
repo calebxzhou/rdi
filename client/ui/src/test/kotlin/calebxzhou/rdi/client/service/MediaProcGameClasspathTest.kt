@@ -1,41 +1,40 @@
 package calebxzhou.rdi.client.service
 
 import org.junit.jupiter.api.Assumptions.assumeTrue
-import java.io.File
+import org.junit.jupiter.api.io.TempDir
+import java.lang.module.ModuleFinder
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class MediaProcGameClasspathTest {
     @Test
-    fun resolvesMinimalWindowsRuntime() {
+    fun resolvesMinimalWindowsRuntime(@TempDir tempDir: Path) {
         assumeWindowsX64()
-        val files = MediaProcGameClasspath.resolve().getOrThrow()
+        val runtime = MediaProcGameClasspath.resolve(nativeRoot = tempDir.toFile()).getOrThrow()
+        val files = runtime.classpath
 
         assertEquals(5, files.size)
-        assertTrue(files.any { it.name == "javacv-1.5.13.jar" })
+        assertTrue(files.any { it.name.startsWith("javacv-1.5.13") })
         assertTrue(files.any { it.name == "javacpp-1.5.13.jar" })
         assertTrue(files.any { it.name == "ffmpeg-8.0.1-1.5.13.jar" })
         assertTrue(files.any { it.name == "ffmpeg-8.0.1-1.5.13-windows-x86_64-gpl.jar" })
-    }
+        assertEquals(1, files.count { it.name.startsWith("mediaproc") })
+        assertTrue(files.none { it.name.startsWith("kotlinx-coroutines-core") })
+        assertTrue(runtime.nativeLibraryDir.resolve("jniavutil.dll").isFile)
 
-    @Test
-    fun appendsMediaRuntimeToBootstrapIgnoreList() {
-        val argument = "-DignoreList=client-extra,neoforge.jar"
-        val mediaClasspath = listOf(
-            File("mediaproc/build/classes/kotlin/main"),
-            File("javacv-1.5.13.jar"),
-            File("javacpp-1.5.13.jar"),
-            File("ffmpeg-8.0.1-1.5.13.jar"),
-            File("ffmpeg-8.0.1-1.5.13-windows-x86_64-gpl.jar")
-        )
-
-        val resolved = argument.appendBootstrapIgnoreFiles(mediaClasspath)
-
+        val javaCv = files.single { it.name.startsWith("javacv-1.5.13") }
+        val javaCvRequires = ModuleFinder.of(javaCv.toPath())
+            .find("org.bytedeco.javacv")
+            .orElseThrow()
+            .descriptor()
+            .requires()
+            .map { it.name() }
+            .toSet()
         assertEquals(
-            "-DignoreList=client-extra,neoforge.jar,main,javacv-1.5.13.jar,javacpp-1.5.13.jar," +
-                "ffmpeg-8.0.1-1.5.13.jar,ffmpeg-8.0.1-1.5.13-windows-x86_64-gpl.jar",
-            resolved
+            setOf("java.base", "java.desktop", "org.bytedeco.javacpp", "org.bytedeco.ffmpeg"),
+            javaCvRequires
         )
     }
 

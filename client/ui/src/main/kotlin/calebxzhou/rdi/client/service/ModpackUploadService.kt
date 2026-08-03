@@ -4,9 +4,9 @@ import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.*
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.model.toUiMod
-import calebxzhou.rdi.client.modcatalog.CatalogSlugRef
-import calebxzhou.rdi.client.modcatalog.ModCatalog
-import calebxzhou.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.CatalogSlugRef
+import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModPlatform
 import calebxzhou.rdi.client.net.server
 import calebxzau.rdi.client.ui.loadResourceStream
 import calebxzau.rdi.mediaproc.MediaProcUnavailableException
@@ -24,7 +24,6 @@ import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.service.CurseForgeService.loadInfoCurseForge
 import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.ModService
-import calebxzhou.rdi.common.service.ModService.readModMeta
 import calebxzhou.rdi.common.service.ModrinthService
 import calebxzhou.rdi.common.service.ModrinthService.mapModrinthVersions
 import calebxzhou.rdi.common.service.ModrinthService.toCardVo

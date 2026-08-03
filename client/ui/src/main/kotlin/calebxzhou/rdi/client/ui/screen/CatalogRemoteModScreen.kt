@@ -37,7 +37,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -45,7 +44,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ImageIconButton
@@ -54,14 +52,14 @@ import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzau.rdi.client.lgr
-import calebxzhou.rdi.client.modcatalog.CatalogMod
-import calebxzhou.rdi.client.modcatalog.CatalogSearchCursor
-import calebxzhou.rdi.client.modcatalog.CatalogSearchRequest
-import calebxzhou.rdi.client.modcatalog.CatalogSort
-import calebxzhou.rdi.client.modcatalog.CatalogTarget
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.CatalogMod
+import calebxzau.rdi.client.modcatalog.CatalogSearchCursor
+import calebxzau.rdi.client.modcatalog.CatalogSearchRequest
+import calebxzau.rdi.client.modcatalog.CatalogSort
+import calebxzau.rdi.client.modcatalog.CatalogTarget
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.ui.comp.CatalogModCard
-import calebxzhou.rdi.client.ui.iconBitmap
+import calebxzhou.rdi.client.ui.iconBitmapPng
 import calebxzhou.rdi.client.ui.loadResourceBitmap
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
@@ -197,7 +195,7 @@ fun RemoteModScreen(
             ) {
                 val bitmap = when {
                     iconPath != null -> remember(iconPath) { loadResourceBitmap(iconPath) }
-                    iconName != null -> remember(iconName) { iconBitmap(iconName) }
+                    iconName != null -> remember(iconName) { iconBitmapPng(iconName) }
                     else -> null
                 }
                 bitmap?.let {

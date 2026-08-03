@@ -559,25 +559,25 @@ fun HostNewCreateScreen(
                                                 ) {
                                                     ImageCard(
                                                         title = "和平",
-                                                        iconPath = "assets/icons/difficulty_peaceful.png",
+                                                        iconPath = "assets/icons/difficulty_peaceful.avif",
                                                         selected = difficulty == 0,
                                                         onClick = { difficulty = 0 }
                                                     )
                                                     ImageCard(
                                                         title = "简单",
-                                                        iconPath = "assets/icons/difficulty_easy.png",
+                                                        iconPath = "assets/icons/difficulty_easy.avif",
                                                         selected = difficulty == 1,
                                                         onClick = { difficulty = 1 }
                                                     )
                                                     ImageCard(
                                                         title = "普通",
-                                                        iconPath = "assets/icons/difficulty_normal.png",
+                                                        iconPath = "assets/icons/difficulty_normal.avif",
                                                         selected = difficulty == 2,
                                                         onClick = { difficulty = 2 }
                                                     )
                                                     ImageCard(
                                                         title = "困难",
-                                                        iconPath = "assets/icons/difficulty_hard.png",
+                                                        iconPath = "assets/icons/difficulty_hard.avif",
                                                         selected = difficulty == 3,
                                                         onClick = { difficulty = 3 }
                                                     )
@@ -592,13 +592,13 @@ fun HostNewCreateScreen(
                                                 ) {
                                                     ImageCard(
                                                         title = "生存",
-                                                        iconPath = "assets/icons/gamemode_survival.png",
+                                                        iconPath = "assets/icons/gamemode_survival.avif",
                                                         selected = gameMode == 0,
                                                         onClick = { gameMode = 0 }
                                                     )
                                                     ImageCard(
                                                         title = "创造",
-                                                        iconPath = "assets/icons/gamemode_creative.png",
+                                                        iconPath = "assets/icons/gamemode_creative.avif",
                                                         selected = gameMode == 1,
                                                         onClick = { gameMode = 1 }
                                                     )
@@ -613,7 +613,7 @@ fun HostNewCreateScreen(
                                                 ) {
                                                     ImageCard(
                                                         title = "普通",
-                                                        iconPath = "assets/icons/worldtype_normal.png",
+                                                        iconPath = "assets/icons/worldtype_normal.avif",
                                                         selected = levelChoice == 0,
                                                         onClick = {
                                                             levelChoice = 0
@@ -622,7 +622,7 @@ fun HostNewCreateScreen(
                                                     )
                                                     ImageCard(
                                                         title = "超平坦",
-                                                        iconPath = "assets/icons/worldtype_flat.png",
+                                                        iconPath = "assets/icons/worldtype_flat.avif",
                                                         selected = levelChoice == 1,
                                                         onClick = {
                                                             levelChoice = 1
@@ -631,7 +631,7 @@ fun HostNewCreateScreen(
                                                     )
                                                     ImageCard(
                                                         title = "空岛",
-                                                        iconPath = "assets/icons/worldtype_skyblock.jpg",
+                                                        iconPath = "assets/icons/worldtype_skyblock.avif",
                                                         selected = levelChoice == 2,
                                                         onClick = {
                                                             levelChoice = 2
@@ -640,7 +640,7 @@ fun HostNewCreateScreen(
                                                     )
                                                     ImageCard(
                                                         title = "自定义",
-                                                        iconPath = "assets/icons/worldtype_normal.png",
+                                                        iconPath = "assets/icons/worldtype_normal.avif",
                                                         selected = levelChoice == 3,
                                                         onClick = {
                                                             customLevelTypeText = if (levelChoice == 3) {

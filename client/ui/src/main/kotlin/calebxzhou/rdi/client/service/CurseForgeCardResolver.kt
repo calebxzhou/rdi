@@ -2,8 +2,8 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.service.CurseForgeService
-import calebxzhou.rdi.client.modcatalog.CatalogSlugRef
-import calebxzhou.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.CatalogSlugRef
+import calebxzau.rdi.client.modcatalog.ModPlatform
 
 object CurseForgeCardResolver : ModCardResolver {
     override val platform: String = "cf"

@@ -1,36 +1,22 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.client.model.BSSkin
-import calebxzhou.rdi.client.model.BSSkinData
-import calebxzhou.rdi.client.net.loggedAccount
+import calebxzau.rdi.client.blessingskin.ResolvedBlessingTexture
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.RAccount
-import calebxzhou.rdi.common.net.httpRequest
-import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.MojangApi
 import calebxzhou.rdi.common.service.MojangApi.textures
-import io.ktor.client.request.url
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.isSuccess
 
 object SkinService {
-    suspend fun applyBlessingSkin(
-        urlPrefix: String,
-        skinData: BSSkinData
+    suspend fun applyBlessingTexture(
+        current: RAccount.Cloth,
+        texture: ResolvedBlessingTexture
     ): Result<RAccount.Cloth> = runCatching {
-        val response = httpRequest {
-            url("$urlPrefix/texture/${skinData.tid}")
-        }
-        if (!response.status.isSuccess()) {
-            throw RequestError("获取皮肤数据失败: ${response.bodyAsText()}")
-        }
-        val skin = serdesJson.decodeFromString<BSSkin>(response.bodyAsText())
-        val newCloth = loggedAccount.cloth.copy()
-        if (skinData.isCape) {
-            newCloth.cape = "$urlPrefix/textures/${skin.hash}"
+        val newCloth = current.copy()
+        if (texture.type.isCape) {
+            newCloth.cape = texture.textureUrl
         } else {
-            newCloth.isSlim = skinData.isSlim
-            newCloth.skin = "$urlPrefix/textures/${skin.hash}"
+            newCloth.isSlim = texture.type.isSlim
+            newCloth.skin = texture.textureUrl
         }
         PlayerService.setCloth(newCloth).getOrThrow()
         newCloth

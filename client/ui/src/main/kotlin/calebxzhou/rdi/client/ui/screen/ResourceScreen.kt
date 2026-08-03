@@ -17,8 +17,8 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.TitleTabBar
 import calebxzau.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
-import calebxzhou.rdi.client.modcatalog.CatalogMod
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.CatalogMod
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.common.model.McVersion

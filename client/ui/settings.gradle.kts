@@ -13,11 +13,13 @@ plugins {
 include(
     ":assets",
     ":assets:fonts",
+    ":code-editor",
     ":misc",
     ":model",
     ":net",
     ":archive",
     ":anvilrw",
+    ":blessing-skin",
     ":mediaproc",
     ":mod-catalog",
     ":mod-catalog-tools",
@@ -27,11 +29,13 @@ include(
     ":mc-proxy"
 )
 project(":assets").projectDir = file("assets")
+project(":code-editor").projectDir = file("code-editor")
 project(":misc").projectDir = file("../../common/misc")
 project(":model").projectDir = file("../../common/model")
 project(":net").projectDir = file("../../common/net")
 project(":archive").projectDir = file("../../common/archive")
 project(":anvilrw").projectDir = file("../../common/anvilrw")
+project(":blessing-skin").projectDir = file("blessing-skin")
 project(":mediaproc").projectDir = file("mediaproc")
 project(":mod-catalog").projectDir = file("mod-catalog")
 project(":mod-catalog-tools").projectDir = file("mod-catalog-tools")

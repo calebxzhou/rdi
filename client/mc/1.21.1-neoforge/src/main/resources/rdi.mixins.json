@@ -9,6 +9,7 @@
     "mGame",
     "mHttpTexture",
     "mJpgImage",
+    "mNativeImage",
     "mMultiScreen",
     "mPlayerTabOverlay",
     "mSoundBufferLibrary",

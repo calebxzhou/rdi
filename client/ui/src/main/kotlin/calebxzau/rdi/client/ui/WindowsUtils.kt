@@ -55,11 +55,6 @@ suspend fun pickSaveFile(suggestedName: String, extension: String): File? =
         )
     }
 
-suspend fun pickLocalMinecraftWorldDir(): String? =
-    withContext(Dispatchers.IO) {
-        pickAwtDirectory("选择本地存档目录")?.absolutePath
-    }
-
 suspend fun pickLocalModpackFile(): File? =
     withContext(Dispatchers.IO) {
         val owner = Frame()
@@ -119,29 +114,6 @@ suspend fun pickLocalDirectory(title: String): File? =
         pickAwtDirectory(title)
     }
 
-suspend fun pickJavaExecutable(title: String): String? =
-    withContext(Dispatchers.IO) {
-        val owner = Frame()
-        try {
-            val dialog = FileDialog(owner, title, FileDialog.LOAD).apply {
-                directory = File(System.getProperty("user.home")).absolutePath
-                file = "java.exe"
-                filenameFilter = FilenameFilter { dir, name ->
-                    val target = File(dir, name)
-                    if (target.isDirectory) return@FilenameFilter true
-                    val lower = name.lowercase()
-                    lower == "java" || lower == "java.exe" || lower == "javaw.exe"
-                }
-            }
-            dialog.isVisible = true
-            val dir = dialog.directory ?: return@withContext null
-            val name = dialog.file ?: return@withContext null
-            normalizeJavaExecutablePath(File(dir, name).absolutePath)
-        } finally {
-            owner.dispose()
-        }
-    }
-
 fun loadResourceStream(name: String): InputStream {
     return RDIClient.jarResource(name)
 }
@@ -152,6 +124,8 @@ fun exportResource(name: String, target: File) {
         target.outputStream().use { output -> input.copyTo(output) }
     }
 }
+
+fun loadIconBitmap(resourceName: String): Result<ImageBitmap> = loadImageBitmap("assets/icons/$resourceName")
 
 fun loadImageBitmap(resourceName: String): Result<ImageBitmap> = runCatching {
     loadResourceStream(resourceName).use { stream ->

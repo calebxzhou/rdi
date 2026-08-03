@@ -50,13 +50,14 @@ class RDIMain {
         @SubscribeEvent
         @JvmStatic
         fun started(e: ServerStartedEvent) {
-            WebSocketClient.start(WsHandler201(e.getServer() as DedicatedServer))
+            val server = (e.getServer() as? DedicatedServer) ?: return
+            WebSocketClient.start(WsHandler201(server))
         }
 
         @SubscribeEvent
         @JvmStatic
         fun starting(e: ServerStartingEvent) {
-            val server: DedicatedServer = e.getServer() as DedicatedServer
+            val server = (e.getServer() as? DedicatedServer) ?: return
 
             GameRules.visitGameRuleTypes(object : GameRules.GameRuleTypeVisitor {
                 override fun <T : GameRules.Value<T>> visit(key: GameRules.Key<T>, type: GameRules.Type<T>) {

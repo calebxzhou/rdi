@@ -10,6 +10,8 @@ import java.util.zip.ZipOutputStream
 
 plugins {
     id 'net.neoforged.moddev.legacyforge' version '2.0.141'
+    id 'org.gradlex.extra-java-module-info' version '1.14.2'
+    id 'idea'
     id "org.jetbrains.kotlin.jvm" version "2.4.0"
     id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.0'
 }
@@ -19,6 +21,25 @@ evaluationDependsOn(":c-mc-common")
 evaluationDependsOn(":firmsection")
 evaluationDependsOn(":rmcp-common")
 evaluationDependsOn(":rmcp-client")
+evaluationDependsOn(":mediaproc")
+
+def sharedBuildProjects = [':c-mc-common', ':rmcp-common', ':rmcp-client', ':mediaproc']
+sharedBuildProjects.each { projectPath ->
+    project(projectPath).layout.buildDirectory.set(
+            rootProject.layout.buildDirectory.dir("shared/${projectPath.substring(1)}")
+    )
+}
+
+gradle.projectsEvaluated {
+    def sharedJarTasks = sharedBuildProjects.collect { projectPath ->
+        rootProject.project(projectPath).tasks.named('jar')
+    }
+    tasks.matching {
+        it.name == 'writeClientLegacyClasspath' || it.name == 'writeClient2LegacyClasspath'
+    }.configureEach {
+        dependsOn(sharedJarTasks)
+    }
+}
 
 base {
     archivesName = "rdi"
@@ -39,6 +60,10 @@ def playArg = [
         selectedPlayerUuid,
         selectedPlayerName
 ].join("\n")
+def mediaProcNativeRootDir = layout.buildDirectory.dir("mediaproc-natives/ffmpeg-8.0.1-1.5.13-windows-x86_64-gpl")
+def mediaProcNativeLibraryDir = mediaProcNativeRootDir.map {
+    it.dir("org/bytedeco/ffmpeg/windows-x86_64-gpl")
+}
 
 java {
     toolchain {
@@ -53,14 +78,36 @@ sourceSets.main {
     // java.srcDir '../../../mc/chunkcache/1.20.1/src/main/java'
     kotlin.srcDir '../../../mc/common/2021/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
-    java.srcDir '../common2/src/main/java'
     ext["refMap"] = "rdi.mixins.refmap.json"
     // Make shared assets available in IDE/dev runs (runClient).
     resources {
         srcDir project(":c-mc-common").file("src/main/resources")
-     //   srcDir '../common2/src/main/resources'
     }
 }
+
+extraJavaModuleInfo {
+    failOnMissingModuleInfo = false
+    skipLocalJars = true
+
+    module("org.bytedeco:javacv", "org.bytedeco.javacv") {
+        patchRealModule()
+        exportAllPackages()
+
+        requires("java.desktop")
+        requiresTransitive("org.bytedeco.javacpp")
+        requires("org.bytedeco.ffmpeg")
+    }
+}
+
+afterEvaluate {
+    def clientLegacyClasspath = configurations.getByName("clientLegacyClasspath")
+    clientLegacyClasspath.attributes.attribute(
+            ArtifactTypeDefinition.ARTIFACT_TYPE_ATTRIBUTE,
+            ArtifactTypeDefinition.JAR_TYPE
+    )
+    extraJavaModuleInfo.activate(clientLegacyClasspath)
+}
+
 mixin {
     add sourceSets.main, 'rdi.mixins.refmap.json'
     config "rdi.mixins.json"
@@ -168,6 +215,8 @@ legacyForge {
         client {
             client()
             systemProperty("rdi.play", Base64.encoder.encodeToString(playArg.getBytes(StandardCharsets.UTF_8)))
+            systemProperty("org.bytedeco.javacpp.pathsFirst", "true")
+            systemProperty("org.bytedeco.javacpp.platform.preloadpath", mediaProcNativeLibraryDir.get().asFile.absolutePath)
             //systemProperty("mixin.hotSwap", "true")
             programArguments = [
                     "--enable-native-access=ALL",
@@ -216,7 +265,27 @@ dependencies {
     additionalRuntimeClasspath(project(":rmcp-common"))
     implementation(project(":rmcp-client"))
     additionalRuntimeClasspath(project(":rmcp-client"))
+    implementation(project(":mediaproc")) {
+        transitive = false
+    }
+    additionalRuntimeClasspath(project(":mediaproc")) {
+        transitive = false
+    }
     additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
+
+    implementation("org.bytedeco:javacv:1.5.13") {
+        transitive = false
+    }
+    implementation("org.bytedeco:javacpp:1.5.13")
+    implementation("org.bytedeco:ffmpeg:8.0.1-1.5.13")
+    additionalRuntimeClasspath("org.bytedeco:javacv:1.5.13") {
+        transitive = false
+    }
+    additionalRuntimeClasspath("org.bytedeco:javacpp:1.5.13")
+    additionalRuntimeClasspath("org.bytedeco:ffmpeg:8.0.1-1.5.13")
+    additionalRuntimeClasspath("org.bytedeco:ffmpeg:8.0.1-1.5.13:windows-x86_64-gpl")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    additionalRuntimeClasspath("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation(jarJar("io.heapy.kotaml:kotaml-jvm:0.108.0"))
     //不需要夹在built jar里  rdi client已有
@@ -252,11 +321,23 @@ dependencies {
         modImplementation dep
     }
     compileOnly "dev.ftb.mods:ftb-chunks-forge:2001.3.8"
+    testImplementation 'org.jetbrains.kotlin:kotlin-test'
     //jarjar(project(":c-mc-common"))
+}
+
+tasks.register('extractMediaProcNatives', Sync) {
+    from({
+        configurations.clientLegacyClasspath.files
+                .findAll { it.name.endsWith('-windows-x86_64-gpl.jar') }
+                .collect { zipTree(it) }
+    })
+    include 'org/bytedeco/ffmpeg/windows-x86_64-gpl/**'
+    into mediaProcNativeRootDir
 }
 
 tasks.matching { it.name == 'runClient' || it.name == 'runClientAnother' }.configureEach {
     dependsOn tasks.named('patchArchitecturyMixin')
+    dependsOn tasks.named('extractMediaProcNatives')
 }
 
 jar {
@@ -354,5 +435,11 @@ tasks.register("runClientAnother") {
     description = "Run Minecraft client with another player name and RDI play arg"
     dependsOn("runClient")
 }
-
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
+        excludeDirs += file('run')
+    }
+}
 project(':c-mc-common').ext.registerClientCopyTask(project)

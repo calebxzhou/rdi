@@ -34,7 +34,8 @@ public abstract class mLimitEntitiesInSection<T extends EntityAccess> {
                 .filter(Entity.class::isInstance)
                 .map(Entity.class::cast)
                 .filter(it -> !(it instanceof Player))
+                .filter(it -> !it.isRemoved())
                 .min(Comparator.comparingInt(Entity::getId))
-                .ifPresent(Entity::discard);
+                .ifPresent(it -> it.setRemoved(Entity.RemovalReason.DISCARDED));
     }
 }

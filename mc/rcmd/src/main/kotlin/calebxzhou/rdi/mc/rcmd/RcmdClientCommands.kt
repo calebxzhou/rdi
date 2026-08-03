@@ -1,58 +1,56 @@
-package calebxzhou.rdi.mc.common2.rcmd.client;
+package calebxzhou.rdi.mc.rcmd
 
-import calebxzhou.rdi.mc.rcmd.RcmdCommandSpec;
-import calebxzhou.rdi.mc.rcmd.RcmdDispatchResult;
-import calebxzhou.rdi.mc.rcmd.RcmdDispatcher;
-import calebxzhou.rdi.mc.rcmd.RcmdResult;
+import calebxzhou.rdi.mc.rcmd.RcmdCommandSpec.Companion.builder
+import calebxzhou.rdi.mc.rcmd.RcmdResult.Companion.ok
 
-public final class RcmdClientCommands {
-    private static final RcmdDispatcher DISPATCHER = new RcmdDispatcher();
+object RcmdClientCommands {
+    private val DISPATCHER = RcmdDispatcher()
 
-    static {
+    init {
         DISPATCHER.register(
-                RcmdCommandSpec.builder("firmsection", "display", "set")
-                        .description("开关已设置持久子区块边框")
-                        .command(context -> toggleSetFirmSections((RcmdClientBridge) context.getSource()))
-                        .build()
-        );
+            builder("firmsection", "display", "set")
+                .description("开关已设置持久子区块边框")
+                .command(RcmdCommand { context: RcmdContext? -> toggleSetFirmSections(context!!.source as RcmdClientBridge) })
+                .build()
+        )
         DISPATCHER.register(
-                RcmdCommandSpec.builder("firmsection", "display", "now")
-                        .description("切换当前子区块边框")
-                        .command(context -> toggleNowFirmSection((RcmdClientBridge) context.getSource()))
-                        .build()
-        );
+            builder("firmsection", "display", "now")
+                .description("切换当前子区块边框")
+                .command(RcmdCommand { context: RcmdContext? -> toggleNowFirmSection(context!!.source as RcmdClientBridge) })
+                .build()
+        )
     }
-
-    private RcmdClientCommands() {
+    @JvmStatic
+    fun isRcmd(message: String?): Boolean =
+        message != null && message.startsWith("\\")
+    @JvmStatic
+    fun dispatch(bridge: RcmdClientBridge, message: String): RcmdDispatchResult {
+        return DISPATCHER.dispatch(bridge, message)
     }
-
-    public static RcmdDispatchResult dispatch(RcmdClientBridge bridge, String message) {
-        return DISPATCHER.dispatch(bridge, message);
-    }
-
-    public static void reply(RcmdClientBridge bridge, RcmdResult result) {
+    @JvmStatic
+    fun reply(bridge: RcmdClientBridge, result: RcmdResult?) {
         if (result == null || result.message().isEmpty()) {
-            return;
+            return
         }
-        for (var message : result.message().split("\\R")) {
+        for (message in result.message().split("\\R".toRegex()).dropLastWhile { it.isEmpty() }.toTypedArray()) {
             if (message.isEmpty()) {
-                continue;
+                continue
             }
             if (result.success()) {
-                bridge.sendFeedback(message);
+                bridge.sendFeedback(message)
             } else {
-                bridge.sendError(message);
+                bridge.sendError(message)
             }
         }
     }
 
-    private static RcmdResult toggleSetFirmSections(RcmdClientBridge bridge) {
-        var visible = bridge.toggleSetFirmSectionsVisible();
-        return RcmdResult.ok("已设定的持久子区块边框：" + (visible ? "显示" : "隐藏"));
+    private fun toggleSetFirmSections(bridge: RcmdClientBridge): RcmdResult {
+        val visible = bridge.toggleSetFirmSectionsVisible()
+        return ok("已设定的持久子区块边框：" + (if (visible) "显示" else "隐藏"))
     }
 
-    private static RcmdResult toggleNowFirmSection(RcmdClientBridge bridge) {
-        var visible = bridge.toggleNowFirmSectionVisible();
-        return RcmdResult.ok("当前子区块边框：" + (visible ? "显示" : "隐藏"));
+    private fun toggleNowFirmSection(bridge: RcmdClientBridge): RcmdResult {
+        val visible = bridge.toggleNowFirmSectionVisible()
+        return ok("当前子区块边框：" + (if (visible) "显示" else "隐藏"))
     }
 }

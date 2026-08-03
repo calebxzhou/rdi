@@ -20,14 +20,12 @@ import androidx.compose.ui.unit.sp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.FlowRowV
-import calebxzau.rdi.client.ui.RowV
 import calebxzau.rdi.client.ui.asIconText
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.millisToHumanDateTime
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.model.uiModKey
-import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.service.ClientTaskManager

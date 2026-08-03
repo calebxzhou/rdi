@@ -11,14 +11,15 @@ internal static partial class UiLibraryUpdater
         TypeInfoResolver = UpdaterJsonContext.Default
     };
 
-    public static async Task TryUpdateAsync(
+    public static async Task<UiLibraryUpdateResult> TryUpdateAsync(
         string primaryUrl,
         string launcherRoot,
         Action<string> writeInfo,
         Action<string> writeWarning,
         Action<FileDownloadProgress> reportProgress,
         bool useBackupApi,
-        string? playerIpv4)
+        string? playerIpv4,
+        Func<LibraryRecoveryPrompt, bool>? promptRecovery = null)
     {
         var backupUrl = useBackupApi ? await ResolveBackupUrl(primaryUrl, playerIpv4, writeInfo) : null;
         var apiUrls = new[] { backupUrl, primaryUrl }
@@ -31,19 +32,19 @@ internal static partial class UiLibraryUpdater
         if (manifest is null)
         {
             writeWarning("无法获取UI库信息，将使用本地版本启动");
-            return;
+            return UiLibraryUpdateResult.LocalVersionAvailable;
         }
         if (!IsValidManifest(manifest))
         {
             writeWarning("UI库信息为空或无效，将使用本地版本启动");
-            return;
+            return UiLibraryUpdateResult.LocalVersionAvailable;
         }
 
         var libDirectory = Path.Combine(launcherRoot, "lib");
         if (IsCurrent(libDirectory, manifest))
         {
             writeInfo("UI库已是最新版本");
-            return;
+            return UiLibraryUpdateResult.UpToDate;
         }
 
         var updateId = Guid.NewGuid().ToString("N");
@@ -68,7 +69,18 @@ internal static partial class UiLibraryUpdater
                     throw new InvalidDataException($"{name}下载或校验失败");
             }
 
-            SwitchLibraryDirectory(libDirectory, stagingDirectory, backupDirectory);
+            var switchResult = await LibrarySwitchRecovery.SwitchAsync(
+                libDirectory,
+                stagingDirectory,
+                backupDirectory,
+                writeInfo,
+                writeWarning,
+                promptRecovery);
+            if (switchResult == LibrarySwitchResult.LaunchAborted)
+            {
+                writeInfo("UI库恢复未完成，本次不再启动客户端");
+                return UiLibraryUpdateResult.LaunchAborted;
+            }
             writeInfo("UI库更新完成");
 
             if (Directory.Exists(backupDirectory))
@@ -82,10 +94,12 @@ internal static partial class UiLibraryUpdater
                     writeWarning($"旧UI库清理失败: {exception.Message}");
                 }
             }
+            return UiLibraryUpdateResult.Updated;
         }
         catch (Exception exception)
         {
             writeWarning($"UI库更新失败，将使用本地版本启动: {exception.Message}");
+            return UiLibraryUpdateResult.LocalVersionAvailable;
         }
         finally
         {
@@ -231,22 +245,6 @@ internal static partial class UiLibraryUpdater
         }
         File.Delete(targetPath);
         return false;
-    }
-
-    private static void SwitchLibraryDirectory(string libDirectory, string stagingDirectory, string backupDirectory)
-    {
-        if (Directory.Exists(libDirectory))
-            Directory.Move(libDirectory, backupDirectory);
-        try
-        {
-            Directory.Move(stagingDirectory, libDirectory);
-        }
-        catch
-        {
-            if (Directory.Exists(backupDirectory) && !Directory.Exists(libDirectory))
-                Directory.Move(backupDirectory, libDirectory);
-            throw;
-        }
     }
 
     private static string Sha1(string path)

@@ -1,6 +1,7 @@
 package calebxzhou.rdi.mc.client.mixin;
 
-import calebxzhou.rdi.mc.client.rcmd.RcmdClientCommands;
+import calebxzhou.rdi.mc.client.rcmd.RcmdClientBridge201;
+import calebxzhou.rdi.mc.rcmd.RcmdClientCommands;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.multiplayer.ClientPacketListener;
@@ -23,11 +24,11 @@ public class mRcmdChatScreen {
             return;
         }
         var minecraft = Minecraft.getInstance();
-        var result = RcmdClientCommands.dispatch(minecraft, message);
+        var result = RcmdClientCommands.dispatch(new RcmdClientBridge201(minecraft), message);
         if (!result.found()) {
             connection.sendChat(message);
             return;
         }
-        RcmdClientCommands.reply(minecraft, result.result());
+        RcmdClientCommands.reply(new RcmdClientBridge201(minecraft), result.result());
     }
 }

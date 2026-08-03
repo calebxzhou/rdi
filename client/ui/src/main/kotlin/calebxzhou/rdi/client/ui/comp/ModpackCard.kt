@@ -19,7 +19,7 @@ import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.DEFAULT_MODPACK_ICON
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.asIconText
-import calebxzhou.rdi.client.ui.iconBitmap
+import calebxzhou.rdi.client.ui.iconBitmapPng
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.util.toFriendlyDateTime
@@ -259,7 +259,7 @@ private fun ModpackCardMeta(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Image(
-                    bitmap = iconBitmap("grass_block"),
+                    bitmap = iconBitmapPng("grass_block"),
                     contentDescription = "MC版本",
                     modifier = Modifier.size(18.dp)
                 )
@@ -308,7 +308,7 @@ private fun ModpackCardMeta(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Image(
-                bitmap = iconBitmap("grass_block"),
+                bitmap = iconBitmapPng("grass_block"),
                 contentDescription = "MC版本",
                 modifier = Modifier.size(18.dp)
             )
@@ -359,7 +359,7 @@ private fun ModpackLoaderIcon(modloader: ModLoader) {
             color = MaterialTheme.colorScheme.surfaceVariant
         ) {
             Image(
-                bitmap = iconBitmap(iconName),
+                bitmap = iconBitmapPng(iconName),
                 contentDescription = modloader.cardLabel,
                 modifier = Modifier.padding(4.dp).size(14.dp)
             )

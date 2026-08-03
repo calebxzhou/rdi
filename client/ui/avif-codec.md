@@ -12,7 +12,7 @@ The launcher currently converts eligible PNG files to JPEG bytes while keeping t
 - add the runtime JARs to Minecraft's launch classpath;
 - decode disguised AVIF files in supported Minecraft clients through version-appropriate adapters/mixins.
 
-No AVIF implementation code has been authorized or written yet. Before changing code, present a concrete implementation plan and obtain explicit user approval.
+The implementation is now authorized and the first vertical slice is in place: `mediaproc` owns AVIF detection/encode/decode, and the 1.21.1 NeoForge client has a `NativeImage.read()` adapter. Production-classloader and visual resource-pack validation remain separate verification steps.
 
 ## Repository and collaboration constraints
 
@@ -178,7 +178,7 @@ NativeImage.read(@Nullable Format, ByteBuffer)
 
 The generated NeoForge source is at:
 
-- `client/mc/1.21.1-neoforge/build/moddev/artifacts/neoforge-21.1.228-sources/com/mojang/blaze3d/platform/NativeImage.java`
+- `client/mc/1.21.1-neoforge/build/moddev/artifacts/neoforge-21.1.233-sources/com/mojang/blaze3d/platform/NativeImage.java`
 
 Inject at `HEAD`:
 
@@ -188,9 +188,15 @@ Inject at `HEAD`:
 4. Allocate a `NativeImage` and bulk-copy the decoded pixels in the exact byte order expected by `NativeImage`.
 5. Set the callback return value.
 
-Avoid calling `setPixelRGBA()` once per pixel if direct bulk copy can be implemented safely; per-pixel JNI/native access can make resource reloads slow.
+The implemented adapter is:
 
-`PngInfo.fromBytes()` is separately used for multiplayer server icons. The current source search showed no ordinary resource texture use outside `NativeImage`, so the `NativeImage.read()` adapter is the primary 1.21.1 texture Seam. Re-check this against the exact NeoForge version before editing.
+- `client/mc/1.21.1-neoforge/src/main/kotlin/calebxzhou/rdi/mc/client/texture/AvifNativeImageAdapter.kt`;
+- `client/mc/1.21.1-neoforge/src/main/java/calebxzhou/rdi/mc/client/mixin/mNativeImage.java`;
+- `client/mc/1.21.1-neoforge/src/main/kotlin/calebxzhou/rdi/mc/client/texture/RdiNativeImagePixels.kt`.
+
+It recognizes AVIF from the `ftyp` brands, preserves the caller's `ByteBuffer` state, accepts RGBA output, bounds input to64MiB, decodes through `mediaproc`, allocates a native RGBA image and bulk-copies the pixel buffer. Avoid calling `setPixelRGBA()` once per pixel; per-pixel JNI/native access can make resource reloads slow.
+
+`PngInfo.fromBytes()` is separately used for multiplayer server icons. The current source search showed no ordinary resource texture use outside `NativeImage`, so the `NativeImage.read()` adapter is the primary 1.21.1 texture Seam. The adapter is compiled against the exact NeoForge21.1.233 source set.
 
 ### Minecraft 1.20.1 Forge
 
@@ -222,12 +228,13 @@ Install only the minimal game runtime into a stable launcher-managed libraries d
 - `javacpp-1.5.13.jar`;
 - `ffmpeg-8.0.1-1.5.13.jar`;
 - `ffmpeg-8.0.1-1.5.13-windows-x86_64-gpl.jar`;
+- `kotlinx-coroutines-core-jvm-1.11.0.jar` because the shared media API already uses coroutine synchronization for bounded work;
 - the small RDI AVIF runtime/adapter JAR needed by the game;
 - `javacv-1.5.13.jar` only if game-side code truly uses JavaCV. Prefer direct FFmpeg presets so the game does not inherit JavaCV's unrelated transitive wrappers.
 
 Do not reference Gradle cache paths or developer-machine paths. The launcher must install, validate and repair these files like other launch libraries.
 
-Important unresolved risk: modern NeoForge uses layered module/class loaders. Adding the JARs only to ordinary `-cp` may not make them visible to transformed mod classes. Prove visibility with a minimal 1.21.1 launch vertical slice before rolling the runtime out to every version. If ordinary classpath visibility fails, adapt the modern module-path/library wiring rather than duplicating FFmpeg inside every mod JAR.
+The launcher now checks both Opus and AVIF decode readiness before adding the existing single media classpath. The 1.21.1 dev launch proved that the transformed mod classloader can resolve JavaCPP, FFmpeg and coroutines; the production-installed launcher path still needs its release-library validation. If ordinary `-cp` visibility fails there, adapt the modern module-path/library wiring rather than duplicating FFmpeg inside every mod JAR.
 
 ## Compatibility consequences
 
@@ -242,17 +249,15 @@ Do not describe this as generally compatible PNG compression.
 
 ## Recommended implementation order
 
-After explicit user approval:
+Completed or in progress after approval:
 
-1. Add focused `mediaproc` tests for AVIF signature detection and RGBA split/merge behavior.
-2. Implement opaque single-stream AVIF encode/decode with the low-level FFmpeg API.
-3. Add the second lossless alpha stream and round-trip tests.
-4. Connect PNG preprocessing while retaining the original PNG on failure.
-5. Install the minimal Windows x64 FFmpeg runtime through the launcher.
-6. Add the 1.21.1 `NativeImage.read()` adapter and prove classloader visibility in a real launch.
-7. Validate ordinary PNG, existing disguised JPEG, opaque AVIF, binary-alpha AVIF, gradient-alpha AVIF and malformed AVIF.
-8. Port the modern adapter to 1.20.1.
-9. Add the legacy `ImageReaderSpi` adapter for 1.7.10 and 1.12.2.
+1. `mediaproc` AVIF signature detection, RGBA split/merge and alpha round-trip tests are present.
+2. Low-level FFmpeg AVIF encode/decode is present, including the two-stream alpha form.
+3. PNG preprocessing and the launcher media runtime remain backward-compatible; encode failure still returns the original PNG.
+4. The 1.21.1 `NativeImage.read()` adapter and bulk RGBA Mixin are present. A real NeoForge client launch resolved JavaCPP, FFmpeg and coroutines; the Mixin transformed `NativeImage.read()` successfully.
+5. A temporary resource pack containing AVIF bytes under a `.png` texture path loaded through the production resource reload without a texture/decode error. Expand the fixture to cover opaque, binary-alpha, gradient-alpha and malformed AVIF cases.
+6. Port the modern adapter to 1.20.1.
+7. Add the legacy `ImageReaderSpi` adapter for 1.7.10 and 1.12.2.
 
 The smallest useful vertical slice is `mediaproc` plus launcher runtime plus Minecraft 1.21.1. Do not begin with every Minecraft version simultaneously.
 

@@ -45,7 +45,7 @@ import calebxzhou.rdi.client.model.ModrinthProjectVersionFileVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
 import calebxzhou.rdi.client.model.RemoteModCardVo
 import calebxzhou.rdi.client.model.RemoteModSource
-import calebxzhou.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
