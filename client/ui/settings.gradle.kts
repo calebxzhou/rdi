@@ -14,6 +14,7 @@ include(
     ":assets",
     ":assets:fonts",
     ":code-editor",
+    ":database",
     ":misc",
     ":model",
     ":net",
@@ -30,6 +31,7 @@ include(
 )
 project(":assets").projectDir = file("assets")
 project(":code-editor").projectDir = file("code-editor")
+project(":database").projectDir = file("database")
 project(":misc").projectDir = file("../../common/misc")
 project(":model").projectDir = file("../../common/model")
 project(":net").projectDir = file("../../common/net")

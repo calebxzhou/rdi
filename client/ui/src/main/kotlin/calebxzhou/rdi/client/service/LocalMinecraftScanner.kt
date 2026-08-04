@@ -1,120 +1,150 @@
 package calebxzhou.rdi.client.service
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import java.io.IOException
-import java.nio.file.Files
-import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
-import java.nio.file.attribute.BasicFileAttributes
+import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
-data class LocalMinecraftInstallation(
-    val path: Path,
-    val runtimeRoot: Boolean,
-    val gameInstance: Boolean
-)
+data class LocalMinecraftInstallation(val path: Path)
 
-class LocalMinecraftScanner {
+fun interface FixedDriveProvider {
+    fun fixedDrives(): Result<List<Path>>
+}
+
+interface MinecraftInstallationScanner {
     suspend fun scan(
         roots: List<Path>,
-        onFound: suspend (LocalMinecraftInstallation) -> Unit = {}
-    ): Result<List<LocalMinecraftInstallation>> = runCatching {
-        coroutineScope {
-            val pendingRoots = roots
-                .map { it.toAbsolutePath().normalize() }
-                .distinct()
-                .filter { Files.isDirectory(it, NOFOLLOW_LINKS) }
-            if (pendingRoots.isEmpty()) return@coroutineScope emptyList()
-            val queue = Channel<Path>(Channel.UNLIMITED)
-            val remaining = AtomicInteger(pendingRoots.size)
-            val found = ConcurrentHashMap<Path, LocalMinecraftInstallation>()
-            val dispatcher = Dispatchers.IO.limitedParallelism(workerCount())
-            pendingRoots.forEach { queue.send(it) }
-            val workers = List(workerCount()) {
-                launch(dispatcher) {
-                    for (directory in queue) {
-                        try {
-                            val installation = recognize(directory)
-                            if (installation != null && found.putIfAbsent(installation.path, installation) == null) {
-                                onFound(installation)
+        onFound: suspend (Path) -> Unit = {}
+    ): Result<List<Path>>
+}
+
+class WindowsFixedDriveProvider : FixedDriveProvider {
+    override fun fixedDrives(): Result<List<Path>> = runCatching {
+        if (!isWindows()) return@runCatching emptyList()
+        java.io.File.listRoots()
+            .filter { com.sun.jna.platform.win32.Kernel32.INSTANCE.GetDriveType(it.path) == com.sun.jna.platform.win32.WinBase.DRIVE_FIXED }
+            .map { it.toPath().toAbsolutePath().normalize() }
+            .distinctBy(::pathKey)
+    }
+}
+
+class LocalMinecraftScanner(
+    private val enumerator: MinecraftDirectoryEnumerator = WindowsMinecraftDirectoryEnumerator(),
+    private val validator: MinecraftInstallationValidator = DefaultMinecraftInstallationValidator(),
+    private val maxWorkersPerDrive: Int = MAX_WORKERS_PER_DRIVE,
+    private val enumerationSemaphore: Semaphore = Semaphore(MAX_GLOBAL_ENUMERATORS)
+) : MinecraftInstallationScanner {
+    override suspend fun scan(
+        roots: List<Path>,
+        onFound: suspend (Path) -> Unit
+    ): Result<List<Path>> {
+        return try {
+            val drives = roots.map { it.toAbsolutePath().normalize() }
+                .distinctBy(::pathKey)
+            val found = ConcurrentHashMap<String, Path>()
+            coroutineScope {
+                drives.map { drive ->
+                    async(Dispatchers.IO) {
+                        scanDrive(drive, drives, found, onFound)
+                    }
+                }.awaitAll().forEach { result ->
+                    result.getOrThrow()
+                }
+            }
+            Result.success(found.values.toList())
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Throwable) {
+            Result.failure(cause)
+        }
+    }
+
+    suspend fun scan(roots: List<Path>): Result<List<Path>> = scan(roots, {})
+
+    private suspend fun scanDrive(
+        drive: Path,
+        fixedDriveRoots: List<Path>,
+        found: ConcurrentHashMap<String, Path>,
+        onFound: suspend (Path) -> Unit
+    ): Result<Unit> {
+        return try {
+            coroutineScope {
+                val queue = Channel<Path>(Channel.UNLIMITED)
+                val pending = AtomicInteger(1)
+                val rootFailure = AtomicReference<Throwable?>()
+                queue.send(drive)
+
+                val workers = List(maxWorkersPerDrive.coerceIn(1, MAX_WORKERS_PER_DRIVE)) {
+                    launch(Dispatchers.IO) {
+                        for (directory in queue) {
+                            try {
+                                val entries = enumerationSemaphore.withPermit {
+                                    enumerator.enumerate(directory)
+                                }
+                                entries.fold(
+                                    onSuccess = { children ->
+                                        children.forEach { child ->
+                                            val childName = child.path.fileName?.toString() ?: return@forEach
+                                            if (childName.equals(".minecraft", ignoreCase = true)) {
+                                                when (val validation = validator.validateDiscoveredCandidate(child.path, fixedDriveRoots)) {
+                                                    is MinecraftInstallationValidation.Valid -> {
+                                                        val realPath = validation.realPath
+                                                        if (found.putIfAbsent(pathKey(realPath), realPath) == null) {
+                                                            onFound(realPath)
+                                                        }
+                                                    }
+
+                                                    MinecraftInstallationValidation.Missing,
+                                                    MinecraftInstallationValidation.Invalid,
+                                                    MinecraftInstallationValidation.Inaccessible -> Unit
+                                                }
+                                                return@forEach
+                                            }
+                                            if (child.isReparsePoint) return@forEach
+                                            pending.incrementAndGet()
+                                            queue.send(child.path)
+                                        }
+                                    },
+                                    onFailure = { cause ->
+                                        if (directory == drive) rootFailure.compareAndSet(null, cause)
+                                    }
+                                )
+                            } finally {
+                                if (pending.decrementAndGet() == 0) queue.close()
                             }
-                            if (installation?.gameInstance == true && !installation.runtimeRoot) continue
-                            childDirectories(directory).forEach { child ->
-                                if (
-                                    installation?.runtimeRoot == true &&
-                                    child.fileName.toString() in RUNTIME_HEAVY_DIRECTORIES
-                                ) return@forEach
-                                remaining.incrementAndGet()
-                                queue.send(child)
-                            }
-                        } finally {
-                            if (remaining.decrementAndGet() == 0) queue.close()
                         }
                     }
                 }
+                workers.joinAll()
+                rootFailure.get()?.let { throw IOException("Cannot enumerate fixed drive $drive", it) }
+                Result.success(Unit)
             }
-            workers.joinAll()
-            found.values.toList()
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Throwable) {
+            Result.failure(cause)
         }
     }
-
-    fun recognize(path: Path): LocalMinecraftInstallation? {
-        if (!Files.isDirectory(path, NOFOLLOW_LINKS)) return null
-        val runtimeRoot = RUNTIME_DIRECTORIES.all { Files.isDirectory(path.resolve(it), NOFOLLOW_LINKS) }
-        val modsDirectory = Files.isDirectory(path.resolve("mods"), NOFOLLOW_LINKS)
-        val gameInstance = modsDirectory && (
-            path.fileName?.toString().equals(".minecraft", ignoreCase = true) ||
-                path.parent?.fileName?.toString().equals("versions", ignoreCase = true) ||
-                INSTANCE_MARKERS.any { Files.exists(path.resolve(it), NOFOLLOW_LINKS) }
-            )
-        return if (runtimeRoot || gameInstance) {
-            LocalMinecraftInstallation(path.toAbsolutePath().normalize(), runtimeRoot, gameInstance)
-        } else {
-            null
-        }
-    }
-
-    private fun childDirectories(directory: Path): List<Path> = try {
-        Files.newDirectoryStream(directory).use { entries ->
-            buildList {
-                entries.forEach { entry ->
-                    try {
-                        val attributes = Files.readAttributes(entry, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
-                        if (attributes.isDirectory && !attributes.isSymbolicLink && !attributes.isOther) add(entry)
-                    } catch (_: IOException) {
-                    } catch (_: SecurityException) {
-                    }
-                }
-            }
-        }
-    } catch (_: IOException) {
-        emptyList()
-    } catch (_: SecurityException) {
-        emptyList()
-    }
-
-    private fun workerCount(): Int =
-        (Runtime.getRuntime().availableProcessors() * 2).coerceIn(8, 32)
 
     private companion object {
-        val RUNTIME_DIRECTORIES = listOf("assets", "libraries", "versions")
-        val RUNTIME_HEAVY_DIRECTORIES = setOf("assets", "libraries")
-        val INSTANCE_MARKERS = listOf(
-            "options.txt",
-            "instance.cfg",
-            "mmc-pack.json",
-            "minecraftinstance.json",
-            "instance.json",
-            "launcher_profiles.json",
-            "manifest.json",
-            ".hmclversion.json",
-            "hmclversion.json",
-            "PCL"
-        )
+        const val MAX_WORKERS_PER_DRIVE = 4
+        const val MAX_GLOBAL_ENUMERATORS = 12
     }
 }
+
+private fun pathKey(path: Path): String =
+    path.toAbsolutePath().normalize().toString().lowercase(Locale.ROOT)
+
+private fun isWindows(): Boolean = System.getProperty("os.name").contains("Windows", ignoreCase = true)

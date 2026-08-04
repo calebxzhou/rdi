@@ -1,0 +1,35 @@
+CREATE TABLE minecraft_installation (
+    path TEXT COLLATE NOCASE NOT NULL PRIMARY KEY,
+    first_discovered_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL
+);
+
+CREATE TABLE minecraft_scan_state (
+    id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+    last_full_scan_at INTEGER NOT NULL
+);
+
+selectAll:
+SELECT path, first_discovered_at, last_seen_at
+FROM minecraft_installation
+ORDER BY path;
+
+upsertInstallation:
+INSERT OR REPLACE INTO minecraft_installation(path, first_discovered_at, last_seen_at)
+VALUES (:path, COALESCE(
+    (SELECT first_discovered_at FROM minecraft_installation WHERE path = :path),
+    :firstDiscoveredAt
+), :lastSeenAt);
+
+deleteByPath:
+DELETE FROM minecraft_installation
+WHERE path = ?;
+
+selectLastFullScanAt:
+SELECT last_full_scan_at
+FROM minecraft_scan_state
+WHERE id = 1;
+
+upsertLastFullScanAt:
+INSERT OR REPLACE INTO minecraft_scan_state(id, last_full_scan_at)
+VALUES (1, :scannedAt);

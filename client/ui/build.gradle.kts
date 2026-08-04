@@ -109,6 +109,7 @@ dependencies {
     implementation(project(":assets"))
     runtimeOnly(project(":assets:fonts"))
     implementation(project(":code-editor"))
+    implementation(project(":database"))
     implementation(project(":misc"))
     implementation(project(":model"))
     implementation(project(":net"))
