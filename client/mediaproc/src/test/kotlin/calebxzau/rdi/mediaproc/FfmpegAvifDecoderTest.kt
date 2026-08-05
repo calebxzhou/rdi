@@ -114,6 +114,28 @@ class FfmpegAvifDecoderTest {
     }
 
     @Test
+    fun lowQualityPreservesGradientAlphaInSecondAvifStream() {
+        assumeWindowsX64()
+        val input = png(
+            width = 3,
+            height = 1,
+            pixels = intArrayOf(
+                0x00FF0000,
+                0x407F00FF,
+                0xC000FF00.toInt(),
+            ),
+        )
+
+        val encoded = runBlocking {
+            AvifCodec.encodePng(input, AvifQuality.LOW).getOrThrow()
+        }
+        val decoded = AvifCodec.decode(encoded).getOrThrow()
+
+        assertEquals(listOf(0x00, 0x40, 0xC0), (3 until decoded.pixels.size step 4)
+            .map { decoded.pixels[it].toInt() and 0xFF })
+    }
+
+    @Test
     fun encodeRejectsInvalidPng() {
         assumeWindowsX64()
         val result = runBlocking { AvifCodec.encodePng(byteArrayOf(1, 2, 3)) }

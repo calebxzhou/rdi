@@ -12,7 +12,7 @@ repositories {
 
 group = "calebxzhou.rdi"
 version = libs.versions.app.get()
-
+/*
 val javaVersion = 21
 
 java {
@@ -24,7 +24,7 @@ java {
 kotlin {
     jvmToolchain(javaVersion)
     compilerOptions.jvmTarget.set(JvmTarget.fromTarget(javaVersion.toString()))
-}
+}*/
 
 dependencies {
     implementation("org.bytedeco:javacv:1.5.13") {

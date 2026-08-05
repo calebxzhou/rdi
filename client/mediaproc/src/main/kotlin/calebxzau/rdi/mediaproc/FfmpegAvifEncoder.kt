@@ -27,9 +27,10 @@ import org.bytedeco.ffmpeg.global.avformat.av_interleaved_write_frame
 import org.bytedeco.ffmpeg.global.avformat.av_write_trailer
 import org.bytedeco.ffmpeg.global.avformat.avio_close_dyn_buf
 import org.bytedeco.ffmpeg.global.avformat.avio_open_dyn_buf
-import org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_GRAY8
+import org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_GRAY10LE
 import org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_RGBA
-import org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_YUV444P
+import org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_YUV420P10LE
+import org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_YUV444P10LE
 import org.bytedeco.ffmpeg.global.avutil.AVCOL_PRI_BT709
 import org.bytedeco.ffmpeg.global.avutil.AVCOL_RANGE_JPEG
 import org.bytedeco.ffmpeg.global.avutil.AVCOL_SPC_BT709
@@ -62,10 +63,16 @@ internal object FfmpegAvifEncoder {
     private const val CPU_USED = 6
     private const val STILL_FRAME_RATE = 1
     private const val RGBA_CHANNELS = 4
+    private const val MAX_8_BIT_SAMPLE = 255
+    private const val MAX_10_BIT_SAMPLE = 1023
+    private const val SAMPLE_ROUNDING = MAX_8_BIT_SAMPLE / 2
 
-    fun encodePng(input: ByteArray): Result<ByteArray> = runCatching {
+    fun encodePng(
+        input: ByteArray,
+        quality: AvifQuality = AvifQuality.HIGH,
+    ): Result<ByteArray> = runCatching {
         FfmpegAvifNative.requireReady()
-        decodePng(input).let(::encodeRgba)
+        decodePng(input).let { encodeRgba(it, quality) }
     }
 
     private fun decodePng(input: ByteArray): DecodedRgbaImage {
@@ -107,7 +114,7 @@ internal object FfmpegAvifEncoder {
         return target
     }
 
-    private fun encodeRgba(image: DecodedRgbaImage): ByteArray {
+    private fun encodeRgba(image: DecodedRgbaImage, quality: AvifQuality): ByteArray {
         val hasAlpha = (3 until image.pixels.size step RGBA_CHANNELS)
             .any { image.pixels[it].toInt() and 0xFF != 0xFF }
 
@@ -144,7 +151,7 @@ internal object FfmpegAvifEncoder {
                 formatContext,
                 image.width,
                 image.height,
-                AV_PIX_FMT_YUV444P,
+                quality.colorPixelFormat,
                 COLOR_CRF,
             )
             colorEncoder = color.context
@@ -154,7 +161,7 @@ internal object FfmpegAvifEncoder {
                     formatContext,
                     image.width,
                     image.height,
-                    AV_PIX_FMT_GRAY8,
+                    AV_PIX_FMT_GRAY10LE,
                     ALPHA_CRF,
                 ).also { alphaEncoder = it.context }
             } else {
@@ -166,7 +173,7 @@ internal object FfmpegAvifEncoder {
                 "write AVIF header",
             )
 
-            encodeColor(image, color, formatContext)
+            encodeColor(image, color, quality.colorPixelFormat, formatContext)
             if (alpha != null) encodeAlpha(image, alpha, formatContext)
 
             FfmpegAvifNative.check(av_write_trailer(formatContext), "write AVIF trailer")
@@ -214,6 +221,12 @@ internal object FfmpegAvifEncoder {
         val context: AVCodecContext,
         val stream: AVStream,
     )
+
+    private val AvifQuality.colorPixelFormat: Int
+        get() = when (this) {
+            AvifQuality.HIGH -> AV_PIX_FMT_YUV444P10LE
+            AvifQuality.LOW -> AV_PIX_FMT_YUV420P10LE
+        }
 
     private fun createEncoder(
         formatContext: AVFormatContext,
@@ -279,10 +292,11 @@ internal object FfmpegAvifEncoder {
     private fun encodeColor(
         image: DecodedRgbaImage,
         encoder: EncoderState,
+        pixelFormat: Int,
         formatContext: AVFormatContext,
     ) {
         val source = allocateFrame(AV_PIX_FMT_RGBA, image.width, image.height)
-        val converted = allocateFrame(AV_PIX_FMT_YUV444P, image.width, image.height)
+        val converted = allocateFrame(pixelFormat, image.width, image.height)
         var scaler: SwsContext? = null
         try {
             copyPackedRows(source, image.pixels, image.width * RGBA_CHANNELS)
@@ -292,12 +306,12 @@ internal object FfmpegAvifEncoder {
                 AV_PIX_FMT_RGBA,
                 image.width,
                 image.height,
-                AV_PIX_FMT_YUV444P,
+                pixelFormat,
                 SWS_BILINEAR,
                 null as org.bytedeco.ffmpeg.swscale.SwsFilter?,
                 null as org.bytedeco.ffmpeg.swscale.SwsFilter?,
                 null as DoublePointer?,
-            ) ?: error("Unable to allocate RGBA to YUV444P converter")
+            ) ?: error("Unable to allocate RGBA to 10-bit YUV converter")
             check(
                 sws_scale(
                     scaler,
@@ -308,7 +322,7 @@ internal object FfmpegAvifEncoder {
                     converted.data(),
                     converted.linesize(),
                 ) == image.height,
-            ) { "FFmpeg failed to convert RGBA to YUV444P" }
+            ) { "FFmpeg failed to convert RGBA to 10-bit YUV" }
             converted.pts(0)
             encodeFrame(encoder, converted, formatContext)
             flushEncoder(encoder, formatContext)
@@ -324,14 +338,18 @@ internal object FfmpegAvifEncoder {
         encoder: EncoderState,
         formatContext: AVFormatContext,
     ) {
-        val alpha = allocateFrame(AV_PIX_FMT_GRAY8, image.width, image.height)
+        val alpha = allocateFrame(AV_PIX_FMT_GRAY10LE, image.width, image.height)
         try {
-            val row = ByteArray(image.width)
             repeat(image.height) { y ->
+                val rowOffset = y.toLong() * alpha.linesize(0)
                 repeat(image.width) { x ->
-                    row[x] = image.pixels[(y * image.width + x) * RGBA_CHANNELS + 3]
+                    val alpha8 = image.pixels[(y * image.width + x) * RGBA_CHANNELS + 3].toInt() and
+                        MAX_8_BIT_SAMPLE
+                    val alpha10 = (alpha8 * MAX_10_BIT_SAMPLE + SAMPLE_ROUNDING) / MAX_8_BIT_SAMPLE
+                    val sampleOffset = rowOffset + x * 2L
+                    alpha.data(0).put(sampleOffset, (alpha10 and 0xFF).toByte())
+                    alpha.data(0).put(sampleOffset + 1, (alpha10 ushr 8).toByte())
                 }
-                alpha.data(0).position(y.toLong() * alpha.linesize(0)).put(row, 0, row.size)
             }
             alpha.pts(0)
             encodeFrame(encoder, alpha, formatContext)
@@ -355,7 +373,8 @@ internal object FfmpegAvifEncoder {
 
     private fun copyPackedRows(frame: AVFrame, pixels: ByteArray, rowBytes: Int) {
         repeat(frame.height()) { row ->
-            frame.data(0).position(row.toLong() * frame.linesize(0)).put(pixels, row * rowBytes, rowBytes)
+            frame.data(0).getPointer(row.toLong() * frame.linesize(0))
+                .put(pixels, row * rowBytes, rowBytes)
         }
     }
 

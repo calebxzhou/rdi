@@ -27,7 +27,7 @@ project(":rmcp-common").projectDir = file("../../../mc/rmcp/common")
 include(":rmcp-client")
 project(":rmcp-client").projectDir = file("../../../mc/rmcp/client")
 include(":mediaproc")
-project(":mediaproc").projectDir = file("../../ui/mediaproc")
+project(":mediaproc").projectDir = file("../../mediaproc")
 /*include(":ktutils-std")
 project(":ktutils-std").projectDir = file("../../../ktutils/std")*/
 include(":rcmd")

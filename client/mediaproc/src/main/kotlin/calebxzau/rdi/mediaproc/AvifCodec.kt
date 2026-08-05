@@ -4,6 +4,11 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.nio.ByteBuffer
 
+enum class AvifQuality {
+    HIGH,
+    LOW,
+}
+
 data class DecodedRgbaImage(
     val width: Int,
     val height: Int,
@@ -43,9 +48,12 @@ object AvifCodec {
             (FTYP_HEADER_SIZE until boxEnd step BRAND_SIZE).any { view.isAvifBrand(it) }
     }
 
-    fun encodePng(input: ByteArray): Result<ByteArray> =
+    fun encodePng(
+        input: ByteArray,
+        quality: AvifQuality = AvifQuality.HIGH,
+    ): Result<ByteArray> =
       //  encodeSemaphore.withPermit {
-            FfmpegAvifEncoder.encodePng(input)
+            FfmpegAvifEncoder.encodePng(input, quality)
        // }
 
     fun decode(input: ByteArray): Result<DecodedRgbaImage> =
