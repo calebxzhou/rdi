@@ -117,6 +117,8 @@ dependencies {
     implementation(project(":anvilrw"))
     implementation(project(":blessing-skin"))
     implementation(project(":mediaproc"))
+    implementation(project(":pack-proc"))
+    implementation(project(":mclaunch"))
     implementation(project(":mod-catalog"))
     implementation(project(":webview2"))
     implementation(project(":forgeguard"))

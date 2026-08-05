@@ -22,10 +22,12 @@ include(
     ":anvilrw",
     ":blessing-skin",
     ":mediaproc",
+    ":pack-proc",
     ":mod-catalog",
     ":mod-catalog-tools",
     ":webview2",
     ":forgeguard",
+    ":mclaunch",
     ":local-mc-proxy",
     ":mc-proxy"
 )
@@ -38,10 +40,12 @@ project(":net").projectDir = file("../../common/net")
 project(":archive").projectDir = file("../../common/archive")
 project(":anvilrw").projectDir = file("../../common/anvilrw")
 project(":blessing-skin").projectDir = file("blessing-skin")
-project(":mediaproc").projectDir = file("mediaproc")
+project(":mediaproc").projectDir = file("../mediaproc")
+project(":pack-proc").projectDir = file("../pack-proc")
 project(":mod-catalog").projectDir = file("mod-catalog")
 project(":mod-catalog-tools").projectDir = file("mod-catalog-tools")
 project(":webview2").projectDir = file("webview2")
 project(":forgeguard").projectDir = file("../../mc/forgeguard")
+project(":mclaunch").projectDir = file("../mclaunch")
 project(":local-mc-proxy").projectDir = file("../local-mc-proxy")
 project(":mc-proxy").projectDir = file("../../mc/proxy")

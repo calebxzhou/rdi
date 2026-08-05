@@ -1,130 +1,33 @@
 package calebxzhou.rdi.client.model
 
-import kotlinx.serialization.SerialName
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonElement
+import calebxzau.rdi.mclaunch.model.MojangArguments as MclaunchMojangArguments
+import calebxzau.rdi.mclaunch.model.MojangAssetIndex as MclaunchMojangAssetIndex
+import calebxzau.rdi.mclaunch.model.MojangAssetIndexFile as MclaunchMojangAssetIndexFile
+import calebxzau.rdi.mclaunch.model.MojangAssetObject as MclaunchMojangAssetObject
+import calebxzau.rdi.mclaunch.model.MojangDownloadArtifact as MclaunchMojangDownloadArtifact
+import calebxzau.rdi.mclaunch.model.MojangJavaVersion as MclaunchMojangJavaVersion
+import calebxzau.rdi.mclaunch.model.MojangLibrary as MclaunchMojangLibrary
+import calebxzau.rdi.mclaunch.model.MojangLibraryDownloads as MclaunchMojangLibraryDownloads
+import calebxzau.rdi.mclaunch.model.MojangLoggingConfig as MclaunchMojangLoggingConfig
+import calebxzau.rdi.mclaunch.model.MojangLoggingFile as MclaunchMojangLoggingFile
+import calebxzau.rdi.mclaunch.model.MojangRule as MclaunchMojangRule
+import calebxzau.rdi.mclaunch.model.MojangRuleAction as MclaunchMojangRuleAction
+import calebxzau.rdi.mclaunch.model.MojangRuleOs as MclaunchMojangRuleOs
+import calebxzau.rdi.mclaunch.model.MojangVersionDownloads as MclaunchMojangVersionDownloads
+import calebxzau.rdi.mclaunch.model.MojangVersionManifest as MclaunchMojangVersionManifest
 
-/**
- * Data classes mapping Mojang's version manifest JSON.
- */
-@Serializable
-data class MojangVersionManifest(
-	val id: String,
-	val type: String? = null,
-	val time: String? = null,
-	val releaseTime: String? = null,
-	val mainClass: String? = null,
-	val downloads: MojangVersionDownloads?=null,
-	val assetIndex: MojangAssetIndex?=null,
-	val assets: String? = null,
-	val complianceLevel: Int? = null,
-	val libraries: List<MojangLibrary> = emptyList(),
-	val logging: Map<String, MojangLoggingConfig>? = null,
-	val minimumLauncherVersion: Int? = null,
-	val arguments: MojangArguments = MojangArguments(),
-	val minecraftArguments: String? = null,
-	val inheritsFrom: String? = null,
-	val jar: String? = null,
-	val javaVersion: MojangJavaVersion? = null,
-)
-
-@Serializable
-data class MojangArguments(
-    val game: List<JsonElement> = emptyList(),
-    val jvm: List<JsonElement> = emptyList(),
-)
-
-@Serializable
-data class MojangVersionDownloads(
-	val client: MojangDownloadArtifact? = null,
-	@SerialName("client_mappings") val clientMappings: MojangDownloadArtifact? = null,
-	val server: MojangDownloadArtifact? = null,
-	@SerialName("server_mappings") val serverMappings: MojangDownloadArtifact? = null,
-)
-
-
-@Serializable
-data class MojangDownloadArtifact(
-	val sha1: String = "",
-	val size: Long = 0,
-	val url: String = "",
-    //如果是library 则path不可能为null
-	val path: String? = null,
-)
-
-@Serializable
-data class MojangAssetIndex(
-	val id: String,
-	val sha1: String,
-	val size: Long,
-	val totalSize: Long? = null,
-	val url: String,
-)
-
-@Serializable
-data class MojangAssetIndexFile(
-	val objects: Map<String, MojangAssetObject> = emptyMap(),
-)
-
-@Serializable
-data class MojangAssetObject(
-	val hash: String,
-	val size: Long,
-)
-
-@Serializable
-data class MojangLoggingConfig(
-	val argument: String,
-	val file: MojangLoggingFile,
-	val type: String,
-)
-
-@Serializable
-data class MojangLoggingFile(
-	val id: String,
-	val sha1: String,
-	val size: Long,
-	val url: String,
-)
-
-@Serializable
-data class MojangJavaVersion(
-	val component: String,
-	val majorVersion: Int,
-)
-
-@Serializable
-data class MojangLibrary(
-	val name: String,
-	val downloads: MojangLibraryDownloads = MojangLibraryDownloads(),
-	val rules: List<MojangRule>? = null,
-	val natives: Map<String, String>? = null,
-	val url: String? = null,
-	val checksums: List<String> = emptyList(),
-)
-
-@Serializable
-data class MojangLibraryDownloads(
-	val artifact: MojangDownloadArtifact? = null,
-	val classifiers: Map<String, MojangDownloadArtifact>? = null,
-)
-
-@Serializable
-data class MojangRule(
-	val action: MojangRuleAction,
-	val features: Map<String, Boolean>? = null,
-	val os: MojangRuleOs? = null,
-)
-
-@Serializable
-enum class MojangRuleAction {
-	allow,
-	disallow,
-}
-
-@Serializable
-data class MojangRuleOs(
-	val name: String? = null,
-	val arch: String? = null,
-	val version: String? = null,
-)
+typealias MojangVersionManifest = MclaunchMojangVersionManifest
+typealias MojangArguments = MclaunchMojangArguments
+typealias MojangVersionDownloads = MclaunchMojangVersionDownloads
+typealias MojangDownloadArtifact = MclaunchMojangDownloadArtifact
+typealias MojangAssetIndex = MclaunchMojangAssetIndex
+typealias MojangAssetIndexFile = MclaunchMojangAssetIndexFile
+typealias MojangAssetObject = MclaunchMojangAssetObject
+typealias MojangLoggingConfig = MclaunchMojangLoggingConfig
+typealias MojangLoggingFile = MclaunchMojangLoggingFile
+typealias MojangJavaVersion = MclaunchMojangJavaVersion
+typealias MojangLibrary = MclaunchMojangLibrary
+typealias MojangLibraryDownloads = MclaunchMojangLibraryDownloads
+typealias MojangRule = MclaunchMojangRule
+typealias MojangRuleAction = MclaunchMojangRuleAction
+typealias MojangRuleOs = MclaunchMojangRuleOs

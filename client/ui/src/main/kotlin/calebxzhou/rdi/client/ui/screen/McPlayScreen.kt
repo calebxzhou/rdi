@@ -39,7 +39,6 @@ import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.LocalMcProxyService
 import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.ensureDesktopLaunchLibraries
-import calebxzhou.rdi.client.service.ensureGtnhRuntime
 import calebxzhou.rdi.client.service.startDesktop
 import calebxzhou.rdi.client.service.syncHostExtraMods
 import calebxzhou.rdi.client.service.syncHostManagedBaseMods
@@ -57,7 +56,6 @@ import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.common.model.FORGEGUARD_AGENT_FILE_NAME
-import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.model.supportsForgeguard
 
@@ -132,13 +130,14 @@ fun McPlayScreen(
                 session.appendLog("[RDI] RDI核心Mod已同步")
                 if (session.stopRequested) return@launchSessionTask
 
-                if (args.mcVer == McVersion.V071) {
-                    session.appendLog("[RDI] 检查GTNH运行库...")
-                    GameService.ensureGtnhRuntime(GameService.versionListDir.resolve(args.versionId)) { progress ->
-                        session.appendLog("[RDI] $progress")
-                    }.getOrThrow()
-                    session.appendLog("[RDI] GTNH运行库已就绪")
-                }
+                session.appendLog("[RDI] 检查${args.modLoader}安装...")
+                GameService.ensureDesktopLaunchLoader(
+                    args.mcVer,
+                    args.modLoader,
+                    onProgress = { progress -> session.appendLog("[RDI] $progress") },
+                    isCancelled = { session.stopRequested }
+                ).getOrThrow()
+                session.appendLog("[RDI] ${args.modLoader}已就绪")
                 if (session.stopRequested) return@launchSessionTask
 
                 session.appendLog("[RDI] 检查游戏运行库...")
@@ -146,6 +145,13 @@ fun McPlayScreen(
                     session.appendLog("[RDI] $progress")
                 }.getOrThrow()
                 session.appendLog("[RDI] 游戏运行库已就绪")
+                if (session.stopRequested) return@launchSessionTask
+
+                session.appendLog("[RDI] 检查游戏资源...")
+                GameService.ensureDesktopLaunchAssets(args.mcVer) { progress ->
+                    session.appendLog("[RDI] $progress")
+                }.getOrThrow()
+                session.appendLog("[RDI] 游戏资源已就绪")
                 if (session.stopRequested) return@launchSessionTask
 
                 val launchJvmArgs = buildList {

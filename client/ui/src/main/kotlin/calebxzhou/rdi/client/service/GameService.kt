@@ -6,6 +6,8 @@ import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.client.model.*
 import calebxzau.rdi.client.ui.loadResourceStream
 import calebxzau.rdi.client.ui.exportResource
+import calebxzau.rdi.mclaunch.hostNativeArch
+import calebxzau.rdi.mclaunch.rulesAllow
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.model.LibraryOsArch.Companion.detectHostOs
@@ -16,23 +18,23 @@ import calebxzhou.rdi.common.net.LocalArtifactReuse
 import calebxzhou.rdi.common.net.downloadFileFrom
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.runInline
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.builtins.ListSerializer
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import java.util.*
 import java.util.zip.ZipFile
 
 object GameService {
     private val lgr by Loggers
     var serverStarted = false
+    private val loaderInstalls = mutableMapOf<String, CompletableDeferred<Result<Unit>>>()
 
     private val libsDir get() = ClientDirs.librariesDir
     private val assetsDir get() = ClientDirs.assetsDir
@@ -41,19 +43,6 @@ object GameService {
     val versionListDir get() = ClientDirs.versionsDir
 
     private val hostOs = detectHostOs()
-    private val hostOsArchRaw = System.getProperty("os.arch")?.lowercase(Locale.ROOT) ?: ""
-    private val hostOsVersionRaw = System.getProperty("os.version") ?: ""
-    private val hostNativeArch = if (
-        hostOsArchRaw.contains("64") ||
-        hostOsArchRaw.contains("amd64") ||
-        hostOsArchRaw.contains("x86_64") ||
-        hostOsArchRaw.contains("aarch64")
-    ) {
-        "64"
-    } else {
-        "32"
-    }
-    private val launcherFeatures: Map<String, Boolean> = emptyMap()
     private val locale = Locale.SIMPLIFIED_CHINESE
     private val mirrors = mapOf(
         "https://maven.neoforged.net/releases" to "https://bmclapi2.bangbang93.com/maven",
@@ -501,18 +490,94 @@ object GameService {
         val assetIndexMeta = manifest.assetIndex ?: return Task2.Leaf("下载资源") { ctx ->
             ctx.emit(Task2Progress("找不到资源", 0f))
         }
+        val plan = buildAssetRepairPlan(loadAssetIndex(assetIndexMeta))
+        plan.toStub.forEach { (_, obj) -> writeEmptySoundStub(obj.hash) }
+
+        val subTasks = plan.compacted.map { (path, obj) ->
+            Task2.Leaf("资源 $path") { ctx ->
+                ctx.emit(Task2Progress("开始下载...", 0f))
+                downloadAssetObject(path, obj) { prog ->
+                    ctx.emit(
+                        Task2Progress(
+                            "${prog.bytesDownloaded.humanFileSize}/${prog.totalBytes.humanFileSize}",
+                            prog.fraction
+                        )
+                    )
+                }.getOrThrow()
+                ctx.emit(Task2Progress("下载完成", 1f))
+            }
+        }
+
+        if (plan.linkPlans.isNotEmpty()) {
+            val linksTask = Task2.Leaf("链接相似资源") { ctx ->
+                plan.linkPlans.forEachIndexed { index, linkPlan ->
+                    createObjectLink(linkPlan.fromHash, linkPlan.toHash)
+                    ctx.emit(
+                        Task2Progress(
+                            "已链接 ${index + 1}/${plan.linkPlans.size}",
+                            (index + 1).toFloat() / plan.linkPlans.size
+                        )
+                    )
+                }
+            }
+            return Task2.Group(
+                title = "下载${plan.compacted.size}个音频资源",
+                children = subTasks + linksTask
+            )
+        }
+
+        return Task2.Group(
+            title = "下载${plan.compacted.size}个音频资源",
+            children = subTasks
+        )
+    }
+
+    internal suspend fun ensureDesktopLaunchAssets(
+        mcVer: McVersion,
+        onProgress: (String) -> Unit
+    ): Result<Unit> = runCatching {
+        withContext(Dispatchers.IO) {
+            val assetIndexMeta = mcVer.metadata.assetIndex ?: return@withContext
+            val plan = buildAssetRepairPlan(loadAssetIndex(assetIndexMeta))
+            plan.toStub.forEach { (_, obj) -> writeEmptySoundStub(obj.hash) }
+            val broken = plan.compacted.filter { (_, obj) -> !assetObjectValid(obj) }
+            val missingLinks = plan.linkPlans.filter { !assetObjectExists(it.fromHash) }
+            if (broken.isEmpty() && missingLinks.isEmpty()) {
+                onProgress("资源完整")
+                return@withContext
+            }
+            broken.forEach { (path, obj) ->
+                onProgress("修复资源 $path")
+                downloadAssetObject(path, obj) { progress ->
+                    val total = progress.totalBytes.takeIf { it > 0 }?.humanFileSize ?: "未知"
+                    onProgress("${path} ${progress.bytesDownloaded.humanFileSize}/$total")
+                }.getOrThrow()
+            }
+            missingLinks.forEach { linkPlan -> createObjectLink(linkPlan.fromHash, linkPlan.toHash) }
+            onProgress("资源已就绪")
+        }
+    }
+
+    private fun loadAssetIndex(assetIndexMeta: MojangAssetIndex): MojangAssetIndexFile {
         val metaJson = loadResourceStream("mcmeta/assets-index/${assetIndexMeta.id}.json").use {
             it.readBytes().toString(Charsets.UTF_8)
         }
-        val index = serdesJson.decodeFromString<MojangAssetIndexFile>(metaJson)
         if (!assetIndexesDir.exists()) {
             assetIndexesDir.mkdirs()
         }
         assetIndexesDir.resolve("${assetIndexMeta.id}.json").writeText(metaJson)
+        return serdesJson.decodeFromString<MojangAssetIndexFile>(metaJson)
+    }
 
+    private data class AssetRepairPlan(
+        val toStub: List<Map.Entry<String, MojangAssetObject>>,
+        val compacted: List<Map.Entry<String, MojangAssetObject>>,
+        val linkPlans: List<AssetLinkPlan>
+    )
+
+    private fun buildAssetRepairPlan(index: MojangAssetIndexFile): AssetRepairPlan {
         val toDownload = mutableListOf<Map.Entry<String, MojangAssetObject>>()
         val toStub = mutableListOf<Map.Entry<String, MojangAssetObject>>()
-
         index.objects.entries.forEach { entry ->
             when {
                 shouldDownloadAsset(entry.key) -> toDownload += entry
@@ -520,8 +585,6 @@ object GameService {
                 else -> Unit
             }
         }
-
-        toStub.forEach { (_, obj) -> writeEmptySoundStub(obj.hash) }
 
         val linkPlans = mutableListOf<AssetLinkPlan>()
         val grouped = mutableMapOf<String, MutableList<NumberedAsset>>()
@@ -561,44 +624,20 @@ object GameService {
                 }
             }
         }
+        return AssetRepairPlan(toStub, compacted, linkPlans)
+    }
 
-        val subTasks = compacted.map { (path, obj) ->
-            Task2.Leaf("资源 $path") { ctx ->
-                ctx.emit(Task2Progress("开始下载...", 0f))
-                downloadAssetObject(path, obj) { prog ->
-                    ctx.emit(
-                        Task2Progress(
-                            "${prog.bytesDownloaded.humanFileSize}/${prog.totalBytes.humanFileSize}",
-                            prog.fraction
-                        )
-                    )
-                }.getOrThrow()
-                ctx.emit(Task2Progress("下载完成", 1f))
-            }
-        }
+    private fun assetObjectFile(hash: String): File {
+        val h = hash.lowercase(Locale.ROOT)
+        return assetObjectsDir.resolve(h.substring(0, 2)).resolve(h)
+    }
 
-        if (linkPlans.isNotEmpty()) {
-            val linksTask = Task2.Leaf("链接相似资源") { ctx ->
-                linkPlans.forEachIndexed { index, plan ->
-                    createObjectLink(plan.fromHash, plan.toHash)
-                    ctx.emit(
-                        Task2Progress(
-                            "已链接 ${index + 1}/${linkPlans.size}",
-                            (index + 1).toFloat() / linkPlans.size
-                        )
-                    )
-                }
-            }
-            return Task2.Group(
-                title = "下载${compacted.size}个音频资源",
-                children = subTasks + linksTask
-            )
-        }
+    private fun assetObjectExists(hash: String): Boolean = assetObjectFile(hash).isFile
 
-        return Task2.Group(
-            title = "下载${compacted.size}个音频资源",
-            children = subTasks
-        )
+    private fun assetObjectValid(asset: MojangAssetObject): Boolean {
+        val targetFile = assetObjectFile(asset.hash)
+        if (!targetFile.isFile || targetFile.length() != asset.size) return false
+        return runCatching { targetFile.sha1.equals(asset.hash, true) }.getOrDefault(false)
     }
 
     private suspend fun downloadAssetObject(
@@ -607,8 +646,8 @@ object GameService {
         onProgress: (DownloadProgress) -> Unit
     ): Result<File> {
         val hash = asset.hash.lowercase(Locale.ROOT)
-        val targetDir = assetObjectsDir.resolve(hash.substring(0, 2))
-        val targetFile = targetDir.resolve(hash)
+        val targetFile = assetObjectFile(hash)
+        val targetDir = targetFile.parentFile
 
         if (targetFile.exists()) {
             if (targetFile.length() == asset.size) {
@@ -619,7 +658,7 @@ object GameService {
             }
         }
 
-        targetDir.mkdirs()
+        targetDir?.mkdirs()
         if (reuseLocalArtifact(hash, asset.size, targetFile)) {
             onProgress(DownloadProgress(asset.size, asset.size, 0.0))
             return Result.success(targetFile)
@@ -701,265 +740,42 @@ object GameService {
         return "${library.name}|$artifactPath|$classifierKey"
     }
 
-    internal data class LaunchLibraryValidationIssue(
-        val libraryName: String,
-        val file: File,
-        val reason: String,
-        val expectedSha1: String = "",
-        val actualSha1: String = "",
-    ) {
-        val summary: String
-            get() = buildString {
-                append(libraryName).append(": ").append(reason).append(" (").append(file.name).append(")")
-                if (expectedSha1.isNotBlank()) {
-                    append(" expected=").append(expectedSha1)
-                }
-                if (actualSha1.isNotBlank()) {
-                    append(" actual=").append(actualSha1)
-                }
-            }
-    }
+    private fun MojangLibrary.isLoaderUniversalLibrary(): Boolean =
+        name.substringBefore('@').split(':').getOrNull(3)?.equals("universal", ignoreCase = true) == true
 
-    private data class LaunchLibraryArtifact(
-        val library: MojangLibrary,
-        val artifact: MojangDownloadArtifact,
-        val file: File,
-        val origin: LaunchLibraryOrigin,
-        val kind: LaunchLibraryKind,
+    internal fun mergeLoaderManifestLibraries(
+        loaderManifest: MojangVersionManifest,
+        installProfileLibraries: List<MojangLibrary>,
+    ): MojangVersionManifest = loaderManifest.copy(
+        libraries = (installProfileLibraries.filter { it.isLoaderUniversalLibrary() } + loaderManifest.libraries)
+            .distinctBy(::libraryKey),
     )
 
-    private data class LaunchLibraryEntry(
-        val library: MojangLibrary,
-        val origin: LaunchLibraryOrigin,
-    )
-
-    private enum class LaunchLibraryOrigin(val displayName: String) {
-        VANILLA("Minecraft"),
-        LOADER("Mod载入器"),
-    }
-
-    private enum class LaunchLibraryKind(val displayName: String) {
-        MAIN("运行库"),
-        NATIVE("原生库"),
-    }
-
-    private val classpathOverrideArtifacts = setOf(
-        "com.google.code.gson:gson",
-        "com.google.guava:guava",
-        "commons-codec:commons-codec",
-        "commons-io:commons-io",
-        "commons-logging:commons-logging",
-        "it.unimi.dsi:fastutil",
-        "net.java.dev.jna:jna",
-        "net.java.jinput:jinput",
-        "net.sf.jopt-simple:jopt-simple",
-        "org.apache.commons:commons-compress",
-        "org.apache.commons:commons-lang3",
-        "org.apache.httpcomponents:httpclient",
-        "org.apache.httpcomponents:httpcore",
-        "org.apache.logging.log4j:log4j-api",
-        "org.apache.logging.log4j:log4j-core",
-        "org.apache.logging.log4j:log4j-slf4j18-impl",
-        "org.apache.logging.log4j:log4j-slf4j2-impl",
-        "org.slf4j:slf4j-api",
-    )
-
-    // Cleanroom ships full replacements for a few legacy 1.12 libraries.
-    private val cleanroomRemovedBaseArtifacts = setOf(
-        "org.lwjgl.lwjgl:lwjgl",
-        "org.lwjgl.lwjgl:lwjgl_util",
-        "org.lwjgl.lwjgl:lwjgl-platform",
-        "com.ibm.icu:icu4j-core-mojang",
-        "net.java.dev.jna:platform",
-        "oshi-project:oshi-core",
-    )
-
-    private fun classpathOverrideKey(library: MojangLibrary): String? {
-        val coords = library.name.split(':')
-        if (coords.size < 2) return null
-        return "${coords[0]}:${coords[1]}".takeIf { it in classpathOverrideArtifacts }
-    }
-
-    private fun libraryGroupArtifact(library: MojangLibrary): String? {
-        val coords = library.name.split(':')
-        if (coords.size < 2) return null
-        return "${coords[0]}:${coords[1]}"
-    }
-
-    private fun mergedLaunchLibraryEntries(
-        baseLibraries: List<MojangLibrary>,
-        overrideLibraries: List<MojangLibrary>
-    ): List<LaunchLibraryEntry> {
-        val archMatchedOverrideLibraries = overrideLibraries.filter { it.shouldDownloadByArch() }
-        val overrideGroupArtifacts = archMatchedOverrideLibraries.mapNotNull(::libraryGroupArtifact).toSet()
-        val removedBaseArtifacts = buildSet {
-            if ("com.cleanroommc:lwjglxx" in overrideGroupArtifacts) {
-                addAll(cleanroomRemovedBaseArtifacts)
-            }
-        }
-        val filteredOverrideLibraries = archMatchedOverrideLibraries
-            .filterNot { libraryGroupArtifact(it) in removedBaseArtifacts }
-        val filteredBaseLibraries = baseLibraries
+    private fun loaderManifestLibrariesReady(manifest: MojangVersionManifest): Boolean =
+        manifest.libraries
             .filter { it.shouldDownloadByArch() }
-            .filterNot { libraryGroupArtifact(it) in removedBaseArtifacts }
-        val overrideEntries = filteredOverrideLibraries.map { LaunchLibraryEntry(it, LaunchLibraryOrigin.LOADER) }
-        val overrideByKey = overrideEntries
-            .mapNotNull { entry -> classpathOverrideKey(entry.library)?.let { it to entry } }
-            .toMap()
-        val usedOverrideKeys = mutableSetOf<String>()
-        return filteredBaseLibraries.map { library ->
-            val key = classpathOverrideKey(library) ?: return@map LaunchLibraryEntry(library, LaunchLibraryOrigin.VANILLA)
-            overrideByKey[key]?.also { usedOverrideKeys += key } ?: LaunchLibraryEntry(library, LaunchLibraryOrigin.VANILLA)
-        } + overrideEntries.filter { entry ->
-            val key = classpathOverrideKey(entry.library)
-            key == null || key !in usedOverrideKeys
-        }
-    }
-
-    private fun mergedLaunchLibraries(
-        baseLibraries: List<MojangLibrary>,
-        overrideLibraries: List<MojangLibrary>
-    ): List<MojangLibrary> {
-        return mergedLaunchLibraryEntries(baseLibraries, overrideLibraries).map { it.library }
-    }
-
-    private fun LaunchLibraryEntry.launchArtifacts(): List<LaunchLibraryArtifact> {
-        val artifacts = mutableListOf<LaunchLibraryArtifact>()
-        library.mainArtifact()?.let { artifact ->
-            val relativePath = artifact.path?.takeIf { it.isNotBlank() }
-                ?: runCatching { descriptorToLibraryPath(library.name) }.getOrNull()
-            if (relativePath != null) {
-                artifacts += LaunchLibraryArtifact(
-                    library = library,
-                    artifact = artifact,
-                    file = File(libsDir, relativePath),
-                    origin = origin,
-                    kind = LaunchLibraryKind.MAIN
-                )
+            .flatMap { library ->
+                buildList {
+                    library.mainArtifact()?.let { artifact -> add(library to artifact) }
+                    library.nativeArtifact()?.let { artifact -> add(library to artifact) }
+                }
             }
-        }
-        library.nativeArtifact()?.let { artifact ->
-            val relativePath = artifact.path?.takeIf { it.isNotBlank() }
-            if (relativePath != null) {
-                artifacts += LaunchLibraryArtifact(
-                    library = library,
-                    artifact = artifact,
-                    file = File(libsDir, relativePath),
-                    origin = origin,
-                    kind = LaunchLibraryKind.NATIVE
-                )
+            .all { (library, artifact) ->
+                val path = artifact.path?.takeIf(String::isNotBlank)
+                    ?: runCatching { descriptorToLibraryPath(library.name) }.getOrNull()
+                    ?: return@all false
+                val file = libsDir.resolve(path)
+                if (!file.isFile || file.length() <= 0L) {
+                    false
+                } else {
+                    val expectedSha1 = artifact.sha1.trim()
+                    if (expectedSha1.isBlank()) {
+                        runCatching { ZipFile(file).use { it.entries().hasMoreElements() } }.getOrDefault(false)
+                    } else {
+                        runCatching { file.sha1.equals(expectedSha1, ignoreCase = true) }.getOrDefault(false)
+                    }
+                }
             }
-        }
-        return artifacts
-    }
-
-    private fun File.canOpenJar(): Boolean {
-        return runCatching {
-            ZipFile(this).use { zip ->
-                zip.entries().hasMoreElements()
-            }
-        }.getOrDefault(false)
-    }
-
-    private fun LaunchLibraryArtifact.validate(): LaunchLibraryValidationIssue? {
-        if (!file.exists()) {
-            return LaunchLibraryValidationIssue(library.name, file, "${origin.displayName}${kind.displayName}缺失")
-        }
-        if (file.length() <= 0L) {
-            return LaunchLibraryValidationIssue(library.name, file, "${origin.displayName}${kind.displayName}文件为空")
-        }
-        val expectedSha1 = artifact.sha1.trim()
-        if (expectedSha1.isNotBlank()) {
-            val actualSha1 = runCatching { file.sha1 }.getOrElse { error ->
-                return LaunchLibraryValidationIssue(library.name, file, "无法计算${origin.displayName}${kind.displayName}校验值: ${error.message ?: error::class.simpleName}")
-            }
-            if (!actualSha1.equals(expectedSha1, true)) {
-                return LaunchLibraryValidationIssue(
-                    libraryName = library.name,
-                    file = file,
-                    reason = "${origin.displayName}${kind.displayName}校验失败",
-                    expectedSha1 = expectedSha1,
-                    actualSha1 = actualSha1
-                )
-            }
-        } else if (!file.canOpenJar()) {
-            return LaunchLibraryValidationIssue(library.name, file, "${origin.displayName}${kind.displayName}无法打开jar")
-        }
-        return null
-    }
-
-    private suspend fun LaunchLibraryArtifact.download(onProgress: (DownloadProgress) -> Unit): Result<File> {
-        return downloadLibraryArtifact(artifact, file, onProgress = onProgress)
-    }
-
-    private fun collectLaunchLibraryArtifacts(
-        baseLibraries: List<MojangLibrary>,
-        overrideLibraries: List<MojangLibrary>
-    ): List<LaunchLibraryArtifact> {
-        return mergedLaunchLibraryEntries(baseLibraries, overrideLibraries)
-            .flatMap { it.launchArtifacts() }
-            .distinctBy { it.file.absolutePath }
-    }
-
-    internal fun validateLaunchLibraries(
-        baseLibraries: List<MojangLibrary>,
-        overrideLibraries: List<MojangLibrary>
-    ): List<LaunchLibraryValidationIssue> {
-        return collectLaunchLibraryArtifacts(baseLibraries, overrideLibraries)
-            .mapNotNull { it.validate() }
-    }
-
-    internal suspend fun ensureLaunchLibraries(
-        baseLibraries: List<MojangLibrary>,
-        overrideLibraries: List<MojangLibrary>,
-        onProgress: (String) -> Unit = {}
-    ): Result<Unit> = runCatching {
-        val badArtifacts = collectLaunchLibraryArtifacts(baseLibraries, overrideLibraries)
-            .filter { it.validate() != null }
-        if (badArtifacts.isEmpty()) {
-            onProgress("运行库完整")
-            return@runCatching
-        }
-        onProgress("发现${badArtifacts.size}个运行库缺失或损坏，开始修复")
-        badArtifacts.forEachIndexed { index, item ->
-            val issue = item.validate()
-            issue?.let { problem ->
-                lgr.warn { "启动前运行库检查失败: ${problem.summary} path=${problem.file.absolutePath}" }
-            }
-            if (item.file.exists()) {
-                item.file.delete()
-            }
-            onProgress("修复${index + 1}/${badArtifacts.size}: ${item.file.name}")
-            item.download { progress ->
-                val total = progress.totalBytes.takeIf { it > 0 }?.humanFileSize ?: "未知"
-                val downloaded = progress.bytesDownloaded.coerceAtLeast(0L).humanFileSize
-                onProgress("修复${item.file.name} $downloaded/$total")
-            }.getOrThrow()
-        }
-        val remainingIssues = validateLaunchLibraries(baseLibraries, overrideLibraries)
-        if (remainingIssues.isNotEmpty()) {
-            remainingIssues.forEach { issue ->
-                lgr.warn { "启动前运行库修复后仍失败: ${issue.summary} path=${issue.file.absolutePath}" }
-            }
-            error("运行库修复失败: ${remainingIssues.first().summary}")
-        }
-        onProgress("运行库修复完成")
-    }
-
-    private fun addClasspathCompatibilityLibraries(entries: List<String>): List<String> {
-        val files = entries.map(::File).toMutableList()
-        val hasSlf4jBinding = files.any { it.name.startsWith("log4j-slf4j18-impl-") }
-        val hasSlf4jApi = files.any { it.name.startsWith("slf4j-api-") }
-        if (hasSlf4jBinding && !hasSlf4jApi) {
-            val slf4jApiCandidates = listOf(
-                libsDir.resolve("org/slf4j/slf4j-api/1.8.0-beta4/slf4j-api-1.8.0-beta4.jar"),
-                libsDir.resolve("org/slf4j/slf4j-api/2.0.1/slf4j-api-2.0.1.jar"),
-                libsDir.resolve("org/slf4j/slf4j-api/2.0.9/slf4j-api-2.0.9.jar")
-            )
-            slf4jApiCandidates.firstOrNull(File::exists)?.let { files += it }
-        }
-        return files.map{it.absolutePath}.distinct()
-    }
 
     @Serializable
     data class LoaderInstallProfile(
@@ -1015,16 +831,23 @@ object GameService {
     }
 
     private fun writeEmptySoundStub(hash: String) {
-        val targetDir = assetObjectsDir.resolve(hash.substring(0, 2))
-        val targetFile = targetDir.resolve(hash)
-        if (targetFile.exists()) return
-        targetDir.mkdirs()
+        val targetFile = assetObjectFile(hash)
+        if (targetFile.isFile && targetFile.isValidEmptySoundStub()) return
+        targetFile.parentFile?.mkdirs()
         loadResourceStream("assets/empty.ogg").use { input ->
             targetFile.outputStream().use { output ->
                 input.copyTo(output)
             }
         }
     }
+
+    private fun File.isValidEmptySoundStub(): Boolean {
+        val expected = loadResourceStream("assets/empty.ogg").use { it.readBytes() }
+        return length() == expected.size.toLong() && sha1 == expected.sha1Hex()
+    }
+
+    private fun ByteArray.sha1Hex(): String =
+        HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(this))
 
     private data class NumberedAsset(
         val path: String,
@@ -1078,6 +901,82 @@ object GameService {
                 },
             ),
         )
+    }
+
+    internal suspend fun ensureDesktopLaunchLoader(
+        mcVer: McVersion,
+        loader: ModLoader,
+        onProgress: (String) -> Unit,
+        isCancelled: () -> Boolean = { false }
+    ): Result<Unit> {
+        val loaderVersion = mcVer.loaderVersions[loader]
+            ?: return Result.failure(IllegalStateException("未配置${loader}安装信息"))
+        val versionJson = versionListDir.resolve(loaderVersion.dirName).resolve("${loaderVersion.dirName}.json")
+        readLaunchLoaderManifest(mcVer, loader, versionJson)?.let { launchManifest ->
+            if (loaderManifestLibrariesReady(launchManifest)) {
+                return Result.success(Unit)
+            }
+        }
+        val key = "${mcVer.mcVer}|${loader.name}"
+        val pending = CompletableDeferred<Result<Unit>>()
+        val active = synchronized(loaderInstalls) {
+            loaderInstalls[key] ?: pending.also { loaderInstalls[key] = it }
+        }
+        if (active === pending) {
+            val result = runCatching {
+                onProgress("开始自动安装${loader}...")
+                withContext(Dispatchers.IO) {
+                    downloadLoaderTask2(mcVer, loader).runInline(
+                        Task2Context(
+                            isCancelled = isCancelled,
+                            emitProgress = { progress ->
+                                progress.message.takeIf(String::isNotBlank)?.let(onProgress)
+                            }
+                        )
+                    )
+                }
+            }
+            pending.complete(result)
+            synchronized(loaderInstalls) {
+                if (loaderInstalls[key] === pending) loaderInstalls.remove(key)
+            }
+        } else {
+            onProgress("等待相同${loader}安装完成...")
+        }
+        return active.await().mapCatching {
+            val launchManifest = readLaunchLoaderManifest(mcVer, loader, versionJson)
+                ?: error("${loader}安装后缺少有效启动manifest")
+            check(loaderManifestLibrariesReady(launchManifest)) {
+                "${loader}安装后运行库仍不完整"
+            }
+        }
+    }
+
+    private fun readLaunchLoaderManifest(
+        mcVer: McVersion,
+        loader: ModLoader,
+        versionJson: File,
+    ): MojangVersionManifest? {
+        if (!versionJson.isFile) return null
+        val existingManifest = runCatching {
+            serdesJson.decodeFromString<MojangVersionManifest>(versionJson.readText())
+        }.getOrNull() ?: return null
+        val installer = ClientDirs.mcDir.resolve("${mcVer.mcVer}-${loader}-installer.jar")
+        if (!installer.isFile) return existingManifest
+        val installProfile = readInstallerEntryOrNull(installer, "install_profile.json")
+            ?.let { runCatching { serdesJson.decodeFromString<LoaderInstallProfile>(it) }.getOrNull() }
+            ?: return null
+        val launchManifest = mergeLoaderManifestLibraries(
+            existingManifest.normalizeLoaderManifest(
+                LoaderInstallHolder(version = mcVer, loader = loader),
+                installProfile,
+            ),
+            installProfile.libraries,
+        )
+        if (launchManifest.json != versionJson.readText()) {
+            versionJson.writeText(launchManifest.json)
+        }
+        return launchManifest
     }
 
     fun downloadTestServerTask2(version: McVersion, loader: ModLoader): Task2 {
@@ -1164,12 +1063,13 @@ object GameService {
         val installProfileText = readInstallerEntry(installer, "install_profile.json")
         val installProfile = serdesJson.decodeFromString<LoaderInstallProfile>(installProfileText)
         val loaderVersionManifest = resolveLoaderVersionManifest(holder, installer, installProfile)
+        val launchLoaderManifest = mergeLoaderManifestLibraries(loaderVersionManifest, installProfile.libraries)
         val loaderVersionDir = versionListDir.resolve(loaderVersionManifest.id).apply { mkdirs() }
-        File(loaderVersionDir, "${loaderVersionManifest.id}.json").writeText(loaderVersionManifest.json)
+        File(loaderVersionDir, "${loaderVersionManifest.id}.json").writeText(launchLoaderManifest.json)
         val loaderLibraries = (installProfile.libraries + loaderVersionManifest.libraries)
             .distinctBy { libraryKey(it) }
 
-        holder.loaderVersionManifest = loaderVersionManifest
+        holder.loaderVersionManifest = launchLoaderManifest
         holder.installProfile = installProfile
         holder.loaderLibraries = loaderLibraries
 
@@ -1442,110 +1342,6 @@ object GameService {
         return source != null
     }
 
-    // ---- Argument resolution used by game launching ----
+    // Minecraft launch argument and classpath resolution lives in client/mclaunch.
 
-    internal fun resolveArgumentList(source: List<JsonElement>): List<String> {
-        val args = mutableListOf<String>()
-        val ruleListSerializer = ListSerializer(MojangRule.serializer())
-        source.forEach { element ->
-            when (element) {
-                is JsonPrimitive -> if (element.isString) args += element.content
-                is JsonObject -> {
-                    val rules = element["rules"]?.let { serdesJson.decodeFromJsonElement(ruleListSerializer, it) }
-                    if (!rulesAllow(rules)) return@forEach
-                    val valueElement = element["value"] ?: return@forEach
-                    when (valueElement) {
-                        is JsonPrimitive -> if (valueElement.isString) args += valueElement.content
-                        is JsonArray -> valueElement.forEach { item ->
-                            if (item is JsonPrimitive && item.isString) args += item.content
-                        }
-
-                        else -> {}
-                    }
-                }
-
-                else -> {}
-            }
-        }
-        return args
-    }
-
-    internal fun MojangVersionManifest.resolveGameArgumentList(): List<String> {
-        val modernArgs = resolveArgumentList(arguments.game)
-        if (modernArgs.isNotEmpty()) return modernArgs
-        return minecraftArguments
-            ?.trim()
-            ?.split(Regex("\\s+"))
-            ?.filter { it.isNotBlank() }
-            ?: emptyList()
-    }
-
-    internal fun MojangVersionManifest.resolveJvmArgumentList(): List<String> {
-        return resolveArgumentList(arguments.jvm)
-    }
-
-    internal fun rulesAllow(rules: List<MojangRule>?): Boolean {
-        if (rules.isNullOrEmpty()) return true
-        var allowed = false
-        rules.forEach { rule ->
-            if (rule.matchesHost()) {
-                allowed = rule.action == MojangRuleAction.allow
-            }
-        }
-        return allowed
-    }
-
-    private fun MojangRule.matchesHost(): Boolean {
-        os?.let { spec ->
-            val osName = spec.name
-            if (osName != null && !hostOs.ruleOsName.equals(osName, true)) return false
-            val archSpec = spec.arch?.lowercase(Locale.ROOT)
-            if (archSpec != null && !hostOsArchRaw.contains(archSpec)) return false
-            val versionSpec = spec.version
-            if (versionSpec != null) {
-                val regex = runCatching { Regex(versionSpec) }.getOrNull()
-                val matches = regex?.containsMatchIn(hostOsVersionRaw) ?: hostOsVersionRaw.contains(versionSpec, true)
-                if (!matches) return false
-            }
-        }
-        val requiredFeatures = features ?: return true
-        if (requiredFeatures.isEmpty()) return true
-        return requiredFeatures.all { (feature, expected) ->
-            launcherFeatures[feature] == expected
-        }
-    }
-
-    internal fun MojangVersionManifest.buildClasspath(): List<String> {
-        val entries = this.libraries
-            .asSequence()
-            .filter { lib -> lib.shouldDownloadByArch() }
-            .mapNotNull { lib ->
-                lib.mainArtifact()?.path?.takeIf { it.isNotBlank() }
-                    ?: runCatching { descriptorToLibraryPath(lib.name) }.getOrNull()
-            }
-            .map { File(libsDir, it).absolutePath }
-            .filter { File(it).exists() }
-            .toMutableList()
-            .distinct()
-            .toList()
-        return addClasspathCompatibilityLibraries(entries)
-    }
-
-    internal fun buildClasspath(
-        baseLibraries: List<MojangLibrary>,
-        overrideLibraries: List<MojangLibrary>
-    ): List<String> {
-        val entries = mergedLaunchLibraries(baseLibraries, overrideLibraries)
-            .asSequence()
-            .mapNotNull { lib ->
-                lib.mainArtifact()?.path?.takeIf { it.isNotBlank() }
-                    ?: runCatching { descriptorToLibraryPath(lib.name) }.getOrNull()
-            }
-            .map { File(libsDir, it).absolutePath }
-            .filter { File(it).exists() }
-            .distinct()
-            .toList()
-        return addClasspathCompatibilityLibraries(entries)
-    }
 }
-
