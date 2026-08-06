@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 import org.bson.types.ObjectId
 
 const val FORGEGUARD_AGENT_FILE_NAME = "forgeguard.jar"
-
+val FORGEGUARD_DISABLE get() = java.lang.Boolean.getBoolean("rdi.forgeguard.disable")
 @Serializable
 class Modpack(
     @Contextual val _id: ObjectId = ObjectId(),

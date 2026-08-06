@@ -56,8 +56,10 @@ import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.common.model.FORGEGUARD_AGENT_FILE_NAME
+import calebxzhou.rdi.common.model.FORGEGUARD_DISABLE
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.model.supportsForgeguard
+
 
 
 @Composable
@@ -156,7 +158,7 @@ fun McPlayScreen(
 
                 val launchJvmArgs = buildList {
                     addAll(extraJvmArgs.filterNot { it.startsWith("-Drdi.play=") })
-                    if (args.mcVer.supportsForgeguard(args.modLoader)) {
+                    if (args.mcVer.supportsForgeguard(args.modLoader) && !FORGEGUARD_DISABLE) {
                         val forgeguardAgent = RDIClient.DIR.resolve("lib/$FORGEGUARD_AGENT_FILE_NAME")
                         require(forgeguardAgent.isFile) { "缺少Forgeguard启动保护文件: ${forgeguardAgent.absolutePath}" }
                         add("\"-javaagent:${forgeguardAgent.absolutePath}\"")
