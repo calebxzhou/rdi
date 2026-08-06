@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
-import calebxzhou.rdi.client.ui.loadResourceBitmap
+import calebxzau.rdi.client.ui.loadImageBitmap
 
 /**
  * calebxzhou @ 2026-02-02 18:29
@@ -34,7 +34,7 @@ fun ImageCard(
 ) {
     val shape: Shape = RoundedCornerShape(20.dp)
     val bitmap = remember(iconPath) {
-        loadResourceBitmap(iconPath)
+        loadImageBitmap(iconPath).getOrThrow()
     }
     Box(modifier = Modifier.padding(6.dp)) {
         Surface(
