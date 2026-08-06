@@ -1,0 +1,8 @@
+CREATE TABLE player_info_cache (
+    player_id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    is_slim INTEGER NOT NULL,
+    skin_url TEXT NOT NULL,
+    cape_url TEXT,
+    updated_at INTEGER NOT NULL
+);

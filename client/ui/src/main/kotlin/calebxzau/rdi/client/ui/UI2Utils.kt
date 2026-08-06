@@ -2,12 +2,8 @@ package calebxzau.rdi.client.ui
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.background
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.TextFieldState
@@ -26,17 +22,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.*
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
-import calebxzhou.rdi.client.ui.MaterialColor
-import calebxzhou.rdi.client.ui.iconBitmapPng
 import androidx.compose.material3.OutlinedTextField as M3OutlinedTextField
 
 /**
@@ -44,8 +33,6 @@ import androidx.compose.material3.OutlinedTextField as M3OutlinedTextField
  */
 val DEFAULT_MODPACK_ICON by lazy { loadIconBitmap("modpack.avif").getOrElse { ImageBitmap(0,0) } }
 val DEFAULT_HOST_ICON by lazy { loadIconBitmap("host.avif").getOrElse { ImageBitmap(0,0) }  }
-typealias M3MaterialTheme = MaterialTheme
-
 data class TitleTabItem<T>(
     val value: T,
     val icon: String,
@@ -304,38 +291,6 @@ fun FlowRowV(
     )
 }
 
-@Composable
-fun AlertOk(msg: String, onClose: (() -> Unit)? = null) {
-    createAlertDialog(
-        title = "成功",
-        icon = "\uF058",
-        msg = msg,
-        accentColor = MaterialColor.GREEN_900.color,
-        onClose = onClose
-    )
-}
-
-@Composable
-fun AlertWarn(msg: String, onClose: (() -> Unit)? = null) {
-    createAlertDialog(
-        title = "警告",
-        icon = "\uEA6C",
-        msg = msg,
-        accentColor = Color(0xFFE0A800),
-        onClose = onClose
-    )
-}
-
-@Composable
-fun AlertErr(msg: String, onClose: (() -> Unit)? = null) {
-    createAlertDialog(
-        title = "错误",
-        icon = "\uEA87",
-        msg = msg,
-        accentColor = Color(0xFFD64545),
-        onClose = onClose
-    )
-}
 
 @Composable
 inline fun RColumn(
@@ -349,67 +304,6 @@ inline fun RColumn(
         verticalArrangement,
         horizontalAlignment,
         content,
-    )
-}
-
-@Composable
-private fun createAlertDialog(
-    title: String,
-    icon: String,
-    msg: String,
-    accentColor: Color,
-    onClose: (() -> Unit)? = null
-) {
-    var visible by remember { mutableStateOf(true) }
-    if (!visible) return
-
-    fun close() {
-        visible = false
-        onClose?.invoke()
-    }
-
-    AlertDialog(
-        onDismissRequest = ::close,
-        title = {
-            val titleStyle = MaterialTheme.typography.titleMedium
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.Start,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = icon,
-                    color = Color.White,
-                    style = titleStyle,
-                    fontFamily = IconFontFamily,
-                    modifier = Modifier
-                        .background(accentColor, CircleShape)
-                        .padding(horizontal = 5.dp, vertical = 1.dp)
-                        .alignByBaseline()
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = title,
-                    style = titleStyle,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.alignByBaseline()
-                )
-            }
-        },
-        text = {
-            Text(
-                text = msg,
-                textAlign = TextAlign.Left,
-                modifier = Modifier.fillMaxWidth()
-            )
-        },
-        confirmButton = {
-            TextButton(onClick = ::close) {
-                Text("明白", color = accentColor)
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(28.dp)
     )
 }
 
@@ -463,245 +357,12 @@ fun SimpleTooltip(
 }
 
 @Composable
-private fun IconButtonBase(
-    tooltip: String? = "",
-    tooltipAnchorPosition: TooltipAnchorPosition = TooltipAnchorPosition.Below,
-    size: Int = 36,
-    content: @Composable (Modifier) -> Unit
-) {
-    val drawButton = @Composable {
-        Box(
-            modifier = Modifier
-                .size(size.dp)
-                .graphicsLayer { clip = false },
-            contentAlignment = Alignment.Center
-        ) {
-            content(Modifier.size(size.dp))
-        }
-    }
-
-    tooltip?.let { tip ->
-        SimpleTooltip(tip, tooltipAnchorPosition) { drawButton() }
-    } ?: drawButton()
-}
-
-
-@Composable
-fun <T> TitleTabBar(
-    items: List<TitleTabItem<T>>,
-    selected: T,
-    modifier: Modifier = Modifier,
-    buttonSize: Int = 30,
-    onSelect: (T) -> Unit
-) {
-    val containerShape = RoundedCornerShape(percent = 50)
-    val tabShape = RoundedCornerShape(percent = 50)
-    Surface(
-        modifier = modifier.height((buttonSize +12).dp),
-        shape = containerShape,
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        contentColor = MaterialTheme.colorScheme.onSurface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        shadowElevation = 3.dp
-    ) {
-        Row(
-            modifier = Modifier.padding(1.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            items.forEach { item ->
-                val isSelected = selected == item.value
-                Surface(
-                    onClick = { onSelect(item.value) },
-                    modifier = Modifier
-                        .widthIn(min = 112.dp)
-                        .fillMaxHeight(),
-                    shape = tabShape,
-                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
-                    contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-                ) {
-                    RowV(
-                        modifier = Modifier
-                            .padding(horizontal = 18.dp),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = item.icon.asIconText,
-                            fontSize = TextUnit(buttonSize * 0.52f, TextUnitType.Sp),
-                            color = LocalContentColor.current,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Clip
-                        )
-                        Space8w()
-                        Text(
-                            text = item.label,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = LocalContentColor.current,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                            maxLines = 1,
-                            softWrap = false,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-@Composable
 fun CopyButton(value: String) {
-    CircleIconButton("\uF0C5","复制",size = 24, showText = false){
+    CircleIconButton("\uF0C5", "复制", size = 24.dp, showText = false) {
         copyToClipboard(value)
     }
 }
 
-
-
-@Suppress("UNUSED_PARAMETER")
-@Composable
-fun CircleIconButton(
-    icon: String,
-    tooltip: String? = null,
-    tooltipAnchorPosition: TooltipAnchorPosition = TooltipAnchorPosition.Below,
-    size: Int = 36,
-    contentPadding: PaddingValues = ButtonDefaults.TextButtonContentPadding,
-    bgColor: Color = M3MaterialTheme.colorScheme.primary,
-    iconColor: Color = M3MaterialTheme.colorScheme.onPrimary,
-    enabled: Boolean = true,
-    showText: Boolean = true,
-    onClick: () -> Unit
-) {
-    val inlineText = tooltip?.takeIf { it.isNotBlank() }
-    if (showText && inlineText != null) {
-        BoxWithConstraints {
-            val density = LocalDensity.current
-            val textMeasurer = rememberTextMeasurer()
-            val labelStyle = MaterialTheme.typography.bodyMedium
-            val labelWidthPx = remember(inlineText, labelStyle) {
-                textMeasurer.measure(
-                    text = AnnotatedString(inlineText),
-                    style = labelStyle,
-                    maxLines = 1,
-                    softWrap = false
-                ).size.width
-            }
-            val availableWidthPx = if (maxWidth == Dp.Infinity) {
-                Int.MAX_VALUE
-            } else {
-                with(density) { maxWidth.roundToPx() }
-            }
-            val iconBoxPx = with(density) { size.dp.roundToPx() }
-            val gapPx = with(density) { 8.dp.roundToPx() }
-            val horizontalPaddingPx = with(density) { 28.dp.roundToPx() }
-            val requiredWidthPx = iconBoxPx + gapPx + labelWidthPx + horizontalPaddingPx
-            val canShowInlineText = availableWidthPx >= requiredWidthPx
-
-            val drawButton = @Composable {
-                if (canShowInlineText) {
-                    TextButton(
-                        onClick = onClick,
-                        shape = RoundedCornerShape(percent = 50),
-                        modifier = Modifier.height(size.dp),
-                        colors = ButtonDefaults.textButtonColors(
-                            containerColor = bgColor,
-                            contentColor = iconColor,
-                            disabledContainerColor = bgColor.copy(alpha = 0.38f),
-                            disabledContentColor = iconColor.copy(alpha = 0.38f)
-                        ),
-                        contentPadding = PaddingValues(start = 12.dp, end = 16.dp),
-                        enabled = enabled,
-                    ) {
-                        RowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                text = icon.asIconText,
-                                fontSize = TextUnit(size * 0.5f, TextUnitType.Sp),
-                                color = LocalContentColor.current
-                            )
-                            Text(
-                                text = inlineText,
-                                style = labelStyle,
-                                color = LocalContentColor.current,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Clip
-                            )
-                        }
-                    }
-                } else {
-                    PureCircleIconButton(
-                        icon = icon,
-                        size = size,
-                        bgColor = bgColor,
-                        iconColor = iconColor,
-                        enabled = enabled,
-                        onClick = onClick
-                    )
-                }
-            }
-            drawButton()
-        }
-        return
-    }
-
-    IconButtonBase(
-        tooltip = tooltip,
-        tooltipAnchorPosition = tooltipAnchorPosition,
-        size = size
-    ) {
-        PureCircleIconButton(
-            icon = icon,
-            size = size,
-            bgColor = bgColor,
-            iconColor = iconColor,
-            enabled = enabled,
-            onClick = onClick
-        )
-    }
-}
-
-@Composable
-private fun PureCircleIconButton(
-    icon: String,
-    size: Int,
-    bgColor: Color,
-    iconColor: Color,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    val contentColor = if (enabled) iconColor else iconColor.copy(alpha = 0.38f)
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.size(size.dp),
-        enabled = enabled,
-        shape = CircleShape,
-        color = if (enabled) bgColor else bgColor.copy(alpha = 0.38f),
-        contentColor = contentColor,
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = icon.asIconText,
-                fontSize = TextUnit(size * 0.5f, TextUnitType.Sp),
-                color = contentColor,
-                maxLines = 1,
-                softWrap = false,
-                overflow = TextOverflow.Clip
-            )
-        }
-    }
-}
-
-
-
-@Composable
-fun BoxScope.BottomSnakebar(state: SnackbarHostState) {
-    SnackbarHost(
-        hostState = state,
-        modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp)
-    )
-}
 
 @Composable
 fun BoxScope.BottomSnakebarM3(state: SnackbarHostState) {
@@ -719,171 +380,4 @@ fun RowScope.SpacerFullW() {
 @Composable
 fun ErrorText(text: String) {
     Text("\uF467 $text".asIconText, color = MaterialTheme.colorScheme.error)
-}
-
-@Composable
-fun ConfirmDialog(
-    title: String,
-    message: String,
-    onConfirm: () -> Unit,
-    onDismiss: () -> Unit
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = { Text(message) },
-        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        confirmButton = {
-            TextButton(onClick = onConfirm) {
-                Text("确定", color = MaterialTheme.colorScheme.primary)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text("取消")
-            }
-        }
-    )
-}
-
-
-@Composable
-fun ImageIconButton(
-    icon: String,
-    tooltip: String? = null,
-    tooltipAnchorPosition: TooltipAnchorPosition = TooltipAnchorPosition.Below,
-    size: Int = 36,
-    contentPadding: PaddingValues = ButtonDefaults.TextButtonContentPadding,
-    bgColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
-    enabled: Boolean = true,
-    showText: Boolean = true,
-    onClick: () -> Unit = {}
-) {
-    val inlineText = tooltip?.takeIf { it.isNotBlank() }
-    if (showText && inlineText != null) {
-        BoxWithConstraints {
-            val density = LocalDensity.current
-            val textMeasurer = rememberTextMeasurer()
-            val labelStyle = MaterialTheme.typography.bodyMedium
-            val labelWidthPx = remember(inlineText, labelStyle) {
-                textMeasurer.measure(
-                    text = AnnotatedString(inlineText),
-                    style = labelStyle,
-                    maxLines = 1,
-                    softWrap = false
-                ).size.width
-            }
-            val availableWidthPx = if (maxWidth == Dp.Infinity) {
-                Int.MAX_VALUE
-            } else {
-                with(density) { maxWidth.roundToPx() }
-            }
-            val iconBoxPx = with(density) { size.dp.roundToPx() }
-            val gapPx = with(density) { 8.dp.roundToPx() }
-            val horizontalPaddingPx = with(density) { 28.dp.roundToPx() }
-            val requiredWidthPx = iconBoxPx + gapPx + labelWidthPx + horizontalPaddingPx
-            val canShowInlineText = availableWidthPx >= requiredWidthPx
-
-            val drawButton = @Composable {
-                if (canShowInlineText) {
-                    Surface(
-                        onClick = onClick,
-                        modifier = Modifier.height(size.dp),
-                        enabled = enabled,
-                        shape = RoundedCornerShape(percent = 50),
-                        color = bgColor,
-                        contentColor = MaterialTheme.colorScheme.onSurface
-                    ) {
-                        RowV(
-                            modifier = Modifier.padding(start = 12.dp, end = 16.dp),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Image(
-                                bitmap = iconBitmapPng(icon),
-                                contentDescription = inlineText,
-                                modifier = Modifier.size((size * 2 / 3).dp)
-                            )
-                            Text(
-                                text = inlineText,
-                                style = labelStyle,
-                                maxLines = 1,
-                                softWrap = false,
-                                overflow = TextOverflow.Clip
-                            )
-                        }
-                    }
-                } else {
-                    PureImageIconButton(
-                        icon = icon,
-                        contentDescription = inlineText,
-                        size = size,
-                        contentPadding = contentPadding,
-                        bgColor = bgColor,
-                        enabled = enabled,
-                        onClick = onClick
-                    )
-                }
-            }
-
-            SimpleTooltip(inlineText, tooltipAnchorPosition) { drawButton() }
-        }
-        return
-    }
-
-    if (tooltip != null && !showText) {
-        SimpleTooltip(tooltip, tooltipAnchorPosition) {
-            PureImageIconButton(
-                icon = icon,
-                contentDescription = tooltip,
-                size = size,
-                contentPadding = contentPadding,
-                bgColor = bgColor,
-                enabled = enabled,
-                onClick = onClick
-            )
-        }
-    } else {
-        PureImageIconButton(
-            icon = icon,
-            contentDescription = null,
-            size = size,
-            contentPadding = contentPadding,
-            bgColor = bgColor,
-            enabled = enabled,
-            onClick = onClick
-        )
-    }
-}
-
-@Composable
-private fun PureImageIconButton(
-    icon: String,
-    contentDescription: String?,
-    size: Int,
-    contentPadding: PaddingValues,
-    bgColor: Color,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.size(size.dp),
-        enabled = enabled,
-        shape = CircleShape,
-        color = if (enabled) bgColor else bgColor.copy(alpha = 0.38f),
-        contentColor = MaterialTheme.colorScheme.onSurface
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(contentPadding),
-            contentAlignment = Alignment.Center
-        ) {
-            Image(
-                bitmap = iconBitmapPng(icon),
-                contentDescription = contentDescription,
-                modifier = Modifier.size((size * 2 / 3).dp)
-            )
-        }
-    }
 }

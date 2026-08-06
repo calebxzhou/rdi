@@ -1,7 +1,9 @@
 package calebxzhou.rdi.client.database
 
+import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
+import java.nio.file.Path
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
@@ -71,6 +73,127 @@ class MinecraftInstallationDatabaseTest {
         MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
             database.store.setLastFullScanAt(123L).getOrThrow()
             assertEquals(123L, database.store.lastFullScanAt().getOrThrow())
+        }
+    }
+
+    @Test
+    fun `player info cache round trips and updates`() = runBlocking {
+        val file = Files.createTempDirectory("rdi-database").resolve("data.db")
+        val first = PlayerInfoRecord(
+            playerId = "68b314bbadaf52ddab96b5ed",
+            name = "玩家一",
+            isSlim = true,
+            skinUrl = "https://example.com/skin-one",
+            capeUrl = null,
+            updatedAt = 10L
+        )
+        val updated = first.copy(
+            name = "玩家一更新",
+            isSlim = false,
+            capeUrl = "https://example.com/cape-one",
+            updatedAt = 20L
+        )
+
+        MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
+            database.playerInfoStore.upsertAll(listOf(first)).getOrThrow()
+            assertEquals(mapOf(first.playerId to first), database.playerInfoStore.findByIds(listOf(first.playerId)).getOrThrow())
+
+            database.playerInfoStore.upsertAll(listOf(updated)).getOrThrow()
+            assertEquals(mapOf(updated.playerId to updated), database.playerInfoStore.findByIds(listOf(updated.playerId)).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `player info cache survives reopening database`() = runBlocking {
+        val file = Files.createTempDirectory("rdi-database").resolve("data.db")
+        val record = PlayerInfoRecord(
+            playerId = "68c901f07c76a32fa7dc270a",
+            name = "玩家二",
+            isSlim = false,
+            skinUrl = "https://example.com/skin-two",
+            capeUrl = "https://example.com/cape-two",
+            updatedAt = 30L
+        )
+
+        MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
+            database.playerInfoStore.upsertAll(listOf(record)).getOrThrow()
+        }
+
+        MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
+            assertEquals(mapOf(record.playerId to record), database.playerInfoStore.findByIds(listOf(record.playerId)).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `schema version one migrates without losing installations`() = runBlocking {
+        val file = Files.createTempDirectory("rdi-database").resolve("data.db")
+        val driver = JdbcSqliteDriver("jdbc:sqlite:${file.toUri()}")
+        driver.execute(null, "PRAGMA application_id = ${MinecraftInstallationDatabase.APPLICATION_ID}", 0)
+        driver.execute(
+            null,
+            """
+            CREATE TABLE minecraft_installation (
+                path TEXT COLLATE NOCASE NOT NULL PRIMARY KEY,
+                first_discovered_at INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            0
+        )
+        driver.execute(
+            null,
+            """
+            CREATE TABLE minecraft_scan_state (
+                id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+                last_full_scan_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            0
+        )
+        driver.execute(null, "INSERT INTO minecraft_installation VALUES ('C:/Minecraft', 10, 20)", 0)
+        driver.execute(null, "PRAGMA user_version = 1", 0)
+        driver.close()
+
+        MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
+            assertEquals(
+                listOf(MinecraftInstallationRecord(Path.of("C:/Minecraft"), 10L, 20L)),
+                database.store.list().getOrThrow()
+            )
+            assertEquals(emptyMap(), database.playerInfoStore.findByIds(listOf("68b314bbadaf52ddab96b5ed")).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `schema version two without player info table migrates`() = runBlocking {
+        val file = Files.createTempDirectory("rdi-database").resolve("data.db")
+        val driver = JdbcSqliteDriver("jdbc:sqlite:${file.toUri()}")
+        driver.execute(null, "PRAGMA application_id = ${MinecraftInstallationDatabase.APPLICATION_ID}", 0)
+        driver.execute(
+            null,
+            """
+            CREATE TABLE minecraft_installation (
+                path TEXT COLLATE NOCASE NOT NULL PRIMARY KEY,
+                first_discovered_at INTEGER NOT NULL,
+                last_seen_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            0
+        )
+        driver.execute(
+            null,
+            """
+            CREATE TABLE minecraft_scan_state (
+                id INTEGER NOT NULL PRIMARY KEY CHECK (id = 1),
+                last_full_scan_at INTEGER NOT NULL
+            )
+            """.trimIndent(),
+            0
+        )
+        driver.execute(null, "PRAGMA user_version = 2", 0)
+        driver.close()
+
+        MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
+            assertEquals(emptyMap(), database.playerInfoStore.findByIds(listOf("68b314bbadaf52ddab96b5ed")).getOrThrow())
         }
     }
 

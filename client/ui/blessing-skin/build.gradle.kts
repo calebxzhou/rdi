@@ -27,3 +27,6 @@ dependencies {
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
+base {
+    archivesName.set("rdi-blessing-skin")
+}

@@ -27,6 +27,8 @@ import calebxzau.rdi.client.blessingskin.BlessingTextureFilter
 import calebxzau.rdi.client.blessingskin.BlessingTextureSearch
 import calebxzau.rdi.client.blessingskin.BlessingTextureSummary
 import calebxzhou.rdi.client.service.SkinService
+import calebxzhou.rdi.client.auth.AccountSessionStore
+import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.ui.comp.HttpImage
 import calebxzhou.mykotutils.log.Loggers
 import kotlinx.coroutines.Dispatchers
@@ -276,11 +278,15 @@ fun MojangSkinDialog(onDismiss: () -> Unit, onToast: (String) -> Unit) {
                             SkinService.importMojangSkin(name, importSkin, importCape)
                         }
                         loading = false
-                        result.onSuccess {
+                        if (result.isSuccess) {
+                            val cloth = result.getOrThrow()
+                            AccountSessionStore.updateCloth(cloth)
+                            playerInfoCache.put(AccountSessionStore.current.dto)
                             errorMessage = null
                             onDismiss()
                             onToast("导入成功")
-                        }.onFailure { err ->
+                        } else {
+                            val err = result.exceptionOrNull() ?: IllegalStateException("导入皮肤失败")
                             errorMessage = err.message ?: "导入失败"
                         }
                     }

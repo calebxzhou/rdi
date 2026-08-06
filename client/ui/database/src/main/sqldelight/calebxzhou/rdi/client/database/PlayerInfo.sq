@@ -1,0 +1,21 @@
+CREATE TABLE player_info_cache (
+    player_id TEXT NOT NULL PRIMARY KEY,
+    name TEXT NOT NULL,
+    is_slim INTEGER NOT NULL,
+    skin_url TEXT NOT NULL,
+    cape_url TEXT,
+    updated_at INTEGER NOT NULL
+);
+
+selectByIds:
+SELECT player_id, name, is_slim, skin_url, cape_url, updated_at
+FROM player_info_cache
+WHERE player_id IN ?;
+
+upsert:
+INSERT OR REPLACE INTO player_info_cache(player_id, name, is_slim, skin_url, cape_url, updated_at)
+VALUES (:playerId, :name, :isSlim, :skinUrl, :capeUrl, :updatedAt);
+
+deleteById:
+DELETE FROM player_info_cache
+WHERE player_id = ?;

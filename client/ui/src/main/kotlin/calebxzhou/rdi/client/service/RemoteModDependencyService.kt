@@ -3,6 +3,7 @@ package calebxzhou.rdi.client.service
 import calebxzau.rdi.client.modcatalog.CatalogSlugRef
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.getMetadataOrEmpty
 import calebxzhou.rdi.client.model.ModrinthProjectCategoryVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
 import calebxzhou.rdi.client.model.RemoteModCardVo

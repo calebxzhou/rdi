@@ -29,3 +29,6 @@ dependencies {
     implementation(libs.kotlin.logging.jvm)
     testImplementation(kotlin("test"))
 }
+base {
+    archivesName.set("rdi-model")
+}

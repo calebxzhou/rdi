@@ -282,7 +282,7 @@ fun RegisterScreen(
             ) {
                 CircleIconButton(
                     icon = "\uF002",
-                    tooltip = "注册进度查询",
+                    label = "注册进度查询",
                     bgColor = MaterialColor.GREEN_900.color
                 ) {
                     showReceiptQueryDialog = true

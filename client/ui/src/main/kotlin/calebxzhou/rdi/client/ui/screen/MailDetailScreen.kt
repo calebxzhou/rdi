@@ -95,7 +95,7 @@ fun MailDetailPanel(
             if (oid != null) {
                 CircleIconButton(
                     icon = "\uEA81",
-                    tooltip = "删除邮件",
+                    label = "删除邮件",
                     bgColor = MaterialColor.RED_900.color,
                 ) {
                     scope.launch {

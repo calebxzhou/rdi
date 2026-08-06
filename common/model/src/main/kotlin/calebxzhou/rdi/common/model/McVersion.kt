@@ -24,9 +24,9 @@ enum class McVersion(
         mapOf(
             ModLoader.neoforge to ModLoader.Version(
                 ModLoader.neoforge,
-                "neoforge-21.1.233",
-                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.233/neoforge-21.1.233-installer.jar",
-                "c08d30647f1dc8650bc098b03b5faacdb63d1cf4"
+                "neoforge-21.1.248",
+                "https://maven.neoforged.net/releases/net/neoforged/neoforge/21.1.248/neoforge-21.1.248-installer.jar",
+                "e818014b2ef9cdaa76dc9fedddaf17f46ade8fce"
             )
         )
     ),
@@ -117,6 +117,9 @@ enum class McVersion(
 
 fun McVersion.supportsForgeguard(modLoader: ModLoader): Boolean =
     this == McVersion.V201 && modLoader == ModLoader.forge
+
+fun McVersion.supportsModpackUpload(): Boolean =
+    this == McVersion.V201 || this == McVersion.V211
 
 /*V182(
       "1.18.2",

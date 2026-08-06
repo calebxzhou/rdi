@@ -1,5 +1,6 @@
 package calebxzau.rdi.client.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -19,6 +20,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import calebxzhou.rdi.client.ui.iconBitmapPng
 
 
 @Composable
@@ -204,4 +206,145 @@ private fun IconText(
         softWrap = false,
         overflow = TextOverflow.Clip
     )
+}
+
+@Composable
+fun ImageIconButton(
+    icon: String,
+    tooltip: String? = null,
+    tooltipAnchorPosition: TooltipAnchorPosition = TooltipAnchorPosition.Below,
+    size: Int = 36,
+    contentPadding: PaddingValues = ButtonDefaults.TextButtonContentPadding,
+    bgColor: Color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    enabled: Boolean = true,
+    showText: Boolean = true,
+    onClick: () -> Unit = {}
+) {
+    val inlineText = tooltip?.takeIf { it.isNotBlank() }
+    if (showText && inlineText != null) {
+        BoxWithConstraints {
+            val density = LocalDensity.current
+            val textMeasurer = rememberTextMeasurer()
+            val labelStyle = MaterialTheme.typography.bodyMedium
+            val labelWidthPx = remember(inlineText, labelStyle) {
+                textMeasurer.measure(
+                    text = AnnotatedString(inlineText),
+                    style = labelStyle,
+                    maxLines = 1,
+                    softWrap = false
+                ).size.width
+            }
+            val availableWidthPx = if (maxWidth == Dp.Infinity) {
+                Int.MAX_VALUE
+            } else {
+                with(density) { maxWidth.roundToPx() }
+            }
+            val iconBoxPx = with(density) { size.dp.roundToPx() }
+            val gapPx = with(density) { 8.dp.roundToPx() }
+            val horizontalPaddingPx = with(density) { 28.dp.roundToPx() }
+            val requiredWidthPx = iconBoxPx + gapPx + labelWidthPx + horizontalPaddingPx
+            val canShowInlineText = availableWidthPx >= requiredWidthPx
+
+            val drawButton = @Composable {
+                if (canShowInlineText) {
+                    Surface(
+                        onClick = onClick,
+                        modifier = Modifier.height(size.dp),
+                        enabled = enabled,
+                        shape = RoundedCornerShape(percent = 50),
+                        color = bgColor,
+                        contentColor = MaterialTheme.colorScheme.onSurface
+                    ) {
+                        RowV(
+                            modifier = Modifier.padding(start = 12.dp, end = 16.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Image(
+                                bitmap = iconBitmapPng(icon),
+                                contentDescription = inlineText,
+                                modifier = Modifier.size((size * 2 / 3).dp)
+                            )
+                            Text(
+                                text = inlineText,
+                                style = labelStyle,
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Clip
+                            )
+                        }
+                    }
+                } else {
+                    PureImageIconButton(
+                        icon = icon,
+                        contentDescription = inlineText,
+                        size = size,
+                        contentPadding = contentPadding,
+                        bgColor = bgColor,
+                        enabled = enabled,
+                        onClick = onClick
+                    )
+                }
+            }
+
+            SimpleTooltip(inlineText, tooltipAnchorPosition) { drawButton() }
+        }
+        return
+    }
+
+    if (tooltip != null && !showText) {
+        SimpleTooltip(tooltip, tooltipAnchorPosition) {
+            PureImageIconButton(
+                icon = icon,
+                contentDescription = tooltip,
+                size = size,
+                contentPadding = contentPadding,
+                bgColor = bgColor,
+                enabled = enabled,
+                onClick = onClick
+            )
+        }
+    } else {
+        PureImageIconButton(
+            icon = icon,
+            contentDescription = null,
+            size = size,
+            contentPadding = contentPadding,
+            bgColor = bgColor,
+            enabled = enabled,
+            onClick = onClick
+        )
+    }
+}
+
+@Composable
+private fun PureImageIconButton(
+    icon: String,
+    contentDescription: String?,
+    size: Int,
+    contentPadding: PaddingValues,
+    bgColor: Color,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(size.dp),
+        enabled = enabled,
+        shape = CircleShape,
+        color = if (enabled) bgColor else bgColor.copy(alpha = 0.38f),
+        contentColor = MaterialTheme.colorScheme.onSurface
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(contentPadding),
+            contentAlignment = Alignment.Center
+        ) {
+            Image(
+                bitmap = iconBitmapPng(icon),
+                contentDescription = contentDescription,
+                modifier = Modifier.size((size * 2 / 3).dp)
+            )
+        }
+    }
 }

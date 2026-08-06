@@ -370,8 +370,14 @@ object PlayerService {
     suspend fun getInfoByNames(names: List<String>): List<RAccount.Dto> =
         names.map { getByName(it)?.dto ?: RAccount.DEFAULT.dto }
 
-    suspend fun getInfoByIds(uids: List<ObjectId>): List<RAccount.Dto> =
-        uids.map { getById(it)?.dto ?: RAccount.DEFAULT.dto }
+    suspend fun getInfoByIds(uids: List<ObjectId>): List<RAccount.Dto> {
+        if (uids.isEmpty()) return emptyList()
+        val accountsById = accountCol
+            .find(`in`("_id", LinkedHashSet(uids).toList()))
+            .toList()
+            .associateBy { it._id }
+        return uids.map { id -> accountsById[id]?.dto ?: RAccount.DEFAULT.dto }
+    }
 
     suspend fun saveCrashReport(uid: ObjectId, report: String) {
         val account = getById(uid)

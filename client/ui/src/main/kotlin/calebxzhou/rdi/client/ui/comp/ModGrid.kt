@@ -190,7 +190,7 @@ fun ModGrid(
                         icon = if (showSearchBox) "\uF00D" else "\uF002",
                         tooltip = if (showSearchBox) "隐藏搜索" else "显示搜索",
                         bgColor = MaterialTheme.colorScheme.primary,
-                        size = 32,
+                        size = 32.dp,
                         showText = false
                     ) {
                         if (showSearchBox) {
@@ -204,7 +204,7 @@ fun ModGrid(
                         icon = if (iconOnly) "\uF03A" else "\uF00A",
                         tooltip = if (iconOnly) "卡片模式" else "仅图标模式",
                         bgColor = MaterialTheme.colorScheme.primary,
-                        size = 32,
+                        size = 32.dp,
                         showText = false
                     ) {
                         iconOnly = !iconOnly

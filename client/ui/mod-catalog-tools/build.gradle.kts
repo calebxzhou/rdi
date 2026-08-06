@@ -43,3 +43,6 @@ tasks.register<JavaExec>("buildModCatalogDatabase") {
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
+base {
+    archivesName.set("rdi-mod-catalog-tools")
+}

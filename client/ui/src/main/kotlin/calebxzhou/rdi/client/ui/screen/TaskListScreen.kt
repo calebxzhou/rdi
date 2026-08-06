@@ -38,7 +38,7 @@ fun TaskListScreen(
                 if (finishedCount > 0) {
                     CircleIconButton(
                         icon = "\uF2ED",
-                        tooltip = "清空已完成",
+                        label = "清空已完成",
                         bgColor = MaterialTheme.colorScheme.error
                     ) {
                         ClientTaskManager.clearFinished()
@@ -127,7 +127,7 @@ private fun TaskEntryCard(
                     status == Task2Status.RUNNING -> {
                         CircleIconButton(
                             icon = "\uF05E",
-                            tooltip = "结束任务",
+                            label = "结束任务",
                             bgColor = MaterialTheme.colorScheme.error
                         ) {
                             ClientTaskManager.cancel(entry.runId)
@@ -137,7 +137,7 @@ private fun TaskEntryCard(
                     status.isTerminal -> {
                         CircleIconButton(
                             icon = "\uF2ED",
-                            tooltip = "移除",
+                            label = "移除",
                             bgColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.72f)
                         ) {
                             ClientTaskManager.remove(entry.runId)

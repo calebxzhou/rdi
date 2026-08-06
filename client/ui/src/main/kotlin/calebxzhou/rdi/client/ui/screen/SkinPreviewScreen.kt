@@ -13,6 +13,7 @@ import calebxzau.rdi.client.blessingskin.ResolvedBlessingTexture
 import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.service.SkinService
+import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.ui.comp.PlayerModel
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.mykotutils.log.Loggers
@@ -73,7 +74,7 @@ fun SkinPreviewScreen(
             TitleRow(title = "预览：${loadState.texture?.name ?: "皮肤"}", onBack = onBack) {
                 CircleIconButton(
                     icon = "\uF00C",
-                    tooltip = "确认使用",
+                    label = "确认使用",
                     enabled = !applying && loadState.cloth != null && loadState.texture != null
                 ) {
                     val texture = loadState.texture ?: return@CircleIconButton
@@ -84,11 +85,13 @@ fun SkinPreviewScreen(
                             SkinService.applyBlessingTexture(loggedAccount.cloth, texture)
                         }
                         applying = false
-                        result.onSuccess { cloth ->
+                        if (result.isSuccess) {
+                            val cloth = result.getOrThrow()
                             AccountSessionStore.updateCloth(cloth)
+                            playerInfoCache.put(AccountSessionStore.current.dto)
                             onBack()
-                        }
-                        result.onFailure { err ->
+                        } else {
+                            val err = result.exceptionOrNull() ?: IllegalStateException("设置皮肤失败")
                             lgr.warn { "Blessing Skin设置失败\n$err" }
                             snackbarHostState.showSnackbar(
                                 message = err.message ?: "设置失败",

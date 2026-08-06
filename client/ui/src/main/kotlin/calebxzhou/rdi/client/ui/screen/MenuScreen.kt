@@ -29,6 +29,7 @@ import calebxzhou.rdi.client.net.lgr
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
+import calebxzhou.rdi.client.service.rememberPlayerInfoPrefetch
 import calebxzhou.rdi.client.service.startHostPlay
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.*
@@ -137,7 +138,7 @@ fun MenuScreen(
             confirmButton = {
                 CircleIconButton(
                     icon = "\uF00C",
-                    tooltip = "知道了"
+                    label = "知道了"
                 ) {
                     showOldMainWarning = false
                 }
@@ -204,7 +205,7 @@ fun MenuScreen(
             confirmButton = {
                 CircleIconButton(
                     icon = "\uF00C",
-                    tooltip = "知道了"
+                    label = "知道了"
                 ) {
                     playError = null
                 }
@@ -233,6 +234,10 @@ private fun MenuAccountSummary(
     onlinePlayerIds: List<ObjectId>,
     modifier: Modifier = Modifier
 ) {
+    val playerIds = remember(onlinePlayerIds) {
+        listOf(loggedAccount._id) + onlinePlayerIds
+    }
+    rememberPlayerInfoPrefetch(playerIds)
 
 
     Column(
@@ -273,13 +278,12 @@ private fun MenuActionButtons(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = modifier
     ) {
-        ImageIconButton("grass_block", "资源") {
+        ImageIconButton("grass_block", "整合包") {
             onOpenResources()
         }
         CircleIconButton(
             "\uF04B",
             "游玩",
-            contentPadding = PaddingValues(start = 2.dp)
         ) {
             onOpenHostLobby()
         }
@@ -287,20 +291,20 @@ private fun MenuActionButtons(
 
             CircleIconButton(
                 icon = "\uF1B3",
-                tooltip = "新版房间"
+                label = "新版房间"
             ) {
                 onOpenHost2Lobby()
             }
         }
         ImageIconButton(
             icon = "mcmod",
-            tooltip = "百科"
+            "百科"
         ) {
             onOpenMcmod()
         }
         CircleIconButton(
             icon = "\uF004",
-            tooltip = "支持"
+            label = "支持"
         ) {
             onOpenSponsor()
         }

@@ -568,12 +568,12 @@ fun HostFileExplorer(
                             /*RRow {
                                 CircleIconButton(
                                     icon = "\uF021",
-                                    tooltip = "刷新",
+                                    label = "刷新",
                                     enabled = !loadingFiles
                                 ) { onReloadList() }
                                 CircleIconButton(
                                     icon = "\uF15B",
-                                    tooltip = "新建",
+                                    label = "新建",
                                     enabled = !loadingFiles
                                 ) { openCreateDialog(parentPath = currentDirPath, directory = false) }
                                 CircleIconButton(
@@ -1343,13 +1343,13 @@ private fun HostConfigContentRow(
                     icon = "\uF044",
                     tooltip = "重命名",
                     showText = false,
-                    size = 28
+                    size = 28.dp
                 ) { onRenameFile(entry.path) }
                 CircleIconButton(
                     icon = "\uF1F8",
                     tooltip = "删除",
                     showText = false,
-                    size = 28,
+                    size = 28.dp,
                     bgColor = MaterialTheme.colorScheme.error
                 ) { onDeleteFile(entry.path) }
             }

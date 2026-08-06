@@ -518,7 +518,7 @@ fun InstalledResourcePane(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
-                text = "管理已安装整合包",
+                text = "管理已安装整合包 点击查看选项",
                 style = MaterialTheme.typography.titleMedium
             )
             if (showPaneActions) {

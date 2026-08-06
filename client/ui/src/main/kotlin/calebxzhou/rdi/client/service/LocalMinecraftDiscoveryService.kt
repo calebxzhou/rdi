@@ -12,11 +12,15 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.nio.file.Path
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
@@ -41,13 +45,31 @@ class LocalMinecraftDiscoveryService(
     private val databaseOpener: (Path) -> Result<MinecraftInstallationDatabaseHandle> = {
         MinecraftInstallationDatabase.open(it)
     },
+    private val initialDatabaseHandle: MinecraftInstallationDatabaseHandle? = null,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : AutoCloseable {
     private val scanMutex = Mutex()
     private val started = AtomicBoolean()
     private val closed = AtomicBoolean()
-    private val databaseHandle = AtomicReference<MinecraftInstallationDatabaseHandle?>()
+    private val databaseHandle = AtomicReference(initialDatabaseHandle)
     private var discoveryJob: Job? = null
+    private val installationsByName = ConcurrentHashMap<String, Path>()
+    private val mutableInstallations = MutableStateFlow<List<Path>>(emptyList())
+
+    /** 当前已知的Minecraft安装根目录（真实路径），随记录新增/删除/全量扫描完成而更新。 */
+    val installations: StateFlow<List<Path>> = mutableInstallations.asStateFlow()
+
+    private fun reflectInstallations(
+        upsert: List<Path> = emptyList(),
+        remove: List<Path> = emptyList()
+    ) {
+        upsert.forEach { installationsByName[pathKey(it)] = it.toAbsolutePath().normalize() }
+        remove.forEach { installationsByName.remove(pathKey(it)) }
+        mutableInstallations.value = installationsByName.values
+            .map { it.toAbsolutePath().normalize() }
+            .distinctBy(::pathKey)
+            .sortedBy { it.toString().lowercase(Locale.ROOT) }
+    }
 
     @Synchronized
     fun start(): Job? {
@@ -67,12 +89,13 @@ class LocalMinecraftDiscoveryService(
     }
 
     private suspend fun discover() {
-        val opened = databaseOpener(databasePath).getOrElse { cause ->
+        val providedHandle = databaseHandle.get()
+        val opened = providedHandle ?: databaseOpener(databasePath).getOrElse { cause ->
             minecraftDiscoveryLogger.error(cause) { "初始化Minecraft安装数据库失败，本次跳过安装发现" }
             return
-        }
+        }.also { databaseHandle.set(it) }
         if (closed.get()) {
-            opened.close()
+            if (databaseHandle.compareAndSet(opened, null)) opened.close()
             return
         }
         databaseHandle.set(opened)
@@ -100,7 +123,7 @@ class LocalMinecraftDiscoveryService(
         } catch (cause: Throwable) {
             minecraftDiscoveryLogger.error(cause) { "Minecraft安装发现失败" }
         } finally {
-            if (databaseHandle.compareAndSet(opened, null)) opened.close()
+            if (providedHandle == null && databaseHandle.compareAndSet(opened, null)) opened.close()
         }
     }
 
@@ -124,6 +147,10 @@ class LocalMinecraftDiscoveryService(
                             }
                         }
                         logInstallation("更新", realPath)
+                        reflectInstallations(
+                            upsert = listOf(realPath),
+                            remove = if (pathKey(realPath) != pathKey(record.path)) listOf(record.path) else emptyList()
+                        )
                     }.onFailure { cause ->
                         minecraftDiscoveryLogger.error(cause) { "更新Minecraft安装失败：$realPath" }
                     }
@@ -133,6 +160,7 @@ class LocalMinecraftDiscoveryService(
                 MinecraftInstallationValidation.Invalid -> {
                     store.delete(record.path).onSuccess {
                         logInstallation("删除", record.path)
+                        reflectInstallations(remove = listOf(record.path))
                     }.onFailure { cause ->
                         minecraftDiscoveryLogger.error(cause) { "删除无效Minecraft安装失败：${record.path}" }
                     }
@@ -153,6 +181,7 @@ class LocalMinecraftDiscoveryService(
                 is MinecraftInstallationValidation.Valid -> {
                     store.upsert(validation.realPath, seenAt).onSuccess {
                         logInstallation("发现", validation.realPath)
+                        reflectInstallations(upsert = listOf(validation.realPath))
                     }.onFailure { cause ->
                         minecraftDiscoveryLogger.error(cause) { "保存Minecraft安装失败：${validation.realPath}" }
                     }
@@ -176,6 +205,7 @@ class LocalMinecraftDiscoveryService(
             for (path in discoveries) {
                 store.upsert(path, startedAt).onSuccess {
                     logInstallation("发现", path)
+                    reflectInstallations(upsert = listOf(path))
                 }.onFailure { cause ->
                     writerFailure.compareAndSet(null, cause)
                     minecraftDiscoveryLogger.error(cause) { "保存Minecraft安装失败：$path" }

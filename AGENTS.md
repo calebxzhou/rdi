@@ -15,8 +15,6 @@ when you wanna change the code, you should gimme plan
 - UI assets/icons are under `client/ui/assets/src/main/resources/assets`.
 - use CircleIconButton as more as possible when you are making buttons.
 - do not remove any project files, for any dir or file to be removed, move to /DEL dir instead.
-- use Syntactic sugar as more as possible
-- reply in mandarin，but english notation for terminologies, no matter how input language is
 - use Material3
 - hide technological details to user if possible, such as we dont need to let user know what's docker container, this situation use host instead.
 - you can read minecraft source code on "client\mc\1.21.1-neoforge\build\moddev\artifacts\neoforge-${neoforge-version}-sources" for 1.21.1
@@ -33,7 +31,6 @@ no need care about CRLF/LF issue, but Dockerfile and *.sh files must be LF
 - Keep shared DTO/model changes in `common` first, then adapt client/server callers.
 - no need to add spaces between chinese characters and numbers,letters. e.g. Mod数量8个 is ok, Mod 数量 8 个 is not ok
 - when using kotlin string template feature, if there's variable called abc next to chinese e.g. "测试$abc测试测试", this situation entire abc测试测试 will be parsed as a variable making compile fail, we should make abc bracketed "测试${abc}测试测试"
-- do not use file.deleteRecursively() function, use file.deleteRecursivelyNoSymlink() instead (extension from calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink), because it will delete the symlink target on windows
 - for kotlin code, if a function is possible to fail e.g. disk io/network io,use Result<> as return type,the invoker should use runCatching-getOrElse/getOrThrow, reduce use getOrNull, explictly log the exception, or throw it by situation
 ## Testing Guidelines
 - Frameworks: Kotlin test + JUnit Platform.

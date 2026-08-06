@@ -247,7 +247,7 @@ fun ResetPasswordScreen(
                         }
                         CircleIconButton(
                             icon = if (mode == ResetPasswordMode.MSA) "\uE70F" else "\uF0E0",
-                            tooltip = if (submitting) "处理中..." else "重置密码",
+                            label = if (submitting) "处理中..." else "重置密码",
                             enabled = !submitting,
                             bgColor = MaterialTheme.colorScheme.primaryContainer,
                             iconColor = MaterialTheme.colorScheme.onPrimaryContainer

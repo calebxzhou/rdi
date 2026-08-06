@@ -15,14 +15,21 @@ data class PlayerHeadState(
 )
 
 @Composable
+fun rememberPlayerInfoPrefetch(ids: Collection<ObjectId>) {
+    val normalizedIds = ids.distinct()
+    LaunchedEffect(normalizedIds) {
+        playerInfoCache.prefetch(normalizedIds)
+    }
+}
+
+@Composable
 fun rememberPlayerHeadState(uid: ObjectId): PlayerHeadState {
-    val key = uid.toHexString()
-    var state by remember(key) {
-        mutableStateOf(cachedPlayerHeadState(key) ?: PlayerHeadState("载入中...", null))
+    var state by remember(uid) {
+        mutableStateOf(cachedPlayerHeadState(uid) ?: PlayerHeadState("载入中...", null))
     }
 
-    LaunchedEffect(key) {
-        val info = playerInfoCache[key]
+    LaunchedEffect(uid) {
+        val info = playerInfoCache[uid]
         val cachedImage = HttpImageState.peek(info.cloth.skin)?.bitmap?.takeIf(ImageBitmap::isPlayerSkin)
         state = PlayerHeadState(info.name, cachedImage)
         if (cachedImage == null) {
@@ -33,8 +40,8 @@ fun rememberPlayerHeadState(uid: ObjectId): PlayerHeadState {
     return state
 }
 
-private fun cachedPlayerHeadState(key: String): PlayerHeadState? {
-    val info = playerInfoCache.peek(key) ?: return null
+private fun cachedPlayerHeadState(uid: ObjectId): PlayerHeadState? {
+    val info = playerInfoCache.peek(uid) ?: return null
     return PlayerHeadState(
         name = info.name,
         skinImage = HttpImageState.peek(info.cloth.skin)?.bitmap?.takeIf(ImageBitmap::isPlayerSkin)

@@ -37,19 +37,25 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import calebxzau.rdi.client.ui.AppBackgroundProvider
 import calebxzau.rdi.client.ui.LocalAppBackgroundPainter
+import calebxzau.rdi.client.di.appModule
 import calebxzhou.mykotutils.std.decodeBase64
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.jarResource
 import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzhou.rdi.client.auth.LocalCredentials
+import calebxzhou.rdi.client.database.MinecraftInstallationDatabase
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.LocalMinecraftDiscoveryService
+import calebxzhou.rdi.client.service.MinecraftInstallationReuseService
 // import calebxzhou.rdi.client.service.LocalMinecraftReuseService
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.UpdaterUpdateResult
+import calebxzhou.rdi.client.service.initializePlayerInfoCache
+import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
 import calebxzau.rdi.client.modcatalog.createModCatalog
 import calebxzhou.rdi.client.ui.AppNavigation
@@ -71,6 +77,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.koin.core.context.startKoin
 import java.awt.Dimension
 import java.awt.Toolkit
 
@@ -95,6 +102,25 @@ fun main() {
         identityDatabaseMaterializationDir = ClientDirs.toolsDir.resolve("mod-catalog").toPath(),
         onWarning = { cause -> lgr.warn(cause) { "模组目录本地索引不可用或请求降级" } }
     )
+    startKoin {
+        modules(appModule(modCatalog))
+    }
+    val databasePath = RDIClient.DIR.toPath().resolve("data.db")
+    val databaseHandle = MinecraftInstallationDatabase.open(databasePath)
+        .onFailure { cause -> lgr.error(cause) { "初始化客户端数据库失败，持久化玩家缓存和Minecraft安装发现不可用" } }
+        .getOrNull()
+    initializePlayerInfoCache(databaseHandle?.playerInfoStore)
+    val minecraftDiscoveryService = databaseHandle?.let {
+        LocalMinecraftDiscoveryService(
+            databasePath = databasePath,
+            initialDatabaseHandle = it
+        )
+    }
+    minecraftDiscoveryService?.start()
+    val minecraftReuseService = minecraftDiscoveryService?.let {
+        MinecraftInstallationReuseService(installations = it.installations)
+    }
+    minecraftReuseService?.start()
     try {
         application {
         val windowIcon = remember {
@@ -143,6 +169,9 @@ fun main() {
                 }
                 runningMcSessions.forEach { it.requestStop(force = true) }
             }
+            playerInfoCache.close()
+            minecraftReuseService?.close()
+            minecraftDiscoveryService?.close()
             exitApplication()
         }
 
@@ -251,6 +280,8 @@ fun main() {
         }
         }
     } finally {
+        minecraftDiscoveryService?.close()
+        playerInfoCache.close()
         modCatalog.close()
     }
 }

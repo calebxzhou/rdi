@@ -16,7 +16,7 @@ import androidx.compose.ui.unit.dp
 @Composable
 fun ColumnScope.ContentBody(
     modifier: Modifier = Modifier,
-    contentPadding: PaddingValues = PaddingValues(24.dp),
+    contentPadding: PaddingValues = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 0.dp),
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     horizontalAlignment: Alignment.Horizontal = Alignment.Start,
     content: @Composable ColumnScope.() -> Unit
@@ -36,7 +36,7 @@ fun ColumnScope.ContentBody(
 fun ColumnScope.ScrollableContentBody(
     modifier: Modifier = Modifier,
     state: ScrollState = rememberScrollState(),
-    contentPadding: PaddingValues = PaddingValues(24.dp),
+    contentPadding: PaddingValues = PaddingValues(start = 12.dp, end = 12.dp, top = 6.dp, bottom = 0.dp),
     verticalArrangement: Arrangement.Vertical = Arrangement.Top,
     horizontalAlignment: Alignment.Horizontal = Alignment.Start,
     content: @Composable ColumnScope.() -> Unit

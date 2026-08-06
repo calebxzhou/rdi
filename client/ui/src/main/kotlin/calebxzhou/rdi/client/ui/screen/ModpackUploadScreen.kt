@@ -30,23 +30,19 @@ import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.packproc.*
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.CLIENT_TEST_SUCCESS_MARKER
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ClientModpackTester
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.GameService
-import calebxzhou.rdi.client.service.LoadedLocalModpack
-import calebxzhou.rdi.client.service.LoadedServerPackResult
 import calebxzhou.rdi.client.service.ModpackTester
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.TestStatus
-import calebxzhou.rdi.client.service.UploadPayload
 import calebxzhou.rdi.client.service.createUploadModpackTask2
-import calebxzhou.rdi.client.service.loadServerPackMods
 import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.service.modpackUploadTaskKey
-import calebxzhou.rdi.client.service.toUploadPayload
 import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.Console
@@ -57,15 +53,16 @@ import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.client.ui.comp.Task2DetailDialog
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.IGNORE_MODPACK_TEST
+import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.LoadProgress
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Task2Status
 import calebxzhou.rdi.common.model.isPlatformCf
-import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.ModService
 import calebxzau.rdi.client.lgr
+import calebxzau.rdi.client.ui.RRow
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -87,6 +84,14 @@ fun ModpackUploadScreen(
 ) {
     var title by remember { mutableStateOf("上传整合包") }
     val scope = rememberCoroutineScope()
+    val packProcessor = remember {
+        ModpackProcessor(
+            PackProcessingPaths(
+                workDir = ClientDirs.packProcDir,
+                modCacheDir = DL_MOD_DIR
+            )
+        )
+    }
     var errorText by remember { mutableStateOf<String?>(null) }
     var loading by remember { mutableStateOf(false) }
     var editMode by remember { mutableStateOf(false) }
@@ -127,10 +132,10 @@ fun ModpackUploadScreen(
     val allowUploadWithoutTests = DEBUG || IGNORE_MODPACK_TEST
     val canSubmitUpload = IGNORE_MODPACK_TEST || (
             !loading &&
-            downloadTaskRunId == null &&
-            serverTester?.isRunning() == false &&
-            clientTester?.isRunning() == false &&
-            (uploadMode == UploadMode.CREATE || selectedUpdateTarget != null))
+                    downloadTaskRunId == null &&
+                    serverTester?.isRunning() == false &&
+                    clientTester?.isRunning() == false &&
+                    (uploadMode == UploadMode.CREATE || selectedUpdateTarget != null))
     val canSelectServerPack = editMode &&
             !loading &&
             downloadTaskRunId == null &&
@@ -318,7 +323,7 @@ fun ModpackUploadScreen(
     }
 
     fun applyServerPack(serverPack: LoadedServerPackResult) {
-        val processedMods = ModpackModProcessor.processMods(mergeClientAndServerMods(mods, serverPack.mods))
+        val processedMods = packProcessor.processUploadMods(mergeClientAndServerMods(mods, serverPack.mods))
         mods = processedMods
         loadedModpack = loadedModpack?.copy(
             mods = processedMods,
@@ -400,13 +405,13 @@ fun ModpackUploadScreen(
         val currentClientTester = clientTester
         val currentServerTester = serverTester
         if (serverPackName == null) {
-            if (!allowUploadWithoutTests &&                 currentClientTester != null &&
+            if (!allowUploadWithoutTests && currentClientTester != null &&
                 currentClientTester.status.value != TestStatus.PASSED
             ) {
                 errorText = "请先完成客户端测试并通过"
                 return null
             }
-            if (!allowUploadWithoutTests &&                 currentServerTester != null &&
+            if (!allowUploadWithoutTests && currentServerTester != null &&
                 currentServerTester.status.value != TestStatus.PASSED
             ) {
                 errorText = "请先完成服务端测试并通过"
@@ -420,7 +425,7 @@ fun ModpackUploadScreen(
         return current.copy(
             packName = if (uploadMode == UploadMode.UPDATE) selectedUpdateTarget?.name ?: name else name,
             packVersion = version,
-            mods = ModpackModProcessor.processMods(mods)
+            mods = packProcessor.processUploadMods(mods)
         ).toUploadPayload()
     }
 
@@ -431,6 +436,7 @@ fun ModpackUploadScreen(
         }
         val runId = ClientTaskManager.submit(
             task = createUploadModpackTask2(
+                processor = packProcessor,
                 payload = payload,
                 mods = payload.mods,
                 modpackName = modpackName.trim(),
@@ -459,7 +465,7 @@ fun ModpackUploadScreen(
             loading = true
             progressText = "已选择: ${file.name}"
             progressFraction = null
-            val loadResult = ModpackService.load(modCatalog, file) { progress ->
+            val loadResult = packProcessor.loadLocalModpack(file = file, modCatalog = modCatalog) { progress ->
                 scope.launch {
                     mapProgress(progress)
                 }
@@ -475,7 +481,7 @@ fun ModpackUploadScreen(
                 return@launch
             }
 
-            val processedMods = ModpackModProcessor.processMods(defaultCurseForgeUnknownMods(loadResult.mods))
+            val processedMods = packProcessor.processUploadMods(defaultCurseForgeUnknownMods(loadResult.mods))
                 .hydrateToUiMods(modCatalog)
                 .map { it.toMod() }
             loadedModpack = loadResult.copy(mods = processedMods)
@@ -505,7 +511,7 @@ fun ModpackUploadScreen(
             progressText = "已选择服务端目录: ${file.name}"
             progressFraction = null
             val serverPack = runCatching {
-                loadServerPackMods(file, mods) { progress ->
+                packProcessor.loadServerPack(file, mods) { progress ->
                     scope.launch { mapProgress(progress) }
                 }.getOrThrow()
             }.getOrElse { error ->
@@ -647,210 +653,172 @@ fun ModpackUploadScreen(
                     AlertWarn("已启用rdi.ignoreModpackTest=true，当前允许跳过客户端测试(client test)和服务端测试(server test)直接上传")
                 }
 
-            if (!editMode) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    CircleIconButton(
-                        icon = "\uF07C",
-                        tooltip = "选择客户端安装包",
-                        enabled = !loading,
-                        onClick = ::startClientPackSelection
-                    )
-                }
-            } else {
-                Space8h()
-                TabRow(
-                    selectedTabIndex = selectedTab,
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer
-                ) {
-                    Tab(
-                        selected = selectedTab == 0,
-                        onClick = { selectedTab = 0 },
-                        text = { Text("基本信息") }
-                    )
-                    Tab(
-                        selected = selectedTab == 1,
-                        onClick = { selectedTab = 1 },
-                        text = { Text("Mod列表(${mods.size})") }
-                    )
-                    Tab(
-                        selected = selectedTab == 2,
-                        onClick = { selectedTab = 2 },
-                        text = { Text("客户端测试") }
-                    )
-                    Tab(
-                        selected = selectedTab == 3,
-                        onClick = { selectedTab = 3 },
-                        text = { Text("服务端测试") }
-                    )
-                }
-                Space8h()
+                if (!editMode) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircleIconButton(
+                            icon = "\uF07C",
+                            label = "选择客户端安装包",
+                            enabled = !loading,
+                            onClick = ::startClientPackSelection
+                        )
+                    }
+                } else {
+                    Space8h()
+                    TabRow(
+                        selectedTabIndex = selectedTab,
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer
+                    ) {
+                        Tab(
+                            selected = selectedTab == 0,
+                            onClick = { selectedTab = 0 },
+                            text = { Text("基本信息") }
+                        )
+                        Tab(
+                            selected = selectedTab == 1,
+                            onClick = { selectedTab = 1 },
+                            text = { Text("Mod列表(${mods.size})") }
+                        )
+                        Tab(
+                            selected = selectedTab == 2,
+                            onClick = { selectedTab = 2 },
+                            text = { Text("客户端测试") }
+                        )
+                        Tab(
+                            selected = selectedTab == 3,
+                            onClick = { selectedTab = 3 },
+                            text = { Text("服务端测试") }
+                        )
+                    }
+                    Space8h()
 
-                when (selectedTab) {
-                    0 -> {
-                        Column(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            Row(
+                    when (selectedTab) {
+                        0 -> {
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.Top
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                Column(
-                                    modifier = Modifier.weight(1f),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Text("上传模式")
-                                    Row(
-                                        horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                        RRow {
+
                                             RadioButton(
                                                 selected = uploadMode == UploadMode.CREATE,
                                                 onClick = ::chooseCreateMode
                                             )
                                             Text("传新包")
-                                        }
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+
                                             RadioButton(
                                                 selected = uploadMode == UploadMode.UPDATE,
                                                 onClick = ::startUpdateModeSelection
                                             )
                                             Text("更新已有包")
+                                            CircleIconButton(
+                                                "\uE8B8",
+                                                "选择整合包",
+                                                enabled = !loading && !uploadedModpacksLoading && uploadMode == UploadMode.UPDATE,
+                                                onClick = ::openUploadModeDialog
+                                            )
                                         }
-                                    }
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .heightIn(min = 40.dp)
-                                            .border(1.dp, MaterialColor.GRAY_300.color, MaterialTheme.shapes.small)
-                                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                                        contentAlignment = Alignment.CenterStart
-                                    ) {
-                                        Text(
-                                            when (uploadMode) {
-                                                UploadMode.CREATE -> "传新包"
-                                                UploadMode.UPDATE -> selectedUpdateTarget?.name ?: "未选择整合包"
-                                            },
-                                            color = if (uploadMode == UploadMode.UPDATE && selectedUpdateTarget == null) {
-                                                MaterialColor.GRAY_500.color
-                                            } else {
-                                                MaterialColor.GRAY_900.color
-                                            }
-                                        )
-                                    }
+
+
+
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    OutlinedTextField(
+                                        value = modpackName,
+                                        onValueChange = { modpackName = it },
+                                        modifier = Modifier.weight(1f),
+                                        label = { Text("整合包名称") },
+                                        enabled = uploadMode == UploadMode.CREATE
+                                    )
+                                    OutlinedTextField(
+                                        value = versionName,
+                                        onValueChange = { versionName = normalizeVersionNameInput(it) },
+                                        modifier = Modifier.weight(1f),
+                                        label = { Text("版本") },
+                                        singleLine = true
+                                    )
                                 }
-                                Space8w()
-                                CircleIconButton(
-                                    "\uE8B8",
-                                    "选择整合包",
-                                    enabled = !loading && !uploadedModpacksLoading && uploadMode == UploadMode.UPDATE,
-                                    onClick = ::openUploadModeDialog
+                                RRow {
+                                    OutlinedTextField(
+                                        value = iconUrl,
+                                        onValueChange = { iconUrl = it },
+                                        label = { Text("图标链接") },
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = sourceUrl,
+                                        onValueChange = { sourceUrl = it },
+                                        label = { Text("原帖发布链接") },
+                                        singleLine = true
+                                    )
+                                    OutlinedTextField(
+                                        value = infoText,
+                                        onValueChange = { infoText = it },
+                                        label = { Text("一句话简介") },
+                                        singleLine = true
+                                    )
+                                }
+
+
+                                Text("分类 最多${Modpack.MAX_CATEGORY_COUNT}个")
+                                ModpackCategorySelector(
+                                    selected = selectedCategories,
+                                    onSelectedChange = { selectedCategories = it },
+                                    modifier = Modifier.fillMaxWidth()
                                 )
-                            }
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                OutlinedTextField(
-                                    value = modpackName,
-                                    onValueChange = { modpackName = it },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("整合包名称") },
-                                    enabled = uploadMode == UploadMode.CREATE
-                                )
-                                OutlinedTextField(
-                                    value = versionName,
-                                    onValueChange = { versionName = normalizeVersionNameInput(it) },
-                                    modifier = Modifier.weight(1f),
-                                    label = { Text("版本") },
-                                    singleLine = true
-                                )
-                            }
-                            Text("MC版本 $mcVersionText $modloaderText")
-                            OutlinedTextField(
-                                value = iconUrl,
-                                onValueChange = { iconUrl = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("图标链接，可选") },
-                                singleLine = true
-                            )
-                            OutlinedTextField(
-                                value = sourceUrl,
-                                onValueChange = { sourceUrl = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("发布链接，可选") },
-                                singleLine = true
-                            )
-                            OutlinedTextField(
-                                value = infoText,
-                                onValueChange = { infoText = it },
-                                modifier = Modifier.fillMaxWidth(),
-                                label = { Text("简介") },
-                                maxLines = 10
-                            )
-                            Text("分类 最多${Modpack.MAX_CATEGORY_COUNT}个")
-                            ModpackCategorySelector(
-                                selected = selectedCategories,
-                                onSelectedChange = { selectedCategories = it },
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            loadedModpack?.let {
-                                Text("来源类型 ${it.sourceType.name}")
                             }
                         }
-                    }
 
-                    1 -> {
-                        val uiMods = remember(mods) { mods.toUiMods() }
-                        ModGrid(
-                            mods = uiMods,
-                            modifier = Modifier.fillMaxSize(),
-                            emptyText = "没有可显示的mod",
-                            onSideChange = { uiMod, newSide ->
-                                if (newSide != uiMod.side) {
-                                    mods = updateModSide(
-                                        mods = mods,
-                                        modKey = modStableKey(uiMod.mod),
-                                        newSide = newSide
-                                    )
-                                    clientTester?.onModsChangedAfterManualEdit()
-                                    serverTester?.onModsChangedAfterManualEdit()
+                        1 -> {
+                            val uiMods = remember(mods) { mods.toUiMods() }
+                            ModGrid(
+                                mods = uiMods,
+                                modifier = Modifier.fillMaxSize(),
+                                emptyText = "没有可显示的mod",
+                                onSideChange = { uiMod, newSide ->
+                                    if (newSide != uiMod.side) {
+                                        mods = updateModSide(
+                                            mods = mods,
+                                            modKey = modStableKey(uiMod.mod),
+                                            newSide = newSide
+                                        )
+                                        clientTester?.onModsChangedAfterManualEdit()
+                                        serverTester?.onModsChangedAfterManualEdit()
+                                    }
                                 }
-                            }
-                        )
-                    }
+                            )
+                        }
 
-                    2 -> {
-                        TestConsolePane(
-                            statusText = testStatusText(
-                                clientTestStatus?.value ?: TestStatus.NOT_RUN,
-                                clientTestPassSeconds?.value
-                            ),
-                            consoleState = clientTestConsoleState,
-                            "创建单机存档，在聊天框发送 $CLIENT_TEST_SUCCESS_MARKER",
-                            onStart = ::startClientTest,
-                            onStop = ::stopClientTest
-                        )
-                    }
+                        2 -> {
+                            TestConsolePane(
+                                statusText = testStatusText(
+                                    clientTestStatus?.value ?: TestStatus.NOT_RUN,
+                                    clientTestPassSeconds?.value
+                                ),
+                                consoleState = clientTestConsoleState,
+                                "创建单机存档，在聊天框发送 $CLIENT_TEST_SUCCESS_MARKER",
+                                onStart = ::startClientTest,
+                                onStop = ::stopClientTest
+                            )
+                        }
 
-                    3 -> {
-                        TestConsolePane(
-                            statusText = testStatusText(
-                                serverTestStatus?.value ?: TestStatus.NOT_RUN,
-                                serverTestPassSeconds?.value
-                            ),
-                            consoleState = serverTestConsoleState,
-                            "",
-                            onStart = ::startServerTest,
-                            onStop = ::stopServerTest
-                        )
+                        3 -> {
+                            TestConsolePane(
+                                statusText = testStatusText(
+                                    serverTestStatus?.value ?: TestStatus.NOT_RUN,
+                                    serverTestPassSeconds?.value
+                                ),
+                                consoleState = serverTestConsoleState,
+                                "",
+                                onStart = ::startServerTest,
+                                onStop = ::stopServerTest
+                            )
+                        }
                     }
                 }
-            }
 
             }
         }
@@ -887,27 +855,27 @@ fun ModpackUploadScreen(
             }
         }
 
-                downloadTaskEntry?.let { entry ->
-                    Task2DetailDialog(
-                        entry = entry,
-                        onClose = {}
-                    )
-                }
+        downloadTaskEntry?.let { entry ->
+            Task2DetailDialog(
+                entry = entry,
+                onClose = {}
+            )
+        }
 
-                pendingMissingModDownload?.let { pending ->
-                    ConfirmDialog(
-                        title = "下载缺失Mod",
-                        message = "${pending.usage}需要先下载缺失Mod${pending.mods.size}个。下载完成后再启动${pending.usage}。",
-                        onConfirm = {
-                            submitMissingModDownload(pending.mods)
-                            pendingMissingModDownload = null
-                        },
-                        onDismiss = { pendingMissingModDownload = null }
-                    )
-                }
+        pendingMissingModDownload?.let { pending ->
+            ConfirmDialog(
+                title = "下载缺失Mod",
+                message = "${pending.usage}需要先下载缺失Mod${pending.mods.size}个。下载完成后再启动${pending.usage}。",
+                onConfirm = {
+                    submitMissingModDownload(pending.mods)
+                    pendingMissingModDownload = null
+                },
+                onDismiss = { pendingMissingModDownload = null }
+            )
+        }
 
-                if (showUploadModeDialog) {
-                    Box(
+        if (showUploadModeDialog) {
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = 0.35f)),
@@ -954,8 +922,8 @@ fun ModpackUploadScreen(
                         }
                     }
                 }
-                    }
-                }
+            }
+        }
     }
 }
 
@@ -1115,8 +1083,8 @@ private fun mergeClientAndServerMods(
             if (strictMatch == null) {
                 lgr.info {
                     "按slug合并跨来源mod: " +
-                        "${clientEntry.mod.platform}:${clientEntry.mod.projectId} ${clientEntry.mod.slug} + " +
-                        "${serverMatch.mod.platform}:${serverMatch.mod.projectId} ${serverMatch.mod.slug}"
+                            "${clientEntry.mod.platform}:${clientEntry.mod.projectId} ${clientEntry.mod.slug} + " +
+                            "${serverMatch.mod.platform}:${serverMatch.mod.projectId} ${serverMatch.mod.slug}"
                 }
             }
             matchedServerEntries += serverMatch

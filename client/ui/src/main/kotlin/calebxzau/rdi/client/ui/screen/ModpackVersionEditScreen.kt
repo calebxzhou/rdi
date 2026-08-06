@@ -1,4 +1,4 @@
-package calebxzhou.rdi.client.ui.screen
+package calebxzau.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
@@ -25,112 +26,63 @@ import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.TitleTabBar
+import calebxzau.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.model.UiMod
-import calebxzau.rdi.client.modcatalog.ModCatalog
-import calebxzhou.rdi.client.model.toUiMod
-import calebxzhou.rdi.client.net.rdiRequest
-import calebxzhou.rdi.client.net.rdiRequestU
-import calebxzhou.rdi.client.service.hydrateToUiMods
-import calebxzhou.rdi.client.service.toUiMods
-import calebxzhou.rdi.client.ui.*
+import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.comp.ModGrid
 import calebxzhou.rdi.common.model.*
-import calebxzhou.rdi.common.serdesJson
-import io.ktor.http.HttpMethod
-import io.ktor.http.encodeURLPathPart
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import calebxzau.rdi.client.ui.viewmodel.ModpackVersionEditAction
+import calebxzau.rdi.client.ui.viewmodel.ModpackVersionEditViewModel
+import calebxzhou.rdi.client.ui.screen.selectHostExtraModFiles
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 
 
 
 @Composable
 fun ModpackVersionEditScreen(
-    modCatalog: ModCatalog,
     modpackId: String,
     verName: String,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: ModpackVersionEditViewModel = koinViewModel(key = "$modpackId:$verName") {
+        parametersOf(modpackId, verName)
+    },
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var okMessage by remember { mutableStateOf<String?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var pack by remember { mutableStateOf<Modpack.DetailVo?>(null) }
-    var version by remember { mutableStateOf<Modpack.Version?>(null) }
-    var uiMods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
-    var uiModsLoading by remember { mutableStateOf(false) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var selectedTab by remember { mutableStateOf(0) }
     var selectedModKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var addDialogOpen by remember { mutableStateOf(false) }
-    var addDialogLoading by remember { mutableStateOf(false) }
-    var addDialogLoadingText by remember { mutableStateOf("") }
-    var addDialogError by remember { mutableStateOf<String?>(null) }
-    var pendingAddUiMods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
-    var selectedPendingAddKeys by remember { mutableStateOf<Set<String>>(emptySet()) }
-    var rejectedAddFiles by remember { mutableStateOf<List<String>>(emptyList()) }
     var editingMods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
-    var editDialogSaving by remember { mutableStateOf(false) }
     var deleteConfirmMods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
 
-    fun resetAddDialog() {
-        addDialogLoading = false
-        addDialogLoadingText = ""
-        addDialogError = null
-        pendingAddUiMods = emptyList()
-        selectedPendingAddKeys = emptySet()
-        rejectedAddFiles = emptyList()
-    }
-
-    fun reload() {
-        loading = true
-        errorMessage = null
-        scope.rdiRequest<Modpack.DetailVo>(
-            path = "modpack/$modpackId/detail",
-            onOk = { response ->
-                val detail = response.data
-                val currentVersion = detail?.versions?.firstOrNull { it.name == verName }
-                pack = detail
-                version = currentVersion
-                selectedModKeys = emptySet()
-                if (currentVersion == null) {
-                    uiModsLoading = false
-                    uiMods = emptyList()
-                    errorMessage = "未找到版本 V$verName"
-                    return@rdiRequest
-                }
-                uiModsLoading = true
-                uiMods = emptyList()
-                scope.launch {
-                    val loaded = withContext(Dispatchers.IO) {
-                        runCatching { currentVersion.mods.hydrateToUiMods(modCatalog) }
-                            .getOrElse {
-                                it.printStackTrace()
-                                currentVersion.mods.toUiMods()
-                            }
-                    }
-                    uiMods = loaded
-                    uiModsLoading = false
-                }
-            },
-            onErr = { errorMessage = "加载版本信息失败: ${it.message}" },
-            onDone = { loading = false }
-        )
-    }
-
-    LaunchedEffect(modpackId, verName) {
-        reload()
-    }
-
-    LaunchedEffect(okMessage) {
-        okMessage?.let {
+    LaunchedEffect(uiState.okMessage) {
+        uiState.okMessage?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-            okMessage = null
+            viewModel.clearOkMessage()
         }
     }
 
-    val currentVersion = version
-    val selectedMods = uiMods.filter { it.key in selectedModKeys }
+    LaunchedEffect(uiState.completedAction) {
+        when (uiState.completedAction) {
+            ModpackVersionEditAction.EDIT -> editingMods = emptyList()
+            ModpackVersionEditAction.DELETE -> {
+                selectedModKeys = emptySet()
+                deleteConfirmMods = emptyList()
+            }
+            ModpackVersionEditAction.ADD, null -> Unit
+        }
+        if (uiState.completedAction != null) viewModel.clearCompletedAction()
+    }
+
+    LaunchedEffect(uiState.reloadToken) {
+        selectedModKeys = emptySet()
+    }
+
+    val currentVersion = uiState.version
+    val selectedMods = uiState.uiMods.filter { it.key in selectedModKeys }
     val canMutate = currentVersion?.status?.let {
         it != Modpack.Status.WAIT && it != Modpack.Status.BUILDING
     } ?: false
@@ -147,7 +99,7 @@ fun ModpackVersionEditScreen(
             TitleRow(
                 title = buildString {
                     append("版本Mod编辑")
-                    pack?.name?.takeIf { it.isNotBlank() }?.let {
+                    uiState.pack?.name?.takeIf { it.isNotBlank() }?.let {
                         append(" · ")
                         append(it)
                     }
@@ -156,10 +108,24 @@ fun ModpackVersionEditScreen(
                 },
                 onBack = onBack
             ) {
-                errorMessage?.let { ErrorText(it) }
+                Text(
+                    "版本状态: $versionStatusText",
+                    color = if (canMutate) MaterialColor.GREEN_900.color else MaterialColor.ORANGE_900.color
+                )
+                if (currentVersion != null) {
+                    TitleTabBar(
+                        items = listOf(
+                            TitleTabItem(0, "\uF1B2", "Mod编辑${currentVersion.mods.size}个"),
+                            TitleTabItem(1, "\uF15B", "文件编辑")
+                        ),
+                        selected = selectedTab,
+                        onSelect = { selectedTab = it }
+                    )
+                }
+                uiState.errorMessage?.let { ErrorText(it) }
             }
             ContentBody {
-                if (loading) {
+                if (uiState.loading) {
                 Box(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
@@ -168,7 +134,7 @@ fun ModpackVersionEditScreen(
                 }
             }
 
-            if (!loading && currentVersion == null) {
+            if (!uiState.loading && currentVersion == null) {
                 Text("未找到版本信息", color = MaterialTheme.colorScheme.error)
             }
 
@@ -177,27 +143,11 @@ fun ModpackVersionEditScreen(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Text(
-                        "版本状态: $versionStatusText",
-                        color = if (canMutate) MaterialColor.GREEN_900.color else MaterialColor.ORANGE_900.color
-                    )
                     if (!canMutate) {
                         Text(
                             "当前版本正在重构，暂时不能增删改Mod。等状态回到可编辑后再操作。",
                             color = MaterialColor.GRAY_700.color
                         )
-                    }
-                    TabRow(
-                        selectedTabIndex = selectedTab,
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer
-                    ) {
-                        listOf("Mod编辑${currentVersion.mods.size}个", "文件编辑").forEachIndexed { index, title ->
-                            Tab(
-                                selected = selectedTab == index,
-                                onClick = { selectedTab = index },
-                                text = { Text(title) }
-                            )
-                        }
                     }
                     when (selectedTab) {
                         0 -> {
@@ -216,79 +166,45 @@ fun ModpackVersionEditScreen(
                                     )
                                     CircleIconButton(
                                         icon = "\uF021",
-                                        tooltip = "刷新",
+                                        label = "刷新",
                                         bgColor = MaterialTheme.colorScheme.primary,
-                                        enabled = !loading && !uiModsLoading
+                                        enabled = !uiState.loading && !uiState.uiModsLoading
                                     ) {
-                                        reload()
+                                        viewModel.reload()
                                     }
                                     Space8w()
                                     CircleIconButton(
                                         icon = "\uF067",
-                                        tooltip = if (canMutate) {
-                                            if (addDialogLoading) addDialogLoadingText.ifBlank { "匹配中..." } else "添加Mod"
+                                        label = if (canMutate) {
+                                            if (uiState.addDialogLoading) uiState.addDialogLoadingText.ifBlank { "匹配中..." } else "添加Mod"
                                         } else {
                                             "当前版本不可修改"
                                         },
                                         bgColor = MaterialColor.PURPLE_700.color,
-                                        enabled = canMutate && !addDialogLoading
+                                        enabled = canMutate && !uiState.addDialogLoading
                                     ) {
-                                        val mcVersion = pack?.mcVer
+                                        val mcVersion = uiState.pack?.mcVer
                                         if (mcVersion == null) {
-                                            errorMessage = "无法获取当前整合包MC版本"
                                             return@CircleIconButton
                                         }
                                         scope.launch {
                                             val files = selectHostExtraModFiles() ?: return@launch
-                                            resetAddDialog()
-                                            addDialogLoading = true
-                                            addDialogLoadingText = "正在匹配Mod..."
-                                            val matchResult = try {
-                                                matchHostExtraModFiles(modCatalog, files, mcVersion) { progress ->
-                                                    addDialogLoadingText = progress
-                                                }
-                                            } catch (e: Exception) {
-                                                errorMessage = e.message ?: "匹配Mod失败"
-                                                addDialogLoading = false
-                                                addDialogLoadingText = ""
-                                                return@launch
-                                            }
-                                            val dedupeResult = filterVersionModsForAdding(
-                                                candidateMods = matchResult.matchedMods.map { mod ->
-                                                    if (mod.side == Mod.Side.UNKNOWN) {
-                                                        mod.toUiMod().withSide(Mod.Side.BOTH).toMod()
-                                                    } else {
-                                                        mod
-                                                    }
-                                                },
-                                                existingMods = version?.mods.orEmpty()
-                                            )
-                                            val acceptedUiMods = dedupeResult.acceptedMods.toUiMods()
-                                            pendingAddUiMods = acceptedUiMods
-                                            rejectedAddFiles = matchResult.rejectedFiles + dedupeResult.rejectedMessages
-                                            selectedPendingAddKeys = acceptedUiMods.map(UiMod::key).toSet()
-                                            addDialogLoading = false
-                                            addDialogLoadingText = ""
-                                            if (pendingAddUiMods.isEmpty() && rejectedAddFiles.isEmpty()) {
-                                                errorMessage = "没有在网上搜索到这些Mod的信息"
-                                                return@launch
-                                            }
-                                            addDialogOpen = true
+                                            viewModel.matchFiles(files, mcVersion)
                                         }
                                     }
                                     Space8w()
                                     CircleIconButton(
                                         icon = "\uF044",
-                                        tooltip = if (canMutate) "批量编辑选中Mod" else "当前版本不可修改",
+                                        label = if (canMutate) "批量编辑选中Mod" else "当前版本不可修改",
                                         bgColor = MaterialColor.YELLOW_900.color,
-                                        enabled = canMutate && selectedMods.isNotEmpty() && !editDialogSaving
+                                        enabled = canMutate && selectedMods.isNotEmpty() && !uiState.editDialogSaving
                                     ) {
                                         editingMods = selectedMods
                                     }
                                     Space8w()
                                     CircleIconButton(
                                         icon = "\uEA81",
-                                        tooltip = if (canMutate) "批量删除选中Mod" else "当前版本不可修改",
+                                        label = if (canMutate) "批量删除选中Mod" else "当前版本不可修改",
                                         bgColor = MaterialColor.RED_900.color,
                                         enabled = canMutate && selectedMods.isNotEmpty()
                                     ) {
@@ -300,7 +216,7 @@ fun ModpackVersionEditScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     when {
-                                        uiModsLoading -> {
+                                        uiState.uiModsLoading -> {
                                             Column(
                                                 horizontalAlignment = Alignment.CenterHorizontally,
                                                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -310,13 +226,13 @@ fun ModpackVersionEditScreen(
                                             }
                                         }
 
-                                        uiMods.isEmpty() -> {
+                                        uiState.uiMods.isEmpty() -> {
                                             Text("当前版本没有Mod")
                                         }
 
                                         else -> {
                                             ModGrid(
-                                                mods = uiMods,
+                                                mods = uiState.uiMods,
                                                 modifier = Modifier.fillMaxSize(),
                                                 selectedKeys = selectedModKeys,
                                                 emptyText = "当前版本没有Mod",
@@ -350,13 +266,14 @@ fun ModpackVersionEditScreen(
         BottomSnakebarM3(snackbarHostState)
     }
 
-    if (addDialogOpen) {
-        val selectedPendingUiMods = pendingAddUiMods.filter { it.key in selectedPendingAddKeys }
+    if (uiState.addDialogOpen) {
+        val selectedPendingUiMods = uiState.pendingAddUiMods.filter {
+            it.key in uiState.selectedPendingAddKeys
+        }
         Dialog(
             onDismissRequest = {
-                if (!addDialogLoading) {
-                    resetAddDialog()
-                    addDialogOpen = false
+                if (!uiState.addDialogLoading) {
+                    viewModel.resetAddDialog()
                 }
             },
             properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -388,29 +305,19 @@ fun ModpackVersionEditScreen(
                             .weight(1f)
                     ) {
                         ModGrid(
-                            mods = pendingAddUiMods,
+                            mods = uiState.pendingAddUiMods,
                             modifier = Modifier.fillMaxSize(),
-                            selectedKeys = selectedPendingAddKeys,
+                            selectedKeys = uiState.selectedPendingAddKeys,
                             emptyText = "当前没有可添加的Mod",
-                            onModClick = { uiMod ->
-                                selectedPendingAddKeys = if (uiMod.key in selectedPendingAddKeys) {
-                                    selectedPendingAddKeys - uiMod.key
-                                } else {
-                                    selectedPendingAddKeys + uiMod.key
-                                }
-                            },
-                            onSideChange = if (addDialogLoading) {
+                            onModClick = viewModel::togglePendingAdd,
+                            onSideChange = if (uiState.addDialogLoading) {
                                 null
                             } else {
-                                { uiMod, side ->
-                                    pendingAddUiMods = pendingAddUiMods.map {
-                                        if (it.key == uiMod.key) it.withSide(side) else it
-                                    }
-                                }
+                                viewModel::changePendingAddSide
                             }
                         )
                     }
-                    if (rejectedAddFiles.isNotEmpty()) {
+                    if (uiState.rejectedAddFiles.isNotEmpty()) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -420,7 +327,7 @@ fun ModpackVersionEditScreen(
                         ) {
                             Text("以下文件未能加入候选", color = MaterialColor.RED_900.color)
                             Text(
-                                rejectedAddFiles.joinToString("\n") { "• $it" },
+                                uiState.rejectedAddFiles.joinToString("\n") { "• $it" },
                                 color = MaterialColor.RED_900.color,
                                 fontSize = 13.sp
                             )
@@ -431,7 +338,7 @@ fun ModpackVersionEditScreen(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.End
                     ) {
-                        addDialogError?.let {
+                        uiState.addDialogError?.let {
                             Text(
                                 text = it,
                                 color = MaterialColor.RED_900.color,
@@ -440,37 +347,19 @@ fun ModpackVersionEditScreen(
                             Space8w()
                         }
                         TextButton(
-                            enabled = !addDialogLoading,
-                            onClick = {
-                                resetAddDialog()
-                                addDialogOpen = false
-                            }
+                            enabled = !uiState.addDialogLoading,
+                            onClick = viewModel::resetAddDialog,
                         ) {
                             Text("取消")
                         }
                         Space8w()
                         TextButton(
-                            enabled = !addDialogLoading && selectedPendingUiMods.isNotEmpty() && canMutate,
+                            enabled = !uiState.addDialogLoading && selectedPendingUiMods.isNotEmpty() && canMutate,
                             onClick = {
-                                val targetMods = selectedPendingUiMods.map(UiMod::toMod)
-                                addDialogLoading = true
-                                addDialogError = null
-                                scope.rdiRequestU(
-                                    path = versionModsBatchPath(modpackId, verName),
-                                    method = HttpMethod.Post,
-                                    body = serdesJson.encodeToString(targetMods),
-                                    onOk = {
-                                        okMessage = "已添加${targetMods.size}个Mod，版本开始重构"
-                                        addDialogOpen = false
-                                        resetAddDialog()
-                                        reload()
-                                    },
-                                    onErr = { addDialogError = it.message ?: "添加Mod失败" },
-                                    onDone = { addDialogLoading = false }
-                                )
+                                viewModel.addSelectedMods(selectedPendingUiMods.map(UiMod::toMod))
                             }
                         ) {
-                            Text(if (addDialogLoading) "添加中..." else "添加")
+                            Text(if (uiState.addDialogLoading) "添加中..." else "添加")
                         }
                     }
                 }
@@ -481,35 +370,11 @@ fun ModpackVersionEditScreen(
     if (editingMods.isNotEmpty()) {
         VersionModBatchEditDialog(
             uiMods = editingMods,
-            saving = editDialogSaving,
+            saving = uiState.editDialogSaving,
             onDismiss = {
-                if (!editDialogSaving) editingMods = emptyList()
+                if (!uiState.editDialogSaving) editingMods = emptyList()
             },
-            onSave = save@{ replaceItems ->
-                if (currentVersion != null) {
-                    val selectedOriginalKeys = editingMods.map { versionModKey(it.mod) }.toSet()
-                    val preservedMods = currentVersion.mods.filter { versionModKey(it) !in selectedOriginalKeys }
-                    val finalMods = preservedMods + replaceItems.map(ModBatchReplaceItem::mod)
-                    /*val duplicates = finalMods.groupingBy(::versionModIdentity).eachCount().filterValues { it > 1 }
-                    if (duplicates.isNotEmpty()) {
-                        errorMessage = "批量编辑后版本里有重复Mod，请检查slug或projectId"
-                        return@save
-                    }*/
-                }
-                editDialogSaving = true
-                scope.rdiRequestU(
-                    path = versionModsBatchPath(modpackId, verName),
-                    method = HttpMethod.Put,
-                    body = serdesJson.encodeToString(replaceItems),
-                    onOk = {
-                        okMessage = "已批量更新${replaceItems.size}个Mod，版本开始重构"
-                        editingMods = emptyList()
-                        reload()
-                    },
-                    onErr = { errorMessage = it.message ?: "更新Mod失败" },
-                    onDone = { editDialogSaving = false }
-                )
-            }
+            onSave = viewModel::saveEdits,
         )
     }
 
@@ -523,17 +388,7 @@ fun ModpackVersionEditScreen(
             },
             onConfirm = {
                 val targetRefs = deleteConfirmMods.map { ModRef(it.projectId, it.fileId) }
-                scope.rdiRequestU(
-                    path = versionModsBatchPath(modpackId, verName),
-                    method = HttpMethod.Delete,
-                    body = serdesJson.encodeToString(targetRefs),
-                    onOk = {
-                        okMessage = "已删除${targetRefs.size}个Mod，版本开始重构"
-                        selectedModKeys = selectedModKeys - deleteConfirmMods.map(UiMod::key).toSet()
-                        reload()
-                    },
-                    onErr = { errorMessage = it.message ?: "删除Mod失败" }
-                )
+                viewModel.deleteMods(targetRefs)
                 deleteConfirmMods = emptyList()
             },
             onDismiss = { deleteConfirmMods = emptyList() }
@@ -753,46 +608,3 @@ private fun <T> List<T>.updateAt(index: Int, transform: T.() -> T): List<T> = ma
     if (currentIndex == index) value.transform() else value
 }
 
-private data class VersionModAddFilterResult(
-    val acceptedMods: List<Mod>,
-    val rejectedMessages: List<String>
-)
-
-private fun filterVersionModsForAdding(candidateMods: List<Mod>, existingMods: List<Mod>): VersionModAddFilterResult {
-    val existingKeys = existingMods.map(::versionModIdentity)
-        .filter { it.isNotBlank() }
-        .toSet()
-    val acceptedMods = mutableListOf<Mod>()
-    val pendingKeys = mutableSetOf<String>()
-    val rejectedMessages = mutableListOf<String>()
-
-    candidateMods.forEach { mod ->
-        val key = versionModIdentity(mod)
-        if (key.isBlank()) {
-            acceptedMods += mod
-            return@forEach
-        }
-        when {
-            key in existingKeys -> rejectedMessages += "${mod.displaySlugOrProject}：版本中已存在同名Mod"
-            !pendingKeys.add(key) -> rejectedMessages += "${mod.displaySlugOrProject}：本次选择中已有同名Mod"
-            else -> acceptedMods += mod
-        }
-    }
-
-    return VersionModAddFilterResult(
-        acceptedMods = acceptedMods,
-        rejectedMessages = rejectedMessages.distinct()
-    )
-}
-
-private fun versionModIdentity(mod: Mod): String = mod.normalizedSlug.ifBlank {
-    mod.normalizedProjectId.lowercase()
-}
-
-private fun versionModKey(mod: Mod): String = "${mod.platform}:${mod.projectId}:${mod.fileId}"
-
-private fun versionModsPath(modpackId: String, verName: String): String =
-    "modpack/$modpackId/version/${verName.encodeURLPathPart()}/mods"
-
-private fun versionModsBatchPath(modpackId: String, verName: String): String =
-    "${versionModsPath(modpackId, verName)}/batch"

@@ -1,5 +1,6 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.database.PlayerInfoStore
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.model.LoginInfo
@@ -14,6 +15,7 @@ import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.util.ok
 import io.ktor.client.request.*
 import io.ktor.http.*
+import kotlinx.coroutines.CancellationException
 import net.raphimc.minecraftauth.MinecraftAuth
 import net.raphimc.minecraftauth.java.JavaAuthManager
 import net.raphimc.minecraftauth.msa.model.MsaDeviceCode
@@ -22,15 +24,19 @@ import net.raphimc.minecraftauth.msa.service.util.ParamMsaAuthServiceSupplier
 import org.bson.types.ObjectId
 import java.util.function.Consumer
 
-val playerInfoCache = PlayerInfoCache<RAccount.Dto>().apply {
-    batchFetcher = { ids ->
-        val objectIds = ids.map { ObjectId(it) }
-        val infos = runCatching { PlayerService.getPlayerInfos(objectIds) }.getOrNull()
-        infos?.associate { it.id.toHexString() to it }.orEmpty()
-    }
-    defaultFactory = { id ->
-        RAccount.Dto(ObjectId(id), RAccount.DEFAULT.name, RAccount.Cloth())
-    }
+private fun createPlayerInfoCache(store: PlayerInfoStore?): PlayerInfoCache = PlayerInfoCache(
+    store = store,
+    source = PlayerInfoSource { ids -> PlayerService.getPlayerInfos(ids) },
+    defaultFactory = { id -> RAccount.Dto(id, RAccount.DEFAULT.name, RAccount.Cloth()) }
+)
+
+var playerInfoCache: PlayerInfoCache = createPlayerInfoCache(null)
+    private set
+
+fun initializePlayerInfoCache(store: PlayerInfoStore?) {
+    val previous = playerInfoCache
+    playerInfoCache = createPlayerInfoCache(store)
+    previous.close()
 }
 
 object PlayerService {
@@ -104,15 +110,19 @@ object PlayerService {
         }
     }
 
-    suspend fun getPlayerInfos(uids: List<ObjectId>): List<RAccount.Dto> {
-        if (uids.isEmpty()) return emptyList()
+    suspend fun getPlayerInfos(uids: List<ObjectId>): Result<List<RAccount.Dto>> {
+        if (uids.isEmpty()) return Result.success(emptyList())
         return try {
             val idsParam = uids.joinToString("\n") { it.toHexString() }
-            server.makeRequest<List<RAccount.Dto>>("player/infos", params = mapOf("ids" to idsParam)).data
-                ?: emptyList()
-        } catch (e: Exception) {
-            lgr.warn { "批量获取玩家信息失败" + "\n" + e }
-            emptyList()
+            Result.success(
+                server.makeRequest<List<RAccount.Dto>>("player/infos", params = mapOf("ids" to idsParam)).data
+                    ?: emptyList()
+            )
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Throwable) {
+            lgr.warn { "批量获取玩家信息失败" + "\n" + cause }
+            Result.failure(cause)
         }
     }
 

@@ -195,7 +195,7 @@ fun ModrinthProjectListScreen(
         ) {
             CircleIconButton(
                 icon = if (compactFilterPanelExpanded) "\uE70D" else "\uE76C",
-                tooltip = if (compactFilterPanelExpanded) "收起搜索与筛选" else "展开搜索与筛选",
+                label = if (compactFilterPanelExpanded) "收起搜索与筛选" else "展开搜索与筛选",
                 bgColor = if (compactFilterPanelExpanded) {
                     MaterialTheme.colorScheme.secondary
                 } else {

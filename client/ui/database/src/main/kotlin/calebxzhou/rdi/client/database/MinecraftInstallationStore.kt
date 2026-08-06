@@ -32,7 +32,12 @@ class MinecraftInstallationDatabase private constructor(
     private val database: RClientDatabase,
     dispatcher: kotlinx.coroutines.CoroutineDispatcher
 ) : MinecraftInstallationDatabaseHandle {
-    override val store: MinecraftInstallationStore = SqliteMinecraftInstallationStore(database, dispatcher)
+    private val operationMutex = Mutex()
+
+    override val store: MinecraftInstallationStore =
+        SqliteMinecraftInstallationStore(database, dispatcher, operationMutex)
+    val playerInfoStore: PlayerInfoStore =
+        SqlitePlayerInfoStore(database, dispatcher, operationMutex)
 
     override fun close() {
         store.close()
@@ -42,7 +47,7 @@ class MinecraftInstallationDatabase private constructor(
     companion object {
         //rdi
         const val APPLICATION_ID = 0x524449L
-        const val SCHEMA_VERSION = 1L
+        const val SCHEMA_VERSION = 3L
 
         fun open(
             file: Path,
@@ -114,10 +119,9 @@ class MinecraftInstallationDatabase private constructor(
 
 private class SqliteMinecraftInstallationStore(
     private val database: RClientDatabase,
-    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher
+    private val dispatcher: kotlinx.coroutines.CoroutineDispatcher,
+    private val mutex: Mutex
 ) : MinecraftInstallationStore {
-    private val mutex = Mutex()
-
     override suspend fun list(): Result<List<MinecraftInstallationRecord>> = databaseOperation {
         database.minecraftInstallationQueries.selectAll { path, firstDiscoveredAt, lastSeenAt ->
             MinecraftInstallationRecord(Path.of(path), firstDiscoveredAt, lastSeenAt)

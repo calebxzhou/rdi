@@ -258,7 +258,7 @@ private fun McVersionActionRow(
         ) {
             CircleIconButton(
                 icon = "\uF019",
-                tooltip = "更新全部",
+                label = "更新全部",
                 enabled = enabled
             ) {
                 selected?.let(onDownloadAll)
@@ -266,7 +266,7 @@ private fun McVersionActionRow(
             if (showAdvancedActions) {
                 CircleIconButton(
                     icon = "\uDB80\uDF73",
-                    tooltip = "更新音频",
+                    label = "更新音频",
                     bgColor = MaterialTheme.colorScheme.primary,
                     enabled = enabled
                 ) {
@@ -275,7 +275,7 @@ private fun McVersionActionRow(
                 selected?.loaderVersions?.forEach { (loader, _) ->
                     CircleIconButton(
                         icon = "\uEEFF",
-                        tooltip = "更新${loader.name.lowercase()}",
+                        label = "更新${loader.name.lowercase()}",
                         bgColor = MaterialColor.TEAL_900.color,
                         enabled = enabled
                     ) {

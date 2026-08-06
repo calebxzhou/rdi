@@ -355,6 +355,7 @@ class ModpackContext(
 
 object ModpackService {
     private val lgr by Loggers
+    private const val MODPACK_UPLOAD_VERSION_ERROR = "目前只支持上传MC1.20.1和MC1.21.1整合包"
     private const val MAX_MODPACK_PER_USER = 10
     private const val DEFAULT_SEARCH_LIMIT = 24
     private const val MAX_SEARCH_LIMIT = 60
@@ -370,6 +371,12 @@ object ModpackService {
 
     private fun versionBuildTaskKey(modpackId: ObjectId, versionName: String): String =
         "server-modpack-build:${modpackId.toHexString()}:$versionName"
+
+    private fun requireModpackUploadVersion(mcVersion: McVersion) {
+        if (!mcVersion.supportsModpackUpload()) {
+            throw RequestError(MODPACK_UPLOAD_VERSION_ERROR)
+        }
+    }
 
 
     fun ModpackContext.requireAuthor(): ModpackContext {
@@ -771,6 +778,7 @@ object ModpackService {
     }
 
     suspend fun Modpack.CreateWithVersionDto.createWithVersion(player: RAccount, uploadFile: File) {
+        requireModpackUploadVersion(mcVer)
         val normalizedVerName = verName.validateVerName().getOrThrow()
         val normalizedCategories = Modpack.normalizeCategories(categories)
         Modpack.OptionsDto(name, iconUrl, info, sourceUrl, normalizedCategories).validate()
@@ -824,6 +832,7 @@ object ModpackService {
     }
 
     suspend fun ModpackContext.createVersion(verName: String, uploadFile: File, mods: MutableList<Mod>) {
+        requireModpackUploadVersion(modpack.mcVer)
         try {
             val version = prepareVersionUpload(modpack, verName, uploadFile, mods)
             runCatching {

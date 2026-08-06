@@ -1,7 +1,11 @@
 package calebxzhou.rdi.client.service
 
+import calebxzau.rdi.client.packproc.ModpackProcessor
+import calebxzau.rdi.client.packproc.PackProcessingPaths
+import calebxzau.rdi.client.packproc.ServerExtraFile
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.archive.TarZstArchiveWriter
+import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
@@ -19,9 +23,17 @@ import java.util.*
 
 fun buildHost2ServerPackUploadTask(hostId: UUID, sourceDir: File): Task2 = Task2.Leaf("上传新版房间server pack") { ctx ->
     var archive: File? = null
+    val packProcessor = ModpackProcessor(
+        PackProcessingPaths(
+            workDir = ClientDirs.packProcDir,
+            modCacheDir = DL_MOD_DIR
+        )
+    )
     try {
         ctx.emit(Task2Progress("识别CurseForge/Modrinth Mod", 0f))
-        val prepared = withContext(Dispatchers.IO) { prepareHost2Pack(sourceDir) { ctx.emit(it) } }
+        val prepared = withContext(Dispatchers.IO) {
+            prepareHost2Pack(sourceDir, packProcessor) { ctx.emit(it) }
+        }
         ctx.ensureActive()
         ctx.emit(Task2Progress("压缩server pack", 0.35f))
         archive = withContext(Dispatchers.IO) { buildHost2Archive(sourceDir, prepared.files) }
@@ -39,13 +51,19 @@ fun buildHost2ServerPackUploadTask(hostId: UUID, sourceDir: File): Task2 = Task2
 
 private data class PreparedHost2Pack(val mods: List<Mod>, val files: List<ServerExtraFile>)
 
-private suspend fun prepareHost2Pack(sourceDir: File, emit: (Task2Progress) -> Unit): PreparedHost2Pack {
+private suspend fun prepareHost2Pack(
+    sourceDir: File,
+    packProcessor: ModpackProcessor,
+    emit: (Task2Progress) -> Unit
+): PreparedHost2Pack {
     if (!sourceDir.isDirectory) throw RequestError("请选择解压后的server根目录")
     val rootNames = sourceDir.listFiles()?.mapTo(mutableSetOf()) { it.name.lowercase() }.orEmpty()
     if (HOST2_ROOT_MARKERS.none { it in rootNames }) throw RequestError("选择的目录不是server根目录")
     val modFiles = sourceDir.resolve("mods").listFiles { file -> file.isFile && file.extension.equals("jar", true) }.orEmpty()
     if (modFiles.isEmpty()) return PreparedHost2Pack(emptyList(), collectHost2Files(sourceDir, emptySet()))
-    val loaded = loadServerPackMods(sourceDir, emptyList()) { progress -> emit(progress.toTask2Progress()) }.getOrThrow()
+    val loaded = packProcessor.loadServerPack(sourceDir, emptyList()) { progress ->
+        emit(progress.toTask2Progress())
+    }.getOrThrow()
     val serverMods = loaded.mods.filter { it.side != Mod.Side.CLIENT }
     return PreparedHost2Pack(
         serverMods,

@@ -200,6 +200,43 @@ class LocalMinecraftDiscoveryServiceTest {
         assertEquals(1, scanCount.get())
     }
 
+    @Test
+    fun `installations flow reflects valid stored records and full scan discoveries`() = kotlinx.coroutines.runBlocking {
+        val root = Files.createTempDirectory("minecraft-discovery")
+        val valid = root.resolve("valid")
+        val missing = root.resolve("missing")
+        val found = root.resolve("found")
+        val store = MemoryStore(
+            initialRecords = listOf(
+                MinecraftInstallationRecord(valid, 1L, 2L),
+                MinecraftInstallationRecord(missing, 3L, 4L)
+            )
+        )
+        val validator = MapValidator(
+            stored = mapOf(valid to MinecraftInstallationValidation.Valid(valid))
+        )
+        val scanner = fakeScanner { _, onFound ->
+            onFound(found)
+            Result.success(listOf(found))
+        }
+        val handle = MemoryDatabaseHandle(store)
+        val service = LocalMinecraftDiscoveryService(
+            databasePath = Path.of("data.db"),
+            fixedDriveProvider = FixedDriveProvider { Result.success(listOf(Path.of("C:/"))) },
+            validator = validator,
+            scanner = scanner,
+            clock = FixedClock(100L),
+            environment = { null },
+            platformSupported = { true },
+            databaseOpener = { Result.success(handle) },
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        )
+        service.start()!!.join()
+
+        assertEquals(setOf(valid, found), service.installations.value.toSet())
+        service.close()
+    }
+
     private suspend fun runService(
         store: MemoryStore,
         validator: MapValidator,

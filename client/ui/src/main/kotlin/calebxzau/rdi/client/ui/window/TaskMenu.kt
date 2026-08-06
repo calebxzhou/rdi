@@ -146,7 +146,7 @@ private fun TaskMenuRow(entry: Task2Entry, onOpen: () -> Unit) {
 private fun TaskActionButton(icon: String, color: Color, onClick: () -> Unit) {
     CircleIconButton(
         icon = icon,
-        size = 26,
+        size = 26.dp,
         bgColor = color,
         iconColor = MaterialTheme.colorScheme.onSurface,
         showText = false,

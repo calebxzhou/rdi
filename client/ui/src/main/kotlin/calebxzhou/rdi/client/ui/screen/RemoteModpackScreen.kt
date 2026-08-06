@@ -3,36 +3,25 @@ package calebxzhou.rdi.client.ui.screen
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,11 +34,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -57,20 +41,21 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
-import calebxzhou.rdi.client.service.ensureUploadAudioReady
+import calebxzau.rdi.client.packproc.ModpackProcessor
+import calebxzau.rdi.client.packproc.PackProcessingPaths
+import calebxzhou.rdi.client.service.ClientDirs
 import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.ui.AlertErr
 import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzau.rdi.client.ui.RRow
-import calebxzau.rdi.client.ui.RowV
+import calebxzau.rdi.client.ui.SearchField
 import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8h
-import calebxzau.rdi.client.ui.baseShapeRadius
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.client.ui.loadResourceBitmap
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Modpack
+import calebxzhou.rdi.common.DL_MOD_DIR
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -86,26 +71,37 @@ fun RemoteModpackScreen(
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
+    val packProcessor = remember {
+        ModpackProcessor(
+            PackProcessingPaths(
+                workDir = ClientDirs.packProcDir,
+                modCacheDir = DL_MOD_DIR
+            )
+        )
+    }
     var uploadErrorText by remember { mutableStateOf<String?>(null) }
     var modpacks by remember { mutableStateOf<List<Modpack.BriefVo>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var onlyMine by rememberSaveable { mutableStateOf(false) }
-    val searchState = rememberTextFieldState()
+    var searchText by rememberSaveable { mutableStateOf("") }
     var selectedCategory by rememberSaveable { mutableStateOf<Modpack.Category?>(null) }
     var selectedMcVer by rememberSaveable { mutableStateOf<McVersion?>(null) }
     var selectedSort by rememberSaveable { mutableStateOf(Modpack.SearchSort.UPDATED) }
     var hasMore by remember { mutableStateOf(false) }
     var requestKeyword by rememberSaveable { mutableStateOf("") }
     var requestVersion by remember { mutableStateOf(0) }
-    var compactFilterPanelExpanded by rememberSaveable { mutableStateOf(false) }
-    var miniCardMode by rememberSaveable { mutableStateOf(false) }
 
     val openUploadAfterAudioCheck: () -> Unit = {
         scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { ensureUploadAudioReady() }
+            val result: Result<Unit> = withContext(Dispatchers.IO) {
+                try {
+                    packProcessor.ensureAudioReady()
+                    Result.success(Unit)
+                } catch (error: Throwable) {
+                    Result.failure(error)
+                }
             }
             result.onSuccess {
                 onOpenUpload?.invoke()
@@ -127,7 +123,7 @@ fun RemoteModpackScreen(
         val result = runCatching {
             server.makeRequest<Modpack.SearchResultVo>(
                 path = "modpack/search",
-                params = buildMap<String, Any> {
+                params = buildMap {
                     put("offset", offset)
                     put("limit", 24)
                     if (requestKeyword.isNotBlank()) {
@@ -163,7 +159,7 @@ fun RemoteModpackScreen(
     }
 
     fun submitSearch() {
-        val keyword = searchState.text.toString().trim()
+        val keyword = searchText.trim()
         if (requestKeyword == keyword) {
             requestVersion += 1
         } else {
@@ -177,7 +173,7 @@ fun RemoteModpackScreen(
             selectedCategory != null ||
             selectedMcVer != null ||
             selectedSort != Modpack.SearchSort.UPDATED
-        searchState.setTextAndPlaceCursorAtEnd("")
+        searchText = ""
         requestKeyword = ""
         onlyMine = false
         selectedCategory = null
@@ -186,16 +182,6 @@ fun RemoteModpackScreen(
         if (!hasAppliedFilters) {
             return
         }
-    }
-
-    fun activeFilterCount(): Int {
-        var count = 0
-        if (requestKeyword.isNotBlank()) count += 1
-        if (onlyMine) count += 1
-        if (selectedCategory != null) count += 1
-        if (selectedMcVer != null) count += 1
-        if (selectedSort != Modpack.SearchSort.UPDATED) count += 1
-        return count
     }
 
     @Composable
@@ -251,86 +237,6 @@ fun RemoteModpackScreen(
     }
 
     @Composable
-    fun SearchBar() {
-        RRow {
-            OutlinedTextField(
-                state = searchState,
-                placeholder = { Text("搜索整合包名或简介") },
-                lineLimits = TextFieldLineLimits.SingleLine,
-                textStyle = MaterialTheme.typography.bodyMedium,
-                shape = RoundedCornerShape(baseShapeRadius.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp)
-                    .onPreviewKeyEvent { event ->
-                        if (event.type == KeyEventType.KeyUp && event.key == Key.Enter) {
-                            submitSearch()
-                            true
-                        } else {
-                            false
-                        }
-                    }
-            )
-            CircleIconButton(
-                icon = "\uF002",
-                tooltip = "搜索",
-                showText = false
-            ) {
-                submitSearch()
-            }
-            CircleIconButton(
-                icon = if (miniCardMode) "\uF03A" else "\uDB80\uDEC1",
-                tooltip = if (miniCardMode) "普通" else "简略",
-                bgColor = if (miniCardMode) {
-                    MaterialTheme.colorScheme.secondary
-                } else {
-                    MaterialTheme.colorScheme.primary
-                }
-            ) {
-                miniCardMode = !miniCardMode
-            }
-            if (onOpenUpload != null && loggedAccount.hasMsid) {
-                CircleIconButton(
-                    icon = "\uDB80\uDFD5",
-                    tooltip = "传包"
-                ) {
-                    openUploadAfterAudioCheck()
-                }
-            }
-        }
-    }
-
-    @Composable
-    fun CompactFilterToggle() {
-        val expanded = compactFilterPanelExpanded
-        val activeFilterCount = activeFilterCount()
-        RowV(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            CircleIconButton(
-                icon = if (expanded) "\uE70D" else "\uE76C",
-                tooltip = if (expanded) "收起搜索与筛选" else "展开搜索与筛选",
-                bgColor = if (expanded) {
-                    MaterialTheme.colorScheme.secondary
-                } else {
-                    MaterialTheme.colorScheme.primary
-                }
-            ) {
-                compactFilterPanelExpanded = !compactFilterPanelExpanded
-            }
-            if (activeFilterCount > 0) {
-                Text(
-                    text = "已启用$activeFilterCount 项筛选",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
-    }
-
-    @Composable
     fun ResultList(modifier: Modifier = Modifier) {
         Column(modifier = modifier.fillMaxSize()) {
             errorMessage?.let {
@@ -347,90 +253,52 @@ fun RemoteModpackScreen(
                 }
                 Space8h()
             }
-
-            if (miniCardMode) {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 280.dp),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    gridItems(modpacks, key = { it.id.toHexString() }) { modpack ->
+            LazyVerticalGrid(
+                columns = GridCells.Adaptive(minSize = 370.dp),
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                gridItems(modpacks, key = { it.id.toHexString() }) { modpack ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
                         modpack.ModpackCard(
-                            miniMode = true,
+                            modifier = Modifier.widthIn(max = 370.dp),
                             onClick = { onOpenInfo(modpack.id.toHexString()) }
                         )
-                    }
-                    if (!loading && modpacks.isEmpty()) {
-                        item(
-                            key = "empty",
-                            span = { GridItemSpan(maxLineSpan) }
-                        ) {
-                            Text(
-                                text = if (onlyMine) "你还没有符合筛选条件的整合包" else "没有找到符合条件的整合包",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    if (hasMore) {
-                        item(
-                            key = "load-more",
-                            span = { GridItemSpan(maxLineSpan) }
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                if (loadingMore) {
-                                    CircularProgressIndicator()
-                                } else {
-                                    TextButton(onClick = {
-                                        scope.launch {
-                                            loadModpacks(reset = false)
-                                        }
-                                    }) {
-                                        Text("加载更多")
-                                    }
-                                }
-                            }
-                        }
                     }
                 }
-            } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    items(modpacks, key = { it.id.toHexString() }) { modpack ->
-                        modpack.ModpackCard(
-                            miniMode = false,
-                            onClick = { onOpenInfo(modpack.id.toHexString()) }
+                if (!loading && modpacks.isEmpty()) {
+                    item(
+                        key = "empty",
+                        span = { GridItemSpan(maxLineSpan) }
+                    ) {
+                        Text(
+                            text = "没有找到符合条件的整合包",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    if (!loading && modpacks.isEmpty()) {
-                        item("empty") {
-                            Text(
-                                text = if (onlyMine) "你还没有符合筛选条件的整合包" else "没有找到符合条件的整合包",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                    if (hasMore) {
-                        item("load-more") {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                if (loadingMore) {
-                                    CircularProgressIndicator()
-                                } else {
-                                    TextButton(onClick = {
-                                        scope.launch {
-                                            loadModpacks(reset = false)
-                                        }
-                                    }) {
-                                        Text("加载更多")
+                }
+                if (hasMore) {
+                    item(
+                        key = "load-more",
+                        span = { GridItemSpan(maxLineSpan) }
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            if (loadingMore) {
+                                CircularProgressIndicator()
+                            } else {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        loadModpacks(reset = false)
                                     }
+                                }) {
+                                    Text("加载更多")
                                 }
                             }
                         }
@@ -445,42 +313,51 @@ fun RemoteModpackScreen(
     }
 
     Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize(),verticalArrangement = Arrangement.spacedBy(6.dp)) {
+
+            SearchField(
+                value = searchText,
+                onValueChange = { searchText = it },
+                placeholder = "包名/简介",
+                onSearch = ::submitSearch,
+                modifier = Modifier.fillMaxWidth(),
+                loading = loading
+            )
+            ResultList(modifier = Modifier.weight(1f))
             uploadErrorText?.let { AlertErr(it) { uploadErrorText = null } }
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val compactLayout = maxHeight > maxWidth || maxWidth < 960.dp
-                if (compactLayout) {
-                    Column(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CompactFilterToggle()
-                        if (compactFilterPanelExpanded) {
-                            SearchBar()
-                            FilterSidebar()
-                        }
-                        ResultList(modifier = Modifier.weight(1f))
-                    }
-                } else {
+            /*BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     Row(
                         modifier = Modifier.fillMaxSize(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.Top
                     ) {
-                        FilterSidebar(
+                        *//*FilterSidebar(
                             modifier = Modifier
                                 .width(220.dp)
                                 .fillMaxHeight()
                                 .verticalScroll(rememberScrollState())
-                        )
+                        )*//*
                         Column(
                             modifier = Modifier.weight(1f).fillMaxHeight(),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            SearchBar()
-                            ResultList(modifier = Modifier.weight(1f))
+
                         }
                     }
+
+            }*/
+        }
+        if (onOpenUpload != null && loggedAccount.hasMsid) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(16.dp)
+            ) {
+                CircleIconButton(
+                    icon = "\uDB80\uDFD5",
+                    label = "传包"
+                ) {
+                    openUploadAfterAudioCheck()
                 }
             }
         }

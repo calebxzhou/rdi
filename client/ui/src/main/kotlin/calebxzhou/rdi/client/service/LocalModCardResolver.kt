@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.service
 
+import calebxzau.rdi.client.modcatalog.getMetadataOrEmpty
+import calebxzau.rdi.client.modcatalog.toCatalogSlugRef
 import calebxzhou.rdi.common.model.Mod
 
 object LocalModCardResolver {

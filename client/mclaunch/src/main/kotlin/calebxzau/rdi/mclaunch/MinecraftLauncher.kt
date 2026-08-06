@@ -1,10 +1,12 @@
 package calebxzau.rdi.mclaunch
 
 import calebxzhou.mykotutils.std.humanFileSize
+import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.LibraryOsArch
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
+import calebxzau.rdi.mclaunch.model.MojangDownloadArtifact
 import calebxzau.rdi.mclaunch.model.MojangLibrary
 import calebxzau.rdi.mclaunch.model.MojangVersionManifest
 import calebxzhou.mykotutils.log.Loggers
@@ -14,6 +16,7 @@ import java.lang.management.ManagementFactory
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.util.LinkedHashSet
+import java.util.zip.ZipFile
 import kotlin.concurrent.thread
 
 private val utf8LoggingJvmArgs = listOf(
@@ -50,6 +53,7 @@ class MinecraftLauncher(
     ): Result<Unit> = runCatching {
         val sourceManifests = loadManifests(request)
         val launchManifests = resolveLaunchManifests(request, sourceManifests)
+        ensureMinecraftClientJar(sourceManifests.manifest, onProgress)
         launchManifests.gtnhExtensionRoot?.let {
             gtnh.ensureRuntime(request.versionDir, sourceManifests.manifest, environment.artifactDownloader, onProgress)
                 .getOrThrow()
@@ -59,6 +63,55 @@ class MinecraftLauncher(
             overrideLibraries = launchManifests.loaderManifest.libraries,
             onProgress = onProgress,
         ).getOrThrow()
+    }
+
+    private suspend fun ensureMinecraftClientJar(
+        manifest: MojangVersionManifest,
+        onProgress: (String) -> Unit,
+    ) {
+        val artifact = manifest.downloads?.client
+            ?: error("缺少Minecraft客户端JAR下载信息: ${manifest.id}")
+        val target = directories.versionsDir
+            .resolve(manifest.id)
+            .resolve("${manifest.id}.jar")
+        if (isValidMinecraftClientJar(target, artifact)) {
+            onProgress("Minecraft客户端${manifest.id}完整")
+            return
+        }
+
+        val reason = if (target.isFile) "校验失败" else "缺失"
+        onProgress("Minecraft客户端${manifest.id}${reason}，开始修复")
+        if (target.exists()) {
+            check(target.delete()) { "无法替换Minecraft客户端JAR: ${target.absolutePath}" }
+        }
+        target.parentFile?.mkdirs()
+        environment.artifactDownloader.download(
+            label = "Minecraft客户端${manifest.id}",
+            artifact = artifact,
+            target = target,
+        ) { progress ->
+            val total = progress.totalBytes.takeIf { it > 0 }?.humanFileSize ?: "未知"
+            onProgress("Minecraft客户端${manifest.id} ${progress.bytesDownloaded.humanFileSize}/$total")
+        }.getOrThrow()
+        check(isValidMinecraftClientJar(target, artifact)) {
+            "Minecraft客户端JAR修复失败: ${target.absolutePath}"
+        }
+        onProgress("Minecraft客户端${manifest.id}已就绪")
+    }
+
+    private fun isValidMinecraftClientJar(
+        target: File,
+        artifact: MojangDownloadArtifact,
+    ): Boolean {
+        if (!target.isFile || target.length() <= 0L) return false
+        if (artifact.size > 0L && target.length() != artifact.size) return false
+        val expectedSha1 = artifact.sha1.trim()
+        if (expectedSha1.isNotBlank()) {
+            return runCatching { target.sha1.equals(expectedSha1, ignoreCase = true) }.getOrDefault(false)
+        }
+        return runCatching {
+            ZipFile(target).use { it.entries().hasMoreElements() }
+        }.getOrDefault(false)
     }
 
     fun launch(

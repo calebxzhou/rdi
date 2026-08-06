@@ -15,6 +15,7 @@ import calebxzau.rdi.client.blessingskin.BlessingSkinClient
 import calebxzau.rdi.client.ui.screen.PlayerInfoScreen
 import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.ui.screen.ModpackVersionEditScreen
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
@@ -574,16 +575,12 @@ fun AppNavigation(
                                 fromAllHosts = route.fromAllHosts
                             )
                         )
-                    },
-                    onCreateHost = { _, _, _, _ -> 
-                        navController.navigate(HostCreate())
                     }
                 )
             }
             composable<ModpackVersionEdit> {
                 val route = it.toRoute<ModpackVersionEdit>()
                 ModpackVersionEditScreen(
-                    modCatalog = modCatalog,
                     modpackId = route.modpackId,
                     verName = route.verName,
                     onBack = {

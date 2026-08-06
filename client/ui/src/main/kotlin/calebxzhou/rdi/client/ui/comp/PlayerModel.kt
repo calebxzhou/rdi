@@ -122,7 +122,7 @@ fun PlayerModel(
                             icon = "\uDB83\uDD98",
                             tooltip = if (autoRotateEnabled) "自动旋转：开" else "自动旋转：关",
                             bgColor = if (autoRotateEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
-                            size = 30,
+                            size = 30.dp,
                             showText = false
                         ) {
                             autoRotateEnabled = !autoRotateEnabled
@@ -131,7 +131,7 @@ fun PlayerModel(
                             icon = "\uEE1D",
                             tooltip = if (walkEnabled) "走路动画：开" else "走路动画：关",
                             bgColor = if (walkEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
-                            size = 30,
+                            size = 30.dp,
                             showText = false
                         ) {
                             walkEnabled = !walkEnabled
@@ -140,7 +140,7 @@ fun PlayerModel(
                             icon = "\uDB81\uDC50",
                             tooltip = "重置视角",
                             bgColor = MaterialTheme.colorScheme.primary,
-                            size = 30,
+                            size = 30.dp,
                             showText = false,
                             onClick = controller::resetView
                         )

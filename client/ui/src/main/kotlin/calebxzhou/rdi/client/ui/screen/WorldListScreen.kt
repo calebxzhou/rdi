@@ -133,14 +133,14 @@ fun WorldListPane(
                     Space8w()
                     CircleIconButton(
                         icon = "\uDB80\uDD67",
-                        tooltip = "上传存档(开发中)",
+                        label = "上传存档(开发中)",
                         enabled = false,
                     ) {
                     }
                     Space8w()
                     CircleIconButton(
                         icon = "\uDB80\uDD62",
-                        tooltip = "下载存档(开发中)",
+                        label = "下载存档(开发中)",
                         enabled = false,
                     ) {
 
@@ -148,7 +148,7 @@ fun WorldListPane(
                     Space8w()
                     CircleIconButton(
                         icon = "\uDB81\uDC50",
-                        tooltip = "重置",
+                        label = "重置",
                         enabled = canOperate,
                         bgColor = MaterialTheme.colorScheme.tertiary,
 
@@ -158,7 +158,7 @@ fun WorldListPane(
                     Space8w()
                     CircleIconButton(
                         icon = "\uEA81",
-                        tooltip = "删除",
+                        label = "删除",
                         enabled = canOperate,
                         bgColor = MaterialTheme.colorScheme.error,
 

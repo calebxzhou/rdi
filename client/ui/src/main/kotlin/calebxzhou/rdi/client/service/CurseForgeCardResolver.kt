@@ -4,6 +4,7 @@ import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzau.rdi.client.modcatalog.CatalogSlugRef
 import calebxzau.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.getMetadataOrEmpty
 
 object CurseForgeCardResolver : ModCardResolver {
     override val platform: String = "cf"

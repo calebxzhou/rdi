@@ -31,6 +31,7 @@ import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.baseShapeRadius
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.service.rememberPlayerInfoPrefetch
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.model.Role
@@ -123,6 +124,11 @@ fun Host.BriefVo.HostCard(
         }
         return
     }
+
+    val playerIds = remember(ownerId, onlinePlayerIds) {
+        listOf(ownerId) + onlinePlayerIds
+    }
+    rememberPlayerInfoPrefetch(playerIds)
 
     CursorPositionBox(
         cursorContent = {

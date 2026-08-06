@@ -96,7 +96,7 @@ fun MailOperationGuideDialog(
 private fun RowScope.MailCopyButton(
     value: String
 ) {
-    CircleIconButton("\uF0C5","复制",size = 24){
+    CircleIconButton("\uF0C5", "复制", size = 24.dp) {
         copyToClipboard(value)
     }
 }

@@ -422,7 +422,7 @@ internal fun HostExtraModsPane(
                 Text("全选")
                 CircleIconButton(
                     icon = "\uF019",
-                    tooltip = "下载",
+                    label = "下载",
                     enabled = selectedExtraMods.isNotEmpty(),
                     bgColor = MaterialColor.GREEN_900.color,
                 ) {
@@ -431,7 +431,7 @@ internal fun HostExtraModsPane(
                 if (canManageExtraMods) {
                     CircleIconButton(
                         icon = "\uEA81",
-                        tooltip = "删除",
+                        label = "删除",
                         enabled = selectedExtraMods.isNotEmpty(),
                         bgColor = MaterialColor.RED_900.color,
                     ) {
@@ -448,7 +448,7 @@ internal fun HostExtraModsPane(
                     ) {
                         CircleIconButton(
                             icon = "\uF067",
-                            tooltip = if (addExtraModLoading) {
+                            label = if (addExtraModLoading) {
                                 addExtraModLoadingText.ifBlank { "匹配中..." }
                             } else {
                                 "附加Mod"
@@ -562,7 +562,7 @@ internal fun HostModListPane(
                 Text("全选")
                 CircleIconButton(
                     icon = "\uF2ED",
-                    tooltip = "停用选中的mod",
+                    label = "停用选中的mod",
                     enabled = selectedModListMods.isNotEmpty(),
                     bgColor = MaterialColor.RED_900.color,
                 ) {
@@ -653,7 +653,7 @@ internal fun HostDisabledModsPane(
                 Text("全选")
                 CircleIconButton(
                     icon = "\uF0E2",
-                    tooltip = "启用选中的mod",
+                    label = "启用选中的mod",
                     enabled = selectedDisabledMods.isNotEmpty(),
                     bgColor = MaterialColor.GREEN_900.color,
                 ) {
@@ -909,7 +909,7 @@ private fun HostTaczFileRow(
             CircleIconButton(
                 icon = "\uF1F8",
                 tooltip = "删除文件",
-                size = 28,
+                size = 28.dp,
                 showText = false,
                 bgColor = MaterialColor.RED_700.color,
                 enabled = !deleting

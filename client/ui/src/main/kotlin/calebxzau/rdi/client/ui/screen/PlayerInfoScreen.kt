@@ -133,7 +133,7 @@ fun PlayerInfoScreen(onBack: () -> Unit) {
                                 CircleIconButton(
                                     icon = "\uF040",
                                     tooltip = "修改个人信息",
-                                    size = 24,
+                                    size = 24.dp,
                                     bgColor = MaterialTheme.colorScheme.secondaryContainer,
                                     iconColor = MaterialTheme.colorScheme.onSecondaryContainer,
                                     showText = false,
@@ -150,8 +150,8 @@ fun PlayerInfoScreen(onBack: () -> Unit) {
                                 if (!account.hasMsid && !startMsBind) {
                                     CircleIconButton(
                                         icon = "\uE70F",
-                                        tooltip = "绑定微软MC账号",
-                                        size = 28,
+                                        label = "绑定微软MC账号",
+                                        size = 28.dp,
                                         onClick = {
                                             startMsBind = true
                                             errorMessage = null
@@ -203,7 +203,7 @@ fun PlayerInfoScreen(onBack: () -> Unit) {
                             Text("绑定后将不能修改，如果确定账号信息正确，请点击确认。")
                             CircleIconButton(
                                 icon = "\uDB82\uDE50",
-                                tooltip = "确认绑定",
+                                label = "确认绑定",
                                 bgColor = MaterialColor.GREEN_900.color,
                                 enabled = !pendingBind
                             ) {
@@ -361,7 +361,7 @@ private fun ChangeProfileDialog(
                             server.makeRequest<Unit>("player/profile", HttpMethod.Put, params)
                             val loginPwd = pwd.takeIf(String::isNotEmpty) ?: account.pwd
                             loggedAccount = PlayerService.login(account._id.toHexString(), loginPwd).getOrThrow()
-                            playerInfoCache -= loggedAccount._id.toHexString()
+                            playerInfoCache.put(loggedAccount.dto)
                         }.getOrElse {
                             it.printStackTrace()
                             errorMessage = "修改失败:${it.message}"

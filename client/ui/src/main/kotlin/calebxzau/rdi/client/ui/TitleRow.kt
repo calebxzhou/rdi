@@ -14,7 +14,7 @@ import androidx.compose.ui.unit.sp
 fun TitleRow(
     title: String,
     onBack: (() -> Unit)?=null,
-    modifier: Modifier =  Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+    modifier: Modifier =  Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
     actions: @Composable RowScope.() -> Unit = {}
 ) {
     Row(

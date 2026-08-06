@@ -216,7 +216,7 @@ fun Console(
                 icon = "\uEF11",
                 tooltip = "导出日志",
                 bgColor = MaterialColor.YELLOW_900.color,
-                size = 32,
+                size = 32.dp,
                 enabled = lines.isNotEmpty() && !exporting,
                 showText = false
             ) {
@@ -238,7 +238,7 @@ fun Console(
                 icon = "\uF103",
                 tooltip = "回到底部",
                 bgColor = MaterialColor.PINK_900.color,
-                size = 32,
+                size = 32.dp,
                 enabled = lines.isNotEmpty(),
                 showText = false
             ) {

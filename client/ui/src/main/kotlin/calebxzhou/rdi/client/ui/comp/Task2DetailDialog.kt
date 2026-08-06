@@ -96,7 +96,7 @@ fun Task2DetailDialog(
                         }
                         CircleIconButton(
                             icon = "\uF00D",
-                            tooltip = "隐藏到后台",
+                            label = "隐藏到后台",
                             bgColor = MaterialTheme.colorScheme.onSurfaceVariant
                         ) {
                             onClose()

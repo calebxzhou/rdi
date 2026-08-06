@@ -310,6 +310,12 @@ class ClientModpackTester(
                     existingDir = testVersionDir
                 )
                 testVersionDir = versionDir
+                GameService.ensureDesktopLaunchLibraries(
+                    mcVer = loadedModpack.mcVersion,
+                    versionId = versionDir.name,
+                    versionDir = versionDir,
+                    onProgress = { line -> uiScope.launch { appendLog("[RDI] $line") } }
+                ).getOrThrow()
                 val process = withContext(Dispatchers.IO) {
                     GameService.startClientTestProcess(
                         mcVer = loadedModpack.mcVersion,

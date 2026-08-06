@@ -50,6 +50,7 @@ import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
+import calebxzhou.rdi.client.service.rememberPlayerInfoPrefetch
 import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.common.model.Host
@@ -119,6 +120,8 @@ fun HostMembersScreen(
     val meAdmin = meOwner || meRole == Role.OWNER || meRole == Role.ADMIN
     val canView = meRole != null || meOwner
 
+    rememberPlayerInfoPrefetch(members.map { it.id })
+
     errorMessage?.let { AlertErr(it) { errorMessage = null } }
 
     MaxBox {
@@ -130,8 +133,8 @@ fun HostMembersScreen(
                 if (meAdmin) {
                     CircleIconButton(
                         icon = "\uF067",
-                        tooltip = "邀请",
-                        size = 28,
+                        label = "邀请",
+                        size = 28.dp,
                         contentPadding = PaddingValues(0.dp)
                     ) {
                         inviteQq = ""

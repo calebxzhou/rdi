@@ -4,8 +4,6 @@ import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.sha1
-import calebxzhou.rdi.client.model.firstLoaderDir
-import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
@@ -25,45 +23,13 @@ import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicBoolean
 
-enum class LocalModpackSourceType {
-    MODRINTH,
-    CURSEFORGE
-}
-
 private val lgr by Loggers
-
-data class ServerExtraFile(
-    val sourceFile: File,
-    val relativePath: String
-)
-
-data class LoadedLocalModpack(
-    val sourceType: LocalModpackSourceType,
-    val sourceDir: File,
-    val packName: String,
-    val packVersion: String,
-    val mcVersion: McVersion,
-    val modloader: ModLoader,
-    val mods: List<Mod>,
-    val embeddedModOriginalFileNames: Map<String, String> = emptyMap(),
-    val serverExtraFiles: List<ServerExtraFile> = emptyList()
-)
 
 /** Modpack download and installation service. */
 object ModpackService {
 
     fun modpackInstallTaskKey(modpackId: ObjectId, verName: String): String =
         "modpack-install:${modpackId.toHexString()}:$verName"
-
-    suspend fun load(
-        modCatalog: ModCatalog,
-        file: File,
-        onProgress: (LoadProgress) -> Unit = {}
-    ): Result<LoadedLocalModpack> = loadLocalModpack(
-        modCatalog = modCatalog,
-        file = file,
-        onProgress = onProgress
-    )
 
     fun getVersionDir(modpackId: ObjectId, verName: String): java.io.File {
         return ClientDirs.versionsDir.resolve("${modpackId}_${verName}")
@@ -501,10 +467,6 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
         entry.dedupeKey == installTaskKey && !entry.status.isTerminal
     }?.let { activeInstall ->
         return StartPlayResult.Installing(activeInstall.runId)
-    }
-
-    if (!(modpack.mcVer.firstLoaderDir.exists())) {
-        return StartPlayResult.NeedMc(modpack.mcVer)
     }
 
     val activeBaseMods = version.mods

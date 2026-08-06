@@ -37,6 +37,7 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.ktor.client.mock)
+    implementation(libs.mykotutils.log)
     testImplementation(libs.ktor.client.okhttp)
 }
 
@@ -56,4 +57,7 @@ tasks.named<ProcessResources>("processResources") {
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+}
+base {
+    archivesName.set("rdi-mod-catalog")
 }

@@ -35,8 +35,8 @@ enum class ResourceTab(
     val icon: String,
     val label: String
 ) {
-    All("\uDB86\uDDD5", "全部整合包"),
-    Installed("\uDB86\uDDD7", "已安装整合包"),
+    All("\uDB86\uDDD5", "下新包"),
+    Installed("\uDB86\uDDD7", "我的包"),
     McResources("\uDB80\uDF73", "MC资源"),
     Mods("\uF12E", "模组"),
     ResourcePacks("\uDB80\uDEA2", "资源包"),
@@ -100,7 +100,7 @@ fun ResourceScreen(
 
                 category !in topLevelResourceTabs -> TitleRow("添加${category.label}", onBack)
 
-                else -> TitleRow("资源", onBack) {
+                else -> TitleRow("整合包", onBack) {
                     TitleTabBar(
                         items = remember {
                             topLevelResourceTabs.map { TitleTabItem(it, it.icon, it.label) }

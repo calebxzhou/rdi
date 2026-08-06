@@ -4,6 +4,7 @@ import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzau.rdi.mclaunch.model.MojangDownloadArtifact
 import calebxzau.rdi.mclaunch.model.MojangLibrary
 import calebxzau.rdi.mclaunch.model.MojangLibraryDownloads
+import calebxzau.rdi.mclaunch.model.MojangVersionDownloads
 import calebxzau.rdi.mclaunch.model.MojangVersionManifest
 import calebxzhou.rdi.common.model.McVersion
 import java.io.ByteArrayInputStream
@@ -14,6 +15,7 @@ import java.io.OutputStream
 import java.nio.file.Files
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import kotlinx.coroutines.runBlocking
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
@@ -56,6 +58,30 @@ class MinecraftLauncherTest {
         }
     }
 
+    @Test
+    fun prepareRepairsMissingMinecraftClientJar() = runBlocking {
+        val root = Files.createTempDirectory("mclaunch-client-jar").toFile()
+        try {
+            val launcher = launcher(
+                root = root,
+                java = MinecraftJava25Config(
+                    configuredJava25Path = "/configured/java25",
+                    currentJavaPath = "/current/java",
+                    currentJavaMajor = 25,
+                    maxMemoryMb = 1024,
+                ),
+                manifestId = "1.21.1",
+                clientArtifact = MojangDownloadArtifact(url = "https://example.invalid/client.jar"),
+            )
+
+            launcher.prepare(request(root, mcVersion = McVersion.V211), onProgress = {}).getOrThrow()
+
+            assertTrue(root.resolve("versions/1.21.1/1.21.1.jar").isFile)
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
     private fun captureLaunchCommand(
         root: File,
         configuredJava25Path: String?,
@@ -81,6 +107,8 @@ class MinecraftLauncherTest {
         java: MinecraftJava25Config,
         onCommand: (List<String>) -> Unit = {},
         onStart: () -> Unit = {},
+        manifestId: String = "1.12.2",
+        clientArtifact: MojangDownloadArtifact? = null,
     ): MinecraftLauncher {
         val directories = MinecraftDirectories(
             mcDir = root,
@@ -106,8 +134,9 @@ class MinecraftLauncherTest {
             ),
         )
         val manifest = MojangVersionManifest(
-            id = "1.12.2",
+            id = manifestId,
             mainClass = "example.Main",
+            downloads = clientArtifact?.let { MojangVersionDownloads(client = it) },
             libraries = listOf(library),
         )
         val loaderManifest = manifest.copy(
@@ -126,6 +155,14 @@ class MinecraftLauncherTest {
                     Result.success(MinecraftManifestPair(manifest, loaderManifest))
                 },
                 artifactDownloader = MinecraftArtifactDownloader { _, _, target, _ ->
+                    if (clientArtifact != null && target.name == "${manifest.id}.jar") {
+                        target.parentFile.mkdirs()
+                        ZipOutputStream(target.outputStream()).use { zip ->
+                            zip.putNextEntry(ZipEntry("client-marker"))
+                            zip.write(1)
+                            zip.closeEntry()
+                        }
+                    }
                     Result.success(target)
                 },
                 processStarter = MinecraftProcessStarter { captured, _ ->
@@ -137,8 +174,8 @@ class MinecraftLauncherTest {
         )
     }
 
-    private fun request(root: File): MinecraftLaunchRequest = MinecraftLaunchRequest(
-        mcVersion = McVersion.V122,
+    private fun request(root: File, mcVersion: McVersion = McVersion.V122): MinecraftLaunchRequest = MinecraftLaunchRequest(
+        mcVersion = mcVersion,
         versionId = "test-version",
         versionDir = root.resolve("versions/test-version"),
         account = MinecraftAccount("player", "00000000-0000-0000-0000-000000000000", "token"),

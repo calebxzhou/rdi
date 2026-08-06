@@ -10,7 +10,8 @@ object ModpackModProcessor {
         "spark",
         "essential-mod",
         "default-server-properties",
-        "skybox-loader-forge"
+        "skybox-loader-forge",
+        "customskinloader"
     )
 
     private val clientSideSlugs = setOf(

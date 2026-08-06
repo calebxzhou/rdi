@@ -50,3 +50,6 @@ tasks.named<ProcessResources>("processResources") {
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
+base {
+    archivesName.set("rdi-database")
+}

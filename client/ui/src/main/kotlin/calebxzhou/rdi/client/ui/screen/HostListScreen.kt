@@ -32,6 +32,7 @@ import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.StartPlayResult
+import calebxzhou.rdi.client.service.rememberPlayerInfoPrefetch
 import calebxzhou.rdi.client.service.startHostPlay
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.comp.HostCard
@@ -301,6 +302,7 @@ fun HostBrowserPane(
             }
             val playableHosts = remember(shownHosts) { shownHosts.filter { it.playable } }
             val nonPlayableHosts = remember(shownHosts) { shownHosts.filter { !it.playable } }
+            rememberPlayerInfoPrefetch(shownHosts.flatMap { listOf(it.ownerId) + it.onlinePlayerIds })
 
             @Composable
             fun renderHostCard(host: Host.BriefVo) {

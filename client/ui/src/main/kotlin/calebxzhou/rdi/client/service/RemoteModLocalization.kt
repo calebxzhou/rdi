@@ -4,6 +4,7 @@ import calebxzau.rdi.client.modcatalog.CatalogModMetadata
 import calebxzau.rdi.client.modcatalog.CatalogSlugRef
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.getMetadataOrEmpty
 
 object RemoteModLocalization {
     suspend fun find(

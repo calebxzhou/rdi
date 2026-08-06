@@ -20,3 +20,6 @@ dependencies {
     implementation(libs.mykotutils.std)
     implementation(libs.kotlinx.coroutines.core)
 }
+base {
+    archivesName.set("rdi-misc")
+}

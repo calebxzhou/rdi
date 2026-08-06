@@ -140,11 +140,11 @@ fun McPlayScreen(
                 session.appendLog("[RDI] ${args.modLoader}已就绪")
                 if (session.stopRequested) return@launchSessionTask
 
-                session.appendLog("[RDI] 检查游戏运行库...")
+                session.appendLog("[RDI] 检查游戏核心文件和运行库...")
                 GameService.ensureDesktopLaunchLibraries(args.mcVer, args.versionId) { progress ->
                     session.appendLog("[RDI] $progress")
                 }.getOrThrow()
-                session.appendLog("[RDI] 游戏运行库已就绪")
+                session.appendLog("[RDI] 游戏核心文件和运行库已就绪")
                 if (session.stopRequested) return@launchSessionTask
 
                 session.appendLog("[RDI] 检查游戏资源...")

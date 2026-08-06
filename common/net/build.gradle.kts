@@ -44,3 +44,6 @@ dependencies {
     implementation(libs.kotlinx.io.core)
     implementation(libs.annotations)
 }
+base {
+    archivesName.set("rdi-net")
+}

@@ -57,8 +57,7 @@ fun ModpackInfoScreen(
     modpackId: String,
     onBack: () -> Unit,
     onOpenTaskList: ((String) -> Unit)? = null,
-    onOpenVersionEdit: ((String) -> Unit)? = null,
-    onCreateHost: ((String, String, String, Boolean) -> Unit)? = null
+    onOpenVersionEdit: ((String) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -272,20 +271,20 @@ fun ModpackInfoScreen(
                                         onOpenVersionEdit?.let { openVersionEdit ->
                                             CircleIconButton(
                                                 icon = "\uF044",
-                                                tooltip = "编辑版本Mod",
+                                                label = "编辑版本Mod",
                                                 bgColor = MaterialColor.PURPLE_700.color
                                             ) { openVersionEdit(version.name) }
                                             Space8w()
                                         }
                                         CircleIconButton(
                                             icon = "\uEA81",
-                                            tooltip = "删除版本",
+                                            label = "删除版本",
                                             bgColor = MaterialColor.RED_900.color
                                         ) { confirmDeleteVersion = version }
                                         Space8w()
                                         CircleIconButton(
                                             icon = "\uF0AD",
-                                            tooltip = "重构",
+                                            label = "重构",
                                             bgColor = MaterialTheme.colorScheme.primary
                                         ) { confirmRebuildVersion = version }
                                     }
@@ -293,7 +292,7 @@ fun ModpackInfoScreen(
                                         Space8w()
                                         CircleIconButton(
                                             icon = "\uF019",
-                                            tooltip = "下载整合包"
+                                            label = "下载整合包"
                                         ) {
                                             if (ModpackService.getVersionDir(pack._id, version.name).exists()) {
                                                 confirmRedownloadVersion = version

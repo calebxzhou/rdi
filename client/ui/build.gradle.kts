@@ -1,10 +1,16 @@
+import groovy.json.JsonSlurper
 import org.gradle.api.GradleException
 import org.gradle.api.artifacts.type.ArtifactTypeDefinition
+import org.gradle.api.tasks.Copy
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import sun.jvmstat.monitor.MonitoredVmUtil.mainClass
 import java.io.File
+import java.io.InputStream
 import java.security.MessageDigest
+import java.util.zip.ZipEntry
+import java.util.zip.ZipFile
+import java.util.jar.JarFile
 
 val appVersion = libs.versions.app.get()
 val javaVersion = libs.versions.java.get()
@@ -79,6 +85,12 @@ dependencies {
     implementation(libs.compose.material3)
     implementation(libs.compose.material3.desktop)
     implementation(libs.navigation.compose)
+    implementation(libs.androidx.lifecycle.runtime.compose)
+    implementation(libs.androidx.lifecycle.viewmodel)
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    implementation(libs.koin.core)
+    implementation(libs.koin.compose)
+    implementation(libs.koin.compose.viewmodel)
     implementation(libs.markdown.renderer)
     implementation(libs.markdown.renderer.m3)
     implementation(libs.kotlinx.coroutines.swing)
@@ -212,6 +224,7 @@ tasks.matching { it.name == "hotRun" || it.name == "hotDev" }.configureEach {
     }
 }
 tasks.register<Sync>("desktopInstallLibs") {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
     dependsOn("jar")
     from(configurations.runtimeClasspath)
     from(tasks.named<Jar>("jar"))
@@ -223,30 +236,173 @@ tasks.named<Jar>("jar") {
 }
 
 
+val uiInstallLibDir = layout.buildDirectory.dir("install/ui/lib")
+val uiReleaseOutputDir = layout.buildDirectory.dir("ui-releases/$appVersion")
 
-fun registerCopyTask(name: String, extraDestinations: List<String> = emptyList()) {
-    val baseDestinations = listOf(
-        file("../../server/master/run/client-libs/lib"),
+fun jsonQuote(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+
+fun sha1(input: InputStream): String {
+    val digest = MessageDigest.getInstance("SHA-1")
+    val buffer = ByteArray(8192)
+    while (true) {
+        val read = input.read(buffer)
+        if (read < 0) break
+        digest.update(buffer, 0, read)
+    }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+
+fun sha1(file: File): String = file.inputStream().use { sha1(it) }
+
+fun readUiManifest(file: File): Map<String, String> {
+    val parsed = JsonSlurper().parse(file) as? Map<*, *>
+        ?: throw GradleException("UI库manifest不是JSON对象: $file")
+    return parsed.entries.associate { entry ->
+        val name = entry.key as? String
+            ?: throw GradleException("UI库manifest包含非法文件名: $file")
+        val hash = entry.value as? String
+            ?: throw GradleException("UI库manifest包含非法hash: $file")
+        name to hash
+    }
+}
+
+fun validateUiReleaseArchive(archive: File, expectedHashes: Map<String, String>) {
+    ZipFile(archive).use { zip ->
+        val entries = mutableListOf<ZipEntry>()
+        val enumeration = zip.entries()
+        while (enumeration.hasMoreElements()) entries += enumeration.nextElement()
+
+        if (entries.isEmpty() || entries.none { it.name.endsWith(".jar", ignoreCase = true) }) {
+            throw GradleException("UI库ZIP缺少JAR: $archive")
+        }
+        if (entries.any { entry ->
+                entry.isDirectory || entry.name.isBlank() || entry.name == "." || entry.name == ".." ||
+                    entry.name.contains('/') || entry.name.contains('\\') || entry.name.contains(':')
+            }) {
+            throw GradleException("UI库ZIP包含非法entry: $archive")
+        }
+        val entryNames = entries.map { it.name }
+        if (entryNames.size != entryNames.toSet().size || entryNames.toSet() != expectedHashes.keys) {
+            throw GradleException("UI库ZIP和manifest文件列表不一致: $archive")
+        }
+        entries.forEach { entry ->
+            val actualHash = zip.getInputStream(entry).use { sha1(it) }
+            if (!actualHash.equals(expectedHashes[entry.name], ignoreCase = true)) {
+                throw GradleException("UI库ZIP文件hash不匹配: ${entry.name}")
+            }
+        }
+    }
+}
+
+val packageUiRelease = tasks.register("packageUiRelease") {
+    dependsOn("desktopInstallLibs")
+    notCompatibleWithConfigurationCache("invokes 7z and validates the generated ZIP")
+    group = "distribution"
+    description = "Generate the versioned UI library ZIP, manifest and latest pointer."
+
+    doLast {
+        val sourceDir = uiInstallLibDir.get().asFile
+        if (!sourceDir.isDirectory) throw GradleException("未找到UI运行库目录: $sourceDir")
+        val files = sourceDir.listFiles()
+            ?.filter { it.isFile }
+            ?.sortedBy { it.name }
+            .orEmpty()
+        if (files.isEmpty() || files.none { it.name.endsWith(".jar", ignoreCase = true) }) {
+            throw GradleException("UI运行库目录缺少JAR: $sourceDir")
+        }
+        val uiJar = sourceDir.resolve("rdi-ui.jar")
+        if (!uiJar.isFile) throw GradleException("UI运行库目录缺少rdi-ui.jar: $sourceDir")
+        val implementationVersion = JarFile(uiJar).use {
+            it.manifest?.mainAttributes?.getValue("Implementation-Version")
+        }
+        if (implementationVersion != appVersion) {
+            throw GradleException(
+                "rdi-ui.jar的Implementation-Version不匹配，期望$appVersion，实际${implementationVersion ?: "未知"}"
+            )
+        }
+
+        val hashes = files.associate { it.name to sha1(it) }
+        val outputDir = uiReleaseOutputDir.get().asFile
+        outputDir.mkdirs()
+        val archive = outputDir.resolve("$appVersion.zip")
+        val manifest = outputDir.resolve("$appVersion.json")
+        val latest = outputDir.resolve("latest.txt")
+
+        manifest.writeText(
+            hashes.entries.joinToString(",\n", "{\n", "\n}\n") { (name, hash) ->
+                "    ${jsonQuote(name)}: ${jsonQuote(hash)}"
+            }
+        )
+        if (archive.exists() && !archive.delete()) {
+            throw GradleException("无法覆盖旧UI库ZIP: $archive")
+        }
+
+        val sevenZipExecutable = sequenceOf(
+            File("C:/Program Files/7-Zip/7z.exe"),
+            File("C:/Program Files (x86)/7-Zip/7z.exe")
+        ).firstOrNull { it.isFile }?.absolutePath ?: "7z"
+        val process = ProcessBuilder(
+            sevenZipExecutable,
+            "a",
+            "-tzip",
+            "-mx=0",
+            archive.absolutePath,
+            *files.map { it.name }.toTypedArray()
+        ).directory(sourceDir)
+            .inheritIO()
+            .start()
+        val exitCode = process.waitFor()
+        if (exitCode != 0) throw GradleException("7z生成UI库ZIP失败，退出码:$exitCode")
+
+        val parsedHashes = readUiManifest(manifest)
+        if (parsedHashes != hashes) throw GradleException("UI库manifest内容校验失败: $manifest")
+        validateUiReleaseArchive(archive, parsedHashes)
+        latest.writeText("$appVersion\n")
+        logger.lifecycle("已生成UI库发布包: $outputDir")
+    }
+}
+
+
+fun registerCopyTask(name: String, extraDestinationRoots: List<String> = emptyList()) {
+    val baseDestinationRoots = listOf(
+        file("../../server/master/run/client-libs"),
         //     File(System.getProperty("user.home"), "Documents/rdi5ship/lib")
     )
-    val destinationDirs = baseDestinations + extraDestinations.map { file(it) }
-    val syncTaskNames = destinationDirs.mapIndexed { index, targetDir ->
+    val destinationRoots = baseDestinationRoots + extraDestinationRoots.map { file(it) }
+    val copyTaskNames = destinationRoots.flatMapIndexed { index, destinationRoot ->
+        //val targetDir = destinationRoot.resolve("lib")
+        val releaseDir = destinationRoot.resolve("releases")
         val syncTaskName = "${name}Sync$index"
-        tasks.register<Sync>(syncTaskName) {
+        /*val libSync = tasks.register<Sync>(syncTaskName) {
             dependsOn("desktopInstallLibs")
-            from(layout.buildDirectory.dir("install/ui/lib"))
+            from(uiInstallLibDir)
             into(targetDir)
+        }*/
+        val releaseFilesSync = tasks.register<Copy>("${name}Releases$index") {
+            dependsOn(packageUiRelease)
+            from(uiReleaseOutputDir) {
+                include("$appVersion.zip", "$appVersion.json")
+            }
+            into(releaseDir)
         }
-        syncTaskName
+        val latestSync = tasks.register<Copy>("${name}Latest$index") {
+            dependsOn(releaseFilesSync)
+            from(uiReleaseOutputDir) {
+                include("latest.txt")
+            }
+            into(releaseDir)
+        }
+        listOf(releaseFilesSync, latestSync)
     }
 
     tasks.register(name) {
-        dependsOn(syncTaskNames)
+        dependsOn(copyTaskNames)
     }
 }
 
 registerCopyTask("出core2-local")
-registerCopyTask("出core2-release", listOf("\\\\rdi\\rdi55\\ihq\\client-libs\\lib"))
+registerCopyTask("出core2-release", listOf("\\\\rdi\\rdi55\\ihq\\client-libs"))
 val dotnetReleaseCmd = listOf(
     "dotnet",
     "publish",

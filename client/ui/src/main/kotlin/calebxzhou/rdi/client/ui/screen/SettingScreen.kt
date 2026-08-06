@@ -125,7 +125,7 @@ fun SettingScreen(
                 }
                 CircleIconButton(
                     icon = "\uF0C7",
-                    tooltip = "保存",
+                    label = "保存",
                     bgColor = MaterialColor.GREEN_900.color,
                     enabled = !saving
                 ) {
