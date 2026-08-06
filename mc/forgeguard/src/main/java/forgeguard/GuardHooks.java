@@ -99,6 +99,10 @@ public final class GuardHooks {
         }
     }
 
+    public static void blockDcSharpExit(int status) {
+        log("Blocked DCSharp System.exit(" + status + ") after its jar verification failed");
+    }
+
     @SuppressWarnings({"unchecked", "rawtypes"})
     public static Set<?> protectMixinConfigs(Set configs) {
         if (configs == null || !PROTECT || RESTORING_MIXINS.get() || MIXIN_CONFIGS.isEmpty()) {

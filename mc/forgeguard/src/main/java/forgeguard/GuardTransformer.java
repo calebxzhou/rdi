@@ -21,6 +21,8 @@ public final class GuardTransformer implements ClassFileTransformer {
     private static final String TRANSFORMATION_DECORATOR = "cpw/mods/modlauncher/TransformationServiceDecorator";
     private static final String LAUNCH_PLUGIN_HANDLER = "cpw/mods/modlauncher/LaunchPluginHandler";
     private static final String MIXINS = "org/spongepowered/asm/mixin/Mixins";
+    private static final String DCSHARP_LOCATOR = "dcsharp/transformer/DCSharpLocator";
+    private static final String SYSTEM = "java/lang/System";
     private static final String MIXIN_PLUGIN = "com/gtolib/MixinConfigPlugin";
     private static final String ABSTRACT_MIXIN = "com/gtolib/api/misc/AbstractMixinConfigPlugin";
     private static final String ERR_CLASS = "java/lang/UnsatisfiedLinkError";
@@ -51,6 +53,10 @@ public final class GuardTransformer implements ClassFileTransformer {
             if (MIXINS.equals(className)) {
                 System.out.println("[Forgeguard] Patching Mixins config queue guards");
                 return patchMixins(buf);
+            }
+            if (DCSHARP_LOCATOR.equals(className)) {
+                System.out.println("[Forgeguard] Patching DCSharp jar-check exit guard");
+                return patchDcSharpLocator(buf);
             }
             if (PATCH_GTO_MIXIN_PLUGIN && LEGACY_TARGETS.contains(className)) {
                 return patchLegacyGtoMixinPlugin(className, classBeingRedefined, buf);
@@ -216,6 +222,41 @@ public final class GuardTransformer implements ClassFileTransformer {
                     };
                 }
                 return mv;
+            }
+        }, 0);
+        return cw.toByteArray();
+    }
+
+    private byte[] patchDcSharpLocator(byte[] buf) {
+        ClassReader cr = new ClassReader(buf);
+        ClassWriter cw = new ClassWriter(cr, ClassWriter.COMPUTE_MAXS);
+        cr.accept(new ClassVisitor(Opcodes.ASM9, cw) {
+            @Override
+            public MethodVisitor visitMethod(int access, String name, String desc, String sig, String[] exns) {
+                MethodVisitor mv = super.visitMethod(access, name, desc, sig, exns);
+                if (!"checkForJar".equals(name) || !"()V".equals(desc)) {
+                    return mv;
+                }
+                return new MethodVisitor(Opcodes.ASM9, mv) {
+                    @Override
+                    public void visitMethodInsn(int opcode, String owner, String methodName,
+                                                String methodDesc, boolean itf) {
+                        if (opcode == Opcodes.INVOKESTATIC
+                            && SYSTEM.equals(owner)
+                            && "exit".equals(methodName)
+                            && "(I)V".equals(methodDesc)) {
+                            super.visitMethodInsn(
+                                Opcodes.INVOKESTATIC,
+                                HOOKS,
+                                "blockDcSharpExit",
+                                "(I)V",
+                                false
+                            );
+                            return;
+                        }
+                        super.visitMethodInsn(opcode, owner, methodName, methodDesc, itf);
+                    }
+                };
             }
         }, 0);
         return cw.toByteArray();
