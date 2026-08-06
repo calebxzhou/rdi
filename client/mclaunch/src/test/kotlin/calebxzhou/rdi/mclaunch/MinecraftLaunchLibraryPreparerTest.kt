@@ -13,13 +13,13 @@ import kotlin.test.assertTrue
 
 class MinecraftLaunchLibraryPreparerTest {
     @Test
-    fun repairsMissingUniversalLoaderLibrary() = runBlocking {
+    fun repairsMissingLoaderRuntimeLibrary() = runBlocking {
         val root = Files.createTempDirectory("mclaunch-loader-library").toFile()
         try {
             val librariesDir = root.resolve("libraries")
-            val artifactPath = "net/neoforged/neoforge/21.1.248/neoforge-21.1.248-universal.jar"
-            val universalLibrary = MojangLibrary(
-                name = "net.neoforged:neoforge:21.1.248:universal",
+            val artifactPath = "net/neoforged/fancymodloader/loader/4.0.43/loader-4.0.43.jar"
+            val loaderLibrary = MojangLibrary(
+                name = "net.neoforged.fancymodloader:loader:4.0.43",
                 downloads = MojangLibraryDownloads(
                     artifact = MojangDownloadArtifact(path = artifactPath),
                 ),
@@ -39,7 +39,7 @@ class MinecraftLaunchLibraryPreparerTest {
 
             preparer.ensure(
                 baseLibraries = emptyList(),
-                overrideLibraries = listOf(universalLibrary),
+                overrideLibraries = listOf(loaderLibrary),
                 onProgress = {},
             ).getOrThrow()
 

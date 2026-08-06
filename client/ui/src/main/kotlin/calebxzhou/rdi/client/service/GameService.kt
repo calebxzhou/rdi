@@ -743,16 +743,26 @@ object GameService {
     private fun MojangLibrary.isLoaderUniversalLibrary(): Boolean =
         name.substringBefore('@').split(':').getOrNull(3)?.equals("universal", ignoreCase = true) == true
 
-    internal fun mergeLoaderManifestLibraries(
-        loaderManifest: MojangVersionManifest,
-        installProfileLibraries: List<MojangLibrary>,
-    ): MojangVersionManifest = loaderManifest.copy(
-        libraries = (installProfileLibraries.filter { it.isLoaderUniversalLibrary() } + loaderManifest.libraries)
-            .distinctBy(::libraryKey),
+    internal data class LoaderLibraryPlan(
+        val launchManifest: MojangVersionManifest,
+        val downloadLibraries: List<MojangLibrary>,
     )
 
-    private fun loaderManifestLibrariesReady(manifest: MojangVersionManifest): Boolean =
-        manifest.libraries
+    internal fun planLoaderLibraries(
+        loaderManifest: MojangVersionManifest,
+        installProfileLibraries: List<MojangLibrary>,
+    ): LoaderLibraryPlan = LoaderLibraryPlan(
+        launchManifest = loaderManifest,
+        downloadLibraries = (installProfileLibraries + loaderManifest.libraries).distinctBy(::libraryKey),
+    )
+
+    internal fun selectLoaderLaunchManifest(
+        existingManifest: MojangVersionManifest,
+        installerManifest: MojangVersionManifest?,
+    ): MojangVersionManifest = installerManifest ?: existingManifest
+
+    private fun loaderLibrariesReady(libraries: List<MojangLibrary>): Boolean =
+        libraries
             .filter { it.shouldDownloadByArch() }
             .flatMap { library ->
                 buildList {
@@ -776,6 +786,18 @@ object GameService {
                     }
                 }
             }
+
+    private fun loaderInstallProfileReady(installProfile: LoaderInstallProfile): Boolean {
+        if (!loaderLibrariesReady(installProfile.libraries.filter { it.isLoaderUniversalLibrary() })) return false
+        return listOf("MC_SRG", "PATCHED")
+            .mapNotNull { key -> extractLibraryDescriptor(installProfile.data[key]?.client) }
+            .map(::descriptorToLibraryPath)
+            .map(libsDir::resolve)
+            .all { file ->
+                file.isFile && file.length() > 0L &&
+                    runCatching { ZipFile(file).use { it.entries().hasMoreElements() } }.getOrDefault(false)
+            }
+    }
 
     @Serializable
     data class LoaderInstallProfile(
@@ -893,8 +915,8 @@ object GameService {
                 Task2.Leaf("下载$loader 依赖") { ctx ->
                     downloadLibrariesTask2(holder.loaderLibraries, ctx, holder.installer)
                 },
-                Task2.Leaf("下载Mojmap") { ctx ->
-                    downloadMojmapIfNeededTask2(holder, ctx)
+                Task2.Leaf("下载客户端Mojmap") { ctx ->
+                    downloadMojmapIfNeededTask2(holder, ctx, server = false)
                 },
                 Task2.Leaf("运行安装器") { ctx ->
                     runInstallerBootstrapperTask2(holder, ctx)
@@ -912,8 +934,8 @@ object GameService {
         val loaderVersion = mcVer.loaderVersions[loader]
             ?: return Result.failure(IllegalStateException("未配置${loader}安装信息"))
         val versionJson = versionListDir.resolve(loaderVersion.dirName).resolve("${loaderVersion.dirName}.json")
-        readLaunchLoaderManifest(mcVer, loader, versionJson)?.let { launchManifest ->
-            if (loaderManifestLibrariesReady(launchManifest)) {
+        readLoaderLaunchState(mcVer, loader, versionJson)?.let { state ->
+            if (loaderLibrariesReady(state.manifest.libraries) && loaderInstallProfileReady(state.installProfile)) {
                 return Result.success(Unit)
             }
         }
@@ -944,39 +966,43 @@ object GameService {
             onProgress("等待相同${loader}安装完成...")
         }
         return active.await().mapCatching {
-            val launchManifest = readLaunchLoaderManifest(mcVer, loader, versionJson)
+            val state = readLoaderLaunchState(mcVer, loader, versionJson)
                 ?: error("${loader}安装后缺少有效启动manifest")
-            check(loaderManifestLibrariesReady(launchManifest)) {
+            check(loaderLibrariesReady(state.manifest.libraries) && loaderInstallProfileReady(state.installProfile)) {
                 "${loader}安装后运行库仍不完整"
             }
         }
     }
 
-    private fun readLaunchLoaderManifest(
+    private data class LoaderLaunchState(
+        val manifest: MojangVersionManifest,
+        val installProfile: LoaderInstallProfile,
+    )
+
+    private fun readLoaderLaunchState(
         mcVer: McVersion,
         loader: ModLoader,
         versionJson: File,
-    ): MojangVersionManifest? {
+    ): LoaderLaunchState? {
         if (!versionJson.isFile) return null
         val existingManifest = runCatching {
             serdesJson.decodeFromString<MojangVersionManifest>(versionJson.readText())
         }.getOrNull() ?: return null
         val installer = ClientDirs.mcDir.resolve("${mcVer.mcVer}-${loader}-installer.jar")
-        if (!installer.isFile) return existingManifest
+        if (!installer.isFile) return null
         val installProfile = readInstallerEntryOrNull(installer, "install_profile.json")
             ?.let { runCatching { serdesJson.decodeFromString<LoaderInstallProfile>(it) }.getOrNull() }
             ?: return null
-        val launchManifest = mergeLoaderManifestLibraries(
-            existingManifest.normalizeLoaderManifest(
-                LoaderInstallHolder(version = mcVer, loader = loader),
-                installProfile,
-            ),
-            installProfile.libraries,
+        val installerManifest = readInstallerEntryOrNull(installer, "version.json")
+            ?.let { runCatching { serdesJson.decodeFromString<MojangVersionManifest>(it) }.getOrNull() }
+        val launchManifest = selectLoaderLaunchManifest(existingManifest, installerManifest).normalizeLoaderManifest(
+            LoaderInstallHolder(version = mcVer, loader = loader),
+            installProfile,
         )
         if (launchManifest.json != versionJson.readText()) {
             versionJson.writeText(launchManifest.json)
         }
-        return launchManifest
+        return LoaderLaunchState(launchManifest, installProfile)
     }
 
     fun downloadTestServerTask2(version: McVersion, loader: ModLoader): Task2 {
@@ -992,6 +1018,9 @@ object GameService {
                 },
                 Task2.Leaf("下载${loader}服务端") { ctx ->
                     downloadServerTask2(holder, ctx)
+                },
+                Task2.Leaf("下载服务端Mojmap") { ctx ->
+                    downloadMojmapIfNeededTask2(holder, ctx, server = true)
                 },
                 Task2.Leaf("运行安装器服务端") { ctx ->
                     runServerInstallerBootstrapperTask2(holder, ctx)
@@ -1063,15 +1092,13 @@ object GameService {
         val installProfileText = readInstallerEntry(installer, "install_profile.json")
         val installProfile = serdesJson.decodeFromString<LoaderInstallProfile>(installProfileText)
         val loaderVersionManifest = resolveLoaderVersionManifest(holder, installer, installProfile)
-        val launchLoaderManifest = mergeLoaderManifestLibraries(loaderVersionManifest, installProfile.libraries)
+        val libraryPlan = planLoaderLibraries(loaderVersionManifest, installProfile.libraries)
         val loaderVersionDir = versionListDir.resolve(loaderVersionManifest.id).apply { mkdirs() }
-        File(loaderVersionDir, "${loaderVersionManifest.id}.json").writeText(launchLoaderManifest.json)
-        val loaderLibraries = (installProfile.libraries + loaderVersionManifest.libraries)
-            .distinctBy { libraryKey(it) }
+        File(loaderVersionDir, "${loaderVersionManifest.id}.json").writeText(libraryPlan.launchManifest.json)
 
-        holder.loaderVersionManifest = launchLoaderManifest
+        holder.loaderVersionManifest = libraryPlan.launchManifest
         holder.installProfile = installProfile
-        holder.loaderLibraries = loaderLibraries
+        holder.loaderLibraries = libraryPlan.downloadLibraries
 
         ctx.emit(Task2Progress("解析完成", 1f))
     }
@@ -1225,40 +1252,32 @@ object GameService {
         ctx.emit(Task2Progress("下载完成", 1f))
     }
 
-    private suspend fun downloadMojmapIfNeededTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
+    private suspend fun downloadMojmapIfNeededTask2(
+        holder: LoaderInstallHolder,
+        ctx: Task2Context,
+        server: Boolean,
+    ) {
         val installProfile = holder.installProfile ?: return
         val vanillaManifest = holder.version.metadata
         val mojmaps = installProfile.data["MOJMAPS"] ?: return
         val downloads = vanillaManifest.downloads ?: return
-        val tasks = mutableListOf<Triple<String, MojangDownloadArtifact, String>>()
-        extractLibraryDescriptor(mojmaps.client)?.let { descriptor ->
-            downloads.clientMappings?.let { artifact ->
-                tasks += Triple("客户端", artifact, descriptor)
-            }
-        }
-        extractLibraryDescriptor(mojmaps.server)?.let { descriptor ->
-            downloads.serverMappings?.let { artifact ->
-                tasks += Triple("服务端", artifact, descriptor)
-            }
-        }
-        if (tasks.isEmpty()) {
+        val descriptor = extractLibraryDescriptor(if (server) mojmaps.server else mojmaps.client)
+        val artifact = if (server) downloads.serverMappings else downloads.clientMappings
+        if (descriptor == null || artifact == null) {
             ctx.emit(Task2Progress("无需下载", 1f))
             return
         }
-        val total = tasks.size
-        tasks.forEachIndexed { index, (label, artifact, descriptor) ->
-            val relativePath = descriptorToLibraryPath(descriptor)
-            val target = File(libsDir, relativePath)
-            downloadArtifact(label, artifact, target) { progress ->
-                ctx.emit(
-                    Task2Progress(
-                        "$label ${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
-                        progress.fraction
-                    )
+        val label = if (server) "服务端" else "客户端"
+        val target = File(libsDir, descriptorToLibraryPath(descriptor))
+        downloadArtifact(label, artifact, target) { progress ->
+            ctx.emit(
+                Task2Progress(
+                    "$label ${progress.bytesDownloaded.humanFileSize}/${progress.totalBytes.humanFileSize}",
+                    progress.fraction
                 )
-            }.getOrThrow()
-            ctx.emit(Task2Progress("已完成 ${index + 1}/$total", (index + 1).toFloat() / total))
-        }
+            )
+        }.getOrThrow()
+        ctx.emit(Task2Progress("$label Mojmap已完成", 1f))
     }
 
     internal fun runInstallerBootstrapperTask2(holder: LoaderInstallHolder, ctx: Task2Context) {
