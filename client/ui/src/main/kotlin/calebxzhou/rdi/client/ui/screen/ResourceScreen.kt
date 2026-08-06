@@ -74,7 +74,8 @@ fun ResourceScreen(
     onOpenRemoteMod: (CatalogMod, ModpackLocalDir?) -> Unit = { _, _ -> },
     onOpenResourceInfo: (ModrinthProjectCardVo, ResourceInfoType, ModpackLocalDir?) -> Unit = { _, _, _ -> },
     onOpenPlay: ((McPlayArgs) -> Unit)? = null,
-    onOpenTaskList: ((String) -> Unit)? = null
+    onOpenTaskList: ((String) -> Unit)? = null,
+    onOpenModpackOptions: ((ModpackLocalDir) -> Unit)? = null,
 ) {
     var category by rememberSaveable(initialCategory) { mutableStateOf(initialCategory) }
     var contentTarget by remember { mutableStateOf<ModpackContentTarget?>(null) }
@@ -162,6 +163,7 @@ fun ResourceScreen(
                                             contentTarget = ModpackContentTarget(pack, type)
                                         },
                                         onOpenTaskList = onOpenTaskList,
+                                        onOpenOptions = onOpenModpackOptions,
                                         showPaneActions = true,
                                         modifier = Modifier.fillMaxSize()
                                     )

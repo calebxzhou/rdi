@@ -392,6 +392,19 @@ fun AppNavigation(
                     },
                 )
             }
+            composable<ModpackOptions> {
+                val route = it.toRoute<ModpackOptions>()
+                ModpackOptionScreen(
+                    versionId = route.versionId,
+                    modpackName = route.modpackName,
+                    versionName = route.versionName,
+                    onBack = {
+                        if (!navController.popBackStack()) {
+                            navController.navigateAbsolute(ResourceRoute(ResourceTab.Installed.name))
+                        }
+                    }
+                )
+            }
             composable<Host2Lobby> {
                 Host2LobbyScreen(
                     onBack = { navController.navigateAbsolute(Menu) },
@@ -482,6 +495,15 @@ fun AppNavigation(
                     },
                     onOpenPlay = { args ->
                         openMcPlay(args) { navController.navigateAbsolute(route) }
+                    },
+                    onOpenModpackOptions = { pack ->
+                        navController.navigate(
+                            ModpackOptions(
+                                versionId = pack.versionId,
+                                modpackName = pack.vo.name,
+                                versionName = pack.verName,
+                            )
+                        )
                     },
                     onOpenTaskList = { runId ->
                         navController.navigate(

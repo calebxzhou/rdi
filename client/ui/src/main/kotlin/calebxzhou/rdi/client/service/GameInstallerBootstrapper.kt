@@ -5,6 +5,7 @@ import calebxzhou.mykotutils.std.javaExePath
 import calebxzhou.rdi.common.model.LibraryOsArch
 import calebxzhou.rdi.common.model.TaskContext
 import calebxzhou.rdi.common.model.TaskProgress
+import calebxzau.rdi.mclaunch.MinecraftLaunchOverrides
 import java.io.File
 import java.nio.charset.StandardCharsets
 import kotlin.concurrent.thread
@@ -87,6 +88,22 @@ fun GameService.startDesktop(
     mcVer,
     versionId,
     versionListDir.resolve(versionId),
+    MinecraftLaunchOverrides(),
+    *jvmArgs,
+    onLine = onLine,
+)
+
+fun GameService.startDesktop(
+    mcVer: calebxzhou.rdi.common.model.McVersion,
+    versionId: String,
+    launchOverrides: MinecraftLaunchOverrides,
+    vararg jvmArgs: String,
+    onLine: (String) -> Unit,
+): Process = startDesktopInDir(
+    mcVer,
+    versionId,
+    versionListDir.resolve(versionId),
+    launchOverrides,
     *jvmArgs,
     onLine = onLine,
 )
@@ -97,12 +114,29 @@ internal fun GameService.startDesktopInDir(
     versionDir: File,
     vararg jvmArgs: String,
     onLine: (String) -> Unit,
+): Process = startDesktopInDir(
+    mcVer,
+    versionId,
+    versionDir,
+    MinecraftLaunchOverrides(),
+    *jvmArgs,
+    onLine = onLine,
+)
+
+internal fun GameService.startDesktopInDir(
+    mcVer: calebxzhou.rdi.common.model.McVersion,
+    versionId: String,
+    versionDir: File,
+    launchOverrides: MinecraftLaunchOverrides,
+    vararg jvmArgs: String,
+    onLine: (String) -> Unit,
 ): Process = createMinecraftLauncher()
     .launch(
         request = minecraftLaunchRequest(
             mcVersion = mcVer,
             versionId = versionId,
             versionDir = versionDir,
+            launchOverrides = launchOverrides,
             extraJvmArgs = jvmArgs.toList(),
         ),
         onLine = onLine,

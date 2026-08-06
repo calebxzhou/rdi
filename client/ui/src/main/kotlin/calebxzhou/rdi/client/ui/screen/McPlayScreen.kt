@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.LocalMcProxyService
+import calebxzhou.rdi.client.service.ModpackLaunchOptionsService
 import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.ensureDesktopLaunchLibraries
 import calebxzhou.rdi.client.service.startDesktop
@@ -52,9 +53,11 @@ import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.McGameSession
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.McPlayStore
+import calebxzau.rdi.client.ui.openFolder
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.Console
+import calebxzau.rdi.mclaunch.MinecraftLaunchOverrides
 import calebxzhou.rdi.common.model.FORGEGUARD_AGENT_FILE_NAME
 import calebxzhou.rdi.common.model.FORGEGUARD_DISABLE
 import calebxzhou.rdi.common.model.Task2Progress
@@ -104,6 +107,7 @@ fun McPlayScreen(
 
         McPlayStore.launchSessionTask {
             try {
+                val launchSnapshot = ModpackLaunchOptionsService.loadSnapshot(args.versionId).getOrThrow()
                 if (args.manageHostBaseMods) {
                     session.appendLog("[RDI] 检查房间基础Mod...")
                     syncHostManagedBaseMods(args.versionId, args.activeBaseMods, args.disabledBaseMods) { progress ->
@@ -157,8 +161,16 @@ fun McPlayScreen(
                 if (session.stopRequested) return@launchSessionTask
 
                 val launchJvmArgs = buildList {
+                    addAll(launchSnapshot.customJvmArgs)
                     addAll(extraJvmArgs.filterNot { it.startsWith("-Drdi.play=") })
-                    if (args.mcVer.supportsForgeguard(args.modLoader) && !FORGEGUARD_DISABLE) {
+                    launchSnapshot.jdwpJvmArg?.let{
+                        add("-Xlog:os+exit=trace")
+                        add(it)
+                    }
+                    if (args.mcVer.supportsForgeguard(args.modLoader) &&
+                        !FORGEGUARD_DISABLE &&
+                        !launchSnapshot.forgeguardDisabled
+                    ) {
                         val forgeguardAgent = RDIClient.DIR.resolve("lib/$FORGEGUARD_AGENT_FILE_NAME")
                         require(forgeguardAgent.isFile) { "缺少Forgeguard启动保护文件: ${forgeguardAgent.absolutePath}" }
                         add("\"-javaagent:${forgeguardAgent.absolutePath}\"")
@@ -172,6 +184,10 @@ fun McPlayScreen(
                 val started = GameService.startDesktop(
                     args.mcVer,
                     args.versionId,
+                    MinecraftLaunchOverrides(
+                        javaPath = launchSnapshot.javaPath,
+                        maxMemoryMb = launchSnapshot.maxMemoryMb,
+                    ),
                     *launchJvmArgs.toTypedArray()
                 ) { line ->
                     McPlayStore.launchSessionTask {
@@ -224,6 +240,12 @@ fun McPlayScreen(
         ) {
             TitleRow("MC控制台", onBack) {
                 selectedSession?.let { session ->
+                    val modpackDir = session.args.versionDir
+                        ?.let { java.io.File(it) }
+                        ?: GameService.versionListDir.resolve(session.args.versionId)
+                    CircleIconButton("\uEAED", "打开目录", enabled = modpackDir.isDirectory) {
+                        openFolder(modpackDir.absolutePath)
+                    }
                     //if(Const.AI_TEST){
                         /*CircleIconButton(
                             icon = "\uE0CA",

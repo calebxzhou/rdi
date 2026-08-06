@@ -27,7 +27,7 @@ import calebxzau.rdi.client.ui.currentJavaMajor
 import calebxzau.rdi.client.ui.pickLocalDirectory
 import calebxzau.rdi.client.ui.pickLocalModpackFile
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
-import calebxzau.rdi.client.CONF
+import calebxzhou.mykotutils.std.javaExePath
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.packproc.*
@@ -174,37 +174,13 @@ fun ModpackUploadScreen(
         }
     }
 
-    fun uploadSupportedConfiguredJavaMajors(
-        mcVersion: McVersion
-    ): List<Int> = mcVersion.supportedJreVers
-
-    fun hasConfiguredUploadJavaPath(major: Int): Boolean = when (major) {
-        21 -> !CONF.jre21Path?.trim().isNullOrEmpty()
-        25 -> !CONF.jre25Path?.trim().isNullOrEmpty()
-        else -> false
-    }
-
-    fun isCurrentJavaSupportedForUpload(
-        currentMajor: Int,
-        mcVersion: McVersion
-    ): Boolean = mcVersion.supportsCurrentJava(currentMajor)
-
     fun uploadRuntimeRequirementMessageOrNull(mcVersion: McVersion): String? {
         val currentMajor = currentJavaMajor()
-        if (currentMajor != null && isCurrentJavaSupportedForUpload(currentMajor, mcVersion)) {
+        if (javaExePath.isNotBlank() && mcVersion.supportsCurrentJava(currentMajor)) {
             return null
         }
-        val supportedConfiguredMajors = uploadSupportedConfiguredJavaMajors(mcVersion)
-        if (supportedConfiguredMajors.any(::hasConfiguredUploadJavaPath)) {
-            return null
-        }
-        val javaText = supportedConfiguredMajors.joinToString("或") { "Java$it" }
-        val configHint = if (supportedConfiguredMajors.size == 1) {
-            "请前往群文件下载安装包，然后在设置界面中选择${javaText}路径"
-        } else {
-            "请前往群文件下载安装包，然后在设置界面中配置任意一个"
-        }
-        return "MC${mcVersion.mcVer}需要${javaText}。$configHint"
+        val javaText = mcVersion.supportedJreVers.joinToString("或") { "Java$it" }
+        return "MC${mcVersion.mcVer}需要${javaText}。请使用${javaText}启动RDI后再上传"
     }
 
     fun ensureUploadRuntimeReady(mcVersion: McVersion): Boolean {

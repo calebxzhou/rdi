@@ -20,7 +20,6 @@ data class MinecraftAccount(
 )
 
 data class MinecraftJava25Config(
-    val configuredJava25Path: String?,
     val currentJavaPath: String,
     val currentJavaMajor: Int,
     val maxMemoryMb: Int,
@@ -87,5 +86,11 @@ data class MinecraftLaunchRequest(
     val versionDir: File,
     val account: MinecraftAccount,
     val windowSize: MinecraftWindowSize,
+    val launchOverrides: MinecraftLaunchOverrides = MinecraftLaunchOverrides(),
     val extraJvmArgs: List<String> = emptyList(),
+)
+
+data class MinecraftLaunchOverrides(
+    val javaPath: String? = null,
+    val maxMemoryMb: Int? = null,
 )

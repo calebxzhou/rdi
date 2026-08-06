@@ -215,33 +215,20 @@ private fun resolveJavaExecutable(raw: String): File? {
     return exe.takeIf { it.exists() }
 }
 
-fun normalizeJavaExecutablePath(rawPath: String): String? =
-    resolveJavaExecutable(rawPath)?.absolutePath
-
-fun validateJavaExecutablePath(rawPath: String, expectedMajor: Int): Result<Unit> {
-    fun readJavaMajorVersion(javaExe: File): Int? = runCatching {
-        val process = ProcessBuilder(javaExe.absolutePath, "-version")
-            .redirectErrorStream(true).start()
-        val output = process.inputStream.bufferedReader().readText()
-        process.waitFor()
-        val match = Regex("""version "([0-9]+)(?:\.([0-9]+))?.*""").find(output)
-            ?: return@runCatching null
-        val major = match.groupValues.getOrNull(1)?.toIntOrNull() ?: return@runCatching null
-        if (major == 1) match.groupValues.getOrNull(2)?.toIntOrNull() else major
-    }.getOrNull()
-
-    val resolved = resolveJavaExecutable(rawPath) ?: return Result.failure(
-        IllegalStateException("Java路径无效: $rawPath")
-    )
-    val version = readJavaMajorVersion(resolved) ?: return Result.failure(
-        IllegalStateException("无法识别Java版本: ${resolved.absolutePath}")
-    )
-    if (version != expectedMajor) {
-        return Result.failure(
-            IllegalStateException("Java版本应为$expectedMajor，当前为$version")
-        )
-    }
-    return Result.success(Unit)
+fun validateJdkExecutablePath(rawPath: String): Result<String> = runCatching {
+    require(rawPath.isNotBlank()) { "请输入JDK路径" }
+    val javaExe = resolveJavaExecutable(rawPath)
+        ?: error("JDK路径无效: $rawPath")
+    val javacName = if (javaExe.name.equals("java.exe", ignoreCase = true)) "javac.exe" else "javac"
+    val javacExe = javaExe.parentFile.resolve(javacName)
+    require(javacExe.isFile) { "选择的目录不是完整JDK，缺少${javacName}" }
+    val process = ProcessBuilder(javaExe.absolutePath, "-version")
+        .redirectErrorStream(true)
+        .start()
+    process.inputStream.bufferedReader().use { it.readText() }
+    val exitCode = process.waitFor()
+    require(exitCode == 0) { "JDK无法运行java -version，退出代码$exitCode" }
+    javaExe.toPath().toAbsolutePath().normalize().toString()
 }
 
 fun currentJavaMajor(): Int = Runtime.version().feature()

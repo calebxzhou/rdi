@@ -44,6 +44,11 @@ object Wardrobe
     val fromHostId: String? = null,
     val fromAllHosts: Boolean = false
 )
+@Serializable data class ModpackOptions(
+    val versionId: String,
+    val modpackName: String = "",
+    val versionName: String = "",
+)
 @Serializable data class ModpackVersionEdit(
     val modpackId: String,
     val verName: String,

@@ -122,6 +122,7 @@ object ModpackService {
      server.makeRequest<Modpack.Version>("modpack/${packdir.vo.id}/version/${packdir.verName}")
 
      如果这个本地包对应的远程版本已经删除/改名/网络失败，会直接 throw RequestError，导致本地目录完全不删。*/
+            ModpackLaunchOptionsService.delete(packdir.versionId).getOrThrow()
             deleteLocalPackDir(packdir.dir)
         }
     }

@@ -54,6 +54,7 @@ import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.UpdateService
 import calebxzhou.rdi.client.service.UpdaterUpdateResult
+import calebxzhou.rdi.client.service.ModpackLaunchOptionsService
 import calebxzhou.rdi.client.service.initializePlayerInfoCache
 import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.service.warmUpHwSpecCache
@@ -80,6 +81,7 @@ import kotlinx.coroutines.withContext
 import org.koin.core.context.startKoin
 import java.awt.Dimension
 import java.awt.Toolkit
+import calebxzau.rdi.client.ui.showFatalStartupErrorAndExit
 
 lateinit var ScreenSize: Pair<Dp, Dp>
 
@@ -87,6 +89,18 @@ fun main() {
     if (DEBUG) {
         System.setProperty("javax.net.ssl.trustStoreType", "Windows-ROOT")
     }
+    val databasePath = RDIClient.DIR.toPath().resolve("data.db")
+    val databaseHandle = MinecraftInstallationDatabase.open(databasePath)
+        .onFailure { cause -> lgr.error(cause) { "初始化客户端数据库失败，RDI将退出" } }
+        .getOrElse {
+            showFatalStartupErrorAndExit(
+                "客户端数据库data.db初始化失败，RDI将退出。\n" +
+                    "请检查文件权限或联系开发者。"
+            )
+        }
+    initializePlayerInfoCache(databaseHandle.playerInfoStore)
+    ModpackLaunchOptionsService.initialize(databaseHandle.modpackLaunchOptionsStore)
+
     clearIncompleteModDownloadsOnStartup()
     clearPackProcDirOnStartup()
     // LocalMinecraftReuseService.start()
@@ -103,24 +117,15 @@ fun main() {
         onWarning = { cause -> lgr.warn(cause) { "模组目录本地索引不可用或请求降级" } }
     )
     startKoin {
-        modules(appModule(modCatalog))
+        modules(appModule(modCatalog, databaseHandle.modpackLaunchOptionsStore))
     }
-    val databasePath = RDIClient.DIR.toPath().resolve("data.db")
-    val databaseHandle = MinecraftInstallationDatabase.open(databasePath)
-        .onFailure { cause -> lgr.error(cause) { "初始化客户端数据库失败，持久化玩家缓存和Minecraft安装发现不可用" } }
-        .getOrNull()
-    initializePlayerInfoCache(databaseHandle?.playerInfoStore)
-    val minecraftDiscoveryService = databaseHandle?.let {
-        LocalMinecraftDiscoveryService(
-            databasePath = databasePath,
-            initialDatabaseHandle = it
-        )
-    }
-    minecraftDiscoveryService?.start()
-    val minecraftReuseService = minecraftDiscoveryService?.let {
-        MinecraftInstallationReuseService(installations = it.installations)
-    }
-    minecraftReuseService?.start()
+    val minecraftDiscoveryService = LocalMinecraftDiscoveryService(
+        databasePath = databasePath,
+        initialDatabaseHandle = databaseHandle
+    )
+    minecraftDiscoveryService.start()
+    val minecraftReuseService = MinecraftInstallationReuseService(installations = minecraftDiscoveryService.installations)
+    minecraftReuseService.start()
     try {
         application {
         val windowIcon = remember {
@@ -170,8 +175,8 @@ fun main() {
                 runningMcSessions.forEach { it.requestStop(force = true) }
             }
             playerInfoCache.close()
-            minecraftReuseService?.close()
-            minecraftDiscoveryService?.close()
+            minecraftReuseService.close()
+            minecraftDiscoveryService.close()
             exitApplication()
         }
 
@@ -280,7 +285,7 @@ fun main() {
         }
         }
     } finally {
-        minecraftDiscoveryService?.close()
+        minecraftDiscoveryService.close()
         playerInfoCache.close()
         modCatalog.close()
     }

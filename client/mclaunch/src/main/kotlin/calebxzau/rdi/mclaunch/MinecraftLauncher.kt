@@ -241,7 +241,7 @@ class MinecraftLauncher(
         if (launchClasspath.isNotEmpty() && !hasClasspathDeclaration) {
             processedJvmArgs += listOf("-cp", classpath)
         }
-        processedJvmArgs += resolveMaxMemory()
+        processedJvmArgs += resolveMaxMemory(request.launchOverrides.maxMemoryMb)
         processedJvmArgs += utf8LoggingJvmArgs
         mediaRuntime?.let {
             processedJvmArgs += "-Dorg.bytedeco.javacpp.pathsFirst=true"
@@ -261,7 +261,7 @@ class MinecraftLauncher(
 
         val mainClass = loaderManifest.mainClass ?: error("缺少启动主类")
         val command = buildList {
-            add(resolveJava25Path())
+            add(resolveJavaPath(request.launchOverrides.javaPath))
             addAll(processedJvmArgs)
             add(mainClass)
             addAll(gameArgs)
@@ -379,16 +379,17 @@ class MinecraftLauncher(
     }
 
     private fun resolveJava25Path(): String {
-        environment.java.configuredJava25Path
-            ?.trim()
-            ?.takeIf(String::isNotEmpty)
-            ?.let { return it }
         if (environment.java.currentJavaMajor == 25) return environment.java.currentJavaPath
-        throw RequestError("请前往设置Java25路径")
+        throw RequestError("请使用Java25启动RDI")
     }
 
-    private fun resolveMaxMemory(): String = if (environment.java.maxMemoryMb > 0) {
-        "-Xmx${environment.java.maxMemoryMb}M"
+    private fun resolveJavaPath(overridePath: String?): String =
+        overridePath?.trim()?.takeIf(String::isNotEmpty) ?: resolveJava25Path()
+
+    private fun resolveMaxMemory(overrideMaxMemoryMb: Int?): String {
+        val maxMemoryMb = overrideMaxMemoryMb ?: environment.java.maxMemoryMb
+        return if (maxMemoryMb > 0) {
+            "-Xmx${maxMemoryMb}M"
     } else {
         runCatching {
             val osBean = ManagementFactory.getOperatingSystemMXBean() as? OperatingSystemMXBean
@@ -397,6 +398,7 @@ class MinecraftLauncher(
             lgr.info { "剩余内存${freeBytes.humanFileSize}" }
             "-Xmx${if (freeMb > 8192) freeMb else 8192}M"
         }.getOrDefault("-Xmx8G")
+        }
     }
 
     private fun readProcessOutput(process: Process, onLine: (String) -> Unit, threadName: String) {

@@ -59,8 +59,6 @@ fun SettingScreen(
     var preferModMirror by remember { mutableStateOf(false) }
     var preferMcMirror by remember { mutableStateOf(false) }
     var maxMemoryText by remember { mutableStateOf("") }
-    var jre25Path by remember { mutableStateOf("") }
-    var jre21Path by remember { mutableStateOf("") }
     var proxyEnabled by remember { mutableStateOf(false) }
     var proxySystem by remember { mutableStateOf(false) }
     var proxyHost by remember { mutableStateOf("127.0.0.1") }
@@ -77,8 +75,6 @@ fun SettingScreen(
                 preferModMirror = config.preferModMirror
                 preferMcMirror = config.preferMcMirror
                 maxMemoryText = if (config.maxMemory <= 0) "" else config.maxMemory.toString()
-                jre25Path = config.jre25Path.orEmpty()
-                jre21Path = config.jre21Path.orEmpty()
                 proxyEnabled = config.proxyConfig?.enabled ?: false
                 proxySystem = config.proxyConfig?.systemProxy ?: false
                 proxyHost = config.proxyConfig?.host ?: "127.0.0.1"
@@ -146,31 +142,10 @@ fun SettingScreen(
                             saving = false
                             return@launch
                         }
-                        val jre25 = jre25Path.trim().takeIf { it.isNotEmpty() }
-                        val jre21 = jre21Path.trim().takeIf { it.isNotEmpty() }
-                        val java25Ok = withContext(Dispatchers.IO) {
-                            jre25?.let { svc.validateJavaPath(it, 25) } ?: Result.success(Unit)
-                        }
-                        val java21Ok = withContext(Dispatchers.IO) {
-                            jre21?.let { svc.validateJavaPath(it, 21) } ?: Result.success(Unit)
-                        }
-                        java25Ok.exceptionOrNull()?.let {
-                            errorMessage = it.message ?: "Java25路径无效"
-                            saving = false
-                            return@launch
-                        }
-                        java21Ok.exceptionOrNull()?.let {
-                            errorMessage = it.message ?: "Java21路径无效"
-                            saving = false
-                            return@launch
-                        }
-
                         svc.saveSettings(
                             preferModMirror = preferModMirror,
                             preferMcMirror = preferMcMirror,
                             maxMemoryText = maxMemoryText,
-                            jre25Path = jre25Path,
-                            jre21Path = jre21Path,
                             proxyEnabled = proxyEnabled,
                             proxySystem = proxySystem,
                             proxyHost = proxyHost,

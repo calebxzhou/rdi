@@ -2,9 +2,8 @@ package calebxzhou.rdi.client.service
 
 import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.client.AppConfig
-import calebxzau.rdi.client.ui.normalizeJavaExecutablePath
 import calebxzau.rdi.client.ui.readTotalPhysicalMemoryMb
-import calebxzau.rdi.client.ui.validateJavaExecutablePath
+import calebxzau.rdi.client.ui.validateJdkExecutablePath
 import calebxzhou.rdi.common.ProxyConfig
 
 object SettingsService {
@@ -63,11 +62,8 @@ object SettingsService {
         return ValidationResult(true)
     }
 
-    /**
-     * Validate a configured Java path.
-     */
-    fun validateJavaPath(rawPath: String, expectedMajor: Int): Result<Unit> =
-        validateJavaExecutablePath(rawPath, expectedMajor)
+    fun validateJdkPath(rawPath: String): Result<String> =
+        validateJdkExecutablePath(rawPath)
 
     /**
      * Save settings configuration
@@ -76,8 +72,6 @@ object SettingsService {
         preferModMirror: Boolean,
         preferMcMirror: Boolean,
         maxMemoryText: String,
-        jre25Path: String,
-        jre21Path: String,
         proxyEnabled: Boolean,
         proxySystem: Boolean,
         proxyHost: String,
@@ -86,22 +80,13 @@ object SettingsService {
         proxyPwd: String,
         solidWindow: Boolean
     ): Result<Unit> = runCatching {
-        fun normalizeJavaPath(rawPath: String, label: String): String? =
-            rawPath.trim().takeIf { it.isNotEmpty() }?.let { path ->
-                normalizeJavaExecutablePath(path) ?: throw IllegalArgumentException("${label}路径无效")
-            }
-
         val memoryValue = maxMemoryText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
-        val jre25 = normalizeJavaPath(jre25Path, "Java25")
-        val jre21 = normalizeJavaPath(jre21Path, "Java21")
         val proxyPort = proxyPortText.trim().takeIf { it.isNotEmpty() }?.toIntOrNull()
 
         val config = AppConfig(
             preferModMirror = preferModMirror,
             preferMcMirror = preferMcMirror,
             maxMemory = memoryValue ?: 0,
-            jre25Path = jre25,
-            jre21Path = jre21,
             proxyConfig = ProxyConfig(
                 enabled = proxyEnabled,
                 systemProxy = proxySystem,

@@ -159,7 +159,7 @@ private fun TitleBar(
     onOpenPlayerInfo: () -> Unit,
     onOpenWardrobe: () -> Unit
 ) {
-    val activeSessions = activeMcSessions(McPlayStore.sessions)
+    val activeSessions = McPlayStore.sessions
 
     Box(
         modifier = Modifier
@@ -209,10 +209,9 @@ private fun TitleBar(
                 Spacer(Modifier.width(8.dp))
             }
 
-            if (activeSessions.isNotEmpty()) {
                 McSessionMenu(activeSessions, onOpenMcSession)
                 Spacer(Modifier.width(8.dp))
-            }
+
             TaskMenuButton(onOpenTask)
             Spacer(Modifier.width(8.dp))
             ChromeIconButton("\uEB51", "设置", onOpenSettings)
@@ -252,27 +251,31 @@ private fun McSessionMenu(
             onDismissRequest = { expanded = false },
             offset = DpOffset(0.dp, 12.dp)
         ) {
-            sessions.asReversed().forEach { session ->
-                DropdownMenuItem(
-                    text = {
-                        Column(Modifier.widthIn(min = 180.dp, max = 260.dp)) {
-                            Text(
-                                text = session.args.modpackName.ifBlank { session.title },
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Text(
-                                text = if (session.preparing) "准备中·${session.args.mcVer.mcVer}" else "运行中·${session.args.mcVer.mcVer}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+            if (sessions.isEmpty()) {
+                DropdownMenuItem({ Text("没有运行中mc") },{})
+            }else{
+                sessions.asReversed().forEach { session ->
+                    DropdownMenuItem(
+                        text = {
+                            Column(Modifier.widthIn(min = 180.dp, max = 260.dp)) {
+                                Text(
+                                    text = session.args.modpackName.ifBlank { session.title },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Text(
+                                    text = if (session.preparing) "准备中·${session.args.mcVer.mcVer}" else "运行中·${session.args.mcVer.mcVer}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        },
+                        onClick = {
+                            expanded = false
+                            onOpenSession(session.id)
                         }
-                    },
-                    onClick = {
-                        expanded = false
-                        onOpenSession(session.id)
-                    }
-                )
+                    )
+                }
             }
         }
     }

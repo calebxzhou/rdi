@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 
 class MinecraftInstallationDatabaseTest {
     @Test
-    fun `new database creates both tables`() = runBlocking {
+    fun `new database creates all tables`() = runBlocking {
         val file = Files.createTempDirectory("rdi-database").resolve("data.db")
 
         MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
@@ -121,6 +121,46 @@ class MinecraftInstallationDatabaseTest {
 
         MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
             assertEquals(mapOf(record.playerId to record), database.playerInfoStore.findByIds(listOf(record.playerId)).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `modpack launch options round trip and delete`() = runBlocking {
+        val file = Files.createTempDirectory("rdi-database").resolve("data.db")
+        val record = ModpackLaunchOptionsRecord(
+            versionId = "65f1c2e4d7a9b0c1d2e3f456_test",
+            javaPath = "C:/Java/custom/bin/java.exe",
+            maxMemoryMb = 8192,
+            jdwpEnabled = true,
+            jdwpParam = "transport=dt_socket,server=y,suspend=y,address=*:5005",
+            customJvmParams = "-XX:+UnlockDiagnosticVMOptions\n-Dexample=true",
+            forgeguardDisabled = true,
+        )
+
+        MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
+            assertEquals(null, database.modpackLaunchOptionsStore.find(record.versionId).getOrThrow())
+            database.modpackLaunchOptionsStore.upsert(record).getOrThrow()
+            assertEquals(record, database.modpackLaunchOptionsStore.find(record.versionId).getOrThrow())
+            database.modpackLaunchOptionsStore.delete(record.versionId).getOrThrow()
+            assertEquals(null, database.modpackLaunchOptionsStore.find(record.versionId).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `schema version three migrates launch options table`() = runBlocking {
+        val file = Files.createTempDirectory("rdi-database").resolve("data.db")
+        MinecraftInstallationDatabase.open(file).getOrThrow().close()
+
+        val driver = JdbcSqliteDriver("jdbc:sqlite:${file.toUri()}")
+        try {
+            driver.execute(null, "DROP TABLE modpack_launch_options", 0)
+            driver.execute(null, "PRAGMA user_version = 3", 0)
+        } finally {
+            driver.close()
+        }
+
+        MinecraftInstallationDatabase.open(file).getOrThrow().use { database ->
+            assertEquals(null, database.modpackLaunchOptionsStore.find("missing").getOrThrow())
         }
     }
 

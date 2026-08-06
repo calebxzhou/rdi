@@ -9,6 +9,16 @@ CREATE TABLE minecraft_scan_state (
     last_full_scan_at INTEGER NOT NULL
 );
 
+CREATE TABLE modpack_launch_options (
+    version_id TEXT NOT NULL PRIMARY KEY,
+    java_path TEXT,
+    max_memory_mb INTEGER,
+    jdwp_enabled INTEGER NOT NULL DEFAULT 0,
+    jdwp_param TEXT,
+    custom_jvm_params TEXT NOT NULL DEFAULT '',
+    forgeguard_disabled INTEGER NOT NULL DEFAULT 0
+);
+
 selectAll:
 SELECT path, first_discovered_at, last_seen_at
 FROM minecraft_installation

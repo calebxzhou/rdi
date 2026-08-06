@@ -25,6 +25,7 @@ interface MinecraftInstallationStore : AutoCloseable {
 
 interface MinecraftInstallationDatabaseHandle : AutoCloseable {
     val store: MinecraftInstallationStore
+    val modpackLaunchOptionsStore: ModpackLaunchOptionsStore
 }
 
 class MinecraftInstallationDatabase private constructor(
@@ -36,18 +37,21 @@ class MinecraftInstallationDatabase private constructor(
 
     override val store: MinecraftInstallationStore =
         SqliteMinecraftInstallationStore(database, dispatcher, operationMutex)
+    override val modpackLaunchOptionsStore: ModpackLaunchOptionsStore =
+        SqliteModpackLaunchOptionsStore(database, dispatcher, operationMutex)
     val playerInfoStore: PlayerInfoStore =
         SqlitePlayerInfoStore(database, dispatcher, operationMutex)
 
     override fun close() {
         store.close()
+        modpackLaunchOptionsStore.close()
         driver.close()
     }
 
     companion object {
         //rdi
         const val APPLICATION_ID = 0x524449L
-        const val SCHEMA_VERSION = 3L
+        const val SCHEMA_VERSION = 5L
 
         fun open(
             file: Path,

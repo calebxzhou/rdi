@@ -23,25 +23,24 @@ import kotlin.test.assertTrue
 
 class MinecraftLauncherTest {
     @Test
-    fun usesConfiguredJava25Path() {
+    fun usesCurrentJava25Path() {
         val root = Files.createTempDirectory("mclaunch-java25").toFile()
         try {
-            val command = captureLaunchCommand(root, configuredJava25Path = "/configured/java25", currentJavaMajor = 21)
-            assertEquals("/configured/java25", command.first())
+            val command = captureLaunchCommand(root, currentJavaMajor = 25)
+            assertEquals("/current/java", command.first())
         } finally {
             root.deleteRecursivelyNoSymlink()
         }
     }
 
     @Test
-    fun rejectsNonJava25CurrentRuntimeWithoutConfiguredPath() {
+    fun rejectsNonJava25CurrentRuntime() {
         val root = Files.createTempDirectory("mclaunch-java25-required").toFile()
         try {
             var started = false
             val launcher = launcher(
                 root = root,
                 java = MinecraftJava25Config(
-                    configuredJava25Path = null,
                     currentJavaPath = "/current/java",
                     currentJavaMajor = 21,
                     maxMemoryMb = 1024,
@@ -59,13 +58,31 @@ class MinecraftLauncherTest {
     }
 
     @Test
+    fun launchOverridesUsePackJavaAndMaxMemory() {
+        val root = Files.createTempDirectory("mclaunch-pack-options").toFile()
+        try {
+            val command = captureLaunchCommand(
+                root = root,
+                currentJavaMajor = 25,
+                launchOverrides = MinecraftLaunchOverrides(
+                    javaPath = "/custom/jdk/bin/java.exe",
+                    maxMemoryMb = 8192,
+                ),
+            )
+            assertEquals("/custom/jdk/bin/java.exe", command.first())
+            assertTrue(command.contains("-Xmx8192M"))
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
     fun prepareRepairsMissingMinecraftClientJar() = runBlocking {
         val root = Files.createTempDirectory("mclaunch-client-jar").toFile()
         try {
             val launcher = launcher(
                 root = root,
                 java = MinecraftJava25Config(
-                    configuredJava25Path = "/configured/java25",
                     currentJavaPath = "/current/java",
                     currentJavaMajor = 25,
                     maxMemoryMb = 1024,
@@ -84,21 +101,20 @@ class MinecraftLauncherTest {
 
     private fun captureLaunchCommand(
         root: File,
-        configuredJava25Path: String?,
         currentJavaMajor: Int,
+        launchOverrides: MinecraftLaunchOverrides = MinecraftLaunchOverrides(),
     ): List<String> {
         var command: List<String>? = null
         val launcher = launcher(
             root = root,
             java = MinecraftJava25Config(
-                configuredJava25Path = configuredJava25Path,
                 currentJavaPath = "/current/java",
                 currentJavaMajor = currentJavaMajor,
                 maxMemoryMb = 1024,
             ),
             onCommand = { command = it },
         )
-        launcher.launch(request(root), onLine = {}).getOrThrow()
+        launcher.launch(request(root, launchOverrides = launchOverrides), onLine = {}).getOrThrow()
         return command ?: error("未捕获Minecraft启动命令")
     }
 
@@ -174,12 +190,17 @@ class MinecraftLauncherTest {
         )
     }
 
-    private fun request(root: File, mcVersion: McVersion = McVersion.V122): MinecraftLaunchRequest = MinecraftLaunchRequest(
+    private fun request(
+        root: File,
+        mcVersion: McVersion = McVersion.V122,
+        launchOverrides: MinecraftLaunchOverrides = MinecraftLaunchOverrides(),
+    ): MinecraftLaunchRequest = MinecraftLaunchRequest(
         mcVersion = mcVersion,
         versionId = "test-version",
         versionDir = root.resolve("versions/test-version"),
         account = MinecraftAccount("player", "00000000-0000-0000-0000-000000000000", "token"),
         windowSize = MinecraftWindowSize(854, 480),
+        launchOverrides = launchOverrides,
     )
 
     private class FakeProcess : Process() {

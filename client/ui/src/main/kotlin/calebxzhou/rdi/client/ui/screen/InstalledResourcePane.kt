@@ -93,6 +93,7 @@ fun InstalledResourcePane(
     onOpenContent: (ModpackLocalDir, ModpackContentType) -> Unit = { _, _ -> },
     onOpenMcVersionManage: (() -> Unit)? = null,
     onOpenTaskList: ((String) -> Unit)? = null,
+    onOpenOptions: ((ModpackLocalDir) -> Unit)? = null,
     showPaneActions: Boolean = false,
     onTitleActionsChange: (ResourceScreenTitleActions?) -> Unit = {},
     modifier: Modifier = Modifier
@@ -373,6 +374,15 @@ fun InstalledResourcePane(
                                 resetLocalConfigEditorState()
                                 configEditorPack = packdir
                                 loadLocalConfigFiles(packdir)
+                            }
+                        )
+                        RDropdownMenuItem(
+                            text = "设置",
+                            icon = "\uE713",
+                            enabled = onOpenOptions != null,
+                            onClick = {
+                                menuExpanded = false
+                                onOpenOptions?.invoke(packdir)
                             }
                         )
                         RDropdownMenuItem(

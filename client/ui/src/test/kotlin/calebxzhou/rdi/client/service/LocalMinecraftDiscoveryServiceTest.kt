@@ -3,6 +3,8 @@ package calebxzhou.rdi.client.service
 import calebxzhou.rdi.client.database.MinecraftInstallationDatabaseHandle
 import calebxzhou.rdi.client.database.MinecraftInstallationRecord
 import calebxzhou.rdi.client.database.MinecraftInstallationStore
+import calebxzhou.rdi.client.database.ModpackLaunchOptionsRecord
+import calebxzhou.rdi.client.database.ModpackLaunchOptionsStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -283,6 +285,17 @@ class LocalMinecraftDiscoveryServiceTest {
     }
 
     private class MemoryDatabaseHandle(override val store: MemoryStore) : MinecraftInstallationDatabaseHandle {
+        override val modpackLaunchOptionsStore: ModpackLaunchOptionsStore = EmptyModpackLaunchOptionsStore
+        override fun close() = Unit
+    }
+
+    private object EmptyModpackLaunchOptionsStore : ModpackLaunchOptionsStore {
+        override suspend fun find(versionId: String): Result<ModpackLaunchOptionsRecord?> = Result.success(null)
+
+        override suspend fun upsert(record: ModpackLaunchOptionsRecord): Result<Unit> = Result.success(Unit)
+
+        override suspend fun delete(versionId: String): Result<Unit> = Result.success(Unit)
+
         override fun close() = Unit
     }
 

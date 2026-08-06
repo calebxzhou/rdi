@@ -24,11 +24,25 @@ import java.util.zip.ZipOutputStream
 import kotlin.coroutines.Continuation
 import kotlinx.coroutines.Job
 
+//用rdi的kotlin lib 不用各个mod提供的
 object GameKotlinRuntime {
-    private const val CACHE_SCHEMA = "v1"
-    private const val KFF_METADATA = "META-INF/jarjar/metadata.json"
+    private const val CACHE_SCHEMA = "v2"
+    private const val JARJAR_METADATA = "META-INF/jarjar/metadata.json"
     private const val KFF_GROUP = "thedarkcolour"
     private val kffArtifacts = setOf("kfflang", "kfflib", "kffmod")
+    private val providedRuntimeArtifacts = setOf(
+        "org.jetbrains.kotlin:kotlin-stdlib",
+        "org.jetbrains.kotlin:kotlin-reflect",
+        "org.jetbrains.kotlin:kotlin-stdlib-jdk7",
+        "org.jetbrains.kotlin:kotlin-stdlib-jdk8",
+        "org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm",
+        "org.jetbrains.kotlinx:kotlinx-coroutines-jdk8",
+        "org.jetbrains.kotlinx:kotlinx-serialization-core-jvm",
+        "org.jetbrains.kotlinx:kotlinx-serialization-json-jvm",
+        // KFF5.11 uses an empty group and the module name as the artifact.
+        ":kotlinx.serialization.core",
+        ":kotlinx.serialization.json",
+    )
 
     fun prepare(
         mcVersion: McVersion,
@@ -39,11 +53,12 @@ object GameKotlinRuntime {
             "Kotlin运行库只支持MC20和MC21"
         }
         val runtime = resolveRuntimeClasspath()
-        val kffArchives = detectKffArchives(modsDir)
+        val archives = detectKotlinArchives(modsDir)
+        val kffArchives = archives.filter { it.isKff }
         check(kffArchives.size <= 1) {
             "发现多个Kotlin for Forge文件: ${kffArchives.joinToString { it.file.name }}"
         }
-        kffArchives.singleOrNull()?.let { normalizeKff(it, cacheRoot) }
+        archives.forEach { normalizeKotlinMod(it, cacheRoot) }
         runtime
     }
 
@@ -73,86 +88,90 @@ object GameKotlinRuntime {
 
     private fun classSource(className: String): File = classSource(Class.forName(className))
 
-    private data class KffArchive(
+    private data class KotlinArchive(
         val file: File,
         val metadata: JsonObject,
-        val nestedEntries: Set<String>,
+        val removedEntries: Set<String>,
+        val isKff: Boolean,
         val needsNormalization: Boolean,
     )
 
-    private data class KffDependency(
+    private data class JarJarDependency(
         val path: String,
         val group: String,
         val artifact: String,
     )
 
-    private fun detectKffArchives(modsDir: File): List<KffArchive> {
+    private fun detectKotlinArchives(modsDir: File): List<KotlinArchive> {
         if (!modsDir.isDirectory) return emptyList()
         return modsDir.listFiles()
             .orEmpty()
             .asSequence()
             .filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
-            .mapNotNull(::inspectKff)
+            .mapNotNull(::inspectKotlinArchive)
             .toList()
     }
 
-    private fun inspectKff(file: File): KffArchive? = runCatching {
+    private fun inspectKotlinArchive(file: File): KotlinArchive? = runCatching {
         ZipFile(file).use { zip ->
-            val metadataEntry = zip.getEntry(KFF_METADATA) ?: return@use null
+            val metadataEntry = zip.getEntry(JARJAR_METADATA) ?: return@use null
             val metadata = serdesJson.parseToJsonElement(
                 zip.getInputStream(metadataEntry).bufferedReader(StandardCharsets.UTF_8).readText()
             ).jsonObject
             val dependencies = metadata.dependencies()
-            val kffDependencies = dependencies.filter { it.group == KFF_GROUP && it.artifact in kffArtifacts }
-            if (kffDependencies.size != kffArtifacts.size || kffDependencies.map { it.artifact }.toSet() != kffArtifacts) {
-                return@use null
-            }
-            if (kffDependencies.any { zip.getEntry(it.path) == null }) return@use null
-            val hasRuntimeDependencies = dependencies.any { it !in kffDependencies }
+            val providedRuntimeDependencies = dependencies.filter(::isProvidedRuntime)
             val hasShadedRuntime = zip.entries().asSequence().any { entry ->
-                !entry.isDirectory && isRuntimeEntry(entry.name)
+                !entry.isDirectory && isShadedKotlinEntry(entry.name)
             }
-            KffArchive(
+            if (providedRuntimeDependencies.isEmpty() && !hasShadedRuntime) return@use null
+            if (providedRuntimeDependencies.any { zip.getEntry(it.path) == null }) return@use null
+            val kffDependencies = dependencies.filter { it.group == KFF_GROUP && it.artifact in kffArtifacts }
+            KotlinArchive(
                 file = file,
                 metadata = metadata,
-                nestedEntries = kffDependencies.mapTo(linkedSetOf()) { it.path },
-                needsNormalization = hasRuntimeDependencies || hasShadedRuntime,
+                removedEntries = providedRuntimeDependencies.mapTo(linkedSetOf()) { it.path },
+                isKff = kffDependencies.size == kffArtifacts.size &&
+                    kffDependencies.map { it.artifact }.toSet() == kffArtifacts,
+                needsNormalization = providedRuntimeDependencies.isNotEmpty() || hasShadedRuntime,
             )
         }
     }.getOrNull()
 
-    private fun JsonObject.dependencies(): List<KffDependency> =
+    private fun JsonObject.dependencies(): List<JarJarDependency> =
         (this["jars"] as? JsonArray).orEmpty().mapNotNull { element ->
             val jar = element as? JsonObject ?: return@mapNotNull null
             val identifier = jar["identifier"] as? JsonObject ?: return@mapNotNull null
             val path = jar["path"]?.jsonPrimitive?.contentOrNull ?: return@mapNotNull null
             val group = identifier["group"]?.jsonPrimitive?.contentOrNull.orEmpty()
             val artifact = identifier["artifact"]?.jsonPrimitive?.contentOrNull.orEmpty()
-            KffDependency(path, group, artifact)
+            JarJarDependency(path, group, artifact)
         }
 
-    private fun normalizeKff(archive: KffArchive, cacheRoot: File) {
+    private fun isProvidedRuntime(dependency: JarJarDependency): Boolean =
+        "${dependency.group}:${dependency.artifact}" in providedRuntimeArtifacts
+
+    private fun normalizeKotlinMod(archive: KotlinArchive, cacheRoot: File) {
         if (!archive.needsNormalization) return
         val sourceSha1 = archive.file.sha1.lowercase()
-        val root = cacheRoot.resolve("thin-kff").apply { mkdirs() }
-        val originalRoot = cacheRoot.resolve("original-kff").apply { mkdirs() }
+        val root = cacheRoot.resolve("thin-kotlin-mod").apply { mkdirs() }
+        val originalRoot = cacheRoot.resolve("original-kotlin-mod").apply { mkdirs() }
         val normalized = root.resolve("$CACHE_SCHEMA-$sourceSha1.jar")
         val original = originalRoot.resolve("$sourceSha1.jar")
         if (!original.isFile || !original.sha1.equals(sourceSha1, ignoreCase = true)) {
             Files.copy(archive.file.toPath(), original.toPath(), StandardCopyOption.REPLACE_EXISTING)
         }
-        if (!normalized.isFile || !isThinKff(normalized)) {
+        if (!normalized.isFile || !isThinKotlinMod(normalized)) {
             val temporary = Files.createTempFile(root.toPath(), "${normalized.name}-", ".tmp").toFile()
             try {
-                writeThinKff(archive, temporary)
-                check(isThinKff(temporary)) { "生成的thin KFF校验失败: ${temporary.absolutePath}" }
+                writeThinKotlinMod(archive, temporary)
+                check(isThinKotlinMod(temporary)) { "生成的thin Kotlin Mod校验失败: ${temporary.absolutePath}" }
                 moveAtomically(temporary, normalized)
             } finally {
                 Files.deleteIfExists(temporary.toPath())
             }
         }
-        val parent = archive.file.parentFile ?: error("KFF文件缺少父目录: ${archive.file.absolutePath}")
-        val replacement = Files.createTempFile(parent.toPath(), "${archive.file.name}.rdi-kff-", ".tmp").toFile()
+        val parent = archive.file.parentFile ?: error("Kotlin Mod文件缺少父目录: ${archive.file.absolutePath}")
+        val replacement = Files.createTempFile(parent.toPath(), "${archive.file.name}.rdi-kotlin-", ".tmp").toFile()
         try {
             Files.copy(normalized.toPath(), replacement.toPath(), StandardCopyOption.REPLACE_EXISTING)
             moveAtomically(replacement, archive.file)
@@ -161,20 +180,20 @@ object GameKotlinRuntime {
         }
     }
 
-    private fun writeThinKff(archive: KffArchive, target: File) {
+    private fun writeThinKotlinMod(archive: KotlinArchive, target: File) {
         target.parentFile?.mkdirs()
         ZipFile(archive.file).use { source ->
             ZipOutputStream(target.outputStream().buffered()).use { output ->
                 val written = HashSet<String>()
                 source.entries().asSequence()
-                    .filter { shouldPreserve(it.name, archive.nestedEntries) }
+                    .filter { shouldPreserve(it.name, archive.removedEntries) }
                     .forEach { writeEntry(source, it, output, written) }
                 val filteredMetadata = buildJsonObject {
                     archive.metadata.forEach { (key, value) ->
                         put(key, if (key == "jars") {
                             JsonArray(
                                 archive.metadata.dependencies()
-                                    .filter { it.path in archive.nestedEntries }
+                                    .filter { it.path !in archive.removedEntries }
                                     .mapNotNull { dependency ->
                                         archive.metadata["jars"]?.jsonArray?.firstOrNull { element ->
                                             element.jsonObject["path"]?.jsonPrimitive?.contentOrNull == dependency.path
@@ -186,33 +205,35 @@ object GameKotlinRuntime {
                         })
                     }
                 }
-                if (written.add(KFF_METADATA)) {
-                    output.putNextEntry(ZipEntry(KFF_METADATA))
-                    output.write(filteredMetadata.toString().toByteArray(StandardCharsets.UTF_8))
-                    output.closeEntry()
-                }
+                output.putNextEntry(ZipEntry(JARJAR_METADATA))
+                output.write(filteredMetadata.toString().toByteArray(StandardCharsets.UTF_8))
+                output.closeEntry()
             }
         }
     }
 
-    private fun shouldPreserve(name: String, nestedEntries: Set<String>): Boolean = when {
+    private fun shouldPreserve(name: String, removedEntries: Set<String>): Boolean = when {
         name == "META-INF/MANIFEST.MF" -> true
-        name == KFF_METADATA -> false
-        name.startsWith("META-INF/jarjar/") -> name in nestedEntries
-        name.startsWith("META-INF/services/") -> false
-        name.startsWith("META-INF/") && name.substringAfterLast('/').substringAfterLast('.', "").uppercase() in setOf("SF", "RSA", "DSA") -> false
-        isRuntimeEntry(name) -> false
+        name == JARJAR_METADATA -> false
+        name in removedEntries -> false
+        isSignatureEntry(name) -> false
+        isShadedKotlinEntry(name) -> false
         else -> true
     }
 
-    private fun isRuntimeEntry(name: String): Boolean {
+    private fun isShadedKotlinEntry(name: String): Boolean {
         val normalized = name.replace('\\', '/')
         return normalized.startsWith("kotlin/") ||
             normalized.startsWith("kotlinx/") ||
-            normalized.startsWith("_COROUTINE/") ||
-            normalized.startsWith("META-INF/versions/") ||
-            normalized.endsWith(".kotlin_module") ||
-            normalized.startsWith("META-INF/kotlin")
+            normalized.startsWith("_COROUTINE/")
+    }
+
+    private fun isSignatureEntry(name: String): Boolean {
+        val normalized = name.replace('\\', '/')
+        if (!normalized.startsWith("META-INF/")) return false
+        return normalized.substringAfterLast('/')
+            .substringAfterLast('.', "")
+            .uppercase() in setOf("SF", "RSA", "DSA")
     }
 
     private fun writeEntry(
@@ -227,18 +248,16 @@ object GameKotlinRuntime {
         output.closeEntry()
     }
 
-    private fun isThinKff(file: File): Boolean = runCatching {
+    private fun isThinKotlinMod(file: File): Boolean = runCatching {
         ZipFile(file).use { zip ->
-            val metadataEntry = zip.getEntry(KFF_METADATA) ?: return@use false
+            val metadataEntry = zip.getEntry(JARJAR_METADATA) ?: return@use false
             val metadata = serdesJson.parseToJsonElement(
                 zip.getInputStream(metadataEntry).bufferedReader(StandardCharsets.UTF_8).readText()
             ).jsonObject
             val dependencies = metadata.dependencies()
-            dependencies.size == kffArtifacts.size &&
-                dependencies.all { it.group == KFF_GROUP && it.artifact in kffArtifacts } &&
-                dependencies.map { it.artifact }.toSet() == kffArtifacts &&
+            dependencies.none(::isProvidedRuntime) &&
                 dependencies.all { zip.getEntry(it.path) != null } &&
-                zip.entries().asSequence().none { !it.isDirectory && isRuntimeEntry(it.name) }
+                zip.entries().asSequence().none { !it.isDirectory && isShadedKotlinEntry(it.name) }
         }
     }.getOrDefault(false)
 

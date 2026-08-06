@@ -15,6 +15,7 @@ import calebxzau.rdi.mclaunch.MinecraftDirectories
 import calebxzau.rdi.mclaunch.MinecraftDownloadProgress
 import calebxzau.rdi.mclaunch.MinecraftJava25Config
 import calebxzau.rdi.mclaunch.MinecraftLaunchEnvironment
+import calebxzau.rdi.mclaunch.MinecraftLaunchOverrides
 import calebxzau.rdi.mclaunch.MinecraftLaunchRequest
 import calebxzau.rdi.mclaunch.MinecraftLauncher
 import calebxzau.rdi.mclaunch.MinecraftManifestPair
@@ -35,7 +36,6 @@ internal fun createMinecraftLauncher(): MinecraftLauncher {
         MinecraftLaunchEnvironment(
             directories = directories,
             java = MinecraftJava25Config(
-                configuredJava25Path = CONF.jre25Path,
                 currentJavaPath = javaExePath,
                 currentJavaMajor = Runtime.version().feature(),
                 maxMemoryMb = CONF.maxMemory,
@@ -65,6 +65,7 @@ internal fun minecraftLaunchRequest(
     mcVersion: McVersion,
     versionId: String,
     versionDir: File,
+    launchOverrides: MinecraftLaunchOverrides = MinecraftLaunchOverrides(),
     extraJvmArgs: List<String> = emptyList(),
 ): MinecraftLaunchRequest = MinecraftLaunchRequest(
     mcVersion = mcVersion,
@@ -76,6 +77,7 @@ internal fun minecraftLaunchRequest(
         accessToken = loggedAccount.jwt.orEmpty(),
     ),
     windowSize = resolveMinecraftWindowSize(),
+    launchOverrides = launchOverrides,
     extraJvmArgs = extraJvmArgs,
 )
 
