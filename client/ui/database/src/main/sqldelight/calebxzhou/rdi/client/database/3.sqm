@@ -1,0 +1,7 @@
+CREATE TABLE modpack_launch_options (
+    version_id TEXT NOT NULL PRIMARY KEY,
+    java_path TEXT,
+    max_memory_mb INTEGER,
+    jdwp_enabled INTEGER NOT NULL DEFAULT 0,
+    jdwp_param TEXT
+);

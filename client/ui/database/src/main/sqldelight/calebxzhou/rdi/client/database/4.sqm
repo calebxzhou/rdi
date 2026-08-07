@@ -1,0 +1,5 @@
+ALTER TABLE modpack_launch_options
+ADD COLUMN custom_jvm_params TEXT NOT NULL DEFAULT '';
+
+ALTER TABLE modpack_launch_options
+ADD COLUMN forgeguard_disabled INTEGER NOT NULL DEFAULT 0;

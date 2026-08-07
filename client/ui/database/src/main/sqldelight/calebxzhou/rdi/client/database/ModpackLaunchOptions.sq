@@ -1,0 +1,29 @@
+selectByVersionId:
+SELECT version_id, java_path, max_memory_mb, jdwp_enabled, jdwp_param,
+       custom_jvm_params, forgeguard_disabled
+FROM modpack_launch_options
+WHERE version_id = ?;
+
+upsert:
+INSERT OR REPLACE INTO modpack_launch_options(
+    version_id,
+    java_path,
+    max_memory_mb,
+    jdwp_enabled,
+    jdwp_param,
+    custom_jvm_params,
+    forgeguard_disabled
+)
+VALUES (
+    :versionId,
+    :javaPath,
+    :maxMemoryMb,
+    :jdwpEnabled,
+    :jdwpParam,
+    :customJvmParams,
+    :forgeguardDisabled
+);
+
+deleteByVersionId:
+DELETE FROM modpack_launch_options
+WHERE version_id = ?;
