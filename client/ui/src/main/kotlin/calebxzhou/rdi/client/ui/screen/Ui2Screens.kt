@@ -11,7 +11,7 @@ object Wardrobe
     val fromAllHosts: Boolean = false,
 )
 @Serializable data class ResourceRoute(
-    val tab: String = ResourceTab.All.name,
+    val tab: String = ResourceTab.Installed.name,
     val requiredMcVer: String? = null,
     val requiredLoader: String? = null,
     val fromHostId: String? = null,

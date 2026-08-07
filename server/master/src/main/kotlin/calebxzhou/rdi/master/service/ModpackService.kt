@@ -195,9 +195,12 @@ fun Route.modpackRoutes() {
         get {
             response(data = ModpackService.listAll())
         }
-        post("/infos-batch") {
+        get("/list-simple") {
+            val hasIconOnly = call.paramNull("hasIconOnly")?.trim()?.toBooleanStrictOrNull() ?: false
+            response(data = ModpackService.listSimple(hasIconOnly))
+        }
+        post("/infos") {
             response(data = ModpackService.toModpackVoList(ModpackService.listByIds(call.receive<List<ObjectId>>())))
-
         }
         post {
             val (payload, dto) = call.receiveUploadPayload<Modpack.CreateWithVersionDto>(
@@ -359,6 +362,7 @@ object ModpackService {
     private const val MAX_MODPACK_PER_USER = 10
     private const val DEFAULT_SEARCH_LIMIT = 24
     private const val MAX_SEARCH_LIMIT = 60
+    private const val MAX_INFO_BATCH_SIZE = 100
     private val STEP_PROGRESS_REGEX = Regex("""^Step\s+(\d+)/(\d+)""")
     private val realDbcl = DB.getCollection<Modpack>("modpack")
     internal var testDbcl: MongoCollection<Modpack>? = null
@@ -692,8 +696,40 @@ object ModpackService {
         return toModpackVoList(modpacks)
     }
 
+    suspend fun listSimple(hasIconOnly: Boolean = false): List<Modpack.ListSimpleVo> {
+        val filter = if (hasIconOnly) {
+            ne(Modpack::iconUrl.name, null)
+        } else {
+            Document()
+        }
+        return dbcl.find(filter)
+            .sort(Sorts.descending("${Modpack::versions.name}.${Modpack.Version::time.name}"))
+            .toList()
+            .map { modpack ->
+                Modpack.ListSimpleVo(
+                    id = modpack._id,
+                    name = modpack.name,
+                    iconUrl = modpack.iconUrl
+                )
+            }
+    }
+
     suspend fun listByIds(ids: List<ObjectId>): List<Modpack> {
-        return dbcl.find(`in`("_id", ids)).toList()
+        val orderedIds = normalizeInfoBatchIds(ids)
+        if (orderedIds.isEmpty()) return emptyList()
+        return orderModpacksByIds(orderedIds, dbcl.find(`in`("_id", orderedIds)).toList())
+    }
+
+    internal fun normalizeInfoBatchIds(ids: List<ObjectId>): List<ObjectId> {
+        if (ids.size > MAX_INFO_BATCH_SIZE) {
+            throw ParamError("批量查询整合包最多支持${MAX_INFO_BATCH_SIZE}个ID")
+        }
+        return ids.distinct()
+    }
+
+    internal fun orderModpacksByIds(ids: List<ObjectId>, modpacks: List<Modpack>): List<Modpack> {
+        val modpacksById = modpacks.associateBy { it._id }
+        return ids.mapNotNull(modpacksById::get)
     }
 
     fun String.validateVerName(): Result<String> {

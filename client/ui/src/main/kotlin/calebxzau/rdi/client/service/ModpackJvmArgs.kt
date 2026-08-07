@@ -20,7 +20,7 @@ fun parseModpackJvmParams(raw: String): Result<List<String>> = runCatching {
             "该JVM参数由RDI设置管理：$argument"
         }
         require(argument != "-cp" && argument != "-classpath" && argument != "-jar") {
-            "自定义JVM参数不能修改游戏启动结构：$argument"
+            "xtra jvm param不能修改游戏启动结构：$argument"
         }
     }
     arguments

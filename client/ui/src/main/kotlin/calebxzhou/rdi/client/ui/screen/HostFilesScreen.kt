@@ -28,7 +28,8 @@ import org.bson.types.ObjectId
 @Composable
 fun HostFilesScreen(
     hostId: ObjectId,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenTaskList: ((String) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     var host by remember(hostId) { mutableStateOf<Host.DetailVo?>(null) }
@@ -70,7 +71,8 @@ fun HostFilesScreen(
                         hostId = hostId,
                         canManage = currentHost.isAdmin(loggedAccount) ||
                             currentHost.ownerId == loggedAccount._id ||
-                            loggedAccount.isDav
+                            loggedAccount.isDav,
+                        onOpenTaskList = onOpenTaskList
                     )
                 }
             }

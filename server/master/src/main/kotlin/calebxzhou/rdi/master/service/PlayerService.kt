@@ -8,6 +8,7 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.MojangPlayerProfile
 import calebxzhou.rdi.common.model.MsaAccountInfo
 import calebxzhou.rdi.common.model.RAccount
+import calebxzhou.rdi.common.model.DEFAULT_SKIN_URL
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.MojangApi
 import calebxzhou.rdi.common.service.MojangApi.dashless
@@ -25,6 +26,7 @@ import calebxzhou.rdi.master.service.PlayerService.changeProfile
 import calebxzhou.rdi.master.service.PlayerService.clearCloth
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.Filters.`in`
+import com.mongodb.client.model.Filters.ne
 import com.mongodb.client.model.Updates
 import com.mongodb.client.model.Updates.combine
 import io.ktor.server.application.*
@@ -57,6 +59,9 @@ fun Route.playerRoutes() {
                 val info = PlayerService.getInfo(uid)
                 response(data = info)
             }
+        }
+        get("/unique-skin-list"){
+            response(data = PlayerService.uniqueSkinList())
         }
         get("/infos") {
             paramNull("ids")?.split("\n")?.map { ObjectId(it) }?.let { ids ->
@@ -163,6 +168,16 @@ object PlayerService {
 
 
     suspend fun getById(id: ObjectId): RAccount? = accountCol.find(equalById(id)).firstOrNull()
+
+    suspend fun uniqueSkinList(): List<String> = accountCol
+        .find(ne("cloth.skin", DEFAULT_SKIN_URL))
+        .toList()
+        .asSequence()
+        .map { it.cloth.skin }
+        .filter { it != DEFAULT_SKIN_URL }
+        .distinct()
+        .take(50)
+        .toList()
 
     suspend fun has(id: ObjectId): Boolean = accountCol
         .countDocuments(equalById(id)) > 0

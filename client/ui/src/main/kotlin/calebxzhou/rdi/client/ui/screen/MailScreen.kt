@@ -33,7 +33,6 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.wM
 import calebxzhou.rdi.client.net.rdiResponse
 import calebxzhou.rdi.client.net.server
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Mail
 import calebxzhou.rdi.common.net.json
@@ -136,7 +135,7 @@ private fun MailContent(
                         "删除所选邮件",
                         enabled = selectedIds.isNotEmpty(),
                         contentPadding = PaddingValues(start = 1.dp, top = 0.dp, end = 0.dp, bottom = 1.dp),
-                        bgColor = MaterialColor.RED_900.color
+                        bgColor = MaterialTheme.colorScheme.error
                     ) {
                         if (selectedIds.isEmpty()) {
                             errorMessage = "请选择至少一封邮件"

@@ -17,6 +17,7 @@ import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.ScrollableContentBody
 import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.copyToClipboard
 import calebxzau.rdi.client.ui.openMsaVerificationUrl
 import calebxzhou.rdi.client.net.rdiRequestU
@@ -283,7 +284,7 @@ fun RegisterScreen(
                 CircleIconButton(
                     icon = "\uF002",
                     label = "注册进度查询",
-                    bgColor = MaterialColor.GREEN_900.color
+                    bgColor = themeNow.primary
                 ) {
                     showReceiptQueryDialog = true
                 }

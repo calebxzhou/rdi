@@ -59,9 +59,9 @@ fun ModpackDownloadMethodDialog(
             title = { Text("让朋友发我") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("1.让他打开资源-已安装整合包界面")
-                    Text("2.选择${packTitle.ifBlank { "这个整合包" }}")
-                    Text("3.点击右侧“导出RDI包”按钮")
+                    Text("1.让他打开整合包-我的整合包界面")
+                    Text("2.点${packTitle.ifBlank { "这个整合包" }}")
+                    Text("3.点分享")
                     Text("4.让他通过QQ等工具把包发给你")
                 }
             },

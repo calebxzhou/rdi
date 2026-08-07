@@ -105,13 +105,14 @@ fun CodeEditor(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val colorScheme = MaterialTheme.colorScheme
+    val editorColors = codeEditorColors()
     val editorTextStyle = editorBaseTextStyle.copy(color = colorScheme.onSurface)
     val gutterTextStyle = gutterBaseTextStyle.copy(color = colorScheme.onSurfaceVariant)
     val statusTextStyle = statusBaseTextStyle.copy(color = colorScheme.onSurfaceVariant)
     val lineHeightPx = with(density) { editorTextStyle.lineHeight.roundToPx().coerceAtLeast(1) }
 
     var editorValue by remember {
-        mutableStateOf(buildEditorValue(text, TextRange(text.length), language))
+        mutableStateOf(buildEditorValue(text, TextRange(text.length), language, editorColors))
     }
     var history by remember {
         mutableStateOf(listOf(HistoryEntry(text, TextRange(text.length))))
@@ -151,6 +152,7 @@ fun CodeEditor(
             text = newText,
             selection = safeSelection,
             language = language,
+            colors = editorColors,
             composition = composition
         )
 
@@ -212,7 +214,7 @@ fun CodeEditor(
     fun applyHistory(targetIndex: Int): Boolean {
         val entry = history.getOrNull(targetIndex) ?: return false
         historyIndex = targetIndex
-        editorValue = buildEditorValue(entry.text, entry.selection, language)
+        editorValue = buildEditorValue(entry.text, entry.selection, language, editorColors)
         if (lastDispatchedText != entry.text) {
             lastDispatchedText = entry.text
             onValueChangeState(entry.text)
@@ -231,6 +233,7 @@ fun CodeEditor(
             text = editorValue.annotatedString.text,
             selection = selection,
             language = language,
+            colors = editorColors,
             composition = editorValue.composition
         )
     }
@@ -247,16 +250,22 @@ fun CodeEditor(
     LaunchedEffect(text) {
         if (text != editorValue.text && text != lastDispatchedText) {
             val selection = TextRange(text.length)
-            editorValue = buildEditorValue(text, selection, language)
+            editorValue = buildEditorValue(text, selection, language, editorColors)
             history = listOf(HistoryEntry(text, selection))
             historyIndex = 0
             lastDispatchedText = text
         }
     }
 
-    LaunchedEffect(language) {
+    LaunchedEffect(language, editorColors) {
         val selection = editorValue.selection.coerceToText(editorValue.text.length)
-        editorValue = buildEditorValue(editorValue.text, selection, language, editorValue.composition)
+        editorValue = buildEditorValue(
+            text = editorValue.text,
+            selection = selection,
+            language = language,
+            colors = editorColors,
+            composition = editorValue.composition
+        )
         history = listOf(HistoryEntry(editorValue.text, selection))
         historyIndex = 0
         lastDispatchedText = editorValue.text
@@ -412,6 +421,7 @@ fun CodeEditor(
                                             text = nextValue.text,
                                             selection = safeSelection,
                                             language = language,
+                                            colors = editorColors,
                                             composition = nextValue.composition
                                         )
                                     }

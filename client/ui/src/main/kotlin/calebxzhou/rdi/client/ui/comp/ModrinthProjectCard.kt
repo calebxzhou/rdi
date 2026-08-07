@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.Colors
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,7 +29,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.RowV
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 
@@ -81,7 +82,7 @@ private fun ModrinthProjectBanner(project: ModrinthProjectCardVo) {
         modifier = Modifier
             .fillMaxWidth()
             .aspectRatio(2.25f)
-            .background(MaterialColor.BLUE_GRAY_100.color)
+            .background(Color.LightGray)
     ) {
         project.bannerUrl?.takeIf(String::isNotBlank)?.let { url ->
             HttpImage(
@@ -90,19 +91,20 @@ private fun ModrinthProjectBanner(project: ModrinthProjectCardVo) {
                 contentDescription = project.title,
                 contentScale = ContentScale.Crop
             )
-        } ?: Box(
+        }
+        /*Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.linearGradient(
                         listOf(
-                            MaterialColor.BLUE_GRAY_200.color,
-                            MaterialColor.AMBER_200.color,
-                            MaterialColor.LIGHT_BLUE_200.color
+                            themeNow.surfaceVariant,
+                            themeNow.tertiaryContainer,
+                            themeNow.primaryContainer
                         )
                     )
                 )
-        )
+        )*/
     }
 }
 
@@ -124,7 +126,7 @@ private fun ModrinthProjectIcon(project: ModrinthProjectCardVo) {
             modifier = Modifier
                 .fillMaxSize()
                 .clip(baseRoundCornerShape)
-                .background(MaterialColor.BLUE_GRAY_200.color),
+                .background(themeNow.surfaceContainerHighest),
             contentAlignment = Alignment.Center
         ) {
             Text(
@@ -144,11 +146,10 @@ private fun ModrinthProjectStat(icon: String, text: String) {
     ) {
         Text(
             text = icon.asIconText,
-            color = MaterialColor.GRAY_900.color
-        )
+
+            )
         Text(
             text = text,
-            color = MaterialColor.GRAY_900.color,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )

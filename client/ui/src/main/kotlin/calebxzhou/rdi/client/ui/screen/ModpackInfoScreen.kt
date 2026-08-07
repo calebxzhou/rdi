@@ -24,6 +24,7 @@ import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TinyClickCopyText
 import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.millisToHumanDateTime
@@ -164,14 +165,14 @@ fun ModpackInfoScreen(
                         icon = "\uF01F",
                         tooltip = "修改信息",
                         showText = false,
-                        bgColor = MaterialColor.YELLOW_900.color
+                        bgColor = themeNow.tertiary
                     ) {
                         showEditDialog = true
                     }
                     CircleIconButton(
                         icon = "\uEA81",
                         tooltip = "删除整合包",
-                        bgColor = MaterialColor.RED_900.color,
+                        bgColor = MaterialTheme.colorScheme.error,
                         showText = false
                     ) { confirmDeletePack = true }
 
@@ -252,10 +253,10 @@ fun ModpackInfoScreen(
                                     Modpack.Status.WAIT -> "\uE641 等待构建"
                                 }
                                 val statusColor = when (version.status) {
-                                    Modpack.Status.OK -> MaterialColor.GREEN_700.color
-                                    Modpack.Status.BUILDING -> MaterialColor.BLUE_700.color
-                                    Modpack.Status.FAIL -> MaterialColor.RED_700.color
-                                    Modpack.Status.WAIT -> MaterialColor.GRAY_700.color
+                                    Modpack.Status.OK -> themeNow.primary
+                                    Modpack.Status.BUILDING -> themeNow.tertiary
+                                    Modpack.Status.FAIL -> MaterialTheme.colorScheme.error
+                                    Modpack.Status.WAIT -> themeNow.onSurfaceVariant
                                 }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -272,14 +273,14 @@ fun ModpackInfoScreen(
                                             CircleIconButton(
                                                 icon = "\uF044",
                                                 label = "编辑版本Mod",
-                                                bgColor = MaterialColor.PURPLE_700.color
+                                                bgColor = themeNow.secondary
                                             ) { openVersionEdit(version.name) }
                                             Space8w()
                                         }
                                         CircleIconButton(
                                             icon = "\uEA81",
                                             label = "删除版本",
-                                            bgColor = MaterialColor.RED_900.color
+                                            bgColor = MaterialTheme.colorScheme.error
                                         ) { confirmDeleteVersion = version }
                                         Space8w()
                                         CircleIconButton(

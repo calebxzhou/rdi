@@ -23,7 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzau.rdi.client.ui.CodeFontFamily
 import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -215,7 +215,7 @@ fun Console(
             CircleIconButton(
                 icon = "\uEF11",
                 tooltip = "导出日志",
-                bgColor = MaterialColor.YELLOW_900.color,
+                bgColor = themeNow.tertiary,
                 size = 32.dp,
                 enabled = lines.isNotEmpty() && !exporting,
                 showText = false
@@ -237,7 +237,6 @@ fun Console(
             CircleIconButton(
                 icon = "\uF103",
                 tooltip = "回到底部",
-                bgColor = MaterialColor.PINK_900.color,
                 size = 32.dp,
                 enabled = lines.isNotEmpty(),
                 showText = false

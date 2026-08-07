@@ -11,6 +11,7 @@ import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.util.ioTask
 import calebxzhou.rdi.master.MODPACK_DATA_DIR
+import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.service.*
 import calebxzhou.rdi.master.service.ModpackService.deleteModpack
 import calebxzhou.rdi.master.service.host.HostService
@@ -92,6 +93,40 @@ class ModpackTest {
         createdRoots.clear()
         ModpackService.testDbcl = null
         unmockkAll()
+    }
+
+    @Test
+    fun normalizeInfoBatchIds_deduplicatesInRequestOrder() {
+        val first = ObjectId()
+        val second = ObjectId()
+
+        assertEquals(
+            listOf(first, second),
+            ModpackService.normalizeInfoBatchIds(listOf(first, second, first))
+        )
+    }
+
+    @Test
+    fun normalizeInfoBatchIds_rejectsMoreThan100Ids() {
+        assertFailsWith<ParamError> {
+            ModpackService.normalizeInfoBatchIds(List(101) { ObjectId() })
+        }
+    }
+
+    @Test
+    fun orderModpacksByIds_preservesRequestedOrderAndSkipsMissing() {
+        val firstId = ObjectId()
+        val secondId = ObjectId()
+        val missingId = ObjectId()
+        val first = Modpack(firstId, "first", ObjectId(), modloader = ModLoader.neoforge, mcVer = McVersion.V211)
+        val second = Modpack(secondId, "second", ObjectId(), modloader = ModLoader.neoforge, mcVer = McVersion.V211)
+
+        val ordered = ModpackService.orderModpacksByIds(
+            listOf(secondId, missingId, firstId),
+            listOf(first, second)
+        )
+
+        assertEquals(listOf(secondId, firstId), ordered.map { it._id })
     }
 
     @Test

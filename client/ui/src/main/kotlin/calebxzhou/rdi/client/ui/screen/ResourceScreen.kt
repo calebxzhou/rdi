@@ -35,8 +35,8 @@ enum class ResourceTab(
     val icon: String,
     val label: String
 ) {
-    All("\uDB86\uDDD5", "下新包"),
     Installed("\uDB86\uDDD7", "我的包"),
+    All("\uDB86\uDDD5", "整合广场"),
     McResources("\uDB80\uDF73", "MC资源"),
     Mods("\uF12E", "模组"),
     ResourcePacks("\uDB80\uDEA2", "资源包"),
@@ -44,7 +44,7 @@ enum class ResourceTab(
 
     companion object {
         fun fromRouteValue(value: String?): ResourceTab {
-            return entries.firstOrNull { it.name == value } ?: All
+            return entries.firstOrNull { it.name == value } ?: Installed
         }
     }
 }
@@ -60,12 +60,12 @@ private data class ModpackContentTarget(
     val type: ModpackContentType
 )
 
-private val topLevelResourceTabs = listOf(ResourceTab.All, ResourceTab.Installed, ResourceTab.McResources)
+private val topLevelResourceTabs = listOf(ResourceTab.Installed, ResourceTab.All, ResourceTab.McResources)
 
 @Composable
 fun ResourceScreen(
     modCatalog: ModCatalog,
-    initialCategory: ResourceTab = ResourceTab.All,
+    initialCategory: ResourceTab = ResourceTab.Installed,
     requiredMcVer: McVersion? = null,
     requiredLoader: ModLoader? = null,
     onBack: (() -> Unit) = {},

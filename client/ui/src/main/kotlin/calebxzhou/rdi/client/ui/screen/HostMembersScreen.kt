@@ -51,7 +51,7 @@ import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.service.rememberPlayerInfoPrefetch
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.isDav
@@ -370,9 +370,10 @@ private fun roleIcon(role: Role) = when (role) {
     else -> "\uEF0C"
 }
 
+@Composable
 private fun roleColor(role: Role) = when (role) {
-    Role.OWNER -> MaterialColor.YELLOW_900.color
+    Role.OWNER -> themeNow.tertiary
     Role.ADMIN -> Color(0xFFC0C0C0)
     Role.MEMBER -> Color(0xFFCD7F32)
-    else -> MaterialColor.GRAY_500.color
+    else -> themeNow.surfaceVariant
 }

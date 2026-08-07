@@ -12,9 +12,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.unit.*
+import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.ui.SimpleTooltip
+import calebxzau.rdi.client.ui.loadImageBitmap
 import calebxzhou.rdi.client.service.rememberPlayerHeadState
 import org.bson.types.ObjectId
+
+private const val STEVE_SKIN_RESOURCE = "assets/skins/steve.png"
+private val steveSkinImage: ImageBitmap? by lazy {
+    loadImageBitmap(STEVE_SKIN_RESOURCE)
+        .onFailure { lgr.warn(it) { "加载Steve皮肤占位图失败" } }
+        .getOrNull()
+}
 
 /**
  * calebxzhou @ 2026-01-14 19:53
@@ -64,33 +73,10 @@ fun HeadButton(
         ) {
             // Avatar
             Box(modifier = Modifier.size(avatarSize)) {
-                val img = skinImage
-                if (img != null) {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        val w = size.width.toInt()
-                        val h = size.height.toInt()
-                        // Draw Head
-                        drawImage(
-                            image = img,
-                            srcOffset = IntOffset(8, 8),
-                            srcSize = IntSize(8, 8),
-                            dstSize = IntSize(w, h),
-                            filterQuality = FilterQuality.None
-                        )
-                        // Draw Hat (Overlay)
-                        drawImage(
-                            image = img,
-                            srcOffset = IntOffset(40, 8),
-                            srcSize = IntSize(8, 8),
-                            dstSize = IntSize(w, h),
-                            filterQuality = FilterQuality.None
-                        )
-                    }
-                } else {
-                    Canvas(modifier = Modifier.fillMaxSize()) {
-                        drawRect(color = Color(0xFFA0A0A0))
-                    }
-                }
+                PlayerHead(
+                    skinImage = skinImage,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             if (showName) {
@@ -103,5 +89,35 @@ fun HeadButton(
        row ()
     }else{
         SimpleTooltip(name){row()}
+    }
+}
+
+@Composable
+fun PlayerHead(
+    skinImage: ImageBitmap?,
+    modifier: Modifier = Modifier
+) {
+    val image = skinImage ?: steveSkinImage
+    Canvas(modifier = modifier) {
+        if (image == null) {
+            drawRect(color = Color(0xFFA0A0A0))
+            return@Canvas
+        }
+
+        val dstSize = IntSize(size.width.toInt(), size.height.toInt())
+        drawImage(
+            image = image,
+            srcOffset = IntOffset(8, 8),
+            srcSize = IntSize(8, 8),
+            dstSize = dstSize,
+            filterQuality = FilterQuality.None
+        )
+        drawImage(
+            image = image,
+            srcOffset = IntOffset(40, 8),
+            srcSize = IntSize(8, 8),
+            dstSize = dstSize,
+            filterQuality = FilterQuality.None
+        )
     }
 }

@@ -14,7 +14,6 @@ import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.service.*
-import calebxzhou.rdi.master.service.ModpackService.getVersion
 import calebxzhou.rdi.master.service.ModpackService.installToHost
 import calebxzhou.rdi.master.service.WorldService.createWorld
 import calebxzhou.rdi.master.service.WorldService.updateWorldSize
@@ -152,6 +151,14 @@ object HostInstallService {
         return world
     }
 
+    internal fun resolveHostCreateVersion(modpack: Modpack, packVer: String): Modpack.Version {
+        return if (packVer == "latest") {
+            modpack.versions.lastOrNull() ?: throw RequestError("此整合包没有可用版本")
+        } else {
+            modpack.versions.firstOrNull { it.name == packVer } ?: throw RequestError("无此版本")
+        }
+    }
+
     suspend fun RAccount.createHost(host: Host.CreateDto) {
         host.name.validateName()
         val playerId = _id
@@ -165,7 +172,7 @@ object HostInstallService {
             throw RequestError("同一个整合包只能创建一张房间")
         }
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此包")
-        val version = modpack.getVersion(host.packVer) ?: throw RequestError("无此版本")
+        val version = resolveHostCreateVersion(modpack, host.packVer)
         if (version.status != Modpack.Status.OK) {
             throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
         }
@@ -175,7 +182,7 @@ object HostInstallService {
             name = host.name,
             ownerId = playerId,
             modpackId = host.modpackId,
-            packVer = host.packVer,
+            packVer = version.name,
             worldId = world?._id,
             port = port,
             difficulty = host.difficulty,

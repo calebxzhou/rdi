@@ -29,7 +29,7 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.TitleTabBar
 import calebxzau.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.model.UiMod
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.ui.comp.ModGrid
 import calebxzhou.rdi.common.model.*
 import kotlinx.coroutines.launch
@@ -110,7 +110,7 @@ fun ModpackVersionEditScreen(
             ) {
                 Text(
                     "版本状态: $versionStatusText",
-                    color = if (canMutate) MaterialColor.GREEN_900.color else MaterialColor.ORANGE_900.color
+                    color = if (canMutate) themeNow.primary else themeNow.onSurfaceVariant
                 )
                 if (currentVersion != null) {
                     TitleTabBar(
@@ -146,7 +146,7 @@ fun ModpackVersionEditScreen(
                     if (!canMutate) {
                         Text(
                             "当前版本正在重构，暂时不能增删改Mod。等状态回到可编辑后再操作。",
-                            color = MaterialColor.GRAY_700.color
+                            color = themeNow.onSurfaceVariant
                         )
                     }
                     when (selectedTab) {
@@ -161,7 +161,7 @@ fun ModpackVersionEditScreen(
                                 ) {
                                     Text(
                                         text = if (selectedMods.isEmpty()) "点击Mod卡片以多选" else "已选中${selectedMods.size}个Mod",
-                                        color = MaterialColor.GRAY_700.color,
+                                        color = themeNow.onSurfaceVariant,
                                         modifier = Modifier.weight(1f)
                                     )
                                     CircleIconButton(
@@ -180,7 +180,7 @@ fun ModpackVersionEditScreen(
                                         } else {
                                             "当前版本不可修改"
                                         },
-                                        bgColor = MaterialColor.PURPLE_700.color,
+                                        bgColor = themeNow.secondary,
                                         enabled = canMutate && !uiState.addDialogLoading
                                     ) {
                                         val mcVersion = uiState.pack?.mcVer
@@ -196,7 +196,7 @@ fun ModpackVersionEditScreen(
                                     CircleIconButton(
                                         icon = "\uF044",
                                         label = if (canMutate) "批量编辑选中Mod" else "当前版本不可修改",
-                                        bgColor = MaterialColor.YELLOW_900.color,
+                                        bgColor = themeNow.tertiary,
                                         enabled = canMutate && selectedMods.isNotEmpty() && !uiState.editDialogSaving
                                     ) {
                                         editingMods = selectedMods
@@ -205,7 +205,7 @@ fun ModpackVersionEditScreen(
                                     CircleIconButton(
                                         icon = "\uEA81",
                                         label = if (canMutate) "批量删除选中Mod" else "当前版本不可修改",
-                                        bgColor = MaterialColor.RED_900.color,
+                                        bgColor = MaterialTheme.colorScheme.error,
                                         enabled = canMutate && selectedMods.isNotEmpty()
                                     ) {
                                         deleteConfirmMods = selectedMods
@@ -255,7 +255,7 @@ fun ModpackVersionEditScreen(
                                 modifier = Modifier.fillMaxSize(),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text("文件编辑(file editing)暂未实现", color = MaterialColor.GRAY_700.color)
+                                Text("文件编辑(file editing)暂未实现", color = themeNow.onSurfaceVariant)
                             }
                         }
                     }
@@ -293,11 +293,11 @@ fun ModpackVersionEditScreen(
                     Text("添加版本Mod", style = MaterialTheme.typography.titleLarge)
                     Text(
                         "会复用房间附加Mod(extra mod)的本地jar匹配逻辑。当前会把选中的Mod一次性提交，版本只重构1次。",
-                        color = MaterialColor.GRAY_700.color
+                        color = themeNow.onSurfaceVariant
                     )
                     Text(
                         if (selectedPendingUiMods.isEmpty()) "点击下方Mod卡片选择要添加的Mod" else "当前准备添加${selectedPendingUiMods.size}个Mod",
-                        color = MaterialColor.GRAY_700.color
+                        color = themeNow.onSurfaceVariant
                     )
                     Box(
                         modifier = Modifier
@@ -325,10 +325,10 @@ fun ModpackVersionEditScreen(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("以下文件未能加入候选", color = MaterialColor.RED_900.color)
+                            Text("以下文件未能加入候选", color = MaterialTheme.colorScheme.error)
                             Text(
                                 uiState.rejectedAddFiles.joinToString("\n") { "• $it" },
-                                color = MaterialColor.RED_900.color,
+                                color = MaterialTheme.colorScheme.error,
                                 fontSize = 13.sp
                             )
                         }
@@ -341,7 +341,7 @@ fun ModpackVersionEditScreen(
                         uiState.addDialogError?.let {
                             Text(
                                 text = it,
-                                color = MaterialColor.RED_900.color,
+                                color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.weight(1f)
                             )
                             Space8w()
@@ -499,7 +499,7 @@ private fun VersionModBatchEditDialog(
                                 .padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("${index + 1}. ${state.displayName}", color = MaterialColor.GRAY_900.color)
+                            Text("${index + 1}. ${state.displayName}", )
                             OutlinedTextField(
                                 value = state.platform,
                                 onValueChange = { value ->

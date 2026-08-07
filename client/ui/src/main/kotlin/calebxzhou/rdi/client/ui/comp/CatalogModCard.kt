@@ -28,7 +28,7 @@ import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.modcatalog.CatalogMod
 import calebxzhou.rdi.client.service.loadLocalIcon
 import calebxzhou.rdi.client.service.peekLocalIcon
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.common.util.toFixed
 
 @Composable
@@ -75,7 +75,7 @@ fun CatalogModCard(
             Surface(
                 modifier = Modifier.size(iconSize),
                 shape = baseRoundCornerShape,
-                color = MaterialColor.GRAY_200.color
+                color = themeNow.surfaceContainerHighest
             ) {
                 if (icon != null) {
                     Image(
@@ -85,7 +85,7 @@ fun CatalogModCard(
                         contentScale = ContentScale.Crop
                     )
                 } else Box(
-                    modifier = Modifier.fillMaxSize().background(MaterialColor.BLUE_GRAY_100.color),
+                    modifier = Modifier.fillMaxSize().background(themeNow.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -124,7 +124,7 @@ fun CatalogModCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = "\uF019 ${mod.downloadCount.compactCount()}",
-                        color = MaterialColor.GRAY_700.color,
+                        color = themeNow.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall
                     )
                     Spacer(Modifier.weight(1f))

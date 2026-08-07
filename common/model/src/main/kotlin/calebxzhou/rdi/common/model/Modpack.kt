@@ -110,6 +110,14 @@ class Modpack(
     )
 
     @Serializable
+    data class ListSimpleVo(
+        @Contextual
+        val id: ObjectId,
+        val name: String,
+        val iconUrl: String? = null,
+    )
+
+    @Serializable
     data class DetailVo(
         @Contextual
         val _id: ObjectId,

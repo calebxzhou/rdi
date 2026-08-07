@@ -1,5 +1,6 @@
 package calebxzhou.rdi.client.ui.comp
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.TextFieldValue
@@ -8,71 +9,69 @@ import androidx.compose.ui.text.font.FontWeight
 import calebxzau.rdi.client.codeeditor.CodeLanguage
 import calebxzau.rdi.client.codeeditor.CodeTokenRole
 import calebxzau.rdi.client.codeeditor.highlightCode
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.service.codeeditor.coerceToText
+import calebxzau.rdi.client.ui.themeNow
 
-private val punctuationStyle = SpanStyle(color = MaterialColor.BLUE_GRAY_500.color)
-private val jsonKeyStyle = SpanStyle(color = MaterialColor.BLUE_800.color, fontWeight = FontWeight.SemiBold)
-private val jsonStringStyle = SpanStyle(color = MaterialColor.GREEN_800.color)
-private val jsonNumberStyle = SpanStyle(color = MaterialColor.DEEP_ORANGE_700.color)
-private val jsonLiteralStyle = SpanStyle(color = MaterialColor.PURPLE_700.color, fontWeight = FontWeight.Medium)
-private val tomlTableStyle = SpanStyle(color = MaterialColor.BLUE_800.color, fontWeight = FontWeight.SemiBold)
-private val tomlKeyStyle = SpanStyle(color = MaterialColor.TEAL_800.color, fontWeight = FontWeight.SemiBold)
-private val tomlStringStyle = SpanStyle(color = MaterialColor.GREEN_800.color)
-private val tomlNumberStyle = SpanStyle(color = MaterialColor.DEEP_ORANGE_700.color)
-private val tomlLiteralStyle = SpanStyle(color = MaterialColor.PURPLE_700.color, fontWeight = FontWeight.Medium)
-private val tomlCommentStyle = SpanStyle(color = MaterialColor.GRAY_600.color)
-private val yamlKeyStyle = SpanStyle(color = MaterialColor.BLUE_800.color, fontWeight = FontWeight.SemiBold)
-private val yamlStringStyle = SpanStyle(color = MaterialColor.GREEN_800.color)
-private val yamlNumberStyle = SpanStyle(color = MaterialColor.DEEP_ORANGE_700.color)
-private val yamlLiteralStyle = SpanStyle(color = MaterialColor.PURPLE_700.color, fontWeight = FontWeight.Medium)
-private val yamlCommentStyle = SpanStyle(color = MaterialColor.GRAY_600.color)
-private val yamlAnchorStyle = SpanStyle(color = MaterialColor.TEAL_800.color, fontWeight = FontWeight.Medium)
-private val cfgSectionStyle = SpanStyle(color = MaterialColor.BLUE_800.color, fontWeight = FontWeight.SemiBold)
-private val cfgTypeStyle = SpanStyle(color = MaterialColor.PURPLE_700.color, fontWeight = FontWeight.Medium)
-private val cfgKeyStyle = SpanStyle(color = MaterialColor.TEAL_800.color, fontWeight = FontWeight.SemiBold)
-private val cfgValueStyle = SpanStyle(color = MaterialColor.GREEN_800.color)
-private val cfgNumberStyle = SpanStyle(color = MaterialColor.DEEP_ORANGE_700.color)
-private val cfgCommentStyle = SpanStyle(color = MaterialColor.GRAY_600.color)
+internal data class CodeEditorColors(
+    val punctuation: SpanStyle,
+    val key: SpanStyle,
+    val string: SpanStyle,
+    val number: SpanStyle,
+    val literal: SpanStyle,
+    val comment: SpanStyle,
+    val anchor: SpanStyle
+)
 
-fun buildEditorValue(
+@Composable
+internal fun codeEditorColors() = CodeEditorColors(
+    punctuation = SpanStyle(color = themeNow.onSurfaceVariant),
+    key = SpanStyle(color = themeNow.primary, fontWeight = FontWeight.SemiBold),
+    string = SpanStyle(color = themeNow.secondary),
+    number = SpanStyle(color = themeNow.tertiary),
+    literal = SpanStyle(color = themeNow.tertiary, fontWeight = FontWeight.Medium),
+    comment = SpanStyle(color = themeNow.onSurfaceVariant.copy(alpha = 0.72f)),
+    anchor = SpanStyle(color = themeNow.secondary, fontWeight = FontWeight.Medium)
+)
+
+internal fun buildEditorValue(
     text: String,
     selection: TextRange,
     language: CodeLanguage,
+    colors: CodeEditorColors,
     composition: TextRange? = null
 ): TextFieldValue = TextFieldValue(
     annotatedString = buildAnnotatedString {
         append(text)
         highlightCode(text, language).forEach { span ->
-            addStyle(span.role.toSpanStyle(), span.start, span.endExclusive)
+            addStyle(span.role.toSpanStyle(colors), span.start, span.endExclusive)
         }
     },
     selection = selection.coerceToText(text.length),
     composition = composition?.coerceToText(text.length)
 )
 
-private fun CodeTokenRole.toSpanStyle(): SpanStyle = when (this) {
-    CodeTokenRole.PUNCTUATION -> punctuationStyle
-    CodeTokenRole.JSON_KEY -> jsonKeyStyle
-    CodeTokenRole.JSON_STRING -> jsonStringStyle
-    CodeTokenRole.JSON_NUMBER -> jsonNumberStyle
-    CodeTokenRole.JSON_LITERAL -> jsonLiteralStyle
-    CodeTokenRole.TOML_TABLE -> tomlTableStyle
-    CodeTokenRole.TOML_KEY -> tomlKeyStyle
-    CodeTokenRole.TOML_STRING -> tomlStringStyle
-    CodeTokenRole.TOML_NUMBER -> tomlNumberStyle
-    CodeTokenRole.TOML_LITERAL -> tomlLiteralStyle
-    CodeTokenRole.TOML_COMMENT -> tomlCommentStyle
-    CodeTokenRole.YAML_KEY -> yamlKeyStyle
-    CodeTokenRole.YAML_STRING -> yamlStringStyle
-    CodeTokenRole.YAML_NUMBER -> yamlNumberStyle
-    CodeTokenRole.YAML_LITERAL -> yamlLiteralStyle
-    CodeTokenRole.YAML_COMMENT -> yamlCommentStyle
-    CodeTokenRole.YAML_ANCHOR -> yamlAnchorStyle
-    CodeTokenRole.CFG_SECTION -> cfgSectionStyle
-    CodeTokenRole.CFG_TYPE -> cfgTypeStyle
-    CodeTokenRole.CFG_KEY -> cfgKeyStyle
-    CodeTokenRole.CFG_VALUE -> cfgValueStyle
-    CodeTokenRole.CFG_NUMBER -> cfgNumberStyle
-    CodeTokenRole.CFG_COMMENT -> cfgCommentStyle
+private fun CodeTokenRole.toSpanStyle(colors: CodeEditorColors): SpanStyle = when (this) {
+    CodeTokenRole.PUNCTUATION -> colors.punctuation
+    CodeTokenRole.JSON_KEY -> colors.key
+    CodeTokenRole.JSON_STRING -> colors.string
+    CodeTokenRole.JSON_NUMBER -> colors.number
+    CodeTokenRole.JSON_LITERAL -> colors.literal
+    CodeTokenRole.TOML_TABLE -> colors.key
+    CodeTokenRole.TOML_KEY -> colors.anchor
+    CodeTokenRole.TOML_STRING -> colors.string
+    CodeTokenRole.TOML_NUMBER -> colors.number
+    CodeTokenRole.TOML_LITERAL -> colors.literal
+    CodeTokenRole.TOML_COMMENT -> colors.comment
+    CodeTokenRole.YAML_KEY -> colors.key
+    CodeTokenRole.YAML_STRING -> colors.string
+    CodeTokenRole.YAML_NUMBER -> colors.number
+    CodeTokenRole.YAML_LITERAL -> colors.literal
+    CodeTokenRole.YAML_COMMENT -> colors.comment
+    CodeTokenRole.YAML_ANCHOR -> colors.anchor
+    CodeTokenRole.CFG_SECTION -> colors.key
+    CodeTokenRole.CFG_TYPE -> colors.literal
+    CodeTokenRole.CFG_KEY -> colors.anchor
+    CodeTokenRole.CFG_VALUE -> colors.string
+    CodeTokenRole.CFG_NUMBER -> colors.number
+    CodeTokenRole.CFG_COMMENT -> colors.comment
 }

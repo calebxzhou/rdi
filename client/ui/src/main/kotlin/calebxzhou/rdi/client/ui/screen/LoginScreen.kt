@@ -252,9 +252,7 @@ fun LoginScreen(
                                 CircleIconButton(
                                     "\uDB80\uDF42",
                                     if (submitting) "登录中.." else "登录",
-                                    enabled = !submitting,
-                                    bgColor = if (routeState.useBackupNode) MaterialColor.YELLOW_200.color else MaterialColor.BLUE_200.color,
-                                    iconColor = Color.Black
+                                    enabled = !submitting
                                 ) {
                                     attemptLogin()
                                 }
@@ -262,8 +260,7 @@ fun LoginScreen(
                                 CircleIconButton(
                                     "\uEBCD",
                                     "注册",
-                                    bgColor = MaterialColor.PINK_200.color,
-                                    iconColor = Color.Black
+                                    bgColor = MaterialTheme.colorScheme.tertiary
                                 ) {
                                     showMsAccountDialog = true
                                 }
@@ -275,9 +272,7 @@ fun LoginScreen(
                             ) {
                                 CircleIconButton(
                                     "\uF084",
-                                    "忘记密码",
-                                    bgColor = MaterialColor.GREEN_200.color,
-                                    iconColor = Color.Black
+                                    "忘记密码"
                                 ) {
                                     onOpenResetPassword?.invoke()
                                 }

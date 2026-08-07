@@ -27,25 +27,21 @@ import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
-import calebxzhou.rdi.client.service.ModpackLocalDir
-import calebxzhou.rdi.client.service.ModpackService
-import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.GameRuleModal
 import calebxzhou.rdi.client.ui.comp.ImageCard
-import calebxzhou.rdi.client.ui.comp.ModpackManageCard
+import calebxzhou.rdi.client.ui.comp.ModpackSelectCard
 import calebxzhou.rdi.client.ui.comp.WorldCard
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.World
 import calebxzhou.rdi.common.serdesJson
 import io.ktor.http.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
 import kotlin.random.Random
 
@@ -66,12 +62,10 @@ fun HostNewCreateScreen(
     var title by remember { mutableStateOf("创建新房间") }
     var hostName by remember { mutableStateOf("${loggedAccount.name}的世界${Random.nextInt(1000)}") }
     var modpackIdText by remember { mutableStateOf("") }
-    var packVerText by remember { mutableStateOf("") }
 
-    var localDirs by remember { mutableStateOf<List<ModpackLocalDir>>(emptyList()) }
-    var selectedPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
-    var loadingLocalPacks by remember { mutableStateOf(true) }
-    var localPackError by remember { mutableStateOf<String?>(null) }
+    var serverModpacks by remember { mutableStateOf<List<Modpack.ListSimpleVo>>(emptyList()) }
+    var loadingModpacks by remember { mutableStateOf(true) }
+    var modpackError by remember { mutableStateOf<String?>(null) }
 
     var worlds by remember { mutableStateOf<List<World.Vo>>(emptyList()) }
     var loadingWorlds by remember { mutableStateOf(true) }
@@ -136,25 +130,22 @@ fun HostNewCreateScreen(
         }
     }
 
-    fun reloadLocalPacks() {
-        loadingLocalPacks = true
-        localPackError = null
-        scope.launch {
-            val result = withContext(Dispatchers.IO) {
-                runCatching { ModpackService.getLocalPackDirs() }
-            }
-            result.onSuccess { dirs ->
-                localDirs = dirs
-            }.onFailure {
-                localPackError = "读取本地整合包失败: ${it.message}"
-                localDirs = emptyList()
-            }
-            loadingLocalPacks = false
-        }
+    fun reloadModpacks() {
+        loadingModpacks = true
+        modpackError = null
+        scope.rdiRequest<List<Modpack.ListSimpleVo>>(
+            path = "modpack/list-simple",
+            onOk = { response -> serverModpacks = response.data.orEmpty() },
+            onErr = {
+                modpackError = "读取服务器整合包失败: ${it.message}"
+                serverModpacks = emptyList()
+            },
+            onDone = { loadingModpacks = false }
+        )
     }
 
     LaunchedEffect(Unit) {
-        reloadLocalPacks()
+        reloadModpacks()
     }
 
     LaunchedEffect(arg.hostId) {
@@ -162,7 +153,6 @@ fun HostNewCreateScreen(
         if (rawHostId.isNullOrBlank() || !ObjectId.isValid(rawHostId)) {
             title = "创建新房间"
             editHostId = null
-            currentMcVersion = selectedPack?.vo?.mcVer
             return@LaunchedEffect
         }
         editHostId = ObjectId(rawHostId)
@@ -176,7 +166,6 @@ fun HostNewCreateScreen(
                 title = "编辑房间 · ${detail.name}"
                 hostName = detail.name
                 modpackIdText = detail.modpack.id.toHexString()
-                packVerText = detail.packVer
                 difficulty = detail.difficulty
                 gameMode = detail.gameMode
                 currentMcVersion = detail.modpack.mcVer
@@ -206,21 +195,6 @@ fun HostNewCreateScreen(
             },
             onDone = { loadingWorlds = false }
         )
-    }
-
-    LaunchedEffect(localDirs, modpackIdText, packVerText) {
-        val matched = localDirs.firstOrNull {
-            it.vo.id.toHexString() == modpackIdText && it.verName == packVerText
-        } ?: return@LaunchedEffect
-        if (selectedPack?.versionId != matched.versionId) {
-            selectedPack = matched
-        }
-        if (currentMcVersion != matched.vo.mcVer) {
-            currentMcVersion = matched.vo.mcVer
-            if (levelChoice == 2) {
-                levelType = skyblockLevelType(matched.vo.mcVer)
-            }
-        }
     }
 
     LaunchedEffect(worlds, editWorldId, editPreferNoSave) {
@@ -269,15 +243,13 @@ fun HostNewCreateScreen(
             return
         }
 
-        val pack = selectedPack ?: localDirs.firstOrNull {
-            it.vo.id.toHexString() == modpackIdText && it.verName == packVerText
-        }
+        val pack = serverModpacks.firstOrNull { it.id.toHexString() == modpackIdText }
         if (pack == null) {
-            statusMessage = "请先在“选择整合包”标签中选择本地已安装整合包"
+            statusMessage = "请先在“选择整合包”标签中选择服务器整合包"
             selectedTab = 0
             return
         }
-        if (!ObjectId.isValid(pack.vo.id.toHexString())) {
+        if (!ObjectId.isValid(pack.id.toHexString())) {
             statusMessage = "所选整合包无效，请重新选择"
             selectedTab = 0
             return
@@ -292,8 +264,8 @@ fun HostNewCreateScreen(
         }
         val createDto = Host.CreateDto(
             name = trimmedName,
-            modpackId = pack.vo.id,
-            packVer = pack.verName,
+            modpackId = pack.id,
+            packVer = "latest",
             saveWorld = saveWorld,
             worldId = worldId,
             difficulty = difficulty,
@@ -362,8 +334,9 @@ fun HostNewCreateScreen(
         )
     }
 
-    val loadingAny = loadingLocalPacks || loadingHost || loadingWorlds
-    val selectedPackTitle = selectedPack?.let { "${it.vo.name} ${it.verName}" } ?: "未选择整合包"
+    val loadingAny = loadingModpacks || loadingHost || loadingWorlds
+    val selectedPackTitle = serverModpacks.firstOrNull { it.id.toHexString() == modpackIdText }?.name
+        ?: "未选择整合包"
     val tabs = listOf("1.选择整合包（$selectedPackTitle）", "2.房间设置")
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.LARGE) {
@@ -371,7 +344,7 @@ fun HostNewCreateScreen(
                 if (loadingAny) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
-                CircleIconButton("\uDB82\uDE50", bgColor = MaterialColor.GREEN_900.color) {
+                CircleIconButton("\uDB82\uDE50", bgColor = themeNow.primary) {
                     submit()
                 }
                 if (editHost != null) {
@@ -422,14 +395,14 @@ fun HostNewCreateScreen(
                 0 -> {
                     if (isEditMode()) {
                         Space8h()
-                        Text("整合包一经设定，就不能更换。换包请重新创建房间", color = MaterialColor.GRAY_700.color)
+                        Text("整合包一经设定，就不能更换。换包请重新创建房间", color = themeNow.onSurfaceVariant)
                     }
                     Space8h()
-                    localPackError?.let {
+                    modpackError?.let {
                         Text(it, color = MaterialTheme.colorScheme.error)
                         Space8h()
                     }
-                    if (loadingLocalPacks) {
+                    if (loadingModpacks) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center
@@ -437,11 +410,10 @@ fun HostNewCreateScreen(
                             CircularProgressIndicator()
                         }
                     }
-                    Text("使用已下载的整合包创建房间。")
-                    if (!loadingLocalPacks && localDirs.isEmpty()) {
+                    if (!loadingModpacks && serverModpacks.isEmpty()) {
                         Text(
-                            "请先到“整合包管理界面”下载想玩的整合包，方可创建房间。",
-                            color = MaterialColor.GRAY_700.color
+                            "暂无可用整合包。",
+                            color = themeNow.onSurfaceVariant
                         )
                     }
                     LazyVerticalGrid(
@@ -452,21 +424,18 @@ fun HostNewCreateScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        items(localDirs, key = { it.versionId }) { packdir ->
-                            ModpackManageCard(
-                                packdir = packdir,
-                                selected = packdir.versionId == selectedPack?.versionId ||
-                                        (packdir.vo.id.toHexString() == modpackIdText && packdir.verName == packVerText),
+                        items(serverModpacks, key = { it.id.toHexString() }) { modpack ->
+                            ModpackSelectCard(
+                                modpack = modpack,
+                                selected = modpack.id.toHexString() == modpackIdText,
                                 onClick = if (isEditMode()) {
                                     null
                                 } else {
                                     {
-                                        selectedPack = packdir
-                                        currentMcVersion = packdir.vo.mcVer
-                                        modpackIdText = packdir.vo.id.toHexString()
-                                        packVerText = packdir.verName
+                                        currentMcVersion = null
+                                        modpackIdText = modpack.id.toHexString()
                                         if (levelChoice == 2) {
-                                            levelType = skyblockLevelType(packdir.vo.mcVer)
+                                            levelType = skyblockLevelType(null)
                                         }
                                     }
                                 }
@@ -476,7 +445,7 @@ fun HostNewCreateScreen(
                 }
 
                 1 -> {
-                    Text("超30天无人游玩房间会被自动删除（不删存档）届时需重新创建")
+                    Text("注意：一个月没人玩的房间 会被随机删除")
                     Column(modifier = Modifier.fillMaxWidth()) {
                         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                             val compactTopLayout = maxWidth < 1280.dp
@@ -673,7 +642,7 @@ fun HostNewCreateScreen(
                                         maxItemsInEachRow = if (compactOptions) 1 else 4
                                     ) {
                                         RowV {
-                                            Text("选择要使用的存档", fontWeight = FontWeight.Bold)
+                                            Text("存档", fontWeight = FontWeight.Bold)
                                             if (worlds.size < 5) {
                                                 RadioButton(
                                                     selected = selectedWorldId == null && !noSave,
@@ -694,12 +663,12 @@ fun HostNewCreateScreen(
                                             Text("不保存任何数据")
                                             if (noSave) {
                                                 Space8w()
-                                                Text("仅限测试整合包使用 谨慎选择", color = MaterialColor.RED_900.color)
+                                                Text("仅限测试整合包使用 谨慎选择", color = MaterialTheme.colorScheme.error)
                                             }
                                         }
                                     }
                                 }
-                                Space8h()
+                                /*Space8h()
                                 LazyVerticalGrid(
                                     columns = GridCells.Adaptive(minSize = 260.dp),
                                     modifier = Modifier
@@ -715,9 +684,9 @@ fun HostNewCreateScreen(
                                                 .border(
                                                     width = if (world.id == selectedWorldId) 2.dp else 1.dp,
                                                     color = if (world.id == selectedWorldId) {
-                                                        MaterialColor.PURPLE_500.color
+                                                        themeNow.primary
                                                     } else {
-                                                        MaterialColor.GRAY_200.color
+                                                        themeNow.outlineVariant
                                                     },
                                                     shape = RoundedCornerShape(16.dp)
                                                 )
@@ -732,7 +701,7 @@ fun HostNewCreateScreen(
                                             )
                                         }
                                     }
-                                }
+                                }*/
                             }
                         }
                     }

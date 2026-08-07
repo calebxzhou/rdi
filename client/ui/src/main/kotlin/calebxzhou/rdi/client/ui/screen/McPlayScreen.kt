@@ -49,7 +49,7 @@ import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.ui.McGameSession
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.McPlayStore
@@ -250,7 +250,7 @@ fun McPlayScreen(
                         /*CircleIconButton(
                             icon = "\uE0CA",
                             tooltip = "AI陪玩",
-                            bgColor = MaterialColor.PURPLE_700.color
+                            bgColor = themeNow.secondary
                         ) {
                             onOpenAiChat(session.args.mcpPort, session.args.versionDir)
                         }*/
@@ -259,14 +259,19 @@ fun McPlayScreen(
                         session.requestStop()
                         startSession(session.args, allowDuplicateVersion = true)
                     }
-                    CircleIconButton("\uF04D", "终止MC", bgColor = MaterialColor.ORANGE_900.color) {
+                    CircleIconButton(
+                        "\uF04D",
+                        "终止MC",
+                        bgColor = themeNow.error,
+                        iconColor = themeNow.onError
+                    ) {
                         stopSession(session,force = true)
                     }
                 }
             }
             ContentBody {
                 if (sessions.isEmpty()) {
-                    Text("没有可显示的游戏", color = MaterialColor.GRAY_700.color)
+                    Text("没有可显示的游戏", color = themeNow.onSurfaceVariant)
                 } else {
                     FlowRow(
                         modifier = Modifier.fillMaxWidth(),
@@ -353,10 +358,11 @@ private fun McSessionChip(
     }
 }
 
+@Composable
 private fun sessionStatusColor(session: McGameSession) = when {
-    session.preparing -> MaterialColor.BLUE_700.color
-    session.isAlive() -> MaterialColor.GREEN_800.color
-    else -> MaterialColor.GRAY_700.color
+    session.preparing -> themeNow.tertiary
+    session.isAlive() -> themeNow.primary
+    else -> themeNow.onSurfaceVariant
 }
 
 private fun appendSyncProgress(session: McGameSession, progress: Task2Progress) {

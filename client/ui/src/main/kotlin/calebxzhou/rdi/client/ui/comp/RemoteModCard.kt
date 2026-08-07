@@ -30,7 +30,7 @@ import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.RemoteModCardVo
 import calebxzhou.rdi.client.model.RemoteModSource
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzhou.rdi.client.ui.loadResourceBitmap
 import calebxzau.rdi.client.ui.baseRoundCornerShape
@@ -51,8 +51,8 @@ fun RemoteModCard(
         shape = baseRoundCornerShape,
         color = MaterialTheme.colorScheme.surface,
         shadowElevation = 1.dp,
-        border = BorderStroke(1.dp, MaterialColor.GRAY_200.color),
-        onClick = onClick?:{}
+        border = BorderStroke(1.dp, themeNow.outlineVariant),
+        onClick = onClick ?: {}
     ) {
         Column(
             modifier = Modifier.padding(contentPadding),
@@ -97,7 +97,7 @@ fun RemoteModCard(
                         RemoteModStat("\uF019", mod.downloadsText, compact)
                         mod.followsText?.let { RemoteModStat("\uDB80\uDED1", it, compact) }
                         Spacer(modifier = Modifier.weight(1f))
-                       // mod.modifiedText?.let { RemoteModStat("\uE641", it) }
+                        // mod.modifiedText?.let { RemoteModStat("\uE641", it) }
                     }
                 }
             }
@@ -112,7 +112,7 @@ private fun RemoteModIcon(mod: RemoteModCardVo, size: androidx.compose.ui.unit.D
     Surface(
         modifier = Modifier.size(size),
         shape = baseRoundCornerShape,
-        color = MaterialColor.GRAY_200.color,
+        color = themeNow.surfaceContainerHighest,
         shadowElevation = 1.dp
     ) {
         mod.iconUrl?.takeIf(String::isNotBlank)?.let { url ->
@@ -125,14 +125,14 @@ private fun RemoteModIcon(mod: RemoteModCardVo, size: androidx.compose.ui.unit.D
         } ?: androidx.compose.foundation.layout.Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(MaterialColor.BLUE_GRAY_100.color),
+                .background(themeNow.surfaceVariant),
             contentAlignment = Alignment.Center
         ) {
             Text(
                 text = mod.title.firstOrNull()?.uppercaseChar()?.toString() ?: "M",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
-                color = MaterialColor.GRAY_800.color
+                color = themeNow.onSurface
             )
         }
     }
@@ -170,7 +170,7 @@ private fun RemoteModIconChip(
     Surface(
         shape = RoundedCornerShape(8.dp),
         color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialColor.GRAY_300.color)
+        border = BorderStroke(1.dp, themeNow.outlineVariant)
     ) {
         Row(
             modifier = Modifier.padding(horizontal = if (text == null) 8.dp else 10.dp, vertical = 5.dp),
@@ -186,7 +186,7 @@ private fun RemoteModIconChip(
             text?.let {
                 Text(
                     text = it,
-                    color = MaterialColor.GRAY_800.color,
+                    color = themeNow.onSurface,
                     style = MaterialTheme.typography.bodyMedium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -204,12 +204,10 @@ private fun RemoteModStat(icon: String, text: String, compact: Boolean = false) 
     ) {
         Text(
             text = icon.asIconText,
-            color = MaterialColor.GRAY_900.color,
             style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
         )
         Text(
             text = text,
-            color = MaterialColor.GRAY_900.color,
             style = if (compact) MaterialTheme.typography.bodySmall else MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis

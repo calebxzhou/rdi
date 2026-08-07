@@ -118,7 +118,7 @@ object EmailService {
                 parseOperationReceiptId(email.subject)?.let { targetId -> email to targetId }
             }.getOrElse { error ->
                 if(DEBUG) error.printStackTrace()
-                lgr.warn { "skip operation email uid=${email.uid} subject=${email.subject}: ${error.message}" }
+                lgr.debug { "skip operation email uid=${email.uid} subject=${email.subject}: ${error.message}" }
                 null
             }
         }

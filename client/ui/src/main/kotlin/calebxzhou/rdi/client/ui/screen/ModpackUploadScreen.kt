@@ -2,6 +2,7 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -10,7 +11,14 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.AlertErr
 import calebxzau.rdi.client.ui.AlertWarn
@@ -23,6 +31,7 @@ import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.currentJavaMajor
 import calebxzau.rdi.client.ui.pickLocalDirectory
 import calebxzau.rdi.client.ui.pickLocalModpackFile
@@ -119,6 +128,8 @@ fun ModpackUploadScreen(
     var selectedUpdateTarget by remember { mutableStateOf<Modpack.BriefVo?>(null) }
     var showUploadModeDialog by remember { mutableStateOf(false) }
     var pendingMissingModDownload by remember { mutableStateOf<PendingMissingModDownload?>(null) }
+    var ignoreModpackTest by remember { mutableStateOf(IGNORE_MODPACK_TEST) }
+    val focusRequester = remember { FocusRequester() }
     val taskEntries by ClientTaskManager.entries.collectAsState()
     val downloadTaskEntry = remember(taskEntries, downloadTaskRunId) {
         downloadTaskRunId?.let { runId -> taskEntries.firstOrNull { it.runId == runId } }
@@ -129,8 +140,8 @@ fun ModpackUploadScreen(
     val serverTestStatus = serverTester?.status?.collectAsState()
     val serverTestPassSeconds = serverTester?.passSeconds?.collectAsState()
     val serverTestConsoleState = remember { ConsoleState() }
-    val allowUploadWithoutTests = DEBUG || IGNORE_MODPACK_TEST
-    val canSubmitUpload = IGNORE_MODPACK_TEST || (
+    val allowUploadWithoutTests = DEBUG || ignoreModpackTest
+    val canSubmitUpload = ignoreModpackTest || (
             !loading &&
                     downloadTaskRunId == null &&
                     serverTester?.isRunning() == false &&
@@ -145,6 +156,11 @@ fun ModpackUploadScreen(
     fun resetTestState() {
         clientTestConsoleState.clear()
         serverTestConsoleState.clear()
+    }
+
+    fun enableIgnoreModpackTest() {
+        System.setProperty("rdi.ignoreModpackTest", "true")
+        ignoreModpackTest = true
     }
 
     fun loadUploadedModpacks(openDialogAfterLoad: Boolean = false) {
@@ -221,6 +237,10 @@ fun ModpackUploadScreen(
             clientTester?.dispose(scope)
             serverTester?.dispose(scope)
         }
+    }
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
     }
 
     LaunchedEffect(downloadTaskEntry?.status) {
@@ -584,7 +604,20 @@ fun ModpackUploadScreen(
     }
 
     MaxBox {
-        ScreenContentSurface(size = ScreenContentSize.LARGE) {
+        ScreenContentSurface(
+            size = ScreenContentSize.LARGE,
+            modifier = Modifier
+                .focusRequester(focusRequester)
+                .focusable()
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown && event.key == Key.MoveHome) {
+                        enableIgnoreModpackTest()
+                        true
+                    } else {
+                        false
+                    }
+                }
+        ) {
             TitleRow(
                 title = title,
                 onBack = ::handleBack
@@ -615,7 +648,7 @@ fun ModpackUploadScreen(
                     CircleIconButton(
                         "\uF058",
                         "开始传包",
-                        bgColor = MaterialColor.GREEN_900.color,
+                        bgColor = themeNow.primary,
                         enabled = canSubmitUpload,
                         onClick = ::startUploadTask
                     )
@@ -625,7 +658,7 @@ fun ModpackUploadScreen(
 
             ContentBody {
                 errorText?.let { AlertErr(it) }
-                if (IGNORE_MODPACK_TEST) {
+                if (ignoreModpackTest) {
                     AlertWarn("已启用rdi.ignoreModpackTest=true，当前允许跳过客户端测试(client test)和服务端测试(server test)直接上传")
                 }
 
@@ -924,13 +957,13 @@ private fun TestConsolePane(
                 CircleIconButton(
                     "\uF04B",
                     "启动测试",
-                    bgColor = MaterialColor.GREEN_900.color,
+                    bgColor = themeNow.primary,
                     onClick = onStart
                 )
                 CircleIconButton(
                     "\uF04D",
                     "停止测试",
-                    bgColor = MaterialColor.RED_900.color,
+                    bgColor = MaterialTheme.colorScheme.error,
                     onClick = onStop
                 )
             }

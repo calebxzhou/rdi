@@ -95,3 +95,5 @@ fun RTheme(content: @Composable () -> Unit) {
         content = content
     )
 }
+val themeNow @Composable
+get() = MaterialTheme.colorScheme

@@ -12,10 +12,13 @@ import calebxzau.rdi.client.ui.loadResourceStream
 import calebxzhou.rdi.common.archive.PackArchiveFormat
 import calebxzhou.rdi.common.archive.detectArchiveFormat
 import calebxzhou.rdi.common.archive.extractArchiveToDir
+import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
+import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.util.str
+import io.ktor.client.request.*
 import io.ktor.http.*
 import kotlinx.coroutines.*
 import org.bson.types.ObjectId
@@ -33,6 +36,23 @@ object ModpackService {
 
     fun getVersionDir(modpackId: ObjectId, verName: String): java.io.File {
         return ClientDirs.versionsDir.resolve("${modpackId}_${verName}")
+    }
+
+    suspend fun getBriefInfos(ids: List<ObjectId>): Result<List<Modpack.BriefVo>> {
+        if (ids.isEmpty()) return Result.success(emptyList())
+        return try {
+            val response = server.makeRequest<List<Modpack.BriefVo>>("modpack/infos", HttpMethod.Post) {
+                json()
+                setBody(ids.json)
+            }
+            if (!response.ok) throw RequestError(response.msg)
+            Result.success(response.data.orEmpty())
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Throwable) {
+            lgr.warn(cause) { "批量获取整合包简介失败" }
+            Result.failure(cause)
+        }
     }
 
     private fun clientPackZipFile(modpackId: ObjectId, verName: String): File =
@@ -519,31 +539,42 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
 private fun isClientInstallableMod(mod: Mod): Boolean =
     mod.side != Mod.Side.SERVER && mod.side != Mod.Side.UNKNOWN
 
-suspend fun ModpackService.getLocalPackDirs(): List<ModpackLocalDir> = coroutineScope {
+private data class LocalPackRef(
+    val dir: File,
+    val modpackId: ObjectId,
+    val verName: String
+)
+
+suspend fun ModpackService.getLocalPackDirs(): List<ModpackLocalDir> {
     val pattern = Regex("^([0-9a-fA-F]{24})_(.+)$")
     val dirs = GameService.versionListDir.listFiles()?.asSequence()
         ?.filter { it.isDirectory }
         ?.toList()
-        ?: return@coroutineScope emptyList()
-    val deferred = dirs.mapNotNull { dir ->
-        val match = pattern.matchEntire(dir.name) ?: return@mapNotNull null
-        val (idStr, verName) = match.destructured
-        async {
-            val vo = runCatching {
-                val response = server.makeRequest<Modpack.BriefVo>("modpack/${idStr}/brief")
-                response.data ?: error(response.msg)
-            }.getOrElse {
-                lgr.warn(it) { "读取本地整合包${dir.name}元数据失败，将跳过该目录" }
-                return@async null
-            }
-            val createTime = runCatching {
-                java.nio.file.Files.readAttributes(
-                    dir.toPath(),
-                    java.nio.file.attribute.BasicFileAttributes::class.java
-                ).creationTime().toMillis()
-            }.getOrElse { dir.lastModified() }
-            ModpackLocalDir(dir, verName, vo, createTime)
+        ?: return emptyList()
+    val refs = dirs.mapNotNull { dir ->
+        pattern.matchEntire(dir.name)?.destructured?.let { (idStr, verName) ->
+            LocalPackRef(dir, ObjectId(idStr), verName)
         }
     }
-    deferred.awaitAll().filterNotNull()
+
+    if (refs.isEmpty()) return emptyList()
+    val briefs = ModpackService.getBriefInfos(refs.map { it.modpackId }.distinct()).getOrElse {
+        lgr.warn(it) { "读取本地整合包元数据失败，将跳过本地整合包" }
+        return emptyList()
+    }
+    val briefsById = briefs.associateBy { it.id }
+    return refs.mapNotNull { ref ->
+        val vo = briefsById[ref.modpackId]
+        if (vo == null) {
+            lgr.warn { "本地整合包${ref.dir.name}在服务器不存在，将跳过该目录" }
+            return@mapNotNull null
+        }
+        val createTime = runCatching {
+            java.nio.file.Files.readAttributes(
+                ref.dir.toPath(),
+                java.nio.file.attribute.BasicFileAttributes::class.java
+            ).creationTime().toMillis()
+        }.getOrElse { ref.dir.lastModified() }
+        ModpackLocalDir(ref.dir, ref.verName, vo, createTime)
+    }
 }

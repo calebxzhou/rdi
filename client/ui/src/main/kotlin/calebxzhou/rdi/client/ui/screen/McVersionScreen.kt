@@ -27,6 +27,7 @@ import calebxzhou.rdi.client.model.firstLoader
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.ui.*
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.ui.comp.McVersionCard
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
@@ -249,7 +250,6 @@ private fun McVersionActionRow(
     ) {
         Text(
             text = selected?.let { "已选择MC ${it.mcVer}" } ?: "请选择MC版本",
-            color = if (selected == null) MaterialColor.GRAY_700.color else MaterialColor.GRAY_900.color,
             style = MaterialTheme.typography.titleMedium
         )
         RowV(
@@ -276,7 +276,7 @@ private fun McVersionActionRow(
                     CircleIconButton(
                         icon = "\uEEFF",
                         label = "更新${loader.name.lowercase()}",
-                        bgColor = MaterialColor.TEAL_900.color,
+                        bgColor = themeNow.tertiary,
                         enabled = enabled
                     ) {
                         onInstallLoader(selected, loader)

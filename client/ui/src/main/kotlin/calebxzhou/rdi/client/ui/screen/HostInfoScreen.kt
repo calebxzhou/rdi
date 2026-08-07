@@ -32,36 +32,22 @@ import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TinyClickCopyText
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
-import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.GithubExtraModService
 import calebxzhou.rdi.client.service.GithubRelease
 import calebxzhou.rdi.client.service.GithubReleaseAsset
 import calebxzhou.rdi.client.service.GithubRepoRef
 import calebxzhou.rdi.client.ui.*
-import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.model.isAdmin
 import calebxzhou.rdi.common.serdesJson
-import calebxzhou.rdi.common.service.TaczGunpackValidator
-import io.ktor.client.request.forms.*
-import io.ktor.client.request.setBody
 import io.ktor.http.*
-import io.ktor.utils.io.streams.asInput
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.io.buffered
 import org.bson.types.ObjectId
-import java.io.File
 import java.net.URI
-
-internal const val TACZ_ROOT_DIR = "tacz"
-private const val TACZ_MOD_SLUG = "timeless-and-classics-zero"
-internal const val TACZ_FILE_MAX_BYTES: Long = 100L * 1024 * 1024
-internal const val TACZ_MAX_ZIP_FILES = 10
 
 /**
  * calebxzhou @ 2026-01-15 19:38
@@ -221,9 +207,6 @@ private fun HostScreen(
         ?.mods
         ?.filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }
         .orEmpty()
-    val hasTacz = (extraMods + baseVersionMods)
-        .filterNot { mod -> disabledMods.any { sameMod(it, mod) } }
-        .any { it.normalizedSlug == TACZ_MOD_SLUG }
     fun switchExtraModPlatform(platform: String) {
         extraModPlatform = platform
         addExtraModDialogError = null
@@ -352,7 +335,7 @@ private fun HostScreen(
 
                 host == null -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(text = errorMessage ?: "无法加载房间信息", color = MaterialColor.RED_900.color)
+                        Text(text = errorMessage ?: "无法加载房间信息", color = MaterialTheme.colorScheme.error)
                     }
                 }
 
@@ -375,7 +358,6 @@ private fun HostScreen(
                                     extraMods = extraMods,
                                     baseVersionMods = baseVersionMods,
                                     disabledMods = disabledMods,
-                                    hasTacz = hasTacz,
                                     canManage = canManageExtraMods,
                                     addExtraModLoading = addExtraModLoading,
                                     addExtraModLoadingText = addExtraModLoadingText,
@@ -436,7 +418,7 @@ private fun HostScreen(
                                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("平台", color = MaterialColor.GRAY_700.color)
+                                Text("平台", color = themeNow.onSurfaceVariant)
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     M3RadioButton(
                                         selected = extraModPlatform == "github",
@@ -486,7 +468,7 @@ private fun HostScreen(
                                             )
                                             Text(
                                                 text = "选择要添加的Mod。务必选择正确的文件，否则房间将无法启动。详见群文档附加Mod章节",
-                                                color = MaterialColor.GRAY_700.color,
+                                                color = themeNow.onSurfaceVariant,
                                                 fontSize = 14.sp
                                             )
                                         }
@@ -507,7 +489,7 @@ private fun HostScreen(
                                         Text(
                                             text = release.name.ifBlank { release.tagName },
                                             fontSize = 17.sp,
-                                            color = MaterialColor.GRAY_900.color
+                                            
                                         )
                                     }
                                     items(release.assets, key = { it.key }) { asset ->
@@ -525,7 +507,7 @@ private fun HostScreen(
                                 item {
                                     Text(
                                         text = selectedGithubAsset?.let { "已选择 ${it.name}" } ?: "请选择1个jar文件",
-                                        color = if (selectedGithubAsset == null) MaterialColor.GRAY_700.color else MaterialColor.PURPLE_700.color
+                                        color = if (selectedGithubAsset == null) themeNow.onSurfaceVariant else themeNow.primary
                                     )
                                 }
                             }
@@ -586,7 +568,7 @@ private fun HostScreen(
                                 horizontalArrangement = Arrangement.spacedBy(18.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("使用侧", color = MaterialColor.GRAY_700.color)
+                                Text("使用侧", color = themeNow.onSurfaceVariant)
                                 listOf(Mod.Side.BOTH, Mod.Side.CLIENT, Mod.Side.SERVER).forEach { side ->
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         M3RadioButton(
@@ -608,7 +590,7 @@ private fun HostScreen(
                         if (addExtraModLoading && addExtraModLoadingText.isNotBlank()) {
                             Text(
                                 text = addExtraModLoadingText,
-                                color = MaterialColor.GRAY_700.color,
+                                color = themeNow.onSurfaceVariant,
                                 modifier = Modifier.weight(1f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
@@ -618,7 +600,7 @@ private fun HostScreen(
                         addExtraModDialogError?.let {
                             Text(
                                 text = it,
-                                color = MaterialColor.RED_900.color,
+                                color = MaterialTheme.colorScheme.error,
                                 modifier = Modifier.weight(1f),
                                 maxLines = 2,
                                 overflow = TextOverflow.Ellipsis
@@ -710,7 +692,7 @@ private fun GithubReleaseAssetRow(
     enabled: Boolean,
     onClick: () -> Unit
 ) {
-    val bg = if (selected) MaterialColor.PURPLE_50.color else MaterialColor.GRAY_50.color
+    val bg = if (selected) themeNow.secondaryContainer else themeNow.onSecondary
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -729,14 +711,13 @@ private fun GithubReleaseAssetRow(
             )
             Text(
                 text = "${asset.releaseTag} · ${asset.sizeText}",
-                color = MaterialColor.GRAY_700.color,
                 fontSize = 13.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
         }
         if (selected) {
-            Text("已选", color = MaterialColor.PURPLE_700.color)
+            Text("已选")
         }
     }
 }
@@ -826,71 +807,3 @@ fun extraModSlugIdentity(mod: Mod): String = mod.normalizedSlug.ifBlank {
     mod.normalizedProjectId.lowercase()
 }
 
-fun Host.FileEntry.isTaczZipFileEntry(): Boolean =
-    !directory && name.endsWith(".zip", ignoreCase = true)
-
-fun hostTaczChildPath(fileName: String): String {
-    val normalizedName = fileName.replace('\\', '/').substringAfterLast('/').trim()
-    require(normalizedName.isNotBlank()) { "文件名不能为空" }
-    return "$TACZ_ROOT_DIR/$normalizedName"
-}
-
-fun createHostTaczUploadTask(
-    hostId: ObjectId,
-    files: List<File>,
-    onUploaded: suspend () -> Unit
-): Task2 {
-    val uploadTasks = files.map { file ->
-        Task2.Leaf("上传${file.name}") { ctx ->
-            ctx.emit(Task2Progress("校验${file.name}", 0f))
-            withContext(Dispatchers.IO) {
-                TaczGunpackValidator.validate(file).getOrThrow()
-            }
-            ctx.ensureActive()
-            ctx.emit(Task2Progress("上传${file.name}", 0.4f))
-            uploadHostFile(
-                hostId = hostId,
-                targetPath = hostTaczChildPath(file.name),
-                file = file
-            )
-            ctx.emit(Task2Progress("完成${file.name}", 1f))
-        }
-    }
-    return Task2.Sequence(
-        title = "上传TaCZ枪包${files.size}个",
-        children = uploadTasks + Task2.Leaf("刷新TaCZ枪包列表") { ctx ->
-            ctx.emit(Task2Progress("刷新TaCZ枪包列表", 0f))
-            onUploaded()
-            ctx.emit(Task2Progress("刷新完成", 1f))
-        }
-    )
-}
-
-private suspend fun uploadHostFile(
-    hostId: ObjectId,
-    targetPath: String,
-    file: File
-): Host.FileUploadVo {
-    val multipartContent = MultiPartFormDataContent(
-        formData {
-            append("path", targetPath)
-            append(
-                key = "file",
-                value = InputProvider { file.inputStream().asInput().buffered() },
-                headers = Headers.build {
-                    append(HttpHeaders.ContentType, ContentType.Application.OctetStream.toString())
-                    append(HttpHeaders.ContentDisposition, "filename=\"${file.name.replace("\"", "")}\"")
-                }
-            )
-        }
-    )
-    val response = server.makeRequest<Host.FileUploadVo>(
-        path = "host/$hostId/files/file",
-        method = HttpMethod.Post,
-        params = mapOf("path" to targetPath)
-    ) {
-        setBody(multipartContent)
-    }
-    if (!response.ok) throw RequestError(response.msg)
-    return response.data ?: throw RequestError("上传TaCZ枪包失败")
-}

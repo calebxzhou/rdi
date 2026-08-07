@@ -22,7 +22,6 @@ import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.RVerticalScrollbar
 import calebxzhou.rdi.common.model.Mail
@@ -96,7 +95,7 @@ fun MailDetailPanel(
                 CircleIconButton(
                     icon = "\uEA81",
                     label = "删除邮件",
-                    bgColor = MaterialColor.RED_900.color,
+                    bgColor = MaterialTheme.colorScheme.error,
                 ) {
                     scope.launch {
                         val response = withContext(Dispatchers.IO) {

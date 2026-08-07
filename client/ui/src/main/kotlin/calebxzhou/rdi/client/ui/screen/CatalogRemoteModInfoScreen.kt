@@ -78,7 +78,7 @@ import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.RemoteModDownloadService
 import calebxzhou.rdi.client.service.getLocalPackDirs
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.ui.McPlayStore
 import calebxzhou.rdi.client.ui.comp.CatalogModCard
 import calebxzhou.rdi.client.ui.comp.WebPagePane
@@ -339,7 +339,7 @@ private fun RemoteModInfoContent(
     androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
         MainColumn {
             TitleRow(title, onBack) {
-                Text("\uF019 ${mod.downloadCount}".asIconText, color = MaterialColor.GRAY_900.color)
+                Text("\uF019 ${mod.downloadCount}".asIconText, )
                 if (selectedTab == 0) {
                     Space8w()
                     if (targetLocalPack != null) {
@@ -551,7 +551,7 @@ private fun CatalogFileRow(
                     },
                     showText = false,
                     enabled = downloadEnabled,
-                    bgColor = MaterialColor.GREEN_700.color
+                    bgColor = themeNow.primary
                 ) {
                     onDownload()
                 }

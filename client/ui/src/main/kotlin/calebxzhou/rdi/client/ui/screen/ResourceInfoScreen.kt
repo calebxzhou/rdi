@@ -65,7 +65,7 @@ import calebxzau.rdi.client.ui.MainColumn
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
@@ -307,7 +307,7 @@ private fun ShaderDownloadVersionRow(
             }
         }
         if (compatibleVersions.isEmpty()) {
-            Text("没有兼容版本", color = MaterialColor.GRAY_700.color)
+            Text("没有兼容版本", color = themeNow.onSurfaceVariant)
         } else {
             FlowRow(
                 modifier = Modifier
@@ -363,7 +363,7 @@ private fun ShaderGalleryGrid(
 ) {
     if (project.gallery.isEmpty()) {
         Box(modifier, contentAlignment = Alignment.Center) {
-            Text("暂无相册图片", color = MaterialColor.GRAY_700.color)
+            Text("暂无相册图片", color = themeNow.onSurfaceVariant)
         }
         return
     }
@@ -444,7 +444,6 @@ private fun ShaderImagePreviewDialog(
                     gallery.name?.takeIf(String::isNotBlank)?.let {
                         Text(
                             text = it,
-                            color = MaterialColor.GRAY_900.color,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
@@ -454,7 +453,8 @@ private fun ShaderImagePreviewDialog(
                         icon = "\uE8C8",
                         tooltip = "复制链接",
                         showText = false,
-                        bgColor = MaterialColor.GRAY_700.color
+                        bgColor = themeNow.surfaceVariant,
+                        iconColor = themeNow.onSurfaceVariant
                     ) {
                         copyToClipboard(imageUrl)
                     }
@@ -472,7 +472,7 @@ private fun ShaderImagePreviewDialog(
                         icon = "\uE5CD",
                         tooltip = "关闭",
                         showText = false,
-                        bgColor = MaterialColor.RED_700.color
+                        bgColor = MaterialTheme.colorScheme.error
                     ) {
                         onDismiss()
                     }
@@ -490,4 +490,3 @@ private fun ShaderImagePreviewDialog(
         }
     }
 }
-

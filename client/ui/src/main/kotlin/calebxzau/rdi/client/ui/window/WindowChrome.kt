@@ -36,6 +36,7 @@ import androidx.compose.ui.window.FrameWindowScope
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.WindowState
 import calebxzau.rdi.client.ui.CodeFontFamily
+import calebxzau.rdi.client.ui.ImageIconButton
 import calebxzau.rdi.client.ui.RDropdownMenuItem
 import calebxzau.rdi.client.ui.IconFontFamily
 import calebxzau.rdi.client.ui.UIFontFamily
@@ -45,6 +46,7 @@ import calebxzhou.rdi.client.ui.McGameSession
 import calebxzhou.rdi.client.ui.McPlayStore
 import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.baseShapeRadius
+import calebxzau.rdi.client.ui.openUrl
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.Task2DetailDialog
 import calebxzhou.rdi.common.model.RAccount
@@ -67,6 +69,7 @@ private val titleTextColor = Color(0xFF171A1F)
 private val windowButtonColor = Color(0xFF3F4652)
 private val windowButtonHover = Color(0xFFE9ECF2)
 private val closeButtonHover = Color(0xFFE81123)
+private const val MCMOD_BROWSER_URL = "https://play.mcmod.cn/sv20188037.html"
 
 @Composable
 fun FrameWindowScope.WindowChrome(
@@ -205,6 +208,16 @@ private fun TitleBar(
             }
 
             if (loggedIn) {
+                ImageIconButton(
+                    icon = "mcmod",
+                    tooltip = "MC百科",
+                    size = 28,
+                    bgColor = Color.Transparent,
+                    showText = false,
+                    contentPadding = PaddingValues(4.dp),
+                    onClick = { openUrl(MCMOD_BROWSER_URL) }
+                )
+                Spacer(Modifier.width(8.dp))
                 ChromeIconButton("\uF0E0", "邮件", onOpenMail)
                 Spacer(Modifier.width(8.dp))
             }
@@ -327,6 +340,14 @@ private fun AccountMenu(
                 onClick = {
                     expanded = false
                     onOpenPlayerInfo()
+                }
+            )
+            RDropdownMenuItem(
+                text = "衣柜",
+                icon = "\uEE1C",
+                onClick = {
+                    expanded = false
+                    onOpenWardrobe()
                 }
             )
             RDropdownMenuItem(

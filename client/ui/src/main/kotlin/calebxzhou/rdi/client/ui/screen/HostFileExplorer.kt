@@ -47,6 +47,7 @@ import androidx.compose.ui.unit.sp
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
+import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzau.rdi.client.codeeditor.CodeEditorValidation
 import calebxzau.rdi.client.codeeditor.CodeLanguage
 import calebxzau.rdi.client.codeeditor.validateCodeContent
@@ -56,12 +57,15 @@ import calebxzau.rdi.client.ui.RRow
 import calebxzau.rdi.client.ui.RThinTextField
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.asIconText
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.ui.comp.CodeEditor
 import calebxzhou.rdi.client.ui.comp.RVerticalScrollbar
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.util.toFriendlyDateTime
 import io.ktor.http.HttpMethod
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
 
 private val hostFileExplorerHeaderHeight = 42.dp
@@ -69,14 +73,24 @@ private val hostFileExplorerHeaderHeight = 42.dp
 @Composable
 fun HostFileExplorer(
     hostId: ObjectId,
-    modifier: Modifier = Modifier
-) = HostFileExplorer(hostId.toHexString(), "host", modifier)
+    modifier: Modifier = Modifier,
+    enableTaczUpload: Boolean = false,
+    onOpenTaskList: ((String) -> Unit)? = null
+) = HostFileExplorer(
+    hostId = hostId.toHexString(),
+    apiRoot = "host",
+    modifier = modifier,
+    enableTaczUpload = enableTaczUpload,
+    onOpenTaskList = onOpenTaskList
+)
 
 @Composable
 fun HostFileExplorer(
     hostId: String,
     apiRoot: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    enableTaczUpload: Boolean = false,
+    onOpenTaskList: ((String) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     var files by remember(hostId) { mutableStateOf<List<Host.FileEntry>>(emptyList()) }
@@ -96,9 +110,13 @@ fun HostFileExplorer(
     val dirty = selectedPath != null && editorText != originalText
 
     fun mergeHostFileEntries(parentPath: String, entries: List<Host.FileEntry>) {
-        files = (files
-            .filterNot { it.path.directParentPath() == parentPath }
-                + entries)
+        val retainedFiles = if (parentPath.isBlank()) {
+            val availableRootDirs = entries.filter { it.directory }.mapTo(mutableSetOf()) { it.path }
+            files.filter { it.path.substringBefore('/') in availableRootDirs }
+        } else {
+            files.filterNot { it.path.directParentPath() == parentPath }
+        }
+        files = (retainedFiles + entries)
             .distinctBy { it.path }
             .sortedWith(compareBy<Host.FileEntry> { it.path.count { ch -> ch == '/' } }.thenBy { it.path.lowercase() })
     }
@@ -326,6 +344,37 @@ fun HostFileExplorer(
         )
     }
 
+    fun uploadTaczFiles() {
+        val selectedFiles = selectHostTaczFiles() ?: return
+        val notZipFile = selectedFiles.firstOrNull { !it.extension.equals("zip", ignoreCase = true) }
+        if (notZipFile != null) {
+            errorMessage = "${notZipFile.name}不是zip文件，TaCZ枪包只允许上传zip"
+            return
+        }
+        if (selectedFiles.size > TACZ_MAX_ZIP_FILES) {
+            errorMessage = "TaCZ枪包最多只能上传${TACZ_MAX_ZIP_FILES}个zip文件"
+            return
+        }
+        val tooLargeFile = selectedFiles.firstOrNull { it.length() > TACZ_FILE_MAX_BYTES }
+        if (tooLargeFile != null) {
+            errorMessage = "${tooLargeFile.name}超过100MB，单个文件最大允许100MB"
+            return
+        }
+        val task = createHostTaczUploadTask(
+            hostId = hostId,
+            files = selectedFiles,
+            onUploaded = {
+                withContext(Dispatchers.Main) {
+                    statusMessage = "已上传TaCZ枪包文件${selectedFiles.size}个"
+                    loadFiles(path = TACZ_ROOT_DIR)
+                }
+            }
+        )
+        val runId = ClientTaskManager.submit(task)
+        onOpenTaskList?.invoke(runId)
+        statusMessage = "TaCZ枪包上传任务已加入任务列表"
+    }
+
     LaunchedEffect(hostId) {
         files = emptyList()
         selectedPath = null
@@ -372,7 +421,8 @@ fun HostFileExplorer(
                 onRenameFile = ::renameFile,
                 onDeleteFile = ::deleteFile,
                 onReloadList = { loadFiles(path = "") },
-                onSearchFiles = ::searchFiles
+                onSearchFiles = ::searchFiles,
+                onUploadTaczFiles = if (enableTaczUpload && apiRoot == "host") ::uploadTaczFiles else null
             )
         }
 
@@ -464,7 +514,8 @@ fun HostFileExplorer(
     onRenameFile: (String, String) -> Unit,
     onDeleteFile: (String) -> Unit,
     onReloadList: () -> Unit,
-    onSearchFiles: (String) -> Unit
+    onSearchFiles: (String) -> Unit,
+    onUploadTaczFiles: (() -> Unit)? = null
 ) {
     var sortColumn by remember { mutableStateOf(HostConfigSortColumn.PATH) }
     var sortAscending by remember { mutableStateOf(true) }
@@ -507,6 +558,7 @@ fun HostFileExplorer(
         directEntries.sortedForHostFileExplorer(sortColumn, sortAscending)
     }
     val loadingCurrentDir = loadingDirPath == currentDirPath
+    val uploadTaczAction = onUploadTaczFiles?.takeIf { currentDirPath == TACZ_ROOT_DIR }
 
     fun toggleSort(column: HostConfigSortColumn) {
         if (sortColumn == column) {
@@ -654,6 +706,7 @@ fun HostFileExplorer(
                                                     )
                                                 }
                                                 items(visibleDirNodes, key = { it.key }) { visibleNode ->
+                                                    val isTaczDirectory = visibleNode.node.path == TACZ_ROOT_DIR
                                                     HostConfigDirTreeRow(
                                                         name = visibleNode.node.name,
                                                         directory = visibleNode.node.directory,
@@ -677,21 +730,25 @@ fun HostFileExplorer(
                                                         },
                                                         onSelectFile = { onSelectFile(visibleNode.node.path) },
                                                         onOpenContextMenu = {
-                                                            if (visibleNode.node.directory) dirContextMenuPath = visibleNode.node.path
+                                                            if (visibleNode.node.directory && !isTaczDirectory) {
+                                                                dirContextMenuPath = visibleNode.node.path
+                                                            }
                                                         },
                                                         onDismissContextMenu = { dirContextMenuPath = null },
-                                                        onCreateFile = {
-                                                            openCreateDialog(parentPath = visibleNode.node.path, directory = false)
+                                                        onCreateFile = if (isTaczDirectory) null else {
+                                                            { openCreateDialog(parentPath = visibleNode.node.path, directory = false) }
                                                         },
-                                                        onCreateDirectory = {
-                                                            openCreateDialog(parentPath = visibleNode.node.path, directory = true)
+                                                        onCreateDirectory = if (isTaczDirectory) null else {
+                                                            { openCreateDialog(parentPath = visibleNode.node.path, directory = true) }
                                                         },
-                                                        onRename = {
-                                                            renameFromPath = visibleNode.node.path
-                                                            renameNameState.setTextAndPlaceCursorAtEnd(visibleNode.node.path.substringAfterLast('/'))
+                                                        onRename = if (isTaczDirectory) null else {
+                                                            {
+                                                                renameFromPath = visibleNode.node.path
+                                                                renameNameState.setTextAndPlaceCursorAtEnd(visibleNode.node.path.substringAfterLast('/'))
+                                                            }
                                                         },
-                                                        onDelete = {
-                                                            deletePath = visibleNode.node.path
+                                                        onDelete = if (isTaczDirectory) null else {
+                                                            { deletePath = visibleNode.node.path }
                                                         }
                                                     )
                                                 }
@@ -717,14 +774,32 @@ fun HostFileExplorer(
                                         .weight(1f)
                                         .fillMaxHeight(),
                                 ) {
-                                    HostConfigTableHeader(
-                                        sortColumn = sortColumn,
-                                        sortAscending = sortAscending,
+                                    Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .height(hostFileExplorerHeaderHeight),
-                                        onSortChange = ::toggleSort
-                                    )
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        HostConfigTableHeader(
+                                            sortColumn = sortColumn,
+                                            sortAscending = sortAscending,
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .fillMaxHeight(),
+                                            onSortChange = ::toggleSort
+                                        )
+                                        uploadTaczAction?.let { uploadAction ->
+                                            CircleIconButton(
+                                                icon = "\uF093",
+                                                tooltip = "上传TaCZ枪包",
+                                                showText = false,
+                                                bgColor = themeNow.primary,
+                                                enabled = !loadingCurrentDir,
+                                            ) {
+                                                uploadAction()
+                                            }
+                                        }
+                                    }
                                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                                     Box(modifier = Modifier.weight(1f)) {
                                         if (currentDirEntries.isEmpty()) {
@@ -1152,8 +1227,8 @@ private fun HostConfigDirTreeRow(
     contextMenuExpanded: Boolean,
     onOpenContextMenu: () -> Unit,
     onDismissContextMenu: () -> Unit,
-    onCreateFile: () -> Unit,
-    onCreateDirectory: () -> Unit,
+    onCreateFile: (() -> Unit)?,
+    onCreateDirectory: (() -> Unit)?,
     onRename: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null
 ) {
@@ -1212,7 +1287,7 @@ private fun HostConfigDirTreeRow(
                 fontWeight = if (directory) FontWeight.SemiBold else FontWeight.Normal
             )
         }
-        if (directory) {
+        if (directory && (onCreateFile != null || onCreateDirectory != null || onRename != null || onDelete != null)) {
             HostFileDirContextMenu(
                 expanded = contextMenuExpanded,
                 onDismissRequest = onDismissContextMenu,
@@ -1229,8 +1304,8 @@ private fun HostConfigDirTreeRow(
 private fun HostFileDirContextMenu(
     expanded: Boolean,
     onDismissRequest: () -> Unit,
-    onCreateFile: () -> Unit,
-    onCreateDirectory: () -> Unit,
+    onCreateFile: (() -> Unit)?,
+    onCreateDirectory: (() -> Unit)?,
     onRename: (() -> Unit)?,
     onDelete: (() -> Unit)?
 ) {
@@ -1238,20 +1313,24 @@ private fun HostFileDirContextMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest
     ) {
-        DropdownMenuItem(
-            text = { Text("新建文件") },
-            onClick = {
-                onDismissRequest()
-                onCreateFile()
-            }
-        )
-        DropdownMenuItem(
-            text = { Text("新建目录") },
-            onClick = {
-                onDismissRequest()
-                onCreateDirectory()
-            }
-        )
+        onCreateFile?.let { createFile ->
+            DropdownMenuItem(
+                text = { Text("新建文件") },
+                onClick = {
+                    onDismissRequest()
+                    createFile()
+                }
+            )
+        }
+        onCreateDirectory?.let { createDirectory ->
+            DropdownMenuItem(
+                text = { Text("新建目录") },
+                onClick = {
+                    onDismissRequest()
+                    createDirectory()
+                }
+            )
+        }
         if (onRename != null) {
             DropdownMenuItem(
                 text = { Text("重命名") },

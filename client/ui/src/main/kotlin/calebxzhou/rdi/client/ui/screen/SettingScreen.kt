@@ -23,6 +23,7 @@ import calebxzau.rdi.client.ui.RTextField
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.asIconText
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.rdi.client.*
 import calebxzhou.rdi.client.net.RServer
@@ -115,14 +116,14 @@ fun SettingScreen(
                     CircularProgressIndicator(
                         modifier = Modifier.size(28.dp),
                         strokeWidth = 3.dp,
-                        color = MaterialColor.GREEN_900.color
+                        color = themeNow.primary
                     )
                     Space8w()
                 }
                 CircleIconButton(
                     icon = "\uF0C7",
                     label = "保存",
-                    bgColor = MaterialColor.GREEN_900.color,
+                    bgColor = themeNow.primary,
                     enabled = !saving
                 ) {
                     if (saving) return@CircleIconButton
@@ -546,7 +547,7 @@ fun SettingScreen(
             CircleIconButton(
                 "\uDB80\uDC02",
                 if (switchingNode) "已切换节点" else "自动节点",
-                bgColor = MaterialColor.TEAL_900.color,
+                bgColor = themeNow.tertiary,
                 enabled = !switchingNode,
                 onClick = onAutoSwitchFastestNode
             )
@@ -560,7 +561,7 @@ fun SettingScreen(
             CircleIconButton(
                 "\uDB80\uDC02",
                 "临时主用节点",
-                bgColor = MaterialColor.TEAL_900.color,
+                bgColor = themeNow.tertiary,
                 enabled = !switchingNode,
                 onClick = onUseMainNode
             )

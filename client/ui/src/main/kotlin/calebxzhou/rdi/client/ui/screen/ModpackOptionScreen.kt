@@ -197,9 +197,9 @@ fun ModpackOptionScreen(
                             }
                         }
                         RRow {
-                            Text("自定义JVM参数", style = MaterialTheme.typography.titleMedium)
+                            Text("xtra jvm param", style = MaterialTheme.typography.titleMedium)
                             RTextField(
-                                label = "每行一个参数",
+                                label = "1line1param",
                                 value = draft.customJvmParams,
                                 modifier = Modifier
                                     .width(620.dp)

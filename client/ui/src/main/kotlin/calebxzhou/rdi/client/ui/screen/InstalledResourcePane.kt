@@ -10,6 +10,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.TextUnit
@@ -26,6 +27,7 @@ import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.openFolder
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
@@ -368,7 +370,7 @@ fun InstalledResourcePane(
                         HorizontalDivider()
                         RDropdownMenuItem(
                             text = "配置",
-                            icon = "\uE713",
+                            icon = "\uDB85\uDF81",
                             onClick = {
                                 menuExpanded = false
                                 resetLocalConfigEditorState()
@@ -377,8 +379,8 @@ fun InstalledResourcePane(
                             }
                         )
                         RDropdownMenuItem(
-                            text = "设置",
-                            icon = "\uE713",
+                            text = "高级",
+                            icon = "\uEDD3",
                             enabled = onOpenOptions != null,
                             onClick = {
                                 menuExpanded = false
@@ -504,7 +506,7 @@ fun InstalledResourcePane(
                 CircleIconButton(
                     "\uDB82\uDD5D",
                     "导入RDI整合包",
-                    bgColor = MaterialColor.GREEN_800.color,
+                    bgColor = themeNow.primary,
                 ) {
                     importRdiModpack()
                 }
@@ -619,9 +621,9 @@ fun InstalledResourcePane(
                                     else -> ""
                                 },
                                 color = when {
-                                    localConfigSyntaxErrorMessage != null -> MaterialColor.RED_800.color
-                                    localConfigDirty -> MaterialColor.ORANGE_900.color
-                                    else -> MaterialColor.GRAY_700.color
+                                    localConfigSyntaxErrorMessage != null -> MaterialTheme.colorScheme.error
+                                    localConfigDirty -> MaterialTheme.colorScheme.error
+                                    else -> Color.Black
                                 },
                                 style = MaterialTheme.typography.labelSmall,
                                 maxLines = 1,
@@ -648,7 +650,7 @@ fun InstalledResourcePane(
                                 enabled = selectedLocalConfigPath != null && localConfigDirty && !localConfigContentLoading &&
                                         !localConfigSaving && localConfigSyntaxErrorMessage == null,
                                 showText = false,
-                                bgColor = MaterialColor.GREEN_900.color
+                                bgColor = themeNow.primary
                             ) {
                                 if (localConfigSyntaxErrorMessage != null) {
                                     errorMessage = localConfigSyntaxErrorMessage
@@ -683,7 +685,7 @@ fun InstalledResourcePane(
                                             .padding(8.dp),
                                         contentAlignment = Alignment.Center
                                     ) {
-                                        Text("请选择左侧配置文件", color = MaterialColor.GRAY_700.color)
+                                        Text("请选择左侧配置文件", color = themeNow.onSurfaceVariant)
                                     }
                                 }
 

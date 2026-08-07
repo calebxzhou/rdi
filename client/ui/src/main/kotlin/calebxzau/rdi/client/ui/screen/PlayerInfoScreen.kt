@@ -34,13 +34,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.auth.AccountSessionStore
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.SettingsService
 import calebxzhou.rdi.client.service.playerInfoCache
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.comp.PlayerModel
 import calebxzhou.rdi.client.ui.comp.RPasswordField
 import calebxzhou.rdi.common.json
@@ -204,7 +204,7 @@ fun PlayerInfoScreen(onBack: () -> Unit) {
                             CircleIconButton(
                                 icon = "\uDB82\uDE50",
                                 label = "确认绑定",
-                                bgColor = MaterialColor.GREEN_900.color,
+                                bgColor = themeNow.primary,
                                 enabled = !pendingBind
                             ) {
                                 pendingBind = true

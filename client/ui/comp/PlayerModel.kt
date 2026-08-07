@@ -21,8 +21,8 @@ import calebxzhou.rdi.client.service.playermodel.GpuPlayerModelRenderService
 import calebxzhou.rdi.client.service.playermodel.PlayerModelRenderColor
 import calebxzhou.rdi.client.service.playermodel.PlayerTexturePixels
 import calebxzhou.rdi.client.ui.CircleIconButton
-import calebxzhou.rdi.client.ui.MaterialColor
 import calebxzhou.rdi.client.ui.decodeImageBitmap
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.common.net.httpRequest
 import io.ktor.client.request.url
 import io.ktor.client.statement.bodyAsBytes
@@ -133,7 +133,7 @@ fun PlayerModel(
                         CircleIconButton(
                             icon = "\uDB83\uDD98",
                             tooltip = if (autoRotateEnabled) "自动旋转：开" else "自动旋转：关",
-                            bgColor = if (autoRotateEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
+                            bgColor = if (autoRotateEnabled) themeNow.primary else themeNow.surfaceVariant,
                             size = 30,
                             showText = false
                         ) {
@@ -142,7 +142,7 @@ fun PlayerModel(
                         CircleIconButton(
                             icon = "\uEE1D",
                             tooltip = if (walkEnabled) "走路动画：开" else "走路动画：关",
-                            bgColor = if (walkEnabled) MaterialColor.GREEN_700.color else MaterialColor.GRAY_500.color,
+                            bgColor = if (walkEnabled) themeNow.primary else themeNow.surfaceVariant,
                             size = 30,
                             showText = false
                         ) {

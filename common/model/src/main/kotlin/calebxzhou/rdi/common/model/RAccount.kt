@@ -11,6 +11,7 @@ import java.util.UUID
 
 /*val account
     get() = RAccount.now ?: RAccount.DEFAULT.also { lgr.warn { "用户未登录 使用默认账号" } }*/
+const val DEFAULT_SKIN_URL = "https://littleskin.cn/textures/526fe866ed25a7ee1cf894b81a2199aaa03f139803623a25a793f6ae57e22f02"
 @Serializable
 data class RAccount(
     @Contextual
@@ -49,7 +50,7 @@ data class RAccount(
     @Serializable
     data class Cloth(
         var isSlim: Boolean = true,
-        var skin: String = "https://littleskin.cn/textures/526fe866ed25a7ee1cf894b81a2199aaa03f139803623a25a793f6ae57e22f02",
+        var skin: String = DEFAULT_SKIN_URL,
         var cape: String? = null
     )
     @Serializable

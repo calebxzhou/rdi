@@ -1,10 +1,7 @@
 package calebxzhou.rdi.client.ui.screen
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -13,16 +10,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.isShiftPressed
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.FlowRowV
-import calebxzau.rdi.client.ui.asIconText
-import calebxzhou.mykotutils.std.humanFileSize
-import calebxzhou.mykotutils.std.millisToHumanDateTime
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.model.uiModKey
@@ -31,7 +23,7 @@ import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.service.toUiMods
-import calebxzhou.rdi.client.ui.MaterialColor
+import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.client.ui.comp.ModGrid
@@ -44,8 +36,6 @@ import io.ktor.http.HttpMethod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
-
-private const val HOST_MODS_TACZ_TAB_INDEX = 3
 
 @Composable
 internal fun HostOverviewPane(
@@ -67,7 +57,6 @@ internal fun HostModsPane(
     extraMods: List<Mod>,
     baseVersionMods: List<Mod>,
     disabledMods: List<Mod>,
-    hasTacz: Boolean,
     canManage: Boolean,
     addExtraModLoading: Boolean,
     addExtraModLoadingText: String,
@@ -105,14 +94,10 @@ internal fun HostModsPane(
     LaunchedEffect(disabledMods) {
         selectedDisabledKeys = selectedDisabledKeys.intersect(disabledMods.map(::extraModKey).toSet())
     }
-    LaunchedEffect(hasTacz) {
-        if (!hasTacz && selectedTab == HOST_MODS_TACZ_TAB_INDEX) selectedTab = 0
-    }
-
     val selectedExtraMods = extraMods.filter { extraModKey(it) in selectedExtraKeys }
     val selectedBaseMods = baseVersionMods.filter { extraModKey(it) in selectedBaseKeys }
     val selectedDisabledMods = disabledMods.filter { extraModKey(it) in selectedDisabledKeys }
-    val activeTab = if (!hasTacz && selectedTab == HOST_MODS_TACZ_TAB_INDEX) 0 else selectedTab
+    val activeTab = selectedTab
     Column(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -124,13 +109,6 @@ internal fun HostModsPane(
             Tab(activeTab == 0, { selectedTab = 0 }, text = { Text("附加mod") })
             Tab(activeTab == 1, { selectedTab = 1 }, text = { Text("mod总表") })
             Tab(activeTab == 2, { selectedTab = 2 }, text = { Text("已停用的mod") })
-            if (hasTacz) {
-                Tab(
-                    activeTab == HOST_MODS_TACZ_TAB_INDEX,
-                    { selectedTab = HOST_MODS_TACZ_TAB_INDEX },
-                    text = { Text("TaCZ枪包") }
-                )
-            }
         }
         when (activeTab) {
             0 -> HostExtraModsPane(
@@ -212,13 +190,6 @@ internal fun HostModsPane(
                 }
             )
 
-            HOST_MODS_TACZ_TAB_INDEX -> HostTaczPackPane(
-                hostId = hostId,
-                canManage = canManage,
-                onOk = onOk,
-                onError = onError,
-                onOpenTaskList = onOpenTaskList
-            )
         }
     }
 }
@@ -265,13 +236,13 @@ internal fun HostConsolePane(
                     "\uF04B",
                     "启动",
                     showText = false,
-                    bgColor = MaterialColor.GREEN_900.color
+                    bgColor = themeNow.primary
                 ) { sendAction(HostRuntimeAction.Start) }
                 CircleIconButton(
                     "\uF120",
                     "发送命令",
                     showText = false,
-                    bgColor = MaterialColor.TEAL_900.color
+                    bgColor = themeNow.tertiary
                 ) {
                     commandResult = null
                     showCommandDialog = true
@@ -279,10 +250,10 @@ internal fun HostConsolePane(
                 CircleIconButton("\uF01E", "重启", showText = false, bgColor = MaterialTheme.colorScheme.primary) {
                     pendingAction = HostRuntimeAction.Restart
                 }
-                CircleIconButton("\uF04D", "停止", showText = false, bgColor = MaterialColor.RED_700.color) {
+                CircleIconButton("\uF04D", "停止", showText = false, bgColor = MaterialTheme.colorScheme.error) {
                     pendingAction = HostRuntimeAction.Stop
                 }
-                CircleIconButton("\uF05E", "强制停止", showText = false, bgColor = MaterialColor.RED_900.color) {
+                CircleIconButton("\uF05E", "强制停止", showText = false, bgColor = MaterialTheme.colorScheme.error) {
                     pendingAction = HostRuntimeAction.ForceStop
                 }
             }
@@ -384,11 +355,19 @@ private enum class HostRuntimeAction(
 }
 
 @Composable
-internal fun HostFilesPane(hostId: ObjectId, canManage: Boolean) {
+internal fun HostFilesPane(
+    hostId: ObjectId,
+    canManage: Boolean,
+    onOpenTaskList: ((String) -> Unit)? = null
+) {
     if (canManage) {
-        HostFileExplorer(hostId)
+        HostFileExplorer(
+            hostId = hostId,
+            enableTaczUpload = true,
+            onOpenTaskList = onOpenTaskList
+        )
     } else {
-        Text("仅房间管理员可查看文件", color = MaterialColor.GRAY_700.color)
+        Text("仅房间管理员可查看文件", color = themeNow.onSurfaceVariant)
     }
 }
 
@@ -416,7 +395,7 @@ internal fun HostExtraModsPane(
             FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = "已选择${selectedExtraMods.size}个",
-                    color = MaterialColor.GRAY_700.color
+                    color = themeNow.onSurfaceVariant
                 )
                 Checkbox(selectAllExtraMods, onCheckedChange = { onToggleSelectAll(it) })
                 Text("全选")
@@ -424,7 +403,7 @@ internal fun HostExtraModsPane(
                     icon = "\uF019",
                     label = "下载",
                     enabled = selectedExtraMods.isNotEmpty(),
-                    bgColor = MaterialColor.GREEN_900.color,
+                    bgColor = themeNow.primary,
                 ) {
                     onDownloadSelected()
                 }
@@ -433,7 +412,7 @@ internal fun HostExtraModsPane(
                         icon = "\uEA81",
                         label = "删除",
                         enabled = selectedExtraMods.isNotEmpty(),
-                        bgColor = MaterialColor.RED_900.color,
+                        bgColor = MaterialTheme.colorScheme.error,
                     ) {
                         onRemoveSelected()
                     }
@@ -454,7 +433,7 @@ internal fun HostExtraModsPane(
                                 "附加Mod"
                             },
                             enabled = !addExtraModLoading,
-                            bgColor = MaterialColor.PURPLE_700.color,
+                            bgColor = themeNow.secondary,
                         ) {
                             if (addExtraModShiftPressed) {
                                 onAddExtraModAdvanced()
@@ -474,7 +453,7 @@ internal fun HostExtraModsPane(
             ) {
                 Text(
                     text = "可以在整合包之外再添加更多Mod。",
-                    color = MaterialColor.GRAY_700.color,
+                    color = themeNow.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth()
                 )
                 actionRow()
@@ -487,7 +466,7 @@ internal fun HostExtraModsPane(
             ) {
                 Text(
                     text = "可以在整合包之外再添加更多Mod。",
-                    color = MaterialColor.GRAY_700.color,
+                    color = themeNow.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
                 actionRow()
@@ -505,13 +484,13 @@ internal fun HostExtraModsPane(
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 CircularProgressIndicator()
-                Text("正在载入附加Mod信息...", color = MaterialColor.GRAY_700.color)
+                Text("正在载入附加Mod信息...", color = themeNow.onSurfaceVariant)
             }
         }
     }
 
     if (!extraModsLoading && extraUiMods.isEmpty()) {
-        Text("当前没有附加Mod", color = MaterialColor.GRAY_700.color)
+        Text("当前没有附加Mod", color = themeNow.onSurfaceVariant)
     } else if (!extraModsLoading) {
         ModGrid(
             mods = extraUiMods,
@@ -556,7 +535,7 @@ internal fun HostModListPane(
             FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = "已选择${selectedModListMods.size}个",
-                    color = MaterialColor.GRAY_700.color
+                    color = themeNow.onSurfaceVariant
                 )
                 Checkbox(selectAllModListMods, onCheckedChange = { onToggleSelectAll(it) })
                 Text("全选")
@@ -564,7 +543,7 @@ internal fun HostModListPane(
                     icon = "\uF2ED",
                     label = "停用选中的mod",
                     enabled = selectedModListMods.isNotEmpty(),
-                    bgColor = MaterialColor.RED_900.color,
+                    bgColor = MaterialTheme.colorScheme.error,
                 ) {
                     onDisableSelected()
                 }
@@ -578,7 +557,7 @@ internal fun HostModListPane(
             ) {
                 Text(
                     text = "可以停用整合包中的mod",
-                    color = MaterialColor.GRAY_700.color,
+                    color = themeNow.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth()
                 )
                 actionRow()
@@ -591,7 +570,7 @@ internal fun HostModListPane(
             ) {
                 Text(
                     text = "可以停用整合包中的mod",
-                    color = MaterialColor.GRAY_700.color,
+                    color = themeNow.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
                 actionRow()
@@ -600,7 +579,7 @@ internal fun HostModListPane(
     }
 
     if (baseVersionMods.isEmpty()) {
-        Text("当前整合包版本没有可显示的Mod", color = MaterialColor.GRAY_700.color)
+        Text("当前整合包版本没有可显示的Mod", color = themeNow.onSurfaceVariant)
     } else {
         ModGrid(
             mods = uiMods,
@@ -647,7 +626,7 @@ internal fun HostDisabledModsPane(
             FlowRowV(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
                     text = "已选择${selectedDisabledMods.size}个",
-                    color = MaterialColor.GRAY_700.color
+                    color = themeNow.onSurfaceVariant
                 )
                 Checkbox(selectAllDisabledMods, onCheckedChange = { onToggleSelectAll(it) })
                 Text("全选")
@@ -655,7 +634,7 @@ internal fun HostDisabledModsPane(
                     icon = "\uF0E2",
                     label = "启用选中的mod",
                     enabled = selectedDisabledMods.isNotEmpty(),
-                    bgColor = MaterialColor.GREEN_900.color,
+                    bgColor = themeNow.primary,
                 ) {
                     onEnableSelected()
                 }
@@ -669,7 +648,7 @@ internal fun HostDisabledModsPane(
             ) {
                 Text(
                     text = "可以重新启用已停用的mod",
-                    color = MaterialColor.GRAY_700.color,
+                    color = themeNow.onSurfaceVariant,
                     modifier = Modifier.fillMaxWidth()
                 )
                 actionRow()
@@ -682,7 +661,7 @@ internal fun HostDisabledModsPane(
             ) {
                 Text(
                     text = "可以重新启用已停用的mod",
-                    color = MaterialColor.GRAY_700.color,
+                    color = themeNow.onSurfaceVariant,
                     modifier = Modifier.weight(1f)
                 )
                 actionRow()
@@ -691,7 +670,7 @@ internal fun HostDisabledModsPane(
     }
 
     if (disabledMods.isEmpty()) {
-        Text("当前没有停用mod", color = MaterialColor.GRAY_700.color)
+        Text("当前没有停用mod", color = themeNow.onSurfaceVariant)
     } else {
         ModGrid(
             mods = uiMods,
@@ -705,217 +684,5 @@ internal fun HostDisabledModsPane(
                 }
             } else null
         )
-    }
-}
-
-@Composable
-internal fun HostTaczPackPane(
-    hostId: ObjectId,
-    canManage: Boolean,
-    onOk: (String) -> Unit,
-    onError: (String) -> Unit,
-    onOpenTaskList: (String) -> Unit
-) {
-    val scope = rememberCoroutineScope()
-    var files by remember(hostId) { mutableStateOf<List<Host.FileEntry>>(emptyList()) }
-    var loading by remember(hostId) { mutableStateOf(false) }
-    var deletingPath by remember(hostId) { mutableStateOf<String?>(null) }
-    var deleteConfirmFile by remember(hostId) { mutableStateOf<Host.FileEntry?>(null) }
-
-    fun loadFiles() {
-        loading = true
-        scope.rdiRequest<List<Host.FileEntry>>(
-            path = "host/$hostId/files",
-            params = mapOf("path" to TACZ_ROOT_DIR),
-            onOk = { response ->
-                files = response.data.orEmpty().filter { it.isTaczZipFileEntry() }
-            },
-            onErr = { onError(it.message ?: "读取TaCZ枪包失败") },
-            onDone = { loading = false }
-        )
-    }
-
-    fun uploadFiles() {
-        if (!canManage) return
-        val selectedFiles = selectHostTaczFiles() ?: return
-        val notZipFile = selectedFiles.firstOrNull { !it.extension.equals("zip", ignoreCase = true) }
-        if (notZipFile != null) {
-            onError("${notZipFile.name}不是zip文件，TaCZ枪包只允许上传zip")
-            return
-        }
-        if (selectedFiles.size > TACZ_MAX_ZIP_FILES) {
-            onError("TaCZ枪包最多只能上传${TACZ_MAX_ZIP_FILES}个zip文件")
-            return
-        }
-        val tooLargeFile = selectedFiles.firstOrNull { it.length() > TACZ_FILE_MAX_BYTES }
-        if (tooLargeFile != null) {
-            onError("${tooLargeFile.name}超过100MB，单个文件最大允许100MB")
-            return
-        }
-        val task = createHostTaczUploadTask(
-            hostId = hostId,
-            files = selectedFiles,
-            onUploaded = {
-                withContext(Dispatchers.Main) {
-                    onOk("已上传TaCZ枪包文件${selectedFiles.size}个")
-                    loadFiles()
-                }
-            }
-        )
-        val runId = ClientTaskManager.submit(task)
-        onOpenTaskList(runId)
-    }
-
-    fun deleteFile(file: Host.FileEntry) {
-        if (!canManage || deletingPath != null) return
-        deletingPath = file.path
-        scope.rdiRequestU(
-            path = "host/$hostId/files/file",
-            method = HttpMethod.Delete,
-            body = serdesJson.encodeToString(Host.FileDeleteDto(file.path)),
-            onOk = {
-                onOk("已删除${file.name}")
-                loadFiles()
-            },
-            onErr = { onError(it.message ?: "删除TaCZ枪包文件失败") },
-            onDone = { deletingPath = null }
-        )
-    }
-
-    LaunchedEffect(hostId) {
-        loadFiles()
-    }
-
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        shape = RoundedCornerShape(8.dp),
-        color = Color.White,
-        border = BorderStroke(1.dp, MaterialColor.GRAY_200.color),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("TaCZ枪包", fontWeight = FontWeight.Bold, color = MaterialColor.GRAY_900.color)
-                    Text(TACZ_ROOT_DIR, color = MaterialColor.GRAY_700.color, fontSize = 13.sp)
-                }
-                CircleIconButton(
-                    icon = "\uF021",
-                    tooltip = "刷新",
-                    showText = false,
-                    bgColor = MaterialColor.GRAY_200.color,
-                    iconColor = MaterialColor.GRAY_900.color,
-                    enabled = !loading
-                ) {
-                    loadFiles()
-                }
-                if (canManage) {
-                    CircleIconButton(
-                        icon = "\uF093",
-                        tooltip = "上传文件",
-                        showText = false,
-                        bgColor = MaterialColor.GREEN_900.color,
-                        enabled = !loading
-                    ) {
-                        uploadFiles()
-                    }
-                }
-            }
-
-            when {
-                loading -> Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-
-                files.isEmpty() -> Text("当前目录没有枪包文件", color = MaterialColor.GRAY_700.color)
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(files, key = { it.path }) { file ->
-                        HostTaczFileRow(
-                            file = file,
-                            canManage = canManage,
-                            deleting = deletingPath == file.path,
-                            onDelete = { deleteConfirmFile = file }
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    deleteConfirmFile?.let { file ->
-        ConfirmDialog(
-            title = "确认删除TaCZ枪包",
-            message = "确定删除${file.name}吗？删除后需要重新上传才能恢复。",
-            onConfirm = {
-                deleteConfirmFile = null
-                deleteFile(file)
-            },
-            onDismiss = { deleteConfirmFile = null }
-        )
-    }
-}
-
-
-@Composable
-private fun HostTaczFileRow(
-    file: Host.FileEntry,
-    canManage: Boolean,
-    deleting: Boolean,
-    onDelete: () -> Unit
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(MaterialColor.GRAY_50.color, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            text = "\uF15B".asIconText,
-            color = MaterialColor.GRAY_700.color,
-            fontSize = 18.sp
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = file.name,
-                color = MaterialColor.GRAY_900.color,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "${file.size.humanFileSize} · ${file.updateTime.takeIf { it > 0 }?.millisToHumanDateTime ?: "--"}",
-                color = MaterialColor.GRAY_700.color,
-                fontSize = 13.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (canManage) {
-            CircleIconButton(
-                icon = "\uF1F8",
-                tooltip = "删除文件",
-                size = 28.dp,
-                showText = false,
-                bgColor = MaterialColor.RED_700.color,
-                enabled = !deleting
-            ) {
-                onDelete()
-            }
-        }
     }
 }
