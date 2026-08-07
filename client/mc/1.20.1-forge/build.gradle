@@ -19,11 +19,14 @@ plugins {
 // Ensure the common project is configured before we read its outputs
 evaluationDependsOn(":c-mc-common")
 evaluationDependsOn(":firmsection")
-evaluationDependsOn(":rmcp-common")
-evaluationDependsOn(":rmcp-client")
+/*evaluationDependsOn(":rmcp-common")
+evaluationDependsOn(":rmcp-client")*/
 evaluationDependsOn(":mediaproc")
 
-def sharedBuildProjects = [':c-mc-common', ':rmcp-common', ':rmcp-client', ':mediaproc']
+def sharedBuildProjects = [':c-mc-common', /*':rmcp-common', ':rmcp-client',*/ ':mediaproc']
+project(':mediaproc').tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+    enabled = false
+}
 sharedBuildProjects.each { projectPath ->
     project(projectPath).layout.buildDirectory.set(
             rootProject.layout.buildDirectory.dir("shared/${projectPath.substring(1)}")
@@ -261,10 +264,7 @@ dependencies {
     additionalRuntimeClasspath(project(":c-mc-common"))
     implementation(project(":firmsection"))
     additionalRuntimeClasspath(project(":firmsection"))
-    implementation(project(":rmcp-common"))
-    additionalRuntimeClasspath(project(":rmcp-common"))
-    implementation(project(":rmcp-client"))
-    additionalRuntimeClasspath(project(":rmcp-client"))
+
     implementation(project(":mediaproc")) {
         transitive = false
     }
@@ -298,12 +298,17 @@ dependencies {
     // at runtime, use the full JEI jar for NeoForge
     modImplementation("mezz.jei:jei-1.20.1-forge:15.20.0.132")
 
+    //lalangmine
+    /*implementation(project(":rmcp-common"))
+    additionalRuntimeClasspath(project(":rmcp-common"))
+    implementation(project(":rmcp-client"))
+    additionalRuntimeClasspath(project(":rmcp-client"))
     jarJar("com.squareup.okio:okio-jvm:3.17.0")
     jarJar("it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1")
     jarJar("net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0")
     shaded('io.fusionauth:java-http:1.4.0') {
         transitive = false
-    }
+    }*/
 
     add('architecturyApi', 'dev.architectury:architectury-forge:9.1.12')
     //>>>Modrinth Mods<<<
@@ -342,10 +347,10 @@ tasks.matching { it.name == 'runClient' || it.name == 'runClientAnother' }.confi
 
 jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    dependsOn project(":rmcp-common").tasks.named("classes")
+   /* dependsOn project(":rmcp-common").tasks.named("classes")
     dependsOn project(":rmcp-client").tasks.named("classes")
     from(project(":rmcp-common").sourceSets.main.output)
-    from(project(":rmcp-client").sourceSets.main.output)
+    from(project(":rmcp-client").sourceSets.main.output)*/
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {

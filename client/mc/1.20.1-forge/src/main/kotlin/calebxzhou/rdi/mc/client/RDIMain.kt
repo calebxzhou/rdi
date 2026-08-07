@@ -3,9 +3,6 @@ package calebxzhou.rdi.mc.client
 // import calebxzhou.rdi.mc.client.chunkcache.RdiChunkCacheClient
 // import calebxzhou.rdi.mc.client.chunkcache.RdiChunkCacheClientHandler
 import calebxzhou.rdi.mc.client.network.RClientNetwork
-import calebxzhou.rdi.mc.client.mcp.standard.StandardMcpServer
-import calebxzhou.rdi.mc.client.mcpimpl.McpGameImpl
-import calebxzhou.rdi.mc.client.mcpimpl.McpNetwork
 import calebxzhou.rdi.mc.common.RDI
 import com.google.common.net.HostAndPort
 import net.minecraft.ChatFormatting
@@ -32,7 +29,7 @@ import org.apache.logging.log4j.LogManager
 class RDIMain {
     init {
         RClientNetwork.register()
-        McpNetwork.register()
+        //McpNetwork.register()
         LogManager.getLogger("rdi").info("❄❄❄❄❄❄❄❄RDI客户端核心模块已加载❄❄❄❄❄❄❄❄")
     }
 
@@ -75,7 +72,7 @@ class RDIMain {
         @SubscribeEvent
         @JvmStatic
         fun onClientLeaveServer(event: ClientPlayerNetworkEvent.LoggingOut) {
-            StandardMcpServer.stop()
+          //  StandardMcpServer.stop()
             /* RdiChunkCacheClientHandler.clearDeferredPackets()
             RdiChunkCacheClient.close() */
         }

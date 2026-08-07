@@ -7,7 +7,6 @@ import calebxzhou.rdi.mc.rcmd.tpa.TpaService
 // import calebxzhou.rdi.mc.server.chunkcache.RdiChunkCacheServer
 // import calebxzhou.rdi.mc.server.chunkcache.RdiDelayedChunkCache
 import calebxzhou.rdi.mc.server.firmsection.FirmSectionService
-import calebxzhou.rdi.mc.server.mcpimpl.McpNetwork
 import calebxzhou.rdi.mc.server.network.RServerNetwork
 import calebxzhou.rdi.mc.server.rcmd.PlayerNbtChatRangeStore
 import calebxzhou.rdi.mc.server.world.TerrainCache201
@@ -41,7 +40,7 @@ import java.util.concurrent.TimeUnit
 class RDIMain {
     init {
         RServerNetwork.register()
-        McpNetwork.register()
+     //   McpNetwork.register()
     }
 
     companion object {
