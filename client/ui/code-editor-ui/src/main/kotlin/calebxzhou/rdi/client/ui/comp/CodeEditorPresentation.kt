@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.ui.comp
 
+// Compose presentation for the code-editor-ui module.
+
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.buildAnnotatedString

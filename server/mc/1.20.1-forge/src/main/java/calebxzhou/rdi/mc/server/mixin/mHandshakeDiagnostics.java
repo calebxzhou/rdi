@@ -22,7 +22,7 @@ public class mHandshakeDiagnostics {
     @Unique
     private static final Logger rdi$logger = LogManager.getLogger("rdi");
 
-    @Inject(method = "handleClientModListOnServer", at = @At("HEAD"))
+    @Inject(method = "handleClientModListOnServer", at = @At("HEAD"),remap = false)
     private void rdi$logClientModList(
             HandshakeMessages.C2SModListReply clientModList,
             Supplier<NetworkEvent.Context> contextSupplier,

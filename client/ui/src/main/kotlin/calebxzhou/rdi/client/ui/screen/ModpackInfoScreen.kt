@@ -3,6 +3,7 @@ package calebxzhou.rdi.client.ui.screen
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -18,6 +19,8 @@ import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.RScrollableColumn
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8h
@@ -73,6 +76,7 @@ fun ModpackInfoScreen(
     var confirmDeleteVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var confirmRebuildVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var confirmRedownloadVersion by remember { mutableStateOf<Modpack.Version?>(null) }
+    val versionListState = rememberLazyListState()
     var downloadMethodVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf("") }
@@ -244,8 +248,13 @@ fun ModpackInfoScreen(
 
                     else -> {
                         Space8h()
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(pack.versions, key = { it.name }) { version ->
+                        Box(Modifier.fillMaxWidth().weight(1f)) {
+                            LazyColumn(
+                                state = versionListState,
+                                modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(pack.versions, key = { it.name }) { version ->
                                 val statusText = when (version.status) {
                                     Modpack.Status.OK -> "\uF058 可用"
                                     Modpack.Status.BUILDING -> "\uEEFF 构建中"
@@ -304,11 +313,16 @@ fun ModpackInfoScreen(
                                     }
                                 }
                             }
-                            item {
-                                if (pack.versions.isEmpty()) {
-                                    Text("此整合包暂无可用版本，等待作者上传....", color = Color.Gray)
+                                item {
+                                    if (pack.versions.isEmpty()) {
+                                        Text("此整合包暂无可用版本，等待作者上传....", color = Color.Gray)
+                                    }
                                 }
                             }
+                            RVerticalScrollbar(
+                                listState = versionListState,
+                                modifier = Modifier.align(Alignment.CenterEnd)
+                            )
                         }
                     }
                 }
@@ -542,10 +556,9 @@ private fun ModpackIntroTabContent(
     val scrollState = rememberScrollState()
     val displaySummary = pack.info?.takeIf(String::isNotBlank)
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .verticalScroll(scrollState),
+    RScrollableColumn(
+        modifier = Modifier.fillMaxWidth(),
+        state = scrollState,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         if (pack.categories.isNotEmpty()) {

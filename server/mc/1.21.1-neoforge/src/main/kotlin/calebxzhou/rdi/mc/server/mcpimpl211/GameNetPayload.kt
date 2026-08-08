@@ -52,7 +52,7 @@ data class GameNetPayload(
 
     companion object {
         val TYPE = CustomPacketPayload.Type<GameNetPayload>(
-            ResourceLocation.fromNamespaceAndPath("rdi", "mcp_game")
+            ResourceLocation.fromNamespaceAndPath("rdi", "game")
         )
 
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, GameNetPayload> =

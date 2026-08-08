@@ -12,6 +12,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.toRoute
 import calebxzau.rdi.client.blessingskin.BlessingSkinClient
+import calebxzau.rdi.client.modcatalog.CatalogMod
 import calebxzau.rdi.client.ui.screen.PlayerInfoScreen
 import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzau.rdi.client.modcatalog.ModCatalog
@@ -23,6 +24,47 @@ import org.bson.types.ObjectId
 
 private const val SCREEN_FADE_DURATION_MS = 500
 private const val BLESSING_SKIN_BASE_URL = "https://littleskin.cn"
+
+private fun RemoteModRoute.toInfoRoute(mod: CatalogMod): RemoteModInfoRoute =
+    RemoteModInfoRoute(
+        platform = mod.primaryRef.platform.name,
+        projectId = mod.primaryRef.projectId,
+        requiredMcVer = requiredMcVer,
+        requiredLoader = requiredLoader,
+        targetLocalVersionId = targetLocalVersionId,
+        targetHostId = targetHostId,
+        targetHost2Id = targetHost2Id,
+        fromAllHosts = fromAllHosts,
+        fromHostMods = fromHostMods,
+    )
+
+private fun RemoteModInfoRoute.toBrowseRoute(clearLocalTarget: Boolean = false): RemoteModRoute =
+    RemoteModRoute(
+        requiredMcVer = requiredMcVer,
+        requiredLoader = requiredLoader,
+        targetLocalVersionId = targetLocalVersionId.takeUnless { clearLocalTarget },
+        targetHostId = targetHostId,
+        targetHost2Id = targetHost2Id,
+        fromAllHosts = fromAllHosts,
+        fromHostMods = fromHostMods,
+    )
+
+private fun NavHostController.returnFromRemoteMod(route: RemoteModRoute) {
+    if (popBackStack()) return
+    val host2Id = route.targetHost2Id
+    val hostId = route.targetHostId
+    when {
+        host2Id != null -> navigateAbsolute(Host2Info(host2Id))
+        hostId != null -> {
+            if (route.fromHostMods) {
+                navigateAbsolute(HostMods(hostId, route.fromAllHosts))
+            } else {
+                navigateAbsolute(HostInfo(hostId, route.fromAllHosts))
+            }
+        }
+        else -> navigateAbsolute(Menu)
+    }
+}
 
 inline fun <reified T : Any> NavHostController.navigateAbsolute(route: T) {
     navigate(route) {
@@ -82,7 +124,7 @@ fun AppNavigation(
         }
         composable<Menu> {
             MenuScreen(
-                onOpenResources = { navController.navigate(ResourceRoute(ResourceTab.All.name)) },
+                onOpenResources = { navController.navigate(ResourceRoute(ResourceTab.Installed.name)) },
                 onOpenHostLobby = { navController.navigate(HostRoute(HostTab.MyHosts.name)) },
                 onOpenHost2Lobby = { navController.navigate(Host2Lobby) },
                 onOpenWardrobe = { navController.navigate(Wardrobe) },
@@ -254,11 +296,10 @@ fun AppNavigation(
                 onBack = { returnToHostList(route.fromAllHosts) },
                 onOpenResourceMods = { mcVersion, modLoader ->
                     navController.navigate(
-                        ResourceRoute(
-                            tab = ResourceTab.Mods.name,
+                        RemoteModRoute(
                             requiredMcVer = mcVersion.mcVer,
                             requiredLoader = modLoader.name,
-                            fromHostId = route.hostId,
+                            targetHostId = route.hostId,
                             fromAllHosts = route.fromAllHosts,
                             fromHostMods = true
                         )
@@ -426,10 +467,9 @@ fun AppNavigation(
                 onBack = { navController.navigateAbsolute(Host2Lobby) },
                 onOpenMods = { mcVersion ->
                     navController.navigate(
-                        ResourceRoute(
-                            ResourceTab.Mods.name,
-                            mcVersion.mcVer,
-                            fromHost2Id = route.hostId
+                        RemoteModRoute(
+                            requiredMcVer = mcVersion.mcVer,
+                            targetHost2Id = route.hostId,
                         )
                     )
                 },
@@ -451,7 +491,6 @@ fun AppNavigation(
         composable<ResourceRoute> {
             val route = it.toRoute<ResourceRoute>()
             ResourceScreen(
-                modCatalog = modCatalog,
                 initialCategory = ResourceTab.fromRouteValue(route.tab),
                 requiredMcVer = route.requiredMcVer?.let(McVersion::from),
                 requiredLoader = route.requiredLoader?.let(ModLoader::from),
@@ -475,19 +514,16 @@ fun AppNavigation(
                 onOpenModpackInfo = { modpackId ->
                     navController.navigate(ModpackInfo(modpackId))
                 },
-                onOpenRemoteMod = { mod, pack ->
-                    val ref = mod.primaryRef
+                onOpenRemoteMods = { pack ->
                     navController.navigate(
-                        RemoteModInfoRoute(
-                            platform = ref.platform.name,
-                            projectId = ref.projectId,
-                            requiredMcVer = pack?.vo?.mcVer?.mcVer ?: route.requiredMcVer,
-                            requiredLoader = pack?.vo?.modloader?.name ?: route.requiredLoader,
-                            targetLocalVersionId = pack?.versionId,
+                        RemoteModRoute(
+                            requiredMcVer = pack.vo.mcVer.mcVer,
+                            requiredLoader = pack.vo.modloader.name,
+                            targetLocalVersionId = pack.versionId,
                             targetHostId = route.fromHostId,
                             targetHost2Id = route.fromHost2Id,
                             fromAllHosts = route.fromAllHosts,
-                            fromHostMods = route.fromHostMods
+                            fromHostMods = route.fromHostMods,
                         )
                     )
                 },
@@ -543,14 +579,23 @@ fun AppNavigation(
                 }
             )
         }
+        composable<RemoteModRoute> {
+            val route = it.toRoute<RemoteModRoute>()
+            RemoteModScreen(
+                route = route,
+                onBack = { navController.returnFromRemoteMod(route) },
+                onOpenMod = { mod ->
+                    navController.navigate(route.toInfoRoute(mod))
+                },
+            )
+        }
         composable<RemoteModInfoRoute> {
             val route = it.toRoute<RemoteModInfoRoute>()
             RemoteModInfoScreen(
                 route = route,
-                catalog = modCatalog,
                 onBack = {
                     if (!navController.popBackStack()) {
-                        navController.navigateAbsolute(ResourceRoute())
+                        navController.navigateAbsolute(route.toBrowseRoute())
                     }
                 },
                 onOpenDependencyMod = { dependency ->
@@ -573,9 +618,9 @@ fun AppNavigation(
                 },
                 onTargetUnavailable = {
                     if (route.targetLocalVersionId != null) {
-                        navController.navigateAbsolute(ResourceRoute(ResourceTab.Installed.name))
+                        navController.navigateAbsolute(route.toBrowseRoute(clearLocalTarget = true))
                     } else if (!navController.popBackStack()) {
-                        navController.navigateAbsolute(ResourceRoute())
+                        navController.navigateAbsolute(route.toBrowseRoute())
                     }
                 }
             )

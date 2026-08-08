@@ -86,7 +86,12 @@ class GameKotlinRuntimeTest {
             assertFalse(names.contains("META-INF/jars/kotlinx-coroutines-jdk8-1.10.2.jar"))
             assertFalse(names.contains("META-INF/jars/kotlinx-serialization-core-jvm-1.9.0.jar"))
             assertFalse(names.contains("META-INF/jars/kotlinx-serialization-json-jvm-1.9.0.jar"))
-            assertTrue(names.contains("META-INF/jars/kotlinx-datetime-jvm-0.7.1.jar"))
+         /*   assertFalse(names.contains("META-INF/jars/kotaml-jvm-0.108.0.jar"))
+            assertFalse(names.contains("META-INF/jars/okio-jvm-3.17.0.jar"))
+            assertFalse(names.contains("META-INF/jars/snakeyaml-engine-kmp-jvm-4.0.1.jar"))
+            assertFalse(names.contains("META-INF/jars/urlencoder-lib-jvm-1.6.0.jar"))
+            assertFalse(names.contains("META-INF/jars/java-http-1.4.0.jar"))
+         */   assertTrue(names.contains("META-INF/jars/kotlinx-datetime-jvm-0.7.1.jar"))
             assertTrue(names.contains("META-INF/jars/kotlinx-serialization-cbor-jvm-1.9.0.jar"))
             assertTrue(names.contains("META-INF/jars/universal-serializer-0.1.0-SNAPSHOT.jar"))
             assertTrue(names.contains("META-INF/services/dev.pandasystems.pandalib.registry.RegistriesPlatform"))
@@ -101,7 +106,12 @@ class GameKotlinRuntimeTest {
             assertFalse(metadata.contains("kotlinx-coroutines-jdk8"))
             assertFalse(metadata.contains("kotlinx-serialization-core-jvm"))
             assertFalse(metadata.contains("kotlinx-serialization-json-jvm"))
-            assertTrue(metadata.contains("kotlinx-datetime-jvm"))
+          /*  assertFalse(metadata.contains("kotaml-jvm"))
+            assertFalse(metadata.contains("okio-jvm"))
+            assertFalse(metadata.contains("snakeyaml-engine-kmp-jvm"))
+            assertFalse(metadata.contains("urlencoder-lib-jvm"))
+            assertFalse(metadata.contains("java-http"))
+          */  assertTrue(metadata.contains("kotlinx-datetime-jvm"))
             assertTrue(metadata.contains("kotlinx-serialization-cbor-jvm"))
             assertTrue(metadata.contains("universal-serializer"))
         }
@@ -151,13 +161,18 @@ class GameKotlinRuntimeTest {
             output.writeEntry("META-INF/jars/kotlinx-datetime-jvm-0.7.1.jar", byteArrayOf(7))
             output.writeEntry("META-INF/jars/kotlinx-serialization-core-jvm-1.9.0.jar", byteArrayOf(8))
             output.writeEntry("META-INF/jars/kotlinx-serialization-json-jvm-1.9.0.jar", byteArrayOf(9))
-            output.writeEntry("META-INF/jars/kotlinx-serialization-cbor-jvm-1.9.0.jar", byteArrayOf(10))
-            output.writeEntry("META-INF/jars/universal-serializer-0.1.0-SNAPSHOT.jar", byteArrayOf(11))
+         /*   output.writeEntry("META-INF/jars/kotaml-jvm-0.108.0.jar", byteArrayOf(10))
+            output.writeEntry("META-INF/jars/okio-jvm-3.17.0.jar", byteArrayOf(11))
+            output.writeEntry("META-INF/jars/snakeyaml-engine-kmp-jvm-4.0.1.jar", byteArrayOf(12))
+            output.writeEntry("META-INF/jars/urlencoder-lib-jvm-1.6.0.jar", byteArrayOf(13))
+            output.writeEntry("META-INF/jars/java-http-1.4.0.jar", byteArrayOf(14))
+         */   output.writeEntry("META-INF/jars/kotlinx-serialization-cbor-jvm-1.9.0.jar", byteArrayOf(15))
+            output.writeEntry("META-INF/jars/universal-serializer-0.1.0-SNAPSHOT.jar", byteArrayOf(16))
             output.writeEntry(
                 "META-INF/services/dev.pandasystems.pandalib.registry.RegistriesPlatform",
                 "dev.pandasystems.pandalib.registry.RegistriesPlatformImpl\n"
             )
-            output.writeEntry("META-INF/pandalib-common-1.21.1.kotlin_module", byteArrayOf(12))
+            output.writeEntry("META-INF/pandalib-common-1.21.1.kotlin_module", byteArrayOf(17))
         }
     }
 
@@ -172,7 +187,12 @@ class GameKotlinRuntimeTest {
         {"identifier":{"group":"org.jetbrains.kotlinx","artifact":"kotlinx-datetime-jvm"},"version":{"artifactVersion":"0.7.1"},"path":"META-INF/jars/kotlinx-datetime-jvm-0.7.1.jar"},
         {"identifier":{"group":"org.jetbrains.kotlinx","artifact":"kotlinx-serialization-core-jvm"},"version":{"artifactVersion":"1.9.0"},"path":"META-INF/jars/kotlinx-serialization-core-jvm-1.9.0.jar"},
         {"identifier":{"group":"org.jetbrains.kotlinx","artifact":"kotlinx-serialization-json-jvm"},"version":{"artifactVersion":"1.9.0"},"path":"META-INF/jars/kotlinx-serialization-json-jvm-1.9.0.jar"},
-        {"identifier":{"group":"org.jetbrains.kotlinx","artifact":"kotlinx-serialization-cbor-jvm"},"version":{"artifactVersion":"1.9.0"},"path":"META-INF/jars/kotlinx-serialization-cbor-jvm-1.9.0.jar"},
+     /*   {"identifier":{"group":"io.heapy.kotaml","artifact":"kotaml-jvm"},"version":{"artifactVersion":"0.108.0"},"path":"META-INF/jars/kotaml-jvm-0.108.0.jar"},
+        {"identifier":{"group":"com.squareup.okio","artifact":"okio-jvm"},"version":{"artifactVersion":"3.17.0"},"path":"META-INF/jars/okio-jvm-3.17.0.jar"},
+        {"identifier":{"group":"it.krzeminski","artifact":"snakeyaml-engine-kmp-jvm"},"version":{"artifactVersion":"4.0.1"},"path":"META-INF/jars/snakeyaml-engine-kmp-jvm-4.0.1.jar"},
+        {"identifier":{"group":"net.thauvin.erik.urlencoder","artifact":"urlencoder-lib-jvm"},"version":{"artifactVersion":"1.6.0"},"path":"META-INF/jars/urlencoder-lib-jvm-1.6.0.jar"},
+        {"identifier":{"group":"io.fusionauth","artifact":"java-http"},"version":{"artifactVersion":"1.4.0"},"path":"META-INF/jars/java-http-1.4.0.jar"},
+     */   {"identifier":{"group":"org.jetbrains.kotlinx","artifact":"kotlinx-serialization-cbor-jvm"},"version":{"artifactVersion":"1.9.0"},"path":"META-INF/jars/kotlinx-serialization-cbor-jvm-1.9.0.jar"},
         {"identifier":{"group":"dev.pandasystems","artifact":"universal-serializer"},"version":{"artifactVersion":"0.1.0-SNAPSHOT"},"path":"META-INF/jars/universal-serializer-0.1.0-SNAPSHOT.jar"}
         ]}
     """.trimIndent()

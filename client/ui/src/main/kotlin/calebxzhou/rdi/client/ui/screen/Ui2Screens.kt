@@ -19,6 +19,15 @@ object Wardrobe
     val fromAllHosts: Boolean = false,
     val fromHostMods: Boolean = false
 )
+@Serializable data class RemoteModRoute(
+    val requiredMcVer: String? = null,
+    val requiredLoader: String? = null,
+    val targetLocalVersionId: String? = null,
+    val targetHostId: String? = null,
+    val targetHost2Id: String? = null,
+    val fromAllHosts: Boolean = false,
+    val fromHostMods: Boolean = false
+)
 @Serializable data class RemoteModInfoRoute(
     val platform: String,
     val projectId: String,

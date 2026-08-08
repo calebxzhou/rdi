@@ -149,8 +149,6 @@ val space8
 
 val space16
     get() = Arrangement.spacedBy(16.dp)
-const val baseShapeRadius = 24
-val baseRoundCornerShape get() = RoundedCornerShape(baseShapeRadius.dp)
 @Composable
 fun MainColumn(content: @Composable (ColumnScope.() -> Unit)) {
     Column(

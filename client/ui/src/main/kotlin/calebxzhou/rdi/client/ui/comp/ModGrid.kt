@@ -20,6 +20,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.model.UiMod
 import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.RVerticalScrollbar as SharedRVerticalScrollbar
 import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8w
 import calebxzhou.rdi.common.model.Mod
@@ -150,7 +151,7 @@ fun ModGrid(
                 .width(12.dp)
                 .padding(bottom = 12.dp)
         ) {
-            RVerticalScrollbar(
+            SharedRVerticalScrollbar(
                 gridState = gridState,
                 modifier = Modifier
                     .fillMaxHeight()

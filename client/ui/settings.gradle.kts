@@ -13,7 +13,9 @@ plugins {
 include(
     ":assets",
     ":assets:fonts",
+    ":theme",
     ":code-editor",
+    ":code-editor-ui",
     ":database",
     ":misc",
     ":model",
@@ -32,7 +34,9 @@ include(
     ":mc-proxy"
 )
 project(":assets").projectDir = file("assets")
+project(":theme").projectDir = file("theme")
 project(":code-editor").projectDir = file("code-editor")
+project(":code-editor-ui").projectDir = file("code-editor-ui")
 project(":database").projectDir = file("database")
 project(":misc").projectDir = file("../../common/misc")
 project(":model").projectDir = file("../../common/model")

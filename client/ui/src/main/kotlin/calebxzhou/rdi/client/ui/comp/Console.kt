@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzau.rdi.client.ui.CodeFontFamily
 import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.RVerticalScrollbar as SharedRVerticalScrollbar
 import calebxzau.rdi.client.ui.themeNow
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -202,7 +203,7 @@ fun Console(
             }
         }
 
-        RVerticalScrollbar(
+        SharedRVerticalScrollbar(
             listState = listState,
             modifier = Modifier.align(Alignment.CenterEnd)
         )

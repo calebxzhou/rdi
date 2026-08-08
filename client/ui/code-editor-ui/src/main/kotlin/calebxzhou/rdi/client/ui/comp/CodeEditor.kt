@@ -449,7 +449,7 @@ fun CodeEditor(
                     .padding(bottom = 12.dp)
                     .width(12.dp)
             ) {
-                RVerticalScrollbar(
+                CodeEditorVerticalScrollbar(
                     scrollState = verticalScroll,
                     modifier = Modifier.fillMaxHeight()
                 )
@@ -462,7 +462,7 @@ fun CodeEditor(
                     .fillMaxWidth()
                     .height(12.dp)
             ) {
-                RHorizontalScrollbar(
+                CodeEditorHorizontalScrollbar(
                     scrollState = horizontalScroll,
                     modifier = Modifier.fillMaxSize()
                 )

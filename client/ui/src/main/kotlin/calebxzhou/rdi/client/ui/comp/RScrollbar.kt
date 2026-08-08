@@ -1,72 +1,41 @@
 package calebxzhou.rdi.client.ui.comp
 
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.HorizontalScrollbar
-import androidx.compose.foundation.VerticalScrollbar
-import androidx.compose.foundation.defaultScrollbarStyle
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.rememberScrollbarAdapter
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import calebxzau.rdi.client.ui.RHorizontalScrollbar as SharedRHorizontalScrollbar
+import calebxzau.rdi.client.ui.RVerticalScrollbar as SharedRVerticalScrollbar
 
 @Composable
 fun RVerticalScrollbar(
     listState: LazyListState,
-    modifier: Modifier
+    modifier: Modifier = Modifier
 ) {
-    VerticalScrollbar(
-        adapter = rememberScrollbarAdapter(listState),
-        style = defaultScrollbarStyle().copy(
-            unhoverColor = Color(0xFFAAAAAA),
-            hoverColor = Color(0xFFCCCCCC)
-        ),
-        modifier = modifier
-    )
+    SharedRVerticalScrollbar(listState, modifier)
 }
 
 @Composable
 fun RVerticalScrollbar(
     gridState: LazyGridState,
-    modifier: Modifier
+    modifier: Modifier = Modifier
 ) {
-    VerticalScrollbar(
-        adapter = rememberScrollbarAdapter(gridState),
-        style = defaultScrollbarStyle().copy(
-            unhoverColor = Color(0xFFAAAAAA),
-            hoverColor = Color(0xFFCCCCCC)
-        ),
-        modifier = modifier
-    )
+    SharedRVerticalScrollbar(gridState, modifier)
 }
 
 @Composable
 fun RVerticalScrollbar(
     scrollState: ScrollState,
-    modifier: Modifier
+    modifier: Modifier = Modifier
 ) {
-    VerticalScrollbar(
-        adapter = rememberScrollbarAdapter(scrollState),
-        style = defaultScrollbarStyle().copy(
-            unhoverColor = Color(0xFFAAAAAA),
-            hoverColor = Color(0xFFCCCCCC)
-        ),
-        modifier = modifier
-    )
+    SharedRVerticalScrollbar(scrollState, modifier)
 }
 
 @Composable
 fun RHorizontalScrollbar(
     scrollState: ScrollState,
-    modifier: Modifier
+    modifier: Modifier = Modifier
 ) {
-    HorizontalScrollbar(
-        adapter = rememberScrollbarAdapter(scrollState),
-        style = defaultScrollbarStyle().copy(
-            unhoverColor = Color(0xFFAAAAAA),
-            hoverColor = Color(0xFFCCCCCC)
-        ),
-        modifier = modifier
-    )
+    SharedRHorizontalScrollbar(scrollState, modifier)
 }

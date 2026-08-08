@@ -4,6 +4,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,6 +22,7 @@ import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.MainColumn
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
@@ -73,6 +75,7 @@ fun WorldListPane(
     var confirmReset by remember { mutableStateOf<World.Vo?>(null) }
     var confirmCopy by remember { mutableStateOf<World.Vo?>(null) }
     var selectedWorld by remember { mutableStateOf<World.Vo?>(null) }
+    val listState = rememberLazyListState()
     val snackbarHostState = remember { SnackbarHostState() }
     var okMessage by remember { mutableStateOf<String?>(null) }
     fun reload() {
@@ -185,33 +188,42 @@ fun WorldListPane(
             if (worlds.isNotEmpty()) {
                 WorldTableHeader()
                 Space8h()
-                LazyColumn(
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                        .weight(1f)
                 ) {
-                    items(worlds, key = { it.id.toHexString() }) { world ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .border(
-                                    width = if (selectedWorld?.id == world.id) 2.dp else 1.dp,
-                                    color = if (selectedWorld?.id == world.id) {
-                                        MaterialTheme.colorScheme.primary
-                                    } else {
-                                        MaterialTheme.colorScheme.outlineVariant
-                                    },
-                                    shape = baseRoundCornerShape
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        items(worlds, key = { it.id.toHexString() }) { world ->
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .border(
+                                        width = if (selectedWorld?.id == world.id) 2.dp else 1.dp,
+                                        color = if (selectedWorld?.id == world.id) {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.outlineVariant
+                                        },
+                                        shape = baseRoundCornerShape
+                                    )
+                                    .padding(2.dp)
+                            ) {
+                                world.WorldCard(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    onClick = { selectedWorld = world }
                                 )
-                                .padding(2.dp)
-                        ) {
-                            world.WorldCard(
-                                modifier = Modifier.fillMaxWidth(),
-                                onClick = { selectedWorld = world }
-                            )
+                            }
                         }
                     }
+                    RVerticalScrollbar(
+                        listState = listState,
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    )
                 }
             }
         }

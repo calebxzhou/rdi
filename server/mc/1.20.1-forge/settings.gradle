@@ -15,7 +15,7 @@ plugins {
 rootProject.name="s20"
 include(":s-mc-common")
 project(":s-mc-common").projectDir = file("../common")
-/*include(":rmcp-common")
+include(":rmcp-common")
 project(":rmcp-common").projectDir = file("../../../mc/rmcp/common")
 include(":rmcp-server")
-project(":rmcp-server").projectDir = file("../../../mc/rmcp/server")*/
+project(":rmcp-server").projectDir = file("../../../mc/rmcp/server")

@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -36,6 +37,7 @@ fun Host2LobbyScreen(onBack: () -> Unit, onCreate: () -> Unit, onOpen: (String) 
     var myOnly by remember { mutableStateOf(true) }
     var hosts by remember { mutableStateOf<List<Host2.BriefVo>>(emptyList()) }
     var message by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
     suspend fun reload() {
         runCatching { server.makeRequest<List<Host2.BriefVo>>(if (myOnly) "host2/my" else "host2/list") }
             .onSuccess { response ->
@@ -55,23 +57,33 @@ fun Host2LobbyScreen(onBack: () -> Unit, onCreate: () -> Unit, onOpen: (String) 
                 }
                 message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 Spacer(Modifier.height(8.dp))
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    items(hosts, key = { it.id.toString() }) { host ->
-                        Card(Modifier.fillMaxWidth().clickable { onOpen(host.id.toString()) }) {
-                            Row(
-                                Modifier.padding(12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                Host2Icon(host.iconUrl, 64.dp)
-                                Column(Modifier.weight(1f)) {
-                                    Text(host.name, style = MaterialTheme.typography.titleMedium)
-                                    Text("MC${host.mcVersion.mcVer} · ${host.modLoader} · ${host.status.host2Text()}")
-                                    Text(host.intro, style = MaterialTheme.typography.bodySmall)
+                Box(Modifier.fillMaxWidth().weight(1f)) {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(hosts, key = { it.id.toString() }) { host ->
+                            Card(Modifier.fillMaxWidth().clickable { onOpen(host.id.toString()) }) {
+                                Row(
+                                    Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Host2Icon(host.iconUrl, 64.dp)
+                                    Column(Modifier.weight(1f)) {
+                                        Text(host.name, style = MaterialTheme.typography.titleMedium)
+                                        Text("MC${host.mcVersion.mcVer} · ${host.modLoader} · ${host.status.host2Text()}")
+                                        Text(host.intro, style = MaterialTheme.typography.bodySmall)
+                                    }
                                 }
                             }
                         }
                     }
+                    RVerticalScrollbar(
+                        listState = listState,
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    )
                 }
             }
         }
@@ -92,7 +104,7 @@ fun Host2CreateScreen(onBack: () -> Unit, onCreated: (String) -> Unit) {
     MaxBox {
         ScreenContentSurface(ScreenContentSize.MEDIUM) {
             TitleRow("创建新版房间", onBack)
-            ContentBody {
+            ScrollableContentBody {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(name, { name = it }, label = { Text("名称") }, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(intro, { intro = it }, label = { Text("简介") }, modifier = Modifier.fillMaxWidth())
@@ -165,6 +177,7 @@ fun Host2InfoScreen(
     var iconUrlInput by remember { mutableStateOf("") }
     var iconSaving by remember { mutableStateOf(false) }
     var iconError by remember { mutableStateOf<String?>(null) }
+    val modsListState = rememberLazyListState()
     suspend fun reload() {
         runCatching { server.makeRequest<Host2.DetailVo>("host2/$hostId") }
             .onSuccess { response -> host = response.data ?: host }
@@ -248,50 +261,60 @@ fun Host2InfoScreen(
                             current.members.forEach { Text("${it.playerId} · ${it.role}") }
                         }
                     }
-                    Host2DetailTab.MODS -> LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        item {
-                            host?.takeIf { it.role in setOf(Role.OWNER, Role.ADMIN) }?.let {
-                                CircleIconButton("\uF067", "从CurseForge/Modrinth选择Mod") { onOpenMods(it.mcVersion) }
-                                CircleIconButton("\uF09B", "从GitHub选择Mod") { githubOpen = true }
+                    Host2DetailTab.MODS -> Box(Modifier.fillMaxWidth().weight(1f)) {
+                        LazyColumn(
+                            state = modsListState,
+                            modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            item {
+                                host?.takeIf { it.role in setOf(Role.OWNER, Role.ADMIN) }?.let {
+                                    CircleIconButton("\uF067", "从CurseForge/Modrinth选择Mod") { onOpenMods(it.mcVersion) }
+                                    CircleIconButton("\uF09B", "从GitHub选择Mod") { githubOpen = true }
+                                }
                             }
-                        }
-                        items(mods, key = { "${it.mod.platform}:${it.mod.projectId}" }) { item ->
-                            Card(Modifier.fillMaxWidth()) {
-                                Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(item.mod.slug)
-                                        Text("${item.mod.platform} · ${item.mod.side}", style = MaterialTheme.typography.bodySmall)
-                                    }
-                                    val canManage = host?.let { it.role in setOf(Role.OWNER, Role.ADMIN) && it.status == HostStatus.STOPPED } == true
-                                    Switch(item.enabled, { enabled ->
-                                        scope.launch {
-                                            val dto = Host2.SetModsEnabledDto(listOf(Host2.ModKey(item.mod.platform, item.mod.projectId)), enabled)
-                                            runCatching {
-                                                val response = server.makeRequest<Unit>("host2/$hostId/mods/enabled", HttpMethod.Put) {
-                                                    contentType(ContentType.Application.Json)
-                                                    setBody(serdesJson.encodeToString(dto))
-                                                }
-                                                if (!response.ok) throw RequestError(response.msg)
-                                                mods = server.makeRequest<List<Host2.ModVo>>("host2/$hostId/mods").data.orEmpty()
-                                            }.onFailure { message = it.message }
+                            items(mods, key = { "${it.mod.platform}:${it.mod.projectId}" }) { item ->
+                                Card(Modifier.fillMaxWidth()) {
+                                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(item.mod.slug)
+                                            Text("${item.mod.platform} · ${item.mod.side}", style = MaterialTheme.typography.bodySmall)
                                         }
-                                    }, enabled = canManage)
-                                    if (canManage) CircleIconButton("\uF1F8", "删除${item.mod.slug}", showText = false) {
-                                        scope.launch {
-                                            runCatching {
-                                                val keys = listOf(Host2.ModKey(item.mod.platform, item.mod.projectId))
-                                                val response = server.makeRequest<Unit>("host2/$hostId/mods", HttpMethod.Delete) {
-                                                    contentType(ContentType.Application.Json)
-                                                    setBody(serdesJson.encodeToString(keys))
-                                                }
-                                                if (!response.ok) throw RequestError(response.msg)
-                                                mods = server.makeRequest<List<Host2.ModVo>>("host2/$hostId/mods").data.orEmpty()
-                                            }.onFailure { message = it.message }
+                                        val canManage = host?.let { it.role in setOf(Role.OWNER, Role.ADMIN) && it.status == HostStatus.STOPPED } == true
+                                        Switch(item.enabled, { enabled ->
+                                            scope.launch {
+                                                val dto = Host2.SetModsEnabledDto(listOf(Host2.ModKey(item.mod.platform, item.mod.projectId)), enabled)
+                                                runCatching {
+                                                    val response = server.makeRequest<Unit>("host2/$hostId/mods/enabled", HttpMethod.Put) {
+                                                        contentType(ContentType.Application.Json)
+                                                        setBody(serdesJson.encodeToString(dto))
+                                                    }
+                                                    if (!response.ok) throw RequestError(response.msg)
+                                                    mods = server.makeRequest<List<Host2.ModVo>>("host2/$hostId/mods").data.orEmpty()
+                                                }.onFailure { message = it.message }
+                                            }
+                                        }, enabled = canManage)
+                                        if (canManage) CircleIconButton("\uF1F8", "删除${item.mod.slug}", showText = false) {
+                                            scope.launch {
+                                                runCatching {
+                                                    val keys = listOf(Host2.ModKey(item.mod.platform, item.mod.projectId))
+                                                    val response = server.makeRequest<Unit>("host2/$hostId/mods", HttpMethod.Delete) {
+                                                        contentType(ContentType.Application.Json)
+                                                        setBody(serdesJson.encodeToString(keys))
+                                                    }
+                                                    if (!response.ok) throw RequestError(response.msg)
+                                                    mods = server.makeRequest<List<Host2.ModVo>>("host2/$hostId/mods").data.orEmpty()
+                                                }.onFailure { message = it.message }
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
+                        RVerticalScrollbar(
+                            listState = modsListState,
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        )
                     }
                     Host2DetailTab.FILES -> HostFileExplorer(hostId, "host2", Modifier.fillMaxSize())
                 }

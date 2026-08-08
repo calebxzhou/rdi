@@ -6,6 +6,8 @@ import calebxzau.rdi.client.ui.viewmodel.ModpackOptionViewModel
 import calebxzau.rdi.client.ui.viewmodel.ModpackOptionRuntime
 import calebxzau.rdi.client.ui.viewmodel.SettingsModpackOptionRuntime
 import calebxzau.rdi.client.ui.viewmodel.ModpackVersionEditViewModel
+import calebxzau.rdi.client.ui.viewmodel.RemoteModViewModel
+import calebxzau.rdi.client.ui.viewmodel.RemoteModInfoViewModel
 import org.koin.core.module.dsl.viewModel
 import org.koin.dsl.module
 
@@ -28,6 +30,18 @@ fun appModule(
             modCatalog = get(),
             modpackId = parameters.get(),
             verName = parameters.get(),
+        )
+    }
+    viewModel { parameters ->
+        RemoteModViewModel(
+            route = parameters.get(),
+            catalog = get(),
+        )
+    }
+    viewModel { parameters ->
+        RemoteModInfoViewModel(
+            route = parameters.get(),
+            catalog = get(),
         )
     }
 }

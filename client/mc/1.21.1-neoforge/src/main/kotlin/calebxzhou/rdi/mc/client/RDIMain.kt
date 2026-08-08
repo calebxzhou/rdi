@@ -1,5 +1,8 @@
 package calebxzhou.rdi.mc.client
 
+import calebxzhou.rdi.mc.client.mcp.standard.StandardMcpServer
+import calebxzhou.rdi.mc.client.mcpimpl211.McpGameImpl
+import calebxzhou.rdi.mc.client.mcpimpl211.Search
 import calebxzhou.rdi.mc.client.rcmd.RcmdClientBridge211
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.rcmd.RcmdClientCommands
@@ -91,7 +94,7 @@ class RDIMain {
         @JvmStatic
         fun onResourceReload(event: RegisterClientReloadListenersEvent) {
             event.registerReloadListener(ResourceManagerReloadListener {
-               // Search.refreshResourceIndex()
+                Search.refreshResourceIndex()
             })
         }
         @SubscribeEvent @JvmStatic
@@ -112,9 +115,9 @@ class RDIMain {
         @SubscribeEvent
         @JvmStatic
         fun onClientJoinServer(event: ClientPlayerNetworkEvent.LoggingIn) {
-            /*StandardMcpServer.start(McpGameImpl, null)
+            StandardMcpServer.start(McpGameImpl, null)
                 .onSuccess { port -> sendMcpUrlMessage(event.player, port) }
-                .onFailure { it.printStackTrace() }*/
+                .onFailure { it.printStackTrace() }
 
             Minecraft.getInstance().gui.apply {
                 setTimes(10, 200, 20)
@@ -137,7 +140,7 @@ class RDIMain {
         @SubscribeEvent
         @JvmStatic
         fun onClientLeaveServer(event: ClientPlayerNetworkEvent.LoggingOut) {
-           // StandardMcpServer.stop()
+            StandardMcpServer.stop()
             RDI.FIRM_CHUNKS.clear()
         }
 

@@ -98,6 +98,13 @@ dependencies {
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.joml)
+    /* RMCP运行库暂时继续由各个MinecraftMod使用Jar-in-Jar提供。
+    implementation("io.heapy.kotaml:kotaml-jvm:0.108.0")
+    implementation("com.squareup.okio:okio-jvm:3.17.0")
+    implementation("it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1")
+    implementation("net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0")
+    implementation("io.fusionauth:java-http:1.4.0")
+    */
     implementation(libs.minecraft.auth)
     implementation(libs.kotlin.logging.jvm)
     implementation(libs.mykotutils.std)
@@ -119,8 +126,9 @@ dependencies {
     }
 
     implementation(project(":assets"))
-    runtimeOnly(project(":assets:fonts"))
+    implementation(project(":theme"))
     implementation(project(":code-editor"))
+    implementation(project(":code-editor-ui"))
     implementation(project(":database"))
     implementation(project(":misc"))
     implementation(project(":model"))

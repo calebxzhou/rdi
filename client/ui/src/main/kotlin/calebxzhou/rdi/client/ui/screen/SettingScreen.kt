@@ -18,6 +18,7 @@ import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.RColumn
 import calebxzau.rdi.client.ui.RRow
+import calebxzau.rdi.client.ui.RScrollableColumn
 import calebxzau.rdi.client.ui.RSwitch
 import calebxzau.rdi.client.ui.RTextField
 import calebxzau.rdi.client.ui.Space8w
@@ -197,11 +198,7 @@ fun SettingScreen(
                             modifier = Modifier.fillMaxSize(),
                             label = "SettingPageContent"
                         ) { activeCategory ->
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .verticalScroll(rememberScrollState())
-                            ) {
+                            RScrollableColumn(modifier = Modifier.fillMaxSize()) {
                                 when (activeCategory) {
                                     SettingCategory.General -> {
                                         GeneralSettings(

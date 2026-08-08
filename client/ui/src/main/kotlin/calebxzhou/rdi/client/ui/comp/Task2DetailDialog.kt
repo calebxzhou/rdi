@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.RVerticalScrollbar as SharedRVerticalScrollbar
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzhou.rdi.common.model.Task2
@@ -151,7 +152,7 @@ fun Task2DetailDialog(
                                 )
                             }
                         }
-                        RVerticalScrollbar(
+                        SharedRVerticalScrollbar(
                             listState = listState,
                             modifier = Modifier
                                 .align(Alignment.CenterEnd)

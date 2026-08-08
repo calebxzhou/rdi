@@ -29,7 +29,7 @@ public class mNetworkRegistryDiagnostics {
         throw new AssertionError();
     }
 
-    @Inject(method = "validateServerChannels", at = @At("RETURN"))
+    @Inject(method = "validateServerChannels", at = @At("RETURN"),remap = false)
     private static void rdi$logChannelMismatch(
             Map<ResourceLocation, String> incoming,
             CallbackInfoReturnable<Map<ResourceLocation, String>> cir

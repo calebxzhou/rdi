@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -63,6 +64,7 @@ import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.MainColumn
 import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.themeNow
@@ -367,20 +369,28 @@ private fun ShaderGalleryGrid(
         }
         return
     }
-    LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 220.dp),
-        modifier = modifier,
-        contentPadding = PaddingValues(bottom = 16.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        items(project.gallery, key = { it.rawUrl ?: it.url }) { gallery ->
-            ShaderGalleryCard(
-                gallery = gallery,
-                projectDisplayName = projectDisplayName,
-                onClick = { onPreview(gallery) }
-            )
+    val gridState = rememberLazyGridState()
+    Box(modifier) {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 220.dp),
+            state = gridState,
+            modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            items(project.gallery, key = { it.rawUrl ?: it.url }) { gallery ->
+                ShaderGalleryCard(
+                    gallery = gallery,
+                    projectDisplayName = projectDisplayName,
+                    onClick = { onPreview(gallery) }
+                )
+            }
         }
+        RVerticalScrollbar(
+            gridState = gridState,
+            modifier = Modifier.align(Alignment.CenterEnd)
+        )
     }
 }
 

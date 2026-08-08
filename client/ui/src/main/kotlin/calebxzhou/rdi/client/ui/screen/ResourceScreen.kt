@@ -17,8 +17,6 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.TitleTabBar
 import calebxzau.rdi.client.ui.TitleTabItem
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
-import calebxzau.rdi.client.modcatalog.CatalogMod
-import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.common.model.McVersion
@@ -37,10 +35,7 @@ enum class ResourceTab(
 ) {
     Installed("\uDB86\uDDD7", "我的包"),
     All("\uDB86\uDDD5", "整合广场"),
-    McResources("\uDB80\uDF73", "MC资源"),
-    Mods("\uF12E", "模组"),
-    ResourcePacks("\uDB80\uDEA2", "资源包"),
-    Shaders("\uDB83\uDC4A", "光影包");
+    McResources("\uDB80\uDF73", "MC资源");
 
     companion object {
         fun fromRouteValue(value: String?): ResourceTab {
@@ -64,14 +59,13 @@ private val topLevelResourceTabs = listOf(ResourceTab.Installed, ResourceTab.All
 
 @Composable
 fun ResourceScreen(
-    modCatalog: ModCatalog,
     initialCategory: ResourceTab = ResourceTab.Installed,
     requiredMcVer: McVersion? = null,
     requiredLoader: ModLoader? = null,
     onBack: (() -> Unit) = {},
     onOpenUpload: (() -> Unit) = {},
     onOpenModpackInfo: (String) -> Unit = {},
-    onOpenRemoteMod: (CatalogMod, ModpackLocalDir?) -> Unit = { _, _ -> },
+    onOpenRemoteMods: (ModpackLocalDir) -> Unit = {},
     onOpenResourceInfo: (ModrinthProjectCardVo, ResourceInfoType, ModpackLocalDir?) -> Unit = { _, _, _ -> },
     onOpenPlay: ((McPlayArgs) -> Unit)? = null,
     onOpenTaskList: ((String) -> Unit)? = null,
@@ -99,8 +93,6 @@ fun ResourceScreen(
                     )
                 }
 
-                category !in topLevelResourceTabs -> TitleRow("添加${category.label}", onBack)
-
                 else -> TitleRow("整合包", onBack) {
                     TitleTabBar(
                         items = remember {
@@ -116,13 +108,7 @@ fun ResourceScreen(
                 Box(modifier = Modifier.fillMaxSize()) {
                     if (localTarget != null) {
                         when (localTarget.type) {
-                            ModpackContentType.Mods -> RemoteModScreen(
-                                catalog = modCatalog,
-                                requiredMcVer = localTarget.pack.vo.mcVer,
-                                requiredLoader = localTarget.pack.vo.modloader,
-                                modifier = Modifier.fillMaxSize(),
-                                onOpenMod = { onOpenRemoteMod(it, localTarget.pack) }
-                            )
+                            ModpackContentType.Mods -> Unit
 
                             ModpackContentType.ResourcePacks -> ResourcepackListScreen(
                                 requiredMcVer = localTarget.pack.vo.mcVer,
@@ -160,7 +146,11 @@ fun ResourceScreen(
                                     InstalledResourcePane(
                                         onOpenPlay = onOpenPlay,
                                         onOpenContent = { pack, type ->
-                                            contentTarget = ModpackContentTarget(pack, type)
+                                            if (type == ModpackContentType.Mods) {
+                                                onOpenRemoteMods(pack)
+                                            } else {
+                                                contentTarget = ModpackContentTarget(pack, type)
+                                            }
                                         },
                                         onOpenTaskList = onOpenTaskList,
                                         onOpenOptions = onOpenModpackOptions,
@@ -178,35 +168,6 @@ fun ResourceScreen(
                                     )
                                 }
 
-                                ResourceTab.Mods -> {
-                                    RemoteModScreen(
-                                        catalog = modCatalog,
-                                        requiredMcVer = requiredMcVer,
-                                        requiredLoader = requiredLoader,
-                                        modifier = Modifier.fillMaxSize(),
-                                        onOpenMod = { onOpenRemoteMod(it, null) }
-                                    )
-                                }
-
-                                ResourceTab.ResourcePacks -> {
-                                    ResourcepackListScreen(
-                                        requiredMcVer = requiredMcVer,
-                                        modifier = Modifier.fillMaxSize(),
-                                        onOpenResourcepack = {
-                                            onOpenResourceInfo(it, ResourceInfoType.ResourcePack, null)
-                                        }
-                                    )
-                                }
-
-                                ResourceTab.Shaders -> {
-                                    ShaderListScreen(
-                                        requiredMcVer = requiredMcVer,
-                                        modifier = Modifier.fillMaxSize(),
-                                        onOpenShader = {
-                                            onOpenResourceInfo(it, ResourceInfoType.Shader, null)
-                                        }
-                                    )
-                                }
                             }
                         }
                     }

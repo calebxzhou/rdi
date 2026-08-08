@@ -6,6 +6,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -25,6 +26,7 @@ import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.RRow
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
@@ -74,6 +76,7 @@ private fun MailContent(
     var selectedIds by remember { mutableStateOf<Set<ObjectId>>(emptySet()) }
     var confirmDelete by remember { mutableStateOf(false) }
     var selectedMailId by remember { mutableStateOf<String?>(null) }
+    val listState = rememberLazyListState()
 
     fun reload() {
         loading = true
@@ -160,24 +163,31 @@ private fun MailContent(
                 Text("什么都没有~", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            LazyColumn(
-                verticalArrangement = Arrangement.spacedBy(2.dp),
-                modifier = Modifier.fillMaxSize()
-            ) {
-                items(mails, key = { it.id.toHexString() }) { mail ->
-                    MailListItem(
-                        mail = mail,
-                        selected = selectedIds.contains(mail.id),
-                        onSelectedChange = { checked ->
-                            selectedIds = if (checked) {
-                                selectedIds + mail.id
-                            } else {
-                                selectedIds - mail.id
-                            }
-                        },
-                        onOpen = { selectedMailId = mail.id.toHexString() }
-                    )
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyColumn(
+                    state = listState,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                    modifier = Modifier.fillMaxSize().padding(end = 12.dp)
+                ) {
+                    items(mails, key = { it.id.toHexString() }) { mail ->
+                        MailListItem(
+                            mail = mail,
+                            selected = selectedIds.contains(mail.id),
+                            onSelectedChange = { checked ->
+                                selectedIds = if (checked) {
+                                    selectedIds + mail.id
+                                } else {
+                                    selectedIds - mail.id
+                                }
+                            },
+                            onOpen = { selectedMailId = mail.id.toHexString() }
+                        )
+                    }
                 }
+                RVerticalScrollbar(
+                    listState = listState,
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                )
             }
         }
 

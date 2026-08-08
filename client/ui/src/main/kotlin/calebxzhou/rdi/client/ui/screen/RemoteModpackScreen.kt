@@ -18,6 +18,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items as gridItems
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -50,6 +51,7 @@ import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.SearchField
 import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8h
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.client.ui.loadResourceBitmap
 import calebxzau.rdi.client.ui.baseRoundCornerShape
@@ -71,6 +73,7 @@ fun RemoteModpackScreen(
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
     val packProcessor = remember {
         ModpackProcessor(
             PackProcessingPaths(
@@ -253,57 +256,64 @@ fun RemoteModpackScreen(
                 }
                 Space8h()
             }
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 370.dp),
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                gridItems(modpacks, key = { it.id.toHexString() }) { modpack ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        modpack.ModpackCard(
-                            modifier = Modifier.widthIn(max = 370.dp),
-                            onClick = { onOpenInfo(modpack.id.toHexString()) }
-                        )
-                    }
-                }
-                if (!loading && modpacks.isEmpty()) {
-                    item(
-                        key = "empty",
-                        span = { GridItemSpan(maxLineSpan) }
-                    ) {
-                        Text(
-                            text = "没有找到符合条件的整合包",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (hasMore) {
-                    item(
-                        key = "load-more",
-                        span = { GridItemSpan(maxLineSpan) }
-                    ) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Adaptive(minSize = 360.dp),
+                    modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    gridItems(modpacks, key = { it.id.toHexString() }) { modpack ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            if (loadingMore) {
-                                CircularProgressIndicator()
-                            } else {
-                                TextButton(onClick = {
-                                    scope.launch {
-                                        loadModpacks(reset = false)
+                            modpack.ModpackCard(
+                                modifier = Modifier.widthIn(max = 360.dp),
+                                onClick = { onOpenInfo(modpack.id.toHexString()) }
+                            )
+                        }
+                    }
+                    if (!loading && modpacks.isEmpty()) {
+                        item(
+                            key = "empty",
+                            span = { GridItemSpan(maxLineSpan) }
+                        ) {
+                            Text(
+                                text = "没有找到符合条件的整合包",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (hasMore) {
+                        item(
+                            key = "load-more",
+                            span = { GridItemSpan(maxLineSpan) }
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                if (loadingMore) {
+                                    CircularProgressIndicator()
+                                } else {
+                                    TextButton(onClick = {
+                                        scope.launch {
+                                            loadModpacks(reset = false)
+                                        }
+                                    }) {
+                                        Text("加载更多")
                                     }
-                                }) {
-                                    Text("加载更多")
                                 }
                             }
                         }
                     }
                 }
+                RVerticalScrollbar(
+                    gridState = gridState,
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                )
             }
         }
     }

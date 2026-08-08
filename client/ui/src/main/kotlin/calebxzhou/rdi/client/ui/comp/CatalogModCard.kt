@@ -26,9 +26,11 @@ import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.modcatalog.CatalogMod
+import calebxzau.rdi.client.ui.RRow
 import calebxzhou.rdi.client.service.loadLocalIcon
 import calebxzhou.rdi.client.service.peekLocalIcon
 import calebxzau.rdi.client.ui.themeNow
+import calebxzhou.rdi.common.util.compactedCnCount
 import calebxzhou.rdi.common.util.toFixed
 
 @Composable
@@ -38,7 +40,7 @@ fun CatalogModCard(
     compact: Boolean = false,
     onClick: () -> Unit
 ) {
-    val iconSize = if (compact) 48.dp else 76.dp
+    val iconSize = if (compact) 48.dp else 56.dp
     val padding = if (compact) 8.dp else 10.dp
     val gap = if (compact) 8.dp else 10.dp
     val cachedLocalIcon = mod.peekLocalIcon()
@@ -115,17 +117,14 @@ fun CatalogModCard(
                         overflow = TextOverflow.Ellipsis
                     )
                 }*/
-                Text(
-                    text = mod.summary,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = if (compact) 1 else 2,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Row(verticalAlignment = Alignment.CenterVertically) {
+
+                RRow {
                     Text(
-                        text = "\uF019 ${mod.downloadCount.compactCount()}",
+                        text = "\uF019 ${mod.downloadCount.compactedCnCount}    ${mod.summary}",
                         color = themeNow.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodySmall
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = if (compact) 1 else 2,
+                        overflow = TextOverflow.Ellipsis
                     )
                     Spacer(Modifier.weight(1f))
                 }
@@ -138,9 +137,3 @@ private data class CatalogLocalIconLookup(
     val complete: Boolean = false,
     val iconData: ByteArray? = null
 )
-
-internal fun Long.compactCount(): String = when {
-    this >= 100_000_000 -> "${(this / 100_000_000.0).toFixed(2)}亿"
-    this >= 10_000 -> "${(this / 10_000.0).toFixed(2)}万"
-    else -> toString()
-}

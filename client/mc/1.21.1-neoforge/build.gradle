@@ -61,7 +61,7 @@ base {
     archivesName = mod_id
 }
 
-def sharedBuildProjects = [':c-mc-common',/* ':rmcp-common', ':rmcp-client'*/':mediaproc']
+def sharedBuildProjects = [':c-mc-common', ':rmcp-common', ':rmcp-client', ':mediaproc']
 project(':mediaproc').tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
     enabled = false
 }
@@ -91,17 +91,18 @@ jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 
     evaluationDependsOn(':c-mc-common')
-  /*  evaluationDependsOn(':rmcp-common')
-    evaluationDependsOn(':rmcp-client')*/
+    evaluationDependsOn(':rmcp-common')
+    evaluationDependsOn(':rmcp-client')
     evaluationDependsOn(':mediaproc')
     // Bundle compiled classes from :c-mc-common into this jar.
     // Common resources are already added via sourceSets.main.resources above.
     dependsOn project(":c-mc-common").tasks.named("classes")
-   /* dependsOn project(":rmcp-common").tasks.named("classes")
-    dependsOn project(":rmcp-client").tasks.named("classes")*/
+    dependsOn project(":rmcp-common").tasks.named("classes")
+    dependsOn project(":rmcp-client").tasks.named("classes")
+
     from(project(":c-mc-common").sourceSets.main.output.classesDirs)
-    /*from(project(":rmcp-common").sourceSets.main.output)
-    from(project(":rmcp-client").sourceSets.main.output)*/
+    from(project(":rmcp-common").sourceSets.main.output)
+    from(project(":rmcp-client").sourceSets.main.output)
     from({
         configurations.shaded.collect { it.isDirectory() ? it : zipTree(it) }
     }) {
@@ -244,30 +245,37 @@ extraJavaModuleInfo {
 dependencies {
     implementation project(':c-mc-common')
     additionalRuntimeClasspath project(':c-mc-common')
-    /*
-    lalangmine
+    //RMCP runtime dependencies
     implementation project(':rmcp-common')
     additionalRuntimeClasspath project(':rmcp-common')
     implementation project(':rmcp-client')
     additionalRuntimeClasspath project(':rmcp-client')
-     implementation(jarJar("io.heapy.kotaml:kotaml-jvm:0.108.0"))
+    /* RMCP运行库暂时继续由MinecraftMod使用Jar-in-Jar提供。
+    compileOnly "io.heapy.kotaml:kotaml-jvm:0.108.0"
+    compileOnly "com.squareup.okio:okio-jvm:3.17.0"
+    compileOnly "it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1"
+    compileOnly "net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0"
+    compileOnly "io.fusionauth:java-http:1.4.0"
+    additionalRuntimeClasspath "io.heapy.kotaml:kotaml-jvm:0.108.0"
+    additionalRuntimeClasspath "com.squareup.okio:okio-jvm:3.17.0"
+    additionalRuntimeClasspath "it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1"
+    additionalRuntimeClasspath "net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0"
+    additionalRuntimeClasspath "io.fusionauth:java-http:1.4.0"
+    */
+    //lalangmine
+    implementation(jarJar("io.heapy.kotaml:kotaml-jvm:0.108.0"))
     jarJar("com.squareup.okio:okio-jvm:3.17.0")
     jarJar("it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1")
     jarJar("net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0")
     shaded('io.fusionauth:java-http:1.4.0') {
         transitive = false
     }
-    */
     implementation(project(':mediaproc')) {
         transitive = false
     }
     additionalRuntimeClasspath(project(':mediaproc')) {
         transitive = false
     }
-    additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
-
-
-
     implementation("org.bytedeco:javacv:1.5.13") {
         transitive = false
     }

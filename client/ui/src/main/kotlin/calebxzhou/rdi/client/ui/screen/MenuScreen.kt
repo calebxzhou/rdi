@@ -12,6 +12,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -390,6 +391,12 @@ private fun MenuActionButtons(
             title = "多人房间",
             subtitle = "选择创建房间跟大家一起玩",
             icons = skinHeads,
+            Brush.linearGradient(
+                colors = listOf(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    MaterialTheme.colorScheme.tertiary
+                )
+            ),
             modifier = Modifier
                 .width(320.dp)
                 .clip(baseRoundCornerShape)

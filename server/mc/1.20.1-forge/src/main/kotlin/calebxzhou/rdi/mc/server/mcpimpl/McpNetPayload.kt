@@ -72,7 +72,7 @@ object McpNetwork {
     )
 
     private val CHANNEL: SimpleChannel = NetworkRegistry.newSimpleChannel(
-        ResourceLocation.fromNamespaceAndPath("rdi", "mcp_game"),
+        ResourceLocation.fromNamespaceAndPath("rdi", "game"),
         { PROTOCOL_VERSION },
         { it == PROTOCOL_VERSION },
         { it == PROTOCOL_VERSION },
@@ -89,13 +89,13 @@ object McpNetwork {
             .consumerMainThread { packet, context ->
                 val ctx = context.get()
                 handleC2S(packet.c2sPacket(), ctx.sender)
-                ctx.setPacketHandled(true)
+                ctx.packetHandled = true
             }
             .add()
         CHANNEL.messageBuilder(McpS2CPacket::class.java, 1, NetworkDirection.PLAY_TO_CLIENT)
             .encoder(McpS2CPacket::encode)
             .decoder(McpS2CPacket::decode)
-            .consumerMainThread { _, context -> context.get().setPacketHandled(true) }
+            .consumerMainThread { _, context -> context.get().packetHandled = true }
             .add()
     }
 

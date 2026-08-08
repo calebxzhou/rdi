@@ -6,10 +6,12 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.VisualBasic.FileIO;
 
 internal static partial class Program
 {
     private const string MftSearchArgument = "--mft-search";
+    private const string UninstallConfirmation = "confirm";
     private const string MftLogPrefix = "LOG\t";
     private const string MftPathPrefix = "PATH\t";
     private const int MaxParallelJdkChecks = 8;
@@ -58,6 +60,9 @@ internal static partial class Program
             var startupSelection = IsLeftShiftPressed()
                 ? ShowStartupOptions()
                 : new StartupSelection(null, false, false, false);
+            if (startupSelection.Uninstall)
+                return StartUninstall();
+
             launchOptions = launchOptions with
             {
                 Debug = launchOptions.Debug || startupSelection.Debug,
@@ -200,7 +205,10 @@ internal static partial class Program
 
     private static StartupSelection ShowStartupOptions()
     {
-        string[] options = ["重新手动选择Java25", "本次以实心窗口启动", "launch w/o upd", "launch w/ dbg"];
+        var canUninstall = File.Exists(Path.Combine(LauncherRoot, "lib", "rdi-ui.jar"));
+        List<string> options = ["重新手动选择Java25", "本次以实心窗口启动", "launch w/o upd", "launch w/ dbg"];
+        if (canUninstall)
+            options.Add("卸载");
         var selectedIndex = 0;
 
         while (true)
@@ -221,15 +229,26 @@ internal static partial class Program
             switch (Console.ReadKey(true).Key)
             {
                 case ConsoleKey.UpArrow:
-                    selectedIndex = (selectedIndex - 1 + options.Length) % options.Length;
+                    selectedIndex = (selectedIndex - 1 + options.Count) % options.Count;
                     break;
                 case ConsoleKey.DownArrow:
-                    selectedIndex = (selectedIndex + 1) % options.Length;
+                    selectedIndex = (selectedIndex + 1) % options.Count;
                     break;
                 case ConsoleKey.Escape:
                     Console.Clear();
                     return new(null, false, false, false);
                 case ConsoleKey.Enter:
+                    if (canUninstall && selectedIndex == options.Count - 1)
+                    {
+                        if (ConfirmUninstall())
+                        {
+                            Console.Clear();
+                            return new(null, false, false, false, true);
+                        }
+
+                        break;
+                    }
+
                     Console.Clear();
                     return selectedIndex switch
                     {
@@ -239,6 +258,76 @@ internal static partial class Program
                         _ => new(null, false, true, false)
                     };
             }
+        }
+    }
+
+    private static bool ConfirmUninstall()
+    {
+        Console.Clear();
+        Console.WriteLine("卸载会把当前RDI目录和本地数据移入回收站。\r\n");
+        Console.Write($"请输入{UninstallConfirmation}并按回车开始卸载: ");
+        var confirmation = Console.ReadLine();
+        if (string.Equals(confirmation, UninstallConfirmation, StringComparison.Ordinal))
+            return true;
+
+        Console.WriteLine("确认文本不正确，已取消卸载。");
+        return false;
+    }
+
+    private static int StartUninstall()
+    {
+        try
+        {
+            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localAppData))
+                throw new InvalidOperationException("无法确定本地应用数据目录");
+
+            var processPath = Environment.ProcessPath
+                ?? throw new InvalidOperationException("无法确定updater程序路径");
+            var normalizedProcessPath = Path.GetFullPath(processPath);
+            var entries = Directory.EnumerateFileSystemEntries(LauncherRoot).ToArray();
+            foreach (var entry in entries)
+            {
+                if (string.Equals(Path.GetFullPath(entry), normalizedProcessPath, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                MoveToRecycleBin(entry);
+            }
+
+            MoveToRecycleBinIfExists(Path.Combine(localAppData, ".rdi"));
+
+            WriteInfo("已确认卸载，当前目录内容和本地数据已移入回收站。");
+            return 0;
+        }
+        catch (Exception exception)
+        {
+            return Fail($"卸载失败。\r\n错误: {exception.Message}");
+        }
+    }
+
+    private static void MoveToRecycleBinIfExists(string path)
+    {
+        if (Directory.Exists(path) || File.Exists(path))
+            MoveToRecycleBin(path);
+    }
+
+    private static void MoveToRecycleBin(string path)
+    {
+        if (Directory.Exists(path))
+        {
+            FileSystem.DeleteDirectory(
+                path,
+                UIOption.OnlyErrorDialogs,
+                RecycleOption.SendToRecycleBin,
+                UICancelOption.ThrowException);
+        }
+        else if (File.Exists(path))
+        {
+            FileSystem.DeleteFile(
+                path,
+                UIOption.OnlyErrorDialogs,
+                RecycleOption.SendToRecycleBin,
+                UICancelOption.ThrowException);
         }
     }
 
@@ -961,7 +1050,12 @@ internal static partial class Program
     private sealed record MftSearchResult(bool Succeeded, HashSet<string> Candidates);
     private sealed record SearchDirectory(string Path, bool ForceDeep, int Depth);
     private sealed record LaunchOptions(bool Debug, bool AppLogs, bool NoUpdate, List<string> JvmArguments);
-    private sealed record StartupSelection(JdkCandidate? Jdk, bool SolidWindow, bool Debug, bool NoUpdate);
+    private sealed record StartupSelection(
+        JdkCandidate? Jdk,
+        bool SolidWindow,
+        bool Debug,
+        bool NoUpdate,
+        bool Uninstall = false);
 
 }
 

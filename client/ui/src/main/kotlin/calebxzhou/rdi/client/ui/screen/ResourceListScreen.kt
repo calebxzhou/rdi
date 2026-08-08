@@ -15,11 +15,13 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -45,6 +47,7 @@ import calebxzhou.rdi.client.service.ResourcepackSearchService
 import calebxzhou.rdi.client.service.ShaderSearchService
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.RowV
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzhou.rdi.client.ui.comp.ModrinthProjectCard
@@ -100,6 +103,7 @@ fun ModrinthProjectListScreen(
     onOpenProject: ((ModrinthProjectCardVo) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
+    val gridState = rememberLazyGridState()
     var projects by remember { mutableStateOf<List<ModrinthProjectCardVo>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
@@ -229,13 +233,15 @@ fun ModrinthProjectListScreen(
                 }
                 Space8h()
             }
-            LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 300.dp),
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Adaptive(minSize = 300.dp),
+                    modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                    contentPadding = PaddingValues(bottom = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                 items(projects, key = { it.projectId }) { project ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -280,6 +286,11 @@ fun ModrinthProjectListScreen(
                         }
                     }
                 }
+                }
+                RVerticalScrollbar(
+                    gridState = gridState,
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                )
             }
         }
     }

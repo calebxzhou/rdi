@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -20,6 +21,7 @@ import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.RRow
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.RowV
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.space8
@@ -55,6 +57,7 @@ fun McVersionPane(
     var selectedMcVer by rememberSaveable(requiredMcVer) { mutableStateOf(requiredMcVer) }
     var showAdvancedActions by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    val gridState = rememberLazyGridState()
 
 
     fun submitTask(task: Task2) {
@@ -154,9 +157,11 @@ fun McVersionPane(
             contentAlignment = Alignment.TopCenter
         ) {
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(3),
                 modifier = Modifier
-                    .fillMaxSize(),
+                    .fillMaxSize()
+                    .padding(end = 12.dp),
                 contentPadding = PaddingValues(bottom = 16.dp),
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -169,6 +174,10 @@ fun McVersionPane(
                     )
                 }
             }
+            RVerticalScrollbar(
+                gridState = gridState,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            )
         }
     }
 

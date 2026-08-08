@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.input.TextFieldLineLimits
 import androidx.compose.foundation.text.input.clearText
@@ -28,6 +29,7 @@ import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.RThinTextField
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TinyClickCopyText
 import calebxzau.rdi.client.ui.TitleRow
@@ -111,6 +113,7 @@ private fun HostScreen(
     var addExtraModLoading by remember { mutableStateOf(false) }
     var addExtraModLoadingText by remember { mutableStateOf("") }
     var addExtraModDialogError by remember { mutableStateOf<String?>(null) }
+    val extraModListState = rememberLazyListState()
     var extraModPlatform by remember { mutableStateOf("github") }
     val extraModProjectIdState = rememberTextFieldState()
     val extraModSlugState = rememberTextFieldState()
@@ -407,44 +410,44 @@ private fun HostScreen(
                 ) {
                     Text("添加附加Mod（高级模式）", style = MaterialTheme.typography.titleSmall)
                     Text("仅供高级玩家使用。通常情况不建议使用此功能")
-                    LazyColumn(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        item {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(18.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("平台", color = themeNow.onSurfaceVariant)
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    M3RadioButton(
-                                        selected = extraModPlatform == "github",
-                                        enabled = !addExtraModLoading,
-                                        onClick = { switchExtraModPlatform("github") }
-                                    )
-                                    Text("GitHub")
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    M3RadioButton(
-                                        selected = extraModPlatform == "mr",
-                                        enabled = !addExtraModLoading,
-                                        onClick = { switchExtraModPlatform("mr") }
-                                    )
-                                    Text("Modrinth")
-                                }
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    M3RadioButton(
-                                        selected = extraModPlatform == "cf",
-                                        enabled = !addExtraModLoading,
-                                        onClick = { switchExtraModPlatform("cf") }
-                                    )
-                                    Text("CurseForge")
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        LazyColumn(
+                            state = extraModListState,
+                            modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            item {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("平台", color = themeNow.onSurfaceVariant)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        M3RadioButton(
+                                            selected = extraModPlatform == "github",
+                                            enabled = !addExtraModLoading,
+                                            onClick = { switchExtraModPlatform("github") }
+                                        )
+                                        Text("GitHub")
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        M3RadioButton(
+                                            selected = extraModPlatform == "mr",
+                                            enabled = !addExtraModLoading,
+                                            onClick = { switchExtraModPlatform("mr") }
+                                        )
+                                        Text("Modrinth")
+                                    }
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        M3RadioButton(
+                                            selected = extraModPlatform == "cf",
+                                            enabled = !addExtraModLoading,
+                                            onClick = { switchExtraModPlatform("cf") }
+                                        )
+                                        Text("CurseForge")
+                                    }
                                 }
                             }
-                        }
                         if (extraModPlatform == "github") {
                             if (extraModGithubReleases.isEmpty()) {
                                 item {
@@ -581,6 +584,11 @@ private fun HostScreen(
                                 }
                             }
                         }
+                        }
+                        RVerticalScrollbar(
+                            listState = extraModListState,
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        )
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth(),

@@ -172,10 +172,11 @@ object HostControlService {
         val name: String
     )
 
-    private val REQUIRED_MODERN_HOST_MODS = listOf(
+    //client 已经mount了 kotlin lib classpath 保留备用
+    private val REQUIRED_MODERN_HOST_MODS = emptyList<RequiredStartupMod>() /*listOf(
         //RequiredStartupMod("ftb-chunks", "FTB Chunks"),
         RequiredStartupMod("kotlin-for-forge", "Kotlin for Forge")
-    )
+    )*/
 
     val Host.playable get() = status == HostStatus.PLAYABLE
 }

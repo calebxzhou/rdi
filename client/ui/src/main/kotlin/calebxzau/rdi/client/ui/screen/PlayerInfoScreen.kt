@@ -51,6 +51,7 @@ import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.ErrorText
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.RTextField
+import calebxzau.rdi.client.ui.RScrollableColumn
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.TitleRow
@@ -119,11 +120,10 @@ fun PlayerInfoScreen(onBack: () -> Unit) {
                             )
                         }
 
-                        Column(
+                        RScrollableColumn(
                             modifier = Modifier
                                 .weight(1f)
-                                .fillMaxHeight()
-                                .verticalScroll(rememberScrollState()),
+                                .fillMaxHeight(),
                             verticalArrangement = Arrangement.spacedBy(18.dp)
                         ) {
                         PlayerInfoRow(

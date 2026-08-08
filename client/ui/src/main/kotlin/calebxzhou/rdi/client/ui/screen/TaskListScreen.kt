@@ -4,6 +4,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -28,6 +29,7 @@ fun TaskListScreen(
     initialSelectedRunId: String? = null
 ) {
     val entries by ClientTaskManager.entries.collectAsState()
+    val listState = rememberLazyListState()
     val finishedCount = entries.count { it.status.isTerminal }
     var selectedRunId by remember(initialSelectedRunId) { mutableStateOf(initialSelectedRunId) }
     val selectedEntry = entries.firstOrNull { it.runId == selectedRunId }
@@ -57,16 +59,23 @@ fun TaskListScreen(
                         )
                     }
                 } else {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(entries, key = { it.runId }) { entry ->
-                            TaskEntryCard(
-                                entry = entry,
-                                onOpenDetail = { selectedRunId = entry.runId }
-                            )
+                    Box(Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(entries, key = { it.runId }) { entry ->
+                                TaskEntryCard(
+                                    entry = entry,
+                                    onOpenDetail = { selectedRunId = entry.runId }
+                                )
+                            }
                         }
+                        RVerticalScrollbar(
+                            listState = listState,
+                            modifier = Modifier.align(Alignment.CenterEnd)
+                        )
                     }
                 }
             }

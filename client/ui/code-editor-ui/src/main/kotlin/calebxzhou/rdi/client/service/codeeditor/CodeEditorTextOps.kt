@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.service.codeeditor
 
+// Text editing helpers for the Compose code editor.
+
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import kotlin.math.min

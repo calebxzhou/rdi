@@ -107,7 +107,7 @@ sourceSets.named('main') {
     kotlin.srcDir '../../../mc/common/all/src/main/kotlin'
     kotlin.srcDir '../../../mc/firmsection/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
-   // kotlin.srcDir '../../../mc/rmcp/server/src/main/kotlin'
+    kotlin.srcDir '../../../mc/rmcp/server/src/main/kotlin'
     resources.srcDir 'src/generated/resources'
 }
 
@@ -124,8 +124,8 @@ configurations.named('implementation') {
 dependencies {
     implementation project(':s-mc-common')
     additionalRuntimeClasspath project(':s-mc-common')
-    /*implementation project(':rmcp-common')
-    additionalRuntimeClasspath project(':rmcp-common')*/
+    implementation project(':rmcp-common')
+    additionalRuntimeClasspath project(':rmcp-common')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
@@ -212,13 +212,13 @@ idea {
     }
 }
 evaluationDependsOn(':s-mc-common')
-/*evaluationDependsOn(':rmcp-common')*/
+evaluationDependsOn(':rmcp-common')
 jar {
     // Bundle compiled outputs from shared server modules into this jar
     dependsOn project(":s-mc-common").tasks.named("classes")
-    /*dependsOn project(":rmcp-common").tasks.named("classes")*/
+    dependsOn project(":rmcp-common").tasks.named("classes")
     from(project(":s-mc-common").sourceSets.main.output)
-   /* from(project(":rmcp-common").sourceSets.main.output)*/
+    from(project(":rmcp-common").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {

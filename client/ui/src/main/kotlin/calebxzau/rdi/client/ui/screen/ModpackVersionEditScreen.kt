@@ -22,6 +22,7 @@ import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.ErrorText
 import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.RScrollableColumn
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.Space8w
@@ -484,11 +485,11 @@ private fun VersionModBatchEditDialog(
             ) {
                 Text("批量编辑${editStates.size}个Mod", style = MaterialTheme.typography.titleLarge)
                 localError?.let { ErrorText(it) }
-                Column(
+                RScrollableColumn(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(scrollState),
+                        .weight(1f),
+                    state = scrollState,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     editStates.forEachIndexed { index, state ->

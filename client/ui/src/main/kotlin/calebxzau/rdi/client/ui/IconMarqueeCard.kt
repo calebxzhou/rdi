@@ -79,14 +79,14 @@ fun IconMarqueeCard(
     title: String,
     subtitle: String,
     icons: List<MarqueeIcon>,
-    modifier: Modifier = Modifier
-) {
-    val backgroundBrush = Brush.linearGradient(
+    backgroundBrush: Brush= Brush.linearGradient(
         colors = listOf(
             MaterialTheme.colorScheme.surfaceVariant,
             MaterialTheme.colorScheme.primary
         )
-    )
+    ),
+    modifier: Modifier = Modifier
+) {
 
     Surface(
         modifier = modifier

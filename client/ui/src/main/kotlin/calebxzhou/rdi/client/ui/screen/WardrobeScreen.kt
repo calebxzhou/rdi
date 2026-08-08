@@ -17,6 +17,7 @@ import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.RThinTextField
@@ -161,32 +162,38 @@ fun WardrobeScreen(
             }
 
             ContentBody {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(150.dp),
-                    state = gridState,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    modifier = Modifier.fillMaxSize()
-                ) {
-                    itemsIndexed(
-                        items = skins,
-                        key = { index, skin -> "${skin.id}-$index" }
-                    ) { _, skin ->
-                        SkinCard(
-                            skin = skin,
-                            onClick = { onOpenSkinPreview(skin.id) }
-                        )
-                    }
-                    if (loading) {
-                        item(span = { GridItemSpan(maxLineSpan) }) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.Center
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                Box(Modifier.fillMaxSize()) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(150.dp),
+                        state = gridState,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxSize().padding(end = 12.dp)
+                    ) {
+                        itemsIndexed(
+                            items = skins,
+                            key = { index, skin -> "${skin.id}-$index" }
+                        ) { _, skin ->
+                            SkinCard(
+                                skin = skin,
+                                onClick = { onOpenSkinPreview(skin.id) }
+                            )
+                        }
+                        if (loading) {
+                            item(span = { GridItemSpan(maxLineSpan) }) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                                }
                             }
                         }
                     }
+                    RVerticalScrollbar(
+                        gridState = gridState,
+                        modifier = Modifier.align(Alignment.CenterEnd)
+                    )
                 }
             }
         }

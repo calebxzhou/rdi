@@ -29,6 +29,7 @@ import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.RColumn
 import calebxzau.rdi.client.ui.RRow
+import calebxzau.rdi.client.ui.RScrollableColumn
 import calebxzau.rdi.client.ui.RSwitch
 import calebxzau.rdi.client.ui.RTextField
 import calebxzau.rdi.client.ui.ScreenContentSize
@@ -104,10 +105,9 @@ fun ModpackOptionScreen(
                         CircularProgressIndicator()
                     }
                 } else {
-                    RColumn(
+                    RScrollableColumn(
                         modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState()),
+                            .fillMaxSize(),
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
                         RRow {

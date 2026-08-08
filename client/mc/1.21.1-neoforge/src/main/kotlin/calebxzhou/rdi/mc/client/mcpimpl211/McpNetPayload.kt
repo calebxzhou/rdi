@@ -38,7 +38,7 @@ data class McpNetPayload211(
 
     companion object {
         val TYPE = CustomPacketPayload.Type<McpNetPayload211>(
-            ResourceLocation.fromNamespaceAndPath("rdi", "mcp_game")
+            ResourceLocation.fromNamespaceAndPath("rdi", "game")
         )
 
         val STREAM_CODEC: StreamCodec<RegistryFriendlyByteBuf, McpNetPayload211> =

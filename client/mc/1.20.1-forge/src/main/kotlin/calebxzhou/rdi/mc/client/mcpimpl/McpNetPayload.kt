@@ -56,7 +56,7 @@ object McpNetwork {
     private var registered = false
 
     private val CHANNEL: SimpleChannel = NetworkRegistry.newSimpleChannel(
-        ResourceLocation.fromNamespaceAndPath("rdi", "mcp_game"),
+        ResourceLocation.fromNamespaceAndPath("rdi", "game"),
         { PROTOCOL_VERSION },
         { it == PROTOCOL_VERSION },
         { it == PROTOCOL_VERSION },
@@ -70,14 +70,14 @@ object McpNetwork {
         CHANNEL.messageBuilder(McpC2SPacket::class.java, 0, NetworkDirection.PLAY_TO_SERVER)
             .encoder(McpC2SPacket::encode)
             .decoder(McpC2SPacket::decode)
-            .consumerMainThread { _, context -> context.get().setPacketHandled(true) }
+            .consumerMainThread { _, context -> context.get().packetHandled = true }
             .add()
         CHANNEL.messageBuilder(McpS2CPacket::class.java, 1, NetworkDirection.PLAY_TO_CLIENT)
             .encoder(McpS2CPacket::encode)
             .decoder(McpS2CPacket::decode)
             .consumerMainThread { packet, context ->
                 McpGameImpl.complete(packet.s2cPacket())
-                context.get().setPacketHandled(true)
+                context.get().packetHandled = true
             }
             .add()
     }

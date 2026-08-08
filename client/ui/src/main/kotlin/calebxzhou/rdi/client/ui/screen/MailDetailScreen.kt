@@ -23,7 +23,7 @@ import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.TitleRow
-import calebxzhou.rdi.client.ui.comp.RVerticalScrollbar
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzhou.rdi.common.model.Mail
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.Dispatchers

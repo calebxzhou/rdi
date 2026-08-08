@@ -24,7 +24,7 @@ import java.util.zip.ZipOutputStream
 import kotlin.coroutines.Continuation
 import kotlinx.coroutines.Job
 
-//用rdi的kotlin lib 不用各个mod提供的
+//用RDI的mc运行库，不用各个Mod提供的
 object GameKotlinRuntime {
     private const val CACHE_SCHEMA = "v2"
     private const val JARJAR_METADATA = "META-INF/jarjar/metadata.json"
@@ -42,6 +42,12 @@ object GameKotlinRuntime {
         // KFF5.11 uses an empty group and the module name as the artifact.
         ":kotlinx.serialization.core",
         ":kotlinx.serialization.json",
+       /* "io.heapy.kotaml:kotaml",
+        "io.heapy.kotaml:kotaml-jvm",
+        "com.squareup.okio:okio-jvm",
+        "it.krzeminski:snakeyaml-engine-kmp-jvm",
+        "net.thauvin.erik.urlencoder:urlencoder-lib-jvm",
+        "io.fusionauth:java-http",*/
     )
 
     fun prepare(
@@ -50,7 +56,7 @@ object GameKotlinRuntime {
         cacheRoot: File,
     ): Result<List<File>> = runCatching {
         check(mcVersion == McVersion.V201 || mcVersion == McVersion.V211) {
-            "Kotlin运行库只支持MC20和MC21"
+            "RDI游戏运行库只支持MC20和MC21"
         }
         val runtime = resolveRuntimeClasspath()
         val archives = detectKotlinArchives(modsDir)
@@ -69,7 +75,14 @@ object GameKotlinRuntime {
             "kotlinx-coroutines-core" to classSource(Job::class.java),
             "kotlinx-serialization-core" to classSource(KSerializer::class.java),
             "kotlinx-serialization-json" to classSource(Json::class.java),
-        )
+        /*
+          in future
+          "kotaml" to classSource("com.charleskorn.kaml.Yaml"),
+            "okio" to classSource("okio.Path"),
+            "snakeyaml-engine" to classSource("it.krzeminski.snakeyaml.engine.kmp.api.Load"),
+            "urlencoder" to classSource("net.thauvin.erik.urlencoder.UrlEncoderUtil"),
+            "java-http" to classSource("io.fusionauth.http.HTTPMethod"),
+      */  )
         libraries.forEach { (name, file) ->
             check(file.isFile) { "RDI${name}运行库不存在: ${file.absolutePath}" }
             check(file.extension.equals("jar", ignoreCase = true)) {
@@ -77,7 +90,7 @@ object GameKotlinRuntime {
             }
         }
         check(libraries.map { it.second.absolutePath }.distinct().size == libraries.size) {
-            "RDI Kotlin运行库必须由${libraries.size}个独立JAR提供: " +
+            "RDI游戏运行库必须由${libraries.size}个独立JAR提供: " +
                 libraries.joinToString { (name, file) -> "$name=${file.name}" }
         }
         return libraries.map { it.second }

@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -16,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.asIconText
+import calebxzau.rdi.client.ui.RScrollableColumn
 
 
 @Composable
@@ -42,8 +41,8 @@ fun <T> LoadingFlowGrid(
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
 
-        else -> Column(
-            modifier = modifier.verticalScroll(rememberScrollState()),
+        else -> RScrollableColumn(
+            modifier = modifier,
             verticalArrangement = Arrangement.spacedBy(verticalSpacing)
         ) {
             FlowRow(

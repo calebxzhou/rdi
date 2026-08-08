@@ -18,6 +18,7 @@ import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.KeepAliveAnimatedTabHost
 import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.TitleRow
@@ -322,47 +323,54 @@ fun HostBrowserPane(
                 )
             }
 
-            LazyVerticalGrid(
-                state = gridState,
-                columns = GridCells.Adaptive(minSize = 300.dp),
-                contentPadding = PaddingValues(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                if (playableHosts.isNotEmpty()) {
-                    items(playableHosts) { host ->
-                        renderHostCard(host)
+            Box(Modifier.fillMaxWidth().weight(1f)) {
+                LazyVerticalGrid(
+                    state = gridState,
+                    columns = GridCells.Adaptive(minSize = 300.dp),
+                    modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                    contentPadding = PaddingValues(8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (playableHosts.isNotEmpty()) {
+                        items(playableHosts) { host ->
+                            renderHostCard(host)
+                        }
+                    } else {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Text("暂无可游玩的房间")
+                        }
                     }
-                } else {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text("暂无可游玩的房间")
-                    }
-                }
 
-                if (nonPlayableHosts.isNotEmpty()) {
-                    item(span = { GridItemSpan(maxLineSpan) }) {
-                        Text(
-                            "以下房间由于不在线或已启用白名单，无法游玩",
-                            style = MaterialTheme.typography.titleMedium
-                        )
+                    if (nonPlayableHosts.isNotEmpty()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) {
+                            Text(
+                                "以下房间由于不在线或已启用白名单，无法游玩",
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                        }
+                        items(nonPlayableHosts) { host ->
+                            renderHostCard(host)
+                        }
                     }
-                    items(nonPlayableHosts) { host ->
-                        renderHostCard(host)
-                    }
-                }
 
-                if (loadingMore) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            CircularProgressIndicator()
+                    if (loadingMore) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator()
+                            }
                         }
                     }
                 }
+                RVerticalScrollbar(
+                    gridState = gridState,
+                    modifier = Modifier.align(Alignment.CenterEnd)
+                )
             }
         }
     }

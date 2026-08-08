@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -28,6 +29,7 @@ import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
@@ -128,6 +130,7 @@ fun ModpackUploadScreen(
     var selectedUpdateTarget by remember { mutableStateOf<Modpack.BriefVo?>(null) }
     var showUploadModeDialog by remember { mutableStateOf(false) }
     var pendingMissingModDownload by remember { mutableStateOf<PendingMissingModDownload?>(null) }
+    val uploadedModpacksGridState = rememberLazyGridState()
     var ignoreModpackTest by remember { mutableStateOf(IGNORE_MODPACK_TEST) }
     val focusRequester = remember { FocusRequester() }
     val taskEntries by ClientTaskManager.entries.collectAsState()
@@ -915,18 +918,25 @@ fun ModpackUploadScreen(
                         if (uploadedModpacks.isEmpty()) {
                             Text("你还没有已上传整合包")
                         } else {
-                            LazyVerticalGrid(
-                                columns = GridCells.Adaptive(280.dp),
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                items(uploadedModpacks, key = { it.id.toHexString() }) { modpack ->
-                                    modpack.ModpackCard(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        onClick = { chooseUpdateMode(modpack) }
-                                    )
+                            Box(Modifier.fillMaxWidth().weight(1f)) {
+                                LazyVerticalGrid(
+                                    state = uploadedModpacksGridState,
+                                    columns = GridCells.Adaptive(280.dp),
+                                    modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(uploadedModpacks, key = { it.id.toHexString() }) { modpack ->
+                                        modpack.ModpackCard(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            onClick = { chooseUpdateMode(modpack) }
+                                        )
+                                    }
                                 }
+                                RVerticalScrollbar(
+                                    gridState = uploadedModpacksGridState,
+                                    modifier = Modifier.align(Alignment.CenterEnd)
+                                )
                             }
                         }
                     }

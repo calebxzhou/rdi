@@ -19,11 +19,11 @@ plugins {
 // Ensure the common project is configured before we read its outputs
 evaluationDependsOn(":c-mc-common")
 evaluationDependsOn(":firmsection")
-/*evaluationDependsOn(":rmcp-common")
-evaluationDependsOn(":rmcp-client")*/
+evaluationDependsOn(":rmcp-common")
+evaluationDependsOn(":rmcp-client")
 evaluationDependsOn(":mediaproc")
 
-def sharedBuildProjects = [':c-mc-common', /*':rmcp-common', ':rmcp-client',*/ ':mediaproc']
+def sharedBuildProjects = [':c-mc-common', ':rmcp-common', ':rmcp-client', ':mediaproc']
 project(':mediaproc').tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
     enabled = false
 }
@@ -264,6 +264,10 @@ dependencies {
     additionalRuntimeClasspath(project(":c-mc-common"))
     implementation(project(":firmsection"))
     additionalRuntimeClasspath(project(":firmsection"))
+    implementation(project(":rmcp-common"))
+    additionalRuntimeClasspath(project(":rmcp-common"))
+    implementation(project(":rmcp-client"))
+    additionalRuntimeClasspath(project(":rmcp-client"))
 
     implementation(project(":mediaproc")) {
         transitive = false
@@ -271,7 +275,19 @@ dependencies {
     additionalRuntimeClasspath(project(":mediaproc")) {
         transitive = false
     }
-    additionalRuntimeClasspath 'io.fusionauth:java-http:1.4.0'
+    // RMCP运行库由RDI client/ui统一提供，这些配置只服务于Mod编译和本地Gradle运行。(future)
+/*
+    compileOnly "io.heapy.kotaml:kotaml-jvm:0.108.0"
+    compileOnly "com.squareup.okio:okio-jvm:3.17.0"
+    compileOnly "it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1"
+    compileOnly "net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0"
+    compileOnly "io.fusionauth:java-http:1.4.0"
+    additionalRuntimeClasspath "io.heapy.kotaml:kotaml-jvm:0.108.0"
+    additionalRuntimeClasspath "com.squareup.okio:okio-jvm:3.17.0"
+    additionalRuntimeClasspath "it.krzeminski:snakeyaml-engine-kmp-jvm:4.0.1"
+    additionalRuntimeClasspath "net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0"
+    additionalRuntimeClasspath "io.fusionauth:java-http:1.4.0"
+*/
 
     implementation("org.bytedeco:javacv:1.5.13") {
         transitive = false
@@ -287,7 +303,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     additionalRuntimeClasspath("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    implementation(jarJar("io.heapy.kotaml:kotaml-jvm:0.108.0"))
     //不需要夹在built jar里  rdi client已有
     // implementation("com.github.luben:zstd-jni:1.5.7-11")
     // additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11")
@@ -298,8 +313,10 @@ dependencies {
     // at runtime, use the full JEI jar for NeoForge
     modImplementation("mezz.jei:jei-1.20.1-forge:15.20.0.132")
 
+
     //lalangmine
-    /*implementation(project(":rmcp-common"))
+    implementation(jarJar("io.heapy.kotaml:kotaml-jvm:0.108.0"))
+    implementation(project(":rmcp-common"))
     additionalRuntimeClasspath(project(":rmcp-common"))
     implementation(project(":rmcp-client"))
     additionalRuntimeClasspath(project(":rmcp-client"))
@@ -308,7 +325,7 @@ dependencies {
     jarJar("net.thauvin.erik.urlencoder:urlencoder-lib-jvm:1.6.0")
     shaded('io.fusionauth:java-http:1.4.0') {
         transitive = false
-    }*/
+    }
 
     add('architecturyApi', 'dev.architectury:architectury-forge:9.1.12')
     //>>>Modrinth Mods<<<
@@ -347,10 +364,10 @@ tasks.matching { it.name == 'runClient' || it.name == 'runClientAnother' }.confi
 
 jar {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-   /* dependsOn project(":rmcp-common").tasks.named("classes")
+    dependsOn project(":rmcp-common").tasks.named("classes")
     dependsOn project(":rmcp-client").tasks.named("classes")
     from(project(":rmcp-common").sourceSets.main.output)
-    from(project(":rmcp-client").sourceSets.main.output)*/
+    from(project(":rmcp-client").sourceSets.main.output)
     from({
         shadedConfiguration.collect { it.isDirectory() ? it : zipTree(it) }
     }) {
