@@ -899,6 +899,7 @@ private fun CatalogMod.toLegacyMod(file: CatalogFile, resolved: ResolvedDownload
         ModPlatform.MODRINTH -> "mr"
     }
     val digest = when (file.ref.platform) {
+
         ModPlatform.CURSEFORGE -> resolved.digests.firstOrNull {
             it.algorithm == CatalogDigestAlgorithm.CURSEFORGE_MURMUR2
         }
@@ -906,6 +907,7 @@ private fun CatalogMod.toLegacyMod(file: CatalogFile, resolved: ResolvedDownload
         ModPlatform.MODRINTH -> resolved.digests.firstOrNull {
             it.algorithm == CatalogDigestAlgorithm.SHA1
         }
+
     } ?: error("当前文件缺少校验信息")
     return Mod(
         platform = platform,

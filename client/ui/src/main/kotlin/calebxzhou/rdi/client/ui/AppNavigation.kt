@@ -408,7 +408,6 @@ fun AppNavigation(
         }
         composable<ModpackUpload> {
             ModpackUploadScreen(
-                modCatalog = modCatalog,
                 onBack = {
                     navController.navigate(ResourceRoute(ResourceTab.All.name)) {
                         popUpTo<ModpackUpload> { inclusive = true }
@@ -628,7 +627,6 @@ fun AppNavigation(
         composable<ModpackInfo> {
             val route = it.toRoute<ModpackInfo>()
             ModpackInfoScreen(
-                modCatalog = modCatalog,
                 modpackId = route.modpackId,
                 onBack = {
                     if (route.fromHostId != null) {

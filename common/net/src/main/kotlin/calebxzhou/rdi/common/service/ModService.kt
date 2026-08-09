@@ -328,7 +328,7 @@ object ModService {
             .replace("cdn.modrinth.com", "mod.mcimirror.top")
             .replace("api.curseforge.com", "mod.mcimirror.top/curseforge")
 
-    fun downloadModsTask2(mods: List<Mod>): Task2 {
+    fun downloadModsTask2(mods: List<Mod>, targetDir: File = DL_MOD_DIR): Task2 {
         if (mods.isEmpty()) return Task2.Group("下载Mod", emptyList())
         val cfMods = mods.filter { it.platform == "cf" }
         val mrMods = mods.filter { it.platform == "mr" }
@@ -336,23 +336,24 @@ object ModService {
         return Task2.Sequence(
             title = "下载${mods.size}个Mod",
             children = buildList {
-                add(downloadCFModsTask2(cfMods))
-                add(downloadMRModsTask2(mrMods))
-                add(downloadGithubModsTask2(githubMods))
+                add(downloadCFModsTask2(cfMods, targetDir))
+                add(downloadMRModsTask2(mrMods, targetDir))
+                add(downloadGithubModsTask2(githubMods, targetDir))
             }
         )
     }
 
-    fun isDownloadedModFileValid(mod: Mod): Boolean {
-        val validPath = findValidDownloadedModPath(mod) ?: return false
-        if (validPath != mod.targetPath) {
-            copyExistingModFile(validPath, mod.targetPath)
+    fun isDownloadedModFileValid(mod: Mod, targetDir: File = DL_MOD_DIR): Boolean {
+        val targetPath = mod.targetPath(targetDir)
+        val validPath = findValidDownloadedModPath(mod, targetDir) ?: return false
+        if (validPath != targetPath) {
+            copyExistingModFile(validPath, targetPath)
         }
         return true
     }
 
-    private fun findValidDownloadedModPath(mod: Mod): Path? =
-        mod.downloadedFileCandidates().firstOrNull { path ->
+    private fun findValidDownloadedModPath(mod: Mod, targetDir: File): Path? =
+        mod.downloadedFileCandidates(targetDir).firstOrNull { path ->
             path.exists() && isDownloadedModFileValid(mod, path)
         }
 
@@ -371,8 +372,8 @@ object ModService {
         }.getOrDefault(false)
     }
 
-    private fun Mod.downloadedFileCandidates(): List<Path> =
-        candidateFiles
+    private fun Mod.downloadedFileCandidates(targetDir: File): List<Path> =
+        candidateFiles(targetDir)
             .map(File::toPath)
             .distinctBy { it.toAbsolutePath().normalize() }
 
@@ -382,7 +383,7 @@ object ModService {
         Files.copy(source, target, StandardCopyOption.REPLACE_EXISTING)
     }
 
-    fun downloadCFModsTask2(mods: List<Mod>): Task2 {
+    fun downloadCFModsTask2(mods: List<Mod>, targetDir: File = DL_MOD_DIR): Task2 {
         if (mods.isEmpty()) return Task2.Group("下载CurseForge Mod", emptyList())
         val fileIds = mods.map { it.fileId.toInt() }
         val fileInfoMap = mutableMapOf<Int, CurseForgeFile>()
@@ -397,7 +398,7 @@ object ModService {
             Task2.Leaf("下载 ${mod.slug}") { ctx ->
                 val fileInfo = fileInfoMap[mod.fileId.toInt()]
                     ?: throw IllegalStateException("未找到文件信息: ${mod.slug}")
-                val result = downloadSingleCFMod(mod, fileInfo) { progress ->
+                val result = downloadSingleCFMod(mod, fileInfo, targetDir) { progress ->
                     ctx.emit(aggregateProgress(mod, progress))
                 }
                 result.getOrElse { throw it }
@@ -413,13 +414,13 @@ object ModService {
         )
     }
 
-    fun downloadMRModsTask2(mods: List<Mod>): Task2 {
+    fun downloadMRModsTask2(mods: List<Mod>, targetDir: File = DL_MOD_DIR): Task2 {
         if (mods.isEmpty()) return Task2.Group("下载Modrinth Mod", emptyList())
         val modsWithUrls = mods.filter { it.downloadUrls.isNotEmpty() }
         val aggregateProgress = createBatchProgressTracker2(modsWithUrls)
         val tasks = modsWithUrls.map { mod ->
             Task2.Leaf("下载 ${mod.slug}") { ctx ->
-                val result = downloadSingleMRMod(mod) { progress ->
+                val result = downloadSingleMRMod(mod, targetDir) { progress ->
                     ctx.emit(aggregateProgress(mod, progress))
                 }
                 result.getOrElse { throw it }
@@ -429,13 +430,13 @@ object ModService {
         return Task2.Group("下载Modrinth Mod", tasks)
     }
 
-    fun downloadGithubModsTask2(mods: List<Mod>): Task2 {
+    fun downloadGithubModsTask2(mods: List<Mod>, targetDir: File = DL_MOD_DIR): Task2 {
         if (mods.isEmpty()) return Task2.Group("下载GitHub Mod", emptyList())
         val modsWithUrls = mods.filter { it.downloadUrls.isNotEmpty() }
         val aggregateProgress = createBatchProgressTracker2(modsWithUrls)
         val tasks = modsWithUrls.map { mod ->
             Task2.Leaf("下载 ${mod.slug}") { ctx ->
-                val result = downloadSingleMRMod(mod) { progress ->
+                val result = downloadSingleMRMod(mod, targetDir) { progress ->
                     ctx.emit(aggregateProgress(mod, progress))
                 }
                 result.getOrElse { throw it }
@@ -476,11 +477,13 @@ object ModService {
     private suspend fun downloadSingleCFMod(
         mod: Mod,
         fileInfo: CurseForgeFile,
+        targetDir: File,
         onProgress: (DownloadProgress) -> Unit
     ): Result<Path> {
         val expectedFingerprint = fileInfo.fileFingerprint
         return downloadSingleModFromSources(
             mod = mod,
+            targetDir = targetDir,
             officialUrls = mod.downloadUrls + fileInfo.realDownloadUrl,
             localRequest = LocalArtifactRequest(
                 algorithm = LocalArtifactHashAlgorithm.CURSEFORGE_MURMUR2,
@@ -505,11 +508,13 @@ object ModService {
 
     private suspend fun downloadSingleMRMod(
         mod: Mod,
+        targetDir: File,
         onProgress: (DownloadProgress) -> Unit
     ): Result<Path> {
         val expectedHash = mod.hash.trim().lowercase()
         return downloadSingleModFromSources(
             mod = mod,
+            targetDir = targetDir,
             officialUrls = mod.downloadUrls,
             localRequest = LocalArtifactRequest(
                 algorithm = LocalArtifactHashAlgorithm.SHA1,
@@ -538,14 +543,15 @@ object ModService {
 
     private suspend fun downloadSingleModFromSources(
         mod: Mod,
+        targetDir: File,
         officialUrls: List<String>,
         localRequest: LocalArtifactRequest,
         existingFileMatches: (Path) -> Boolean,
         validator: suspend (Path) -> Result<Unit>,
         onProgress: (DownloadProgress) -> Unit
     ): Result<Path> {
-        val targetPath = mod.targetPath
-        val existingPath = mod.downloadedFileCandidates().firstOrNull(existingFileMatches)
+        val targetPath = mod.targetPath(targetDir)
+        val existingPath = mod.downloadedFileCandidates(targetDir).firstOrNull(existingFileMatches)
         if (existingPath != null) {
             copyExistingModFile(existingPath, targetPath)
             lgr.debug { "Mod file already exists and hash matches: $existingPath" }
@@ -638,7 +644,6 @@ object ModService {
                 slug in forceBoth -> mod.side = Mod.Side.BOTH
                 slug in forceClient -> mod.side = Mod.Side.CLIENT
             }
-            mod.vo = mod.vo?.copy(side = mod.side)
         }
         return this
     }

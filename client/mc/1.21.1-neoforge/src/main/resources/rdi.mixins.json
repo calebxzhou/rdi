@@ -24,6 +24,7 @@
     "mAllowChineseName",
     "mClientIntentionPacket",
     "mPlayerInfoUpdatePacket",
-    "mServerboundHelloPacket"
+    "mServerboundHelloPacket",
+    "mZstdCompression"
   ]
 }

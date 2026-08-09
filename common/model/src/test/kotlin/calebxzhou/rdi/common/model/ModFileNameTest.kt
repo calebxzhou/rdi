@@ -1,5 +1,6 @@
 package calebxzhou.rdi.common.model
 
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -33,5 +34,23 @@ class ModFileNameTest {
         assertEquals("sodium", mod.fileSlug)
         assertEquals("sodium_mr_123456.jar", mod.fileName)
         assertEquals(listOf("sodium_mr_123456.jar"), mod.fileNames)
+    }
+
+    @Test
+    fun explicitTargetDirectoryDoesNotUseGlobalModDirectory() {
+        val mod = Mod(
+            platform = "mr",
+            projectId = "abc",
+            slug = "sodium",
+            fileId = "def",
+            hash = "123456"
+        )
+        val targetDir = File("client-mod-cache")
+
+        assertEquals(targetDir.resolve("sodium_mr_123456.jar"), mod.targetFile(targetDir))
+        assertEquals(
+            listOf(targetDir.resolve("sodium_mr_123456.jar")),
+            mod.candidateFiles(targetDir)
+        )
     }
 }

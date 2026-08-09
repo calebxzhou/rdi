@@ -63,6 +63,7 @@ data class DownloadConfig(
 @Serializable
 data class StorageConfig(
     val dlModsDir: String? = null,
+    val dlModsClientDir: String? = null,
     val modpackDir: String? = null,
     val hostsDir: String? = null,
     val worldsDir: String? = null,

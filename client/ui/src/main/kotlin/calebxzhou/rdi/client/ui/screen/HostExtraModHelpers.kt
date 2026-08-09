@@ -1,9 +1,9 @@
 package calebxzhou.rdi.client.ui.screen
 
-import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.client.model.UiMod
 
 data class HostExtraModMatchResult(
-    val matchedMods: List<Mod>,
+    val matchedMods: List<UiMod>,
     val rejectedFiles: List<String> = emptyList()
 )
 

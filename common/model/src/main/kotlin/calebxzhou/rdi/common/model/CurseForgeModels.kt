@@ -45,7 +45,7 @@ data class CurseForgePackManifest(
 
 
 data class CurseForgeLocalResult(
-    val matched: List<Mod> = emptyList(),
+    val matched: List<ModCardMatch> = emptyList(),
     val unmatched: List<File> = emptyList()
 )
 

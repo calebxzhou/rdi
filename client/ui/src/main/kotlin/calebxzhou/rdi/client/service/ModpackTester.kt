@@ -2,7 +2,6 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
 import calebxzhou.mykotutils.std.sha1
-import calebxzhou.rdi.client.model.toUiMod
 import calebxzau.rdi.client.packproc.LoadedLocalModpack
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.McVersion
@@ -412,7 +411,7 @@ private fun updateModSideByKey(
     val idx = updated.indexOfFirst { modStableKey(it) == modKey }
     if (idx < 0) return mods
     val origin = updated[idx]
-    updated[idx] = origin.toUiMod().withSide(newSide).toMod()
+    updated[idx] = origin.copy(side = newSide)
     return updated
 }
 

@@ -209,6 +209,7 @@ tasks.register('generateModMetadata', ProcessResources) {
 }
 
 sourceSets.named('main') {
+    kotlin.srcDir '../../../mc/common/codec/src/main/kotlin'
     kotlin.srcDir '../../../mc/common/2021/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
     resources.srcDir 'src/generated/resources'
@@ -216,6 +217,10 @@ sourceSets.named('main') {
     // Make common assets visible in IDE dev runs (textures, lang, etc.)
     // without merging common Java packages into this module.
     resources.srcDir project(':c-mc-common').file('src/main/resources')
+}
+
+sourceSets.named('test') {
+    kotlin.srcDir '../../../mc/common/codec/src/test/kotlin'
 }
 
 neoForge.ideSyncTask(tasks.named('generateModMetadata'))
@@ -297,6 +302,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     // Source: https://mvnrepository.com/artifact/org.jetbrains.kotlinx/kotlinx-coroutines-core
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
+    //mount from ui in production
+    implementation(/*jarJar*/("com.github.luben:zstd-jni:1.5.7-11:win_amd64"))
+    additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
     //KOTAML yml
 
 
@@ -320,6 +328,12 @@ dependencies {
         implementation "curse.maven:$dep-deobf"
     }
     implementation "curse.maven:ftb-chunks-forge-314906:8241176-deobf"
+
+    testImplementation 'org.jetbrains.kotlin:kotlin-test'
+    testImplementation 'io.netty:netty-buffer:4.1.97.Final'
+    testImplementation 'io.netty:netty-codec:4.1.97.Final'
+    testImplementation 'io.netty:netty-common:4.1.97.Final'
+    testImplementation 'io.netty:netty-transport:4.1.97.Final'
 
 
 }

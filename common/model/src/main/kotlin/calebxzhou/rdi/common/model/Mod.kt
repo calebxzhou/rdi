@@ -1,9 +1,8 @@
 package calebxzhou.rdi.common.model
 
 import calebxzhou.rdi.common.DL_MOD_DIR
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 import java.io.File
+import kotlinx.serialization.Serializable
 
 @Serializable
 data class Mod(
@@ -23,19 +22,17 @@ data class Mod(
         get() = "${fileSlug}_${platform}_${hash}.jar"
     val fileNames
         get() = listOf(fileName, legacyFileName).distinct()
-    val targetFile get() = DL_MOD_DIR.resolve(fileName)
-    val candidateFiles get() = fileNames.map { DL_MOD_DIR.resolve(it) }
+    val targetFile get() = targetFile(DL_MOD_DIR)
+    val candidateFiles get() = candidateFiles(DL_MOD_DIR)
     val targetPath get() = targetFile.toPath()
+
+    fun targetFile(targetDir: File) = targetDir.resolve(fileName)
+    fun candidateFiles(targetDir: File) = fileNames.map(targetDir::resolve)
+    fun targetPath(targetDir: File) = targetFile(targetDir).toPath()
 
     enum class Side(val text:String){
         CLIENT("客户端"),SERVER("服务端"),BOTH("客+服通用"),UNKNOWN("未知")
     }
-    @Deprecated("rm later")
-    @Transient
-    var vo: Mod.CardVo?=null
-    @Transient
-    @Deprecated("rm later")
-    var file: File?=null
     //展示modcard的信息
     @Serializable
     data class CardVo(

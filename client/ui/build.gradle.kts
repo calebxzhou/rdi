@@ -405,31 +405,28 @@ fun registerCopyTask(name: String, extraDestinationRoots: List<String> = emptyLi
     }
 
     tasks.register(name) {
+        group = "distribution"
         dependsOn(copyTaskNames)
     }
 }
 
 registerCopyTask("出core2-local")
 registerCopyTask("出core2-release", listOf("\\\\rdi\\rdi55\\ihq\\client-libs"))
-val dotnetReleaseCmd = listOf(
-    "dotnet",
-    "publish",
-    "-c",
-    "Release",
-    "-r",
-    "win-x64",
-    "-p:PublishAot=true",
-    "-p:StripSymbols=true",
+val cargoReleaseCmd = listOf(
+    "cargo",
+    "build",
+    "--release",
+    "--locked",
 )
 fun registerUpdaterTask(name: String, destinationDirs: List<File>) {
 
     tasks.register(name) {
-        notCompatibleWithConfigurationCache("invokes dotnet and zstd, then copies the updater")
+        notCompatibleWithConfigurationCache("invokes cargo and zstd, then copies the updater")
         group = "distribution"
         description = "Build, compress and publish the Windows updater."
 
-        val updaterDir = layout.projectDirectory.dir("updater").asFile
-        val updaterExe = updaterDir.resolve("bin/Release/net10.0/win-x64/native/updater.exe")
+        val updaterDir = layout.projectDirectory.dir("../updater").asFile
+        val updaterExe = updaterDir.resolve("target/release/updater.exe")
         val compressedUpdater = updaterExe.parentFile.resolve("updater.exe.zst")
         val updaterSha1File = updaterExe.parentFile.resolve("updater.exe.sha1")
 
@@ -455,12 +452,12 @@ fun registerUpdaterTask(name: String, destinationDirs: List<File>) {
                 return exitCode
             }
 
-            val publishExitCode = runProcess(
-                dotnetReleaseCmd,
+            val buildExitCode = runProcess(
+                cargoReleaseCmd,
                 updaterDir
             )
-            if (publishExitCode != 0) {
-                throw GradleException("dotnet publish updater失败，退出码: $publishExitCode")
+            if (buildExitCode != 0) {
+                throw GradleException("cargo build updater失败，退出码: $buildExitCode")
             }
 
             if (!updaterExe.isFile) {
@@ -475,6 +472,7 @@ fun registerUpdaterTask(name: String, destinationDirs: List<File>) {
             val compressExitCode = runProcess(
                 listOf(
                     "zstd",
+                    "-22",
                     "-f",
                     updaterExe.absolutePath,
                     "-o",
@@ -560,7 +558,7 @@ tasks.register("makeShipPackZst") {
     val shipDir = File(System.getProperty("user.home"), "Documents/rdi5ship")
     val filesNeed = listOf( "lib", "start.exe")
     val temporaryTar = layout.buildDirectory.file("installer/assets/client.tar").get().asFile
-    val archiveFile = layout.projectDirectory.file("installer/assets/client.tar.zst").asFile
+    val archiveFile = layout.projectDirectory.file("../installer/assets/client.tar.zst").asFile
     group = "distribution"
     description = "Create the installer client.tar.zst from Documents/rdi5ship."
 
@@ -603,19 +601,24 @@ tasks.register("makeShipPackZst") {
     }
 }
 
-tasks.register("makeShipInstaller") {
+tasks.register("出install") {
     dependsOn("makeShipPackZst")
-    notCompatibleWithConfigurationCache("invokes dotnet in the installer directory")
+    notCompatibleWithConfigurationCache("invokes cargo in the installer directory")
     group = "distribution"
     description = "Create the shipping pack and publish the Windows installer."
 
+    val installerDir = layout.projectDirectory.dir("../installer").asFile
+    val installerExe = installerDir.resolve("target/release/rdi-installer.exe")
+
     doLast {
-        val exitCode = ProcessBuilder(dotnetReleaseCmd)
-            .directory(layout.projectDirectory.dir("installer").asFile)
+        val exitCode = ProcessBuilder(cargoReleaseCmd)
+            .directory(installerDir)
             .inheritIO()
             .start()
             .waitFor()
-        if (exitCode != 0) throw GradleException("dotnet publish installer失败，退出码:$exitCode")
+        if (exitCode != 0) throw GradleException("cargo build installer失败，退出码:$exitCode")
+        if (!installerExe.isFile) throw GradleException("未找到installer:$installerExe")
     }
 }
+
 

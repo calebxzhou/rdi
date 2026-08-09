@@ -103,12 +103,17 @@ neoForge {
 }
 
 sourceSets.named('main') {
+    kotlin.srcDir '../../../mc/common/codec/src/main/kotlin'
     kotlin.srcDir '../../../mc/common3/1.21/src/main/kotlin'
     kotlin.srcDir '../../../mc/common/all/src/main/kotlin'
     kotlin.srcDir '../../../mc/firmsection/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
     kotlin.srcDir '../../../mc/rmcp/server/src/main/kotlin'
     resources.srcDir 'src/generated/resources'
+}
+
+sourceSets.named('test') {
+    kotlin.srcDir '../../../mc/common/codec/src/test/kotlin'
 }
 
 def localRuntimeConfiguration = configurations.maybeCreate('localRuntime')
@@ -130,6 +135,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    implementation("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
+    additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
+    jarJar("com.github.luben:zstd-jni:1.5.7-11:linux_amd64")
     //>>>Modrinth Mods<<<
     [
             'architectury-api:13.0.8+neoforge',
@@ -150,6 +158,12 @@ dependencies {
     ].each { dep ->
         implementation "curse.maven:$dep-deobf"
     }
+
+    testImplementation 'org.jetbrains.kotlin:kotlin-test'
+    testImplementation 'io.netty:netty-buffer:4.1.97.Final'
+    testImplementation 'io.netty:netty-codec:4.1.97.Final'
+    testImplementation 'io.netty:netty-common:4.1.97.Final'
+    testImplementation 'io.netty:netty-transport:4.1.97.Final'
 
 
 }

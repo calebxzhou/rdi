@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.service
 
 import calebxzau.rdi.client.modcatalog.CatalogModMetadata
+import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.common.model.CurseForgeModInfo
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModrinthProject
@@ -10,8 +11,8 @@ import calebxzhou.rdi.common.service.ModService.readModMeta
 import java.io.File
 import java.util.jar.JarFile
 
-internal fun Mod.toLocalCardVo(metadata: CatalogModMetadata?): Mod.CardVo? {
-    val localFile = file ?: targetPath.toFile().takeIf { it.exists() }
+internal fun UiMod.toLocalCardVo(metadata: CatalogModMetadata?): Mod.CardVo? {
+    val localFile = file ?: mod.targetPath.toFile().takeIf { it.exists() }
     val localMeta = localFile?.let {
         runCatching { it.readLocalModCardMeta() }.getOrNull()
     }
@@ -19,13 +20,13 @@ internal fun Mod.toLocalCardVo(metadata: CatalogModMetadata?): Mod.CardVo? {
     val introText = localMeta?.introText
     if (metadata == null && iconBytes == null && introText == null) return null
 
-    return metadata?.toUiCardVo(localMeta, side)?.copy(
+    return metadata?.toUiCardVo(localMeta, mod.side)?.copy(
         intro = metadata.intro?.takeIf(String::isNotBlank) ?: introText ?: "暂无介绍"
     ) ?: Mod.CardVo(
-        name = slug.ifBlank { projectId },
+        name = mod.slug.ifBlank { mod.projectId },
         intro = introText ?: "暂无介绍",
         iconData = iconBytes,
-        side = side
+        side = mod.side
     )
 }
 

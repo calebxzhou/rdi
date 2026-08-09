@@ -2,6 +2,8 @@ package calebxzhou.rdi.master.service
 
 import calebxzhou.mykotutils.log.Loggers
 import calebxzhou.rdi.common.DL_MOD_DIR
+import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.master.DL_MODS_CLIENT_DIR
 import calebxzhou.rdi.master.service.host.HostService
 import kotlinx.coroutines.flow.toList
 import java.io.File
@@ -22,37 +24,50 @@ object UnusedModPurgeService {
     }
 
     private suspend fun purgeUnusedMods() {
-        val modDir = DL_MOD_DIR
+        val usedFileNames = collectUsedModFileNames()
+        purgeDirectory(
+            modDir = DL_MOD_DIR,
+            trashDirName = "dl-mods-trash",
+            usedFileNames = usedFileNames.all,
+            protectedFilePrefixes = setOf("rdi-5-mc-client-")
+        )
+        purgeDirectory(
+            modDir = DL_MODS_CLIENT_DIR,
+            trashDirName = "dl-mods-client-trash",
+            usedFileNames = usedFileNames.client
+        )
+    }
+
+    private fun purgeDirectory(
+        modDir: File,
+        trashDirName: String,
+        usedFileNames: Set<String>,
+        protectedFilePrefixes: Set<String> = emptySet()
+    ) {
         if (!modDir.exists()) {
-            lgr.info { "dl-mods目录不存在，跳过unused mod清理: ${modDir.absolutePath}" }
+            lgr.info { "Mod目录不存在，跳过unused mod清理: ${modDir.absolutePath}" }
             return
         }
 
-        val trashDir = modDir.parentFile?.resolve("dl-mods-trash") ?: File("dl-mods-trash")
+        val trashDir = modDir.parentFile?.resolve(trashDirName) ?: File(trashDirName)
         trashDir.mkdirs()
 
-        val usedFileNames = collectUsedModFileNames()
-        val purgeCandidates = modDir.listFiles()
-            ?.filter { it.isFile }
-            ?.filter { it.extension.equals("jar", ignoreCase = true) || it.extension.equals("downloading", ignoreCase = true) }
-            ?.filterNot { it.name.startsWith("rdi-5-mc-client-") }
-            .orEmpty()
-        val unusedFiles = purgeCandidates.filter { it.extension.equals("downloading", ignoreCase = true) || it.name !in usedFileNames }
+        val purgeCandidates = findPurgeCandidates(modDir, usedFileNames, protectedFilePrefixes)
 
-        if (unusedFiles.isEmpty()) {
+        if (purgeCandidates.isEmpty()) {
             lgr.info {
-                "dl-mods清理：扫描${purgeCandidates.size}个候选文件，引用${usedFileNames.size}个文件名，没有unused mod"
+                "Mod缓存清理：${modDir.absolutePath}引用${usedFileNames.size}个文件名，没有unused mod"
             }
             return
         }
 
         lgr.info {
-            "dl-mods清理：扫描${purgeCandidates.size}个候选文件，引用${usedFileNames.size}个文件名，准备移动${unusedFiles.size}个unused mod到${trashDir.absolutePath}"
+            "Mod缓存清理：${modDir.absolutePath}引用${usedFileNames.size}个文件名，准备移动${purgeCandidates.size}个unused mod到${trashDir.absolutePath}"
         }
 
         var movedCount = 0
         var failedCount = 0
-        unusedFiles.forEach { source ->
+        purgeCandidates.forEach { source ->
             runCatching {
                 Files.move(source.toPath(), nextTrashFile(trashDir, source.name).toPath())
                 movedCount++
@@ -63,20 +78,49 @@ object UnusedModPurgeService {
         }
 
         lgr.info {
-            "dl-mods清理完成：移动${movedCount}个，失败${failedCount}个，trash=${trashDir.absolutePath}"
+            "Mod缓存清理完成：移动${movedCount}个，失败${failedCount}个，trash=${trashDir.absolutePath}"
         }
     }
 
-    private suspend fun collectUsedModFileNames(): Set<String> = buildSet {
-        ModpackService.dbcl.find().toList()
-            .flatMap { it.versions }
-            .flatMap { it.mods }
-            .forEach { addAll(it.fileNames) }
+    internal fun findPurgeCandidates(
+        modDir: File,
+        usedFileNames: Set<String>,
+        protectedFilePrefixes: Set<String> = emptySet()
+    ): List<File> = modDir.listFiles()
+        ?.filter { it.isFile }
+        ?.filter {
+            it.extension.equals("jar", ignoreCase = true) ||
+                it.extension.equals("downloading", ignoreCase = true)
+        }
+        ?.filterNot { file -> protectedFilePrefixes.any { prefix -> file.name.startsWith(prefix) } }
+        ?.filter {
+            it.extension.equals("downloading", ignoreCase = true) || it.name !in usedFileNames
+        }
+        .orEmpty()
 
-        HostService.dbcl.find().toList()
-            .flatMap { it.extraMods + it.disabledMods }
-            .forEach { addAll(it.fileNames) }
+    private suspend fun collectUsedModFileNames(): UsedModFileNames {
+        val versions = ModpackService.dbcl.find().toList()
+            .flatMap { it.versions }
+        val all = buildSet {
+            versions.flatMap { it.mods }.forEach { addAll(it.fileNames) }
+
+            HostService.dbcl.find().toList()
+                .flatMap { it.extraMods + it.disabledMods }
+                .forEach { addAll(it.fileNames) }
+        }
+        val client = buildSet {
+            versions
+                .flatMap { it.mods }
+                .filter { it.side == Mod.Side.CLIENT }
+                .forEach { addAll(it.fileNames) }
+        }
+        return UsedModFileNames(all, client)
     }
+
+    private data class UsedModFileNames(
+        val all: Set<String>,
+        val client: Set<String>
+    )
 
     private fun nextTrashFile(trashDir: File, fileName: String): File {
         val directTarget = trashDir.resolve(fileName)

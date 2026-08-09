@@ -81,17 +81,14 @@ data class UiMod(
         hash = mod.hash,
         side = mod.side,
         downloadUrls = mod.downloadUrls.toList()
-    ).also {
-        it.vo = card
-        it.file = file
-    }
+    )
 }
 
 val Mod.uiModKey: String
     get() = "$platform:$projectId:$fileId:$hash"
 
-fun Mod.toUiMod(): UiMod = UiMod(
+fun Mod.toUiMod(card: Mod.CardVo? = null, file: File? = null): UiMod = UiMod(
     mod = this,
-    card = vo,
+    card = card,
     file = file
 )

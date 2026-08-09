@@ -2,6 +2,7 @@ package calebxzhou.rdi.master.service
 
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.master.DL_MODS_CLIENT_DIR
 import calebxzhou.rdi.master.net.param
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.response.respond
@@ -25,8 +26,8 @@ fun Route.modFileRoutes() = route("/mod") {
             throw RequestError("非法文件名")
         }
 
-        val file = DL_MOD_DIR.resolve(filename)
-        if (!file.exists() || !file.isFile) {
+        val file = ModStorage.findDownloadFile(filename, DL_MOD_DIR, DL_MODS_CLIENT_DIR).getOrThrow()
+        if (file == null) {
             call.respond(HttpStatusCode.NotFound)
             return@get
         }

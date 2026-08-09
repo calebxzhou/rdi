@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.model
 
 import calebxzhou.rdi.common.model.Mod
+import java.io.File
 import kotlin.test.assertContentEquals
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -35,6 +36,34 @@ class UiModTest {
         assertEquals("简介", uiMod.intro)
         assertContentEquals(byteArrayOf(1), uiMod.iconData)
         assertEquals(listOf("https://example.com/icon.png"), uiMod.iconUrls)
+    }
+
+    @Test
+    fun `keeps card explicit and out of raw mod`() {
+        val card = Mod.CardVo(name = "Display Name")
+        val uiMod = createMod().toUiMod(card)
+
+        assertEquals("Display Name", uiMod.displayName)
+        assertEquals(null, uiMod.toMod().toUiMod().card)
+    }
+
+    @Test
+    fun `keeps local file in ui mod only`() {
+        val file = File("local-mod.jar")
+        val uiMod = createMod().toUiMod(file = file)
+
+        assertEquals(file, uiMod.file)
+        assertEquals(null, uiMod.toMod().toUiMod().file)
+    }
+
+    @Test
+    fun `changes side on mod and card together`() {
+        val uiMod = createMod().toUiMod(Mod.CardVo(name = "Display Name"))
+
+        val changed = uiMod.withSide(Mod.Side.SERVER)
+
+        assertEquals(Mod.Side.SERVER, changed.mod.side)
+        assertEquals(Mod.Side.SERVER, changed.card?.side)
     }
 
     @Test

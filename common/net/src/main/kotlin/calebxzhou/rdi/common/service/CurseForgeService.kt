@@ -154,16 +154,17 @@ object CurseForgeService {
 
         val matched = cfModMeta.flatMap { meta ->
             meta.files.map { record ->
-                Mod(
-                    platform = "cf",
-                    projectId = meta.projectId.toString(),
-                    slug = meta.canonicalSlug,
-                    fileId = record.fileId,
-                    hash = record.fingerprint,
-                    ).apply {
+                ModCardMatch(
+                    mod = Mod(
+                        platform = "cf",
+                        projectId = meta.projectId.toString(),
+                        slug = meta.canonicalSlug,
+                        fileId = record.fileId,
+                        hash = record.fingerprint,
+                    ),
+                    card = meta.mod.toCardVo(record.file),
                     file = record.file
-                    vo = meta.mod.toCardVo(record.file).copy(side = side)
-                }
+                )
             }
         }
         val unmatched = hashToFile.values.filterNot { it in matchedFiles }
@@ -172,27 +173,6 @@ object CurseForgeService {
 
     }
 
-    /**
-     * Fill ModCardVo for CurseForge mods that don't have vo yet
-     * @return List of mods with vo filled
-     */
-    @Deprecated("")
-    suspend fun List<Mod>.fillCurseForgeVo(): List<Mod> {
-        // Filter mods that need vo and are from CurseForge
-        val modsNeedingVo = filter { it.vo == null && it.platform.equals("cf", ignoreCase = true) }
-        if (modsNeedingVo.isEmpty()) return this
-
-        // Batch fetch mod info for all mods needing vo
-        val projectIdToMod = modsNeedingVo.associateBy { it.projectId.toInt() }
-        val modInfos = getModsInfo(projectIdToMod.keys.toList())
-        val projectIdToVo = modInfos.associate { it.id to it.toCardVo() }
-        forEach { mod ->
-            if (mod.vo == null && mod.platform.equals("cf", ignoreCase = true)) {
-                mod.apply { vo = projectIdToVo[mod.projectId.toInt()]?.copy(side = side) }
-            }
-        }
-        return this
-    }
     suspend fun mapManifestEntriesToMods(files: List<CurseForgePackManifest.File>): List<Mod> {
         val modInfoMap = getModsInfo(files.map { it.projectId }).associateBy { it.id }
         val fileInfoMap = getModFilesInfo(files.map { it.fileId }).associateBy { it.id }
@@ -240,9 +220,7 @@ object CurseForgeService {
                 fileId = fileInfo.id.toString(),
                 hash = fileInfo.fileFingerprint.toString(),
                 side = side
-            ).apply {
-                vo = modInfo.toCardVo()
-            }
+            )
         }.also { mod ->
             lgr.info { "server mod：${mod.filter { it.side == Mod.Side.SERVER }.map { it.slug }}" }
             lgr.info { "client mod：${mod.filter { it.side == Mod.Side.CLIENT }.map { it.slug }}" }

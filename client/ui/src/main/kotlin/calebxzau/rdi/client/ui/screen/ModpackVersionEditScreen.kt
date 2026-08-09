@@ -357,7 +357,7 @@ fun ModpackVersionEditScreen(
                         TextButton(
                             enabled = !uiState.addDialogLoading && selectedPendingUiMods.isNotEmpty() && canMutate,
                             onClick = {
-                                viewModel.addSelectedMods(selectedPendingUiMods.map(UiMod::toMod))
+                                viewModel.addSelectedMods(selectedPendingUiMods)
                             }
                         ) {
                             Text(if (uiState.addDialogLoading) "添加中..." else "添加")

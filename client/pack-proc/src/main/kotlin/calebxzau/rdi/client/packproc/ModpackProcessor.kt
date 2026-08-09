@@ -58,30 +58,13 @@ class ModpackProcessor(
     fun processUploadMods(mods: List<Mod>): MutableList<Mod> =
         ModpackModProcessor.processMods(mods)
 
-    private data class MatchedModFile(
-        val mod: Mod,
-        val card: Mod.CardVo? = null,
-        val file: File? = null
-    ) {
-        fun withFile(file: File?): MatchedModFile = copy(file = file)
+    private fun ModCardMatch.withSide(side: Mod.Side): ModCardMatch = copy(
+        mod = mod.copy(side = side),
+        card = card?.copy(side = side)
+    )
 
-        fun withSide(side: Mod.Side): MatchedModFile = copy(
-            mod = mod.copy(side = side),
-            card = card?.copy(side = side)
-        )
-
-        fun toMod(): Mod = mod.copy(
-            downloadUrls = mod.downloadUrls.toList()
-        ).also {
-            it.vo = card
-            it.file = file
-        }
-    }
-
-    private fun Mod.toMatchedModFile(): MatchedModFile = MatchedModFile(
-        mod = this,
-        card = vo,
-        file = file
+    private fun ModCardMatch.toMod(): Mod = mod.copy(
+        downloadUrls = mod.downloadUrls.toList()
     )
 
     private fun openBundledResource(name: String): InputStream =
@@ -217,7 +200,7 @@ class ModpackProcessor(
                         local.project(ModPlatform.MODRINTH)?.slug?.let { slug to it }
                     }.toMap()
                 }.getOrThrow()
-                (loaded.mods + embeddedMatches.mods.map { it.withFile(null).toMod() })
+                (loaded.mods + embeddedMatches.mods.map { it.toMod() })
                     .distinctBy { "${it.platform}:${it.projectId}:${it.fileId}:${it.hash}" }
                     .toMutableList()
             }
@@ -226,7 +209,7 @@ class ModpackProcessor(
                 onProgress(LoadProgress.Phase("解析CurseForge整合包清单"))
                 val modpackData = loadCurseForgeFromDir(sourceDir)
                 val baseMods = CurseForgeService.mapManifestEntriesToMods(modpackData.manifest.files)
-                (baseMods + embeddedMatches.mods.map { it.withFile(null).toMod() })
+                (baseMods + embeddedMatches.mods.map { it.toMod() })
                     .distinctBy { "${it.platform}:${it.projectId}:${it.fileId}:${it.hash}" }
                     .toMutableList()
             }
@@ -277,7 +260,7 @@ class ModpackProcessor(
                 val suffix = if (finalUnmatchedFiles.size > 5) "等${finalUnmatchedFiles.size}个" else ""
                 onProgress.warn("服务端目录中有${finalUnmatchedFiles.size}个mod未识别，将作为额外服务端文件带上：$preview$suffix")
             }
-            val resolvedMods = finalMatchedMods.map { it.withFile(null).toMod() }.toMutableList().also {
+            val resolvedMods = finalMatchedMods.map { it.toMod() }.toMutableList().also {
                 ModService.run { it.postProcessModSides() }
             }
             val serverExtraFiles = collectServerPackExtraFiles(
@@ -295,13 +278,13 @@ class ModpackProcessor(
     }
 
     private data class EmbeddedMatchResult(
-        val mods: List<MatchedModFile>,
+        val mods: List<ModCardMatch>,
         val matchedFiles: Set<File>,
         val unmatchedFiles: List<File>
     )
 
     private data class EmbeddedMergedResult(
-        val mods: List<MatchedModFile>,
+        val mods: List<ModCardMatch>,
         val matchedFiles: Set<File>,
         val unmatchedFiles: List<File>
     )
@@ -313,7 +296,7 @@ class ModpackProcessor(
         val result = files.loadInfoCurseForge()
         if (result.matched.isEmpty()) return EmbeddedMatchResult(emptyList(), emptySet(), files)
         val matchedFiles = result.matched.mapNotNull { it.file }.toSet()
-        val matched = result.matched.map { it.toMatchedModFile() }
+        val matched = result.matched
         return EmbeddedMatchResult(matched, matchedFiles, result.unmatched)
     }
 
@@ -325,7 +308,7 @@ class ModpackProcessor(
         if (hashToVersion.isEmpty()) return EmbeddedMatchResult(emptyList(), emptySet(), files)
         val projectIds = hashToVersion.values.map { it.projectId }.distinct()
         val projectMap = ModrinthService.getMultipleProjects(projectIds).associateBy { it.id }
-        val matched = mutableListOf<MatchedModFile>()
+        val matched = mutableListOf<ModCardMatch>()
         val matchedFiles = mutableSetOf<File>()
         files.forEach { file ->
             val sha1 = file.sha1
@@ -353,7 +336,7 @@ class ModpackProcessor(
                 side = side,
                 downloadUrls = downloadUrls
             )
-            val mod = MatchedModFile(
+            val mod = ModCardMatch(
                 mod = rawMod,
                 card = project?.toCardVo(file)?.copy(side = side),
                 file = file
@@ -365,7 +348,7 @@ class ModpackProcessor(
         return EmbeddedMatchResult(matched, matchedFiles, unmatchedFiles)
     }
 
-    private fun persistMatchedEmbeddedMods(mods: List<MatchedModFile>) {
+    private fun persistMatchedEmbeddedMods(mods: List<ModCardMatch>) {
         if (mods.isEmpty()) return
         paths.modCacheDir.mkdirs()
         mods.forEach { uiMod ->
@@ -429,7 +412,7 @@ class ModpackProcessor(
             return EmbeddedMatchResult(emptyList(), emptySet(), files)
         }
         onProgress.phase("平台未识别的服务端mod，按modId与客户端已下载mod对比")
-        val matchedMods = mutableListOf<MatchedModFile>()
+        val matchedMods = mutableListOf<ModCardMatch>()
         val matchedFiles = mutableSetOf<File>()
         val ignoredFiles = mutableSetOf<File>()
         val usedServerModIds = mutableSetOf<String>()
@@ -442,9 +425,11 @@ class ModpackProcessor(
                 return@forEach
             }
             val clientMod = clientModsByModId[serverModId] ?: return@forEach
-            matchedMods += clientMod.toMatchedModFile()
+            matchedMods += ModCardMatch(
+                mod = clientMod,
+                file = serverFile
+            )
                 .withSide(Mod.Side.BOTH)
-                .withFile(serverFile)
             matchedFiles += serverFile
         }
         return EmbeddedMatchResult(
@@ -456,12 +441,12 @@ class ModpackProcessor(
 
     private fun readPrimaryModId(file: File): String? = readPrimaryModConfig(file)?.modId
 
-    private fun serverModMergeKey(uiMod: MatchedModFile): String {
-        val fileModId = uiMod.file?.let(::readPrimaryModId)
+    private fun serverModMergeKey(match: ModCardMatch): String {
+        val fileModId = match.file?.let(::readPrimaryModId)
         if (!fileModId.isNullOrBlank()) return "modid:$fileModId"
-        if (uiMod.mod.slug.isNotBlank()) return "slug:${uiMod.mod.slug.trim().lowercase()}"
-        if (uiMod.mod.projectId.isNotBlank()) return "project:${uiMod.mod.projectId.trim()}"
-        return "${uiMod.mod.platform}:${uiMod.mod.projectId}:${uiMod.mod.fileId}:${uiMod.mod.hash}"
+        if (match.mod.slug.isNotBlank()) return "slug:${match.mod.slug.trim().lowercase()}"
+        if (match.mod.projectId.isNotBlank()) return "project:${match.mod.projectId.trim()}"
+        return "${match.mod.platform}:${match.mod.projectId}:${match.mod.fileId}:${match.mod.hash}"
     }
 
     private data class PreparedModpack(

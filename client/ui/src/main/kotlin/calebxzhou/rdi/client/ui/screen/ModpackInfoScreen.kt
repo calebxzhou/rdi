@@ -5,7 +5,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -14,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
@@ -31,25 +31,16 @@ import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzhou.mykotutils.std.humanFileSize
 import calebxzhou.mykotutils.std.millisToHumanDateTime
-import calebxzhou.rdi.client.model.UiMod
-import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.net.loggedAccount
-import calebxzhou.rdi.client.net.rdiRequest
-import calebxzhou.rdi.client.net.rdiRequestU
-import calebxzhou.rdi.client.service.*
-import calebxzhou.rdi.client.service.ModpackService.modpackInstallTaskKey
-import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.*
-import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.isDav
-import calebxzhou.rdi.common.service.latest
-import calebxzhou.rdi.common.service.validate
-import io.ktor.http.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import calebxzau.rdi.client.ui.viewmodel.ModpackInfoEvent
+import calebxzau.rdi.client.ui.viewmodel.ModpackInfoViewModel
+import kotlinx.coroutines.flow.collect
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 import kotlin.text.isNotBlank
 
 /**
@@ -57,21 +48,16 @@ import kotlin.text.isNotBlank
  */
 @Composable
 fun ModpackInfoScreen(
-    modCatalog: ModCatalog,
     modpackId: String,
     onBack: () -> Unit,
     onOpenTaskList: ((String) -> Unit)? = null,
-    onOpenVersionEdit: ((String) -> Unit)? = null
+    onOpenVersionEdit: ((String) -> Unit)? = null,
+    viewModel: ModpackInfoViewModel = koinViewModel(key = modpackId) {
+        parametersOf(modpackId)
+    },
 ) {
-    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var okMessage by remember { mutableStateOf<String?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var title by remember { mutableStateOf("整合包详情") }
-    var loading by remember { mutableStateOf(true) }
-    var modpack by remember { mutableStateOf<Modpack.DetailVo?>(null) }
-    var mods by remember { mutableStateOf<List<UiMod>>(emptyList()) }
-    var modsLoading by remember { mutableStateOf(false) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var confirmDeletePack by remember { mutableStateOf(false) }
     var confirmDeleteVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var confirmRebuildVersion by remember { mutableStateOf<Modpack.Version?>(null) }
@@ -79,85 +65,60 @@ fun ModpackInfoScreen(
     val versionListState = rememberLazyListState()
     var downloadMethodVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
-    var editName by remember { mutableStateOf("") }
-    var editIconUrl by remember { mutableStateOf("") }
-    var editInfo by remember { mutableStateOf("") }
-    var editSourceUrl by remember { mutableStateOf("") }
-    var editCategories by remember { mutableStateOf<List<Modpack.Category>>(emptyList()) }
+    var dialogMessage by remember { mutableStateOf<String?>(null) }
+    var dialogErrorMessage by remember { mutableStateOf<String?>(null) }
     var selectedTab by remember { mutableStateOf(0) }
 
-    fun reload() {
-        loading = true
-        errorMessage = null
-        scope.rdiRequest<Modpack.DetailVo>(
-            path = "modpack/$modpackId/detail",
-            onOk = { response ->
-                modpack = response.data
-                val versions = response.data?.versions.orEmpty()
-                if (versions.isNotEmpty()) {
-                    val latest = versions.latest
-                    modsLoading = true
-                    mods = emptyList()
-                    scope.launch {
-                        val loaded = withContext(Dispatchers.IO) {
-                            runCatching {
-                                latest.mods.hydrateToUiMods(modCatalog)
-                            }.getOrElse {
-                                it.printStackTrace();
-                                emptyList()
-                            }
-                        }
-                        mods = loaded
-                        modsLoading = false
-                    }
-                } else {
-                    modsLoading = false
-                    mods = emptyList()
-                }
-            },
-            onErr = { errorMessage = "加载整合包信息失败: ${it.message}" },
-            onDone = { loading = false }
-        )
-    }
-
-    fun startDownload(pack: Modpack.DetailVo, version: Modpack.Version) {
-        val runId = ClientTaskManager.submit(
-            task = version.startInstallTask2(pack.mcVer, pack.modloader, pack.name),
-            dedupeKey = modpackInstallTaskKey(version.modpackId, version.name)
-        )
-        if (onOpenTaskList != null) {
-            onOpenTaskList(runId)
-        } else {
-            okMessage = "已加入任务列表"
-        }
-    }
-
-    LaunchedEffect(modpackId) {
-        reload()
-    }
-    LaunchedEffect(okMessage) {
-        okMessage?.let {
+    LaunchedEffect(dialogMessage) {
+        dialogMessage?.let {
             snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-            okMessage = null
+            dialogMessage = null
         }
     }
-    val pack = modpack
+
+    LaunchedEffect(viewModel, onBack, onOpenTaskList) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is ModpackInfoEvent.ShowSnackbar -> {
+                    snackbarHostState.showSnackbar(event.message, duration = SnackbarDuration.Short)
+                }
+
+                is ModpackInfoEvent.EditSaved -> {
+                    showEditDialog = false
+                    snackbarHostState.showSnackbar(event.message, duration = SnackbarDuration.Short)
+                }
+
+                is ModpackInfoEvent.InstallQueued -> {
+                    if (onOpenTaskList != null) {
+                        onOpenTaskList(event.runId)
+                    } else {
+                        snackbarHostState.showSnackbar("已加入任务列表", duration = SnackbarDuration.Short)
+                    }
+                }
+
+                is ModpackInfoEvent.SelectDownloadMethod -> {
+                    downloadMethodVersion = viewModel.uiState.value.pack?.versions
+                        ?.firstOrNull { it.name == event.versionName }
+                }
+
+                is ModpackInfoEvent.ConfirmRedownload -> {
+                    confirmRedownloadVersion = viewModel.uiState.value.pack?.versions
+                        ?.firstOrNull { it.name == event.versionName }
+                }
+
+                ModpackInfoEvent.PackDeleted -> onBack()
+            }
+        }
+    }
+    val pack = uiState.pack
     val isAuthor = pack?.let {  it.authorId == loggedAccount._id || loggedAccount.isDav } ?: false
-    LaunchedEffect(showEditDialog, pack) {
-        if (!showEditDialog) return@LaunchedEffect
-        pack?.let {
-            editName = it.name
-            editIconUrl = it.icon ?: ""
-            editInfo = it.info ?: ""
-            editSourceUrl = it.sourceUrl ?: ""
-            editCategories = it.categories
-        }
-    }
 
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.LARGE) {
-            TitleRow(title, onBack) {
-                errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            TitleRow(pack?.let { "整合包 · ${it.name}" } ?: "整合包详情", onBack) {
+                (uiState.errorMessage ?: dialogErrorMessage)?.let {
+                    Text(it, color = MaterialTheme.colorScheme.error)
+                }
 
                 pack?.let { pack ->
                     TinyClickCopyText("mid", pack._id.toString())
@@ -171,6 +132,8 @@ fun ModpackInfoScreen(
                         showText = false,
                         bgColor = themeNow.tertiary
                     ) {
+                        dialogErrorMessage = null
+                        viewModel.beginEdit()
                         showEditDialog = true
                     }
                     CircleIconButton(
@@ -184,7 +147,7 @@ fun ModpackInfoScreen(
                 }
             }
             ContentBody {
-                if (loading) {
+                if (uiState.loading) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Center
@@ -193,12 +156,11 @@ fun ModpackInfoScreen(
                 }
             }
 
-            if (!loading && pack == null) {
+            if (!uiState.loading && pack == null) {
                 Text("未找到整合包信息")
             }
 
             if (pack != null) {
-                title = "整合包 · " + pack.name
                 val tabTitles = buildList {
                     add("简介")
                     add("Mod列表(${pack.modCount})")
@@ -235,12 +197,12 @@ fun ModpackInfoScreen(
                         if (pack.versions.isEmpty()) {
                             Text("此整合包暂无可用版本，等待作者上传....", color = Color.Gray)
                         } else {
-                            if (modsLoading) {
+                            if (uiState.modsLoading) {
                                 Text("正在载入${pack.modCount}个Mod的详细信息...")
                             }
                             Space8h()
                             ModGrid(
-                                mods = mods,
+                                mods = uiState.mods,
                                 emptyText = "没有可显示的mod"
                             )
                         }
@@ -304,11 +266,7 @@ fun ModpackInfoScreen(
                                             icon = "\uF019",
                                             label = "下载整合包"
                                         ) {
-                                            if (ModpackService.getVersionDir(pack._id, version.name).exists()) {
-                                                confirmRedownloadVersion = version
-                                                return@CircleIconButton
-                                            }
-                                            downloadMethodVersion = version
+                                            viewModel.requestDownload(version.name)
                                         }
                                     }
                                 }
@@ -340,15 +298,7 @@ fun ModpackInfoScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmDeletePack = false
-                    scope.rdiRequestU(
-                        path = "modpack/${pack._id}",
-                        method = HttpMethod.Delete,
-                        onOk = {
-                            okMessage = "删完了"
-                            onBack()
-                        },
-                        onErr = { errorMessage = "删除失败: ${it.message}" }
-                    )
+                    viewModel.deletePack()
                 }) {
                     Text("删除", color = MaterialTheme.colorScheme.error)
                 }
@@ -363,81 +313,73 @@ fun ModpackInfoScreen(
 
     if (showEditDialog && pack != null) {
         AlertDialog(
-            onDismissRequest = { showEditDialog = false },
+            onDismissRequest = {
+                if (!uiState.savingEdit) showEditDialog = false
+            },
             title = { Text("修改整合包信息") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    uiState.errorMessage?.let {
+                        Text(it, color = MaterialTheme.colorScheme.error)
+                    }
                     OutlinedTextField(
-                        value = editName,
-                        onValueChange = { editName = it },
+                        value = uiState.editDraft.name,
+                        onValueChange = {
+                            viewModel.updateEditDraft(uiState.editDraft.copy(name = it))
+                        },
                         label = { Text("名称") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
-                        value = editIconUrl,
-                        onValueChange = { editIconUrl = it },
+                        value = uiState.editDraft.iconUrl,
+                        onValueChange = {
+                            viewModel.updateEditDraft(uiState.editDraft.copy(iconUrl = it))
+                        },
                         label = { Text("图标链接") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
-                        value = editSourceUrl,
-                        onValueChange = { editSourceUrl = it },
+                        value = uiState.editDraft.sourceUrl,
+                        onValueChange = {
+                            viewModel.updateEditDraft(uiState.editDraft.copy(sourceUrl = it))
+                        },
                         label = { Text("来源链接") },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
                     OutlinedTextField(
-                        value = editInfo,
-                        onValueChange = { editInfo = it },
+                        value = uiState.editDraft.info,
+                        onValueChange = {
+                            viewModel.updateEditDraft(uiState.editDraft.copy(info = it))
+                        },
                         label = { Text("简介") },
                         modifier = Modifier.fillMaxWidth()
                     )
                     Text("分类 最多${Modpack.MAX_CATEGORY_COUNT}个")
                     ModpackCategorySelector(
-                        selected = editCategories,
-                        onSelectedChange = { editCategories = it },
+                        selected = uiState.editDraft.categories,
+                        onSelectedChange = {
+                            viewModel.updateEditDraft(uiState.editDraft.copy(categories = it))
+                        },
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
             },
             confirmButton = {
-                TextButton(onClick = {
-                    scope.launch {
-                        val options = runCatching {
-                            Modpack.OptionsDto(
-                                name = editName.trim().ifBlank { null },
-                                iconUrl = editIconUrl.trim().ifBlank { null },
-                                info = editInfo.trim().ifBlank { null },
-                                sourceUrl = editSourceUrl.trim().ifBlank { null },
-                                categories = Modpack.normalizeCategories(editCategories)
-                            ).let { options ->
-                                options.validate()
-                                options
-                            }
-                        }.getOrElse {
-                            errorMessage = it.message
-                            return@launch
-                        }
-                        scope.rdiRequestU(
-                            path = "modpack/${pack._id}/options",
-                            method = HttpMethod.Put,
-                            body = options.json,
-                            onOk = {
-                                okMessage = "已更新"
-                                reload()
-                            },
-                            onErr = { errorMessage = it.message ?: "更新失败" }
-                        )
-                        showEditDialog = false
-                    }
-                }) {
-                    Text("保存")
+                TextButton(
+                    onClick = viewModel::saveEdit,
+                    enabled = !uiState.savingEdit,
+                ) {
+                    Text(if (uiState.savingEdit) "保存中..." else "保存")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showEditDialog = false }) {
+                TextButton(
+                    onClick = { showEditDialog = false },
+                    enabled = !uiState.savingEdit,
+                ) {
                     Text("取消")
                 }
             }
@@ -470,11 +412,11 @@ fun ModpackInfoScreen(
                 onDismiss = { downloadMethodVersion = null },
                 onDirectDownload = {
                     downloadMethodVersion = null
-                    startDownload(currentPack, version)
+                    viewModel.installVersion(version.name)
                 },
                 onOpenTaskList = onOpenTaskList,
-                onImportMessage = { okMessage = it },
-                onImportError = { errorMessage = it }
+                onImportMessage = { dialogMessage = it },
+                onImportError = { dialogErrorMessage = it }
             )
         }
     }
@@ -487,15 +429,7 @@ fun ModpackInfoScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmDeleteVersion = null
-                    scope.rdiRequestU(
-                        path = "modpack/$modpackId/version/${version.name}",
-                        method = HttpMethod.Delete,
-                        onOk = {
-                            okMessage = "删完了"
-                            reload()
-                        },
-                        onErr = { errorMessage = "删除失败: ${it.message}" }
-                    )
+                    viewModel.deleteVersion(version.name)
                 }) {
                     Text("删除", color = MaterialTheme.colorScheme.error)
                 }
@@ -516,15 +450,7 @@ fun ModpackInfoScreen(
             confirmButton = {
                 TextButton(onClick = {
                     confirmRebuildVersion = null
-                    scope.rdiRequestU(
-                        path = "modpack/$modpackId/version/${version.name}/rebuild",
-                        method = HttpMethod.Post,
-                        onOk = {
-                            okMessage = "提交请求了 完事了发信箱告诉你"
-                            reload()
-                        },
-                        onErr = { errorMessage = "重构失败: ${it.message}" }
-                    )
+                    viewModel.rebuildVersion(version.name)
                 }) {
                     Text("重构")
                 }

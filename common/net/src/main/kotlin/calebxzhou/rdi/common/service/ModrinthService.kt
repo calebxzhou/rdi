@@ -8,7 +8,6 @@ import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.net.ktorClient
 import calebxzhou.rdi.common.serdesJson
-import calebxzhou.rdi.common.service.CurseForgeService.fillCurseForgeVo
 import calebxzhou.rdi.common.service.ModService.buildIconUrls
 import calebxzhou.rdi.common.service.ModService.modLogo
 import calebxzhou.rdi.common.service.ModService.ofMirrorUrl
@@ -110,7 +109,7 @@ object ModrinthService {
                 side = side,
                 downloadUrls = entry.downloads
             )
-        }.fillModrinthVo(projects)
+        }
         //有些mod mr没有 但是下载url里有cf file id 可以取出来去CF拿
         val unmatchedEntries = fileEntries.filterKeys { it !in hashVersions.keys }
         val cfFileIdByHash = unmatchedEntries.mapNotNull { (sha1, entry) ->
@@ -160,7 +159,7 @@ object ModrinthService {
                 side = side,
                 downloadUrls = entry.downloads
             )
-        }.fillCurseForgeVo()
+        }
 
         val mods = matchedMrMods + matchedCfMods
 
@@ -231,25 +230,6 @@ object ModrinthService {
             )
         }
     }.getOrDefault(LocalModCardMeta())
-    @Deprecated("")
-    suspend fun List<Mod>.fillModrinthVo(projects: List<ModrinthProject>?): List<Mod> {
-        val modsNeedingVo = filter { it.vo == null && it.platform.equals("mr", ignoreCase = true) }
-        if (modsNeedingVo.isEmpty()) return this
-
-        val projectIds = modsNeedingVo.map { it.projectId }.distinct()
-        val projects = projects?:getMultipleProjects(projectIds)
-        val projectMap = projects.associateBy { it.id }
-
-        forEach { mod ->
-            if (mod.vo == null && mod.platform.equals("mr", ignoreCase = true)) {
-                projectMap[mod.projectId]?.let { project ->
-                    mod.vo = project.toCardVo(mod.file).copy(side = mod.side)
-                }
-            }
-        }
-        return this
-    }
-
     suspend fun mrreq(
         path: String,
         method: HttpMethod = HttpMethod.Get,

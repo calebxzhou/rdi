@@ -272,6 +272,7 @@ fun HostBrowserPane(
     }
 
     Column(modifier = modifier.fillMaxSize()) {
+
         if (errorMessage != null) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(errorMessage!!, color = MaterialTheme.colorScheme.error)

@@ -29,9 +29,13 @@ class GameKotlinRuntimeTest {
             cacheRoot = tempDir.resolve("cache").toFile()
         ).getOrThrow()
 
-        assertEquals(5, runtime.size)
-        assertEquals(5, runtime.distinctBy { it.absolutePath }.size)
+        assertEquals(6, runtime.size)
+        assertEquals(6, runtime.distinctBy { it.absolutePath }.size)
         assertTrue(runtime.all { it.isFile && it.extension.equals("jar", ignoreCase = true) })
+        val zstdRuntime = java.io.File(
+            Class.forName("com.github.luben.zstd.Zstd").protectionDomain.codeSource.location.toURI()
+        ).absoluteFile
+        assertTrue(zstdRuntime in runtime)
         assertTrue(tempDir.resolve("cache/original-kotlin-mod/$sourceSha1.jar").toFile().isFile)
         assertTrue(tempDir.resolve("cache/thin-kotlin-mod/v2-$sourceSha1.jar").toFile().isFile)
         assertFalse(source.sha1.equals(sourceSha1, ignoreCase = true))

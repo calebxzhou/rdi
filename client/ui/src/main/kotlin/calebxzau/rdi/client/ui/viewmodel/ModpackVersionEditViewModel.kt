@@ -5,7 +5,6 @@ import androidx.lifecycle.viewModelScope
 import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.model.UiMod
-import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.service.hydrateToUiMods
@@ -154,16 +153,16 @@ class ModpackVersionEditViewModel(
                     _uiState.update { it.copy(addDialogLoadingText = progress) }
                 }
                 val dedupeResult = filterVersionModsForAdding(
-                    candidateMods = matchResult.matchedMods.map { mod ->
-                        if (mod.side == Mod.Side.UNKNOWN) {
-                            mod.toUiMod().withSide(Mod.Side.BOTH).toMod()
+                    candidateMods = matchResult.matchedMods.map { uiMod ->
+                        if (uiMod.side == Mod.Side.UNKNOWN) {
+                            uiMod.withSide(Mod.Side.BOTH)
                         } else {
-                            mod
+                            uiMod
                         }
                     },
                     existingMods = _uiState.value.version?.mods.orEmpty(),
                 )
-                val acceptedUiMods = dedupeResult.acceptedMods.toUiMods()
+                val acceptedUiMods = dedupeResult.acceptedMods
                 val rejectedFiles = matchResult.rejectedFiles + dedupeResult.rejectedMessages
                 _uiState.update {
                     it.copy(
@@ -217,7 +216,8 @@ class ModpackVersionEditViewModel(
         }
     }
 
-    fun addSelectedMods(targetMods: List<Mod>) {
+    fun addSelectedMods(targetMods: List<UiMod>) {
+        val rawTargetMods = targetMods.map(UiMod::toMod)
         _uiState.update {
             it.copy(
                 addDialogLoading = true,
@@ -228,7 +228,7 @@ class ModpackVersionEditViewModel(
         viewModelScope.rdiRequestU(
             path = versionModsBatchPath(modpackId, verName),
             method = HttpMethod.Post,
-            body = serdesJson.encodeToString(targetMods),
+            body = serdesJson.encodeToString(rawTargetMods),
             onOk = {
                 _uiState.update {
                     it.copy(
@@ -301,31 +301,32 @@ class ModpackVersionEditViewModel(
 }
 
 private data class VersionModAddFilterResult(
-    val acceptedMods: List<Mod>,
+    val acceptedMods: List<UiMod>,
     val rejectedMessages: List<String>,
 )
 
 private fun filterVersionModsForAdding(
-    candidateMods: List<Mod>,
+    candidateMods: List<UiMod>,
     existingMods: List<Mod>,
 ): VersionModAddFilterResult {
     val existingKeys = existingMods.map(::versionModIdentity)
         .filter { it.isNotBlank() }
         .toSet()
-    val acceptedMods = mutableListOf<Mod>()
+    val acceptedMods = mutableListOf<UiMod>()
     val pendingKeys = mutableSetOf<String>()
     val rejectedMessages = mutableListOf<String>()
 
-    candidateMods.forEach { mod ->
+    candidateMods.forEach { uiMod ->
+        val mod = uiMod.mod
         val key = versionModIdentity(mod)
         if (key.isBlank()) {
-            acceptedMods += mod
+            acceptedMods += uiMod
             return@forEach
         }
         when {
             key in existingKeys -> rejectedMessages += "${mod.displaySlugOrProject}：版本中已存在同名Mod"
             !pendingKeys.add(key) -> rejectedMessages += "${mod.displaySlugOrProject}：本次选择中已有同名Mod"
-            else -> acceptedMods += mod
+            else -> acceptedMods += uiMod
         }
     }
 

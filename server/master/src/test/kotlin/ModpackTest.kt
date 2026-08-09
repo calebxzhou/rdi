@@ -72,9 +72,9 @@ class ModpackTest {
         } returns mockk<UpdateResult>(relaxed = true)
         coEvery { modpackCollection.deleteOne(any<Bson>()) } returns mockk<DeleteResult>(relaxed = true)
 
-        coEvery { HostService.findByModpack(any()) } returns emptyList()
+       /* coEvery { HostService.findByModpack(any()) } returns emptyList()
         coEvery { HostService.findByModpackVersion(any(), any()) } returns emptyList()
-
+*/
         /*coEvery { MailService.sendSystemMail(any(), any(), any()) } answers {
             Mail(receiverId = firstArg(), title = secondArg(), content = thirdArg())
         }*/

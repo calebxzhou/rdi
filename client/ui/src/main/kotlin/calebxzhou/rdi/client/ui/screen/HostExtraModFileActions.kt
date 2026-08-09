@@ -2,7 +2,6 @@ package calebxzhou.rdi.client.ui.screen
 
 import calebxzhou.mykotutils.std.sha1
 import calebxzhou.rdi.client.model.UiMod
-import calebxzhou.rdi.client.model.toUiMod
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.common.model.McVersion
@@ -62,9 +61,7 @@ suspend fun matchHostExtraModFiles(
     val selectedMods = selectLatestMatchedMods(mrResult.mods + cfResult.mods)
 
     HostExtraModMatchResult(
-        matchedMods = selectedMods.map(UiMod::toMod)
-            .hydrateToUiMods(modCatalog)
-            .map(UiMod::toMod),
+        matchedMods = selectedMods.hydrateToUiMods(modCatalog),
         rejectedFiles = versionCheck.rejectedFiles + cfResult.rejectedFiles
     )
 }
@@ -133,10 +130,14 @@ private suspend fun matchHostExtraModsCF(files: List<File>): LocalMatchResult {
     val result = files.loadInfoCurseForge()
     val removeFiles = result.matched.mapNotNull { it.file }.toSet()
     return LocalMatchResult(
-        mods = result.matched.mapNotNull { mod ->
-            val sourceFile = mod.file ?: return@mapNotNull null
+        mods = result.matched.mapNotNull { match ->
+            val sourceFile = match.file ?: return@mapNotNull null
             SelectedLocalMod(
-                mod = mod.toUiMod(),
+                mod = UiMod(
+                    mod = match.mod,
+                    card = match.card,
+                    file = sourceFile
+                ),
                 sourceFile = sourceFile,
                 configVersion = readModsTomlVersion(sourceFile)
             )

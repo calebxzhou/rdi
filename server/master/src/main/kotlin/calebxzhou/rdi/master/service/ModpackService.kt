@@ -23,6 +23,7 @@ import calebxzhou.rdi.common.service.ModService.readNeoForgeConfig
 import calebxzhou.rdi.common.util.ok
 import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.master.DB
+import calebxzhou.rdi.master.DL_MODS_CLIENT_DIR
 import calebxzhou.rdi.master.GAME_LIBS_DIR
 import calebxzhou.rdi.master.MODPACK_DATA_DIR
 import calebxzhou.rdi.master.exception.ParamError
@@ -101,7 +102,15 @@ val Modpack.Version.clientPackFile
     get() = clientZstdPack.takeIf(File::exists) ?: clientZip
 
 const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
-val MAX_PACK_SIZE = 2*1024 * 1024 * 1024L
+val MAX_PACK_SIZE = 2L * 1024 * 1024 * 1024
+private val modpackUploadTempStorage = ModpackUploadTempStorage(MODPACK_DATA_DIR.resolve(".upload-tmp"))
+private val legacyModpackUploadTempStorage = ModpackUploadTempStorage(MODPACK_DATA_DIR)
+private val uploadLgr by Loggers
+
+private fun deleteUploadTempFile(file: File, reason: String) {
+    modpackUploadTempStorage.deleteTempFile(file)
+        .onFailure { error -> uploadLgr.warn(error) { "${reason}时删除上传暂存文件失败: ${file.absolutePath}" } }
+}
 
 private suspend inline fun <reified T> ApplicationCall.receiveUploadPayload(
     jsonFieldName: String,
@@ -121,12 +130,12 @@ private suspend inline fun <reified T> ApplicationCall.receiveUploadPayload(
                 }
 
                 is PartData.FileItem -> if (part.name == "file") {
-                    uploadedFile?.delete()
+                    uploadedFile?.let { deleteUploadTempFile(it, "替换multipart文件") }
                     uploadedFile = receiveUploadFileToTemp(part.provider())
                 }
 
                 is PartData.BinaryItem -> if (part.name == "file") {
-                    uploadedFile?.delete()
+                    uploadedFile?.let { deleteUploadTempFile(it, "替换multipart文件") }
                     uploadedFile = receiveUploadFileToTemp(part.provider())
                 }
 
@@ -139,14 +148,13 @@ private suspend inline fun <reified T> ApplicationCall.receiveUploadPayload(
         uploadedFile = null
         return fileBytes to dto
     } catch (error: Throwable) {
-        uploadedFile?.delete()
+        uploadedFile?.let { deleteUploadTempFile(it, "接收multipart失败") }
         throw error
     }
 }
 
 private suspend fun receiveUploadFileToTemp(channel: ByteReadChannel): File {
-    MODPACK_DATA_DIR.mkdirs()
-    val tempFile = Files.createTempFile(MODPACK_DATA_DIR.toPath(), "modpack-upload-", ".tmp").toFile()
+    val tempFile = modpackUploadTempStorage.createTempFile().getOrThrow()
     val buffer = ByteArray(8192)
     var total = 0L
     return try {
@@ -161,30 +169,29 @@ private suspend fun receiveUploadFileToTemp(channel: ByteReadChannel): File {
                 if (read == 0) continue
                 total += read
                 if (total > MAX_PACK_SIZE) {
-                    throw RequestError("整合包文件过大，最大允许 384MB")
+                    throw RequestError("整合包文件过大，最大允许2GiB")
                 }
                 output.write(buffer, 0, read)
             }
         }
         tempFile
     } catch (error: Throwable) {
-        tempFile.delete()
+        deleteUploadTempFile(tempFile, "接收上传流失败")
         throw error
     }
 }
 
 private fun receiveUploadFileToTemp(source: Source): File {
-    MODPACK_DATA_DIR.mkdirs()
-    val tempFile = Files.createTempFile(MODPACK_DATA_DIR.toPath(), "modpack-upload-", ".tmp").toFile()
+    val tempFile = modpackUploadTempStorage.createTempFile().getOrThrow()
     return try {
         val bytes = source.buffered().readByteArray()
         if (bytes.size > MAX_PACK_SIZE) {
-            throw RequestError("整合包文件过大，最大允许 384MB")
+            throw RequestError("整合包文件过大，最大允许2GiB")
         }
         tempFile.writeBytes(bytes)
         tempFile
     } catch (error: Throwable) {
-        tempFile.delete()
+        deleteUploadTempFile(tempFile, "接收上传数据失败")
         throw error
     }
 }
@@ -368,6 +375,19 @@ object ModpackService {
     internal var testDbcl: MongoCollection<Modpack>? = null
     val dbcl: MongoCollection<Modpack>
         get() = testDbcl ?: realDbcl
+
+    fun cleanupStaleUploadsOnStartup() {
+        var cleanedCount = 0
+        listOf(
+            ".upload-tmp" to modpackUploadTempStorage,
+            "旧modpack目录" to legacyModpackUploadTempStorage
+        ).forEach { (name, storage) ->
+            storage.cleanupStaleFiles()
+                .onSuccess { cleanedCount += it }
+                .onFailure { error -> lgr.warn(error) { "启动清理${name}遗留上传文件失败" } }
+        }
+        lgr.info { "启动清理遗留整合包上传文件${cleanedCount}个" }
+    }
 
     //private val clientNeedDirs = listOf("config", "mods", "defaultconfigs", "kubejs", "global_packs", "resourcepacks")
     private val disallowedClientPaths = setOf("shaderpacks")
@@ -851,7 +871,7 @@ object ModpackService {
                 throw error
             }
         } finally {
-            uploadFile.delete()
+            deleteUploadTempFile(uploadFile, "创建整合包结束")
         }
     }
 
@@ -900,7 +920,7 @@ object ModpackService {
                 throw error
             }
         } finally {
-            uploadFile.delete()
+            deleteUploadTempFile(uploadFile, "创建整合包版本结束")
         }
     }
 
@@ -1109,23 +1129,26 @@ object ModpackService {
                     it.side != Mod.Side.UNKNOWN &&
                     !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
             }
+            val clientMods = version.mods.filter { it.side == Mod.Side.CLIENT }
 
             add(
-                Task2.Sequence(
-                    title = "下载服务端Mod",
-                    children = buildList {
-                        add(
-                            guardedLeaf("准备下载服务端Mod") { ctx ->
-                                val msg = "开始下载服务端Mod，共${serverMods.size}个"
-                                updateMailProgress(msg)
-                                ctx.emit(LoadProgress.Phase(msg))
-                            }
-                        )
-                        add(
-                            ModService.downloadModsTask2(serverMods)
-                                .withFailureHandler(::handleBuildFailure)
-                        )
-                    }
+                Task2.Group(
+                    title = "下载Mod",
+                    children = listOf(
+                        Task2.Sequence(
+                            title = "下载服务端Mod",
+                            children = listOf(
+                                guardedLeaf("准备下载服务端Mod") { ctx ->
+                                    val msg = "开始下载服务端Mod，共${serverMods.size}个"
+                                    updateMailProgress(msg)
+                                    ctx.emit(LoadProgress.Phase(msg))
+                                },
+                                ModService.downloadModsTask2(serverMods)
+                                    .withFailureHandler(::handleBuildFailure)
+                            )
+                        ),
+                        ClientModCacheService(DL_MODS_CLIENT_DIR).downloadTask(clientMods)
+                    )
                 )
             )
 
@@ -1364,7 +1387,14 @@ object ModpackService {
                     it.side != Mod.Side.UNKNOWN &&
                     !it.fileName.startsWith(CLIENT_ONLY_MARK_PREFIX)
             }
-            ModService.downloadModsTask2(serverMods).runInline(
+            val clientMods = version.mods.filter { it.side == Mod.Side.CLIENT }
+            Task2.Group(
+                title = "下载Mod",
+                children = listOf(
+                    ModService.downloadModsTask2(serverMods),
+                    ClientModCacheService(DL_MODS_CLIENT_DIR).downloadTask(clientMods)
+                )
+            ).runInline(
                 Task2Context{ progress ->
                     val msg = progress.fraction?.let { frac ->
                         val pct = (frac * 100f).toFixed(2)
@@ -1638,5 +1668,3 @@ object ModpackService {
     }
 
 }
-
-

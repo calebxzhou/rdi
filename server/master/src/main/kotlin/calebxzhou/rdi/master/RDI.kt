@@ -2,6 +2,7 @@ package calebxzhou.rdi.master
 
 import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.DEBUG
+import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.service.ModService
@@ -94,6 +95,7 @@ val GAME_LIBS_DIR = storageDir(CONF.storage.gameLibsDir, "game-libs")
 val WORLDS_DIR = storageDir(CONF.storage.worldsDir, "worlds")
 val WORLD_CACHE_DIR = storageDir(CONF.storage.worldCacheDir, "world-cache")
 val WORLD_BACKUP_DIR = storageDir(CONF.storage.worldBackupDir, "world-backup").also { it.mkdirs() }
+val DL_MODS_CLIENT_DIR = storageDir(CONF.storage.dlModsClientDir, "dl-mods-client")
 
 class RDI {}
 
@@ -101,9 +103,13 @@ fun main(): Unit = runBlocking {
     if (DEBUG) {
         System.setProperty("javax.net.ssl.trustStoreType", "Windows-ROOT")
     }
+    CONF.storage.dlModsDir
+        ?.trim()
+        ?.takeIf(String::isNotBlank)
+        ?.let { System.setProperty("rdi.modDir", it) }
+    ModStorage.prepareDirectories(DL_MOD_DIR, DL_MODS_CLIENT_DIR).getOrThrow()
     CommonConfig.updateProxyConfig(CONF.proxy)
     ModService.preferMirror = CONF.download.useMirror
-    CONF.storage.dlModsDir?.let { System.setProperty("rdi.modDir", it) }
 
     CRASH_REPORT_DIR.mkdirs()
     MODPACK_DATA_DIR.mkdirs()
@@ -112,6 +118,7 @@ fun main(): Unit = runBlocking {
     GAME_LIBS_DIR.mkdirs()
     WORLDS_DIR.mkdirs()
     WORLD_CACHE_DIR.mkdirs()
+    ModpackService.cleanupStaleUploadsOnStartup()
     lgr.info { "worlds: ${WORLDS_DIR.absolutePath}" }
     lgr.info { "world cache: ${WORLD_CACHE_DIR.absolutePath}" }
     lgr.info { "world bkup: ${WORLD_BACKUP_DIR.absolutePath}" }

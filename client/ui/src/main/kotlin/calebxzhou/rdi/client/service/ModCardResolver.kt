@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.service
 
 import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModrinthProject
 
@@ -11,7 +12,7 @@ data class ModCardResolveContext(
 
 interface ModCardResolver {
     val platform: String
-    suspend fun resolve(mods: List<Mod>, context: ModCardResolveContext): Map<String, Mod.CardVo>
+    suspend fun resolve(mods: List<UiMod>, context: ModCardResolveContext): Map<String, Mod.CardVo>
 }
 
 // RDI invariant:

@@ -1,5 +1,6 @@
 package calebxzhou.rdi.mc.client
 
+import calebxzau.rdi.mc.zstdcodec.ZstdCompressionPipeline
 import calebxzhou.rdi.mc.client.mcp.standard.StandardMcpServer
 import calebxzhou.rdi.mc.client.mcpimpl211.McpGameImpl
 import calebxzhou.rdi.mc.client.mcpimpl211.Search
@@ -48,6 +49,10 @@ import calebxzhou.rdi.mc.common.SectionPos as RdiSectionPos
 class RDIMain {
 
     companion object {
+        init {
+            ZstdCompressionPipeline.verifyNativeLoaded()
+        }
+
         val SCREENSHOT_EXECUTOR: ExecutorService =
             Executors.newSingleThreadExecutor(ThreadFactory { task: Runnable? ->
                 val thread = Thread(task, "rdi-mcp-screenshot.md")

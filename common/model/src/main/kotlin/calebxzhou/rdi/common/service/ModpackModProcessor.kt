@@ -37,15 +37,12 @@ object ModpackModProcessor {
         val slug = mod.normalizedSlug
         when {
             slug.contains("backup") || slug in removedSlugs -> null
-            slug in clientSideSlugs -> mod.copyKeepingTransients(Mod.Side.CLIENT)
-            slug in bothSideSlugs -> mod.copyKeepingTransients(Mod.Side.BOTH)
-            else -> mod.copyKeepingTransients(mod.side)
+            slug in clientSideSlugs -> mod.copyWithSide(Mod.Side.CLIENT)
+            slug in bothSideSlugs -> mod.copyWithSide(Mod.Side.BOTH)
+            else -> mod.copyWithSide(mod.side)
         }
     }.toMutableList()
 
-    private fun Mod.copyKeepingTransients(side: Mod.Side): Mod =
-        copy(side = side, downloadUrls = downloadUrls.toList()).also {
-            it.vo = vo?.copy(side = side)
-            it.file = file
-        }
+    private fun Mod.copyWithSide(side: Mod.Side): Mod =
+        copy(side = side, downloadUrls = downloadUrls.toList())
 }

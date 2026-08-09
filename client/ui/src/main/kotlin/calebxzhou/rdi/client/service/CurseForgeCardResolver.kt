@@ -1,5 +1,6 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzau.rdi.client.modcatalog.CatalogSlugRef
@@ -10,7 +11,7 @@ object CurseForgeCardResolver : ModCardResolver {
     override val platform: String = "cf"
 
     override suspend fun resolve(
-        mods: List<Mod>,
+        mods: List<UiMod>,
         context: ModCardResolveContext
     ): Map<String, Mod.CardVo> {
         val targetMods = mods.filter { it.platform.equals(platform, ignoreCase = true) }
@@ -20,7 +21,7 @@ object CurseForgeCardResolver : ModCardResolver {
         if (projectIds.isEmpty()) return emptyMap()
 
         val projectIdToFile = targetMods.associateBy(
-            keySelector = { it.projectKey() },
+            keySelector = { it.mod.projectKey() },
             valueTransform = { it.file }
         )
 
