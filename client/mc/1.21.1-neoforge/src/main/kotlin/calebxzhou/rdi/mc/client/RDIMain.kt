@@ -126,7 +126,7 @@ class RDIMain {
 
             Minecraft.getInstance().gui.apply {
                 setTimes(10, 200, 20)
-                setSubtitle(Component.literal("设定“持久子区块” 否则丢数据 见说明书"))
+                setSubtitle(Component.literal("请务必阅读 公告置顶说明书"))
                 setTitle(Component.empty())
             }
         }

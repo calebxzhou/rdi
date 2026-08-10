@@ -110,7 +110,7 @@ class RDIMain {
 
         private fun sendJoinSubtitle(player: ServerPlayer) {
             player.connection.send(ClientboundSetTitlesAnimationPacket(10, 200, 20))
-            player.connection.send(ClientboundSetSubtitleTextPacket(Component.literal("设定“持久子区块” 否则丢数据 见说明书")))
+            player.connection.send(ClientboundSetSubtitleTextPacket(Component.literal("请务必阅读 公告置顶说明书")))
             player.connection.send(ClientboundSetTitleTextPacket(Component.empty()))
         }
 
@@ -118,12 +118,12 @@ class RDIMain {
             val range = PlayerChatRangeState.get(player.getUUID())
             val result = FirmSectionService.list(player)
             player.sendSystemMessage(Component.literal("当前聊天范围：" + range.displayName))
-            player.sendSystemMessage(
+            /*player.sendSystemMessage(
                 Component.literal(
                         "6月18日起 只有“持久子区块”会永久保存 其余区域有随时被清除的可能\n" +
                         "你设定了${result.playerCount}个 本存档已设定${result.total}个 详情阅读说明书"
                 )
-            )
+            )*/
             player.sendSystemMessage(Component.literal("点此打开RDI说明书").withStyle(ChatFormatting.UNDERLINE).withStyle(
                 Style.EMPTY.withClickEvent(ClickEvent(ClickEvent.Action.OPEN_URL,"https://craftrdi.feishu.cn/wiki/U8LRwMpUliuxW5kZLvCcxonNnkd"))))
         }

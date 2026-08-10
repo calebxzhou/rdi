@@ -1,6 +1,5 @@
 package calebxzhou.rdi.mc.server.firmsection
 
-import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.firmsection.FirmSectionKey
 import calebxzhou.rdi.mc.firmsection.FirmSectionListResult
 import calebxzhou.rdi.mc.firmsection.FirmSectionSetResult
@@ -57,13 +56,6 @@ object FirmSectionService {
 
     fun list(player: ServerPlayer): FirmSectionListResult {
         return data(player.server).list(player.uuid)
-    }
-
-    fun shouldSaveChunk(level: ServerLevel, chunkPos: ChunkPos): Boolean {
-        if (!RDI.ONLY_SAVE_FIRM_SECTIONS) {
-            return true
-        }
-        return hasFirmChunk(level, chunkPos)
     }
 
     fun hasFirmChunk(level: ServerLevel, chunkPos: ChunkPos): Boolean =

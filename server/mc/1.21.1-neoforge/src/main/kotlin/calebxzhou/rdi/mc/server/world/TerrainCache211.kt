@@ -4,8 +4,6 @@ import calebxzhou.rdi.mc.common.RDI
 import net.minecraft.nbt.CompoundTag
 import net.minecraft.server.level.ServerLevel
 import net.minecraft.world.level.ChunkPos
-import net.minecraft.world.level.chunk.ChunkAccess
-import net.minecraft.world.level.chunk.storage.ChunkSerializer
 import net.minecraft.world.level.chunk.storage.RegionFileStorage
 import net.minecraft.world.level.chunk.storage.RegionStorageInfo
 import org.apache.logging.log4j.LogManager
@@ -48,31 +46,6 @@ object TerrainCache211 {
         }
     }
 
-    @JvmStatic
-    fun write(level: ServerLevel, dimensionPath: Path?, chunk: ChunkAccess) {
-        if (!isEnabled || dimensionPath == null || !chunk.isUnsaved) {
-            return
-        }
-
-        try {
-            val cacheRegionDir = cacheRegionDir(level)
-            if (!isCacheDirSafe(level, cacheRegionDir, dimensionPath)) {
-                return
-            }
-
-            val tag = ChunkSerializer.write(level, chunk)
-            tag.remove("entities")
-
-            val storage = storage(level, cacheRegionDir)
-            synchronized(storage.storage) {
-                storage.storage.write(chunk.pos, tag)
-            }
-        } catch (e: Exception) {
-            val pos = chunk.pos
-            lgr.error("Failed to save terrain cache chunk ${pos.x},${pos.z} in dimension ${level.dimension().location()}", e)
-        }
-    }
-
     private fun storageInfo(level: ServerLevel): RegionStorageInfo =
         RegionStorageInfo(level.server.worldData.levelName, level.dimension(), "rdi-terrain-cache")
 
@@ -94,7 +67,6 @@ object TerrainCache211 {
         for (storage in openStorages) {
             try {
                 synchronized(storage.storage) {
-                    storage.storage.flush()
                     storage.storage.close()
                 }
             } catch (e: Exception) {
