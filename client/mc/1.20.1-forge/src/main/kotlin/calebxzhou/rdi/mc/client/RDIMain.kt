@@ -1,5 +1,6 @@
 package calebxzhou.rdi.mc.client
 
+import calebxzau.rdi.mc.zstdcodec.ZstdCompressionPipeline
 // import calebxzhou.rdi.mc.client.chunkcache.RdiChunkCacheClient
 // import calebxzhou.rdi.mc.client.chunkcache.RdiChunkCacheClientHandler
 import calebxzhou.rdi.mc.client.network.RClientNetwork
@@ -37,6 +38,10 @@ class RDIMain {
     }
 
     companion object {
+        init {
+            ZstdCompressionPipeline.verifyNativeLoaded()
+        }
+
         @JvmField
         var JOIN_BUTTON: Button =
             Button.builder(Component.literal("进入地图 · ${RDI.HOST_NAME}"), Button.OnPress {

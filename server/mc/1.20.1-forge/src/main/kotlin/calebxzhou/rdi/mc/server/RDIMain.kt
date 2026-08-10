@@ -1,5 +1,6 @@
 package calebxzhou.rdi.mc.server
 
+import calebxzau.rdi.mc.zstdcodec.ZstdCompressionPipeline
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.WebSocketClient
 import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
@@ -45,6 +46,10 @@ class RDIMain {
     }
 
     companion object {
+        init {
+            ZstdCompressionPipeline.verifyNativeLoaded()
+        }
+
         private val lgr: Logger = LogManager.getLogger("rdi")
 
         @SubscribeEvent

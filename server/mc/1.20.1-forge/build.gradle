@@ -22,9 +22,14 @@ group = "calebxzhou.rdi"
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
     // java.srcDir '../../../mc/chunkcache/1.20.1/src/main/java'
+    kotlin.srcDir '../../../mc/common/codec/src/main/kotlin'
     kotlin.srcDir '../../../mc/firmsection/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
     kotlin.srcDir '../../../mc/rmcp/server/src/main/kotlin'
+}
+sourceSets.create('zstdTest') {
+    kotlin.srcDir '../../../mc/common/codec/src/main/kotlin'
+    kotlin.srcDir '../../../mc/common/codec/src/test/kotlin'
 }
 mixin {
     add sourceSets.main, 'rdi.mixins.refmap.json'
@@ -122,6 +127,9 @@ def shadedConfiguration = configurations.maybeCreate('shaded')
 dependencies {
     implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
     additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    implementation("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
+    additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
+    jarJar("com.github.luben:zstd-jni:1.5.7-11:linux_amd64")
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
     compileOnly(annotationProcessor("io.github.llamalad7:mixinextras-common:0.5.3"))
     implementation(jarJar("io.github.llamalad7:mixinextras-forge:0.5.3"))
@@ -145,6 +153,20 @@ dependencies {
     ].each { dep ->
         modImplementation dep
     }
+    zstdTestImplementation 'org.jetbrains.kotlin:kotlin-test-junit5:2.4.0'
+    zstdTestImplementation 'com.github.luben:zstd-jni:1.5.7-11:win_amd64'
+    zstdTestImplementation 'io.netty:netty-buffer:4.1.97.Final'
+    zstdTestImplementation 'io.netty:netty-codec:4.1.97.Final'
+    zstdTestImplementation 'io.netty:netty-common:4.1.97.Final'
+    zstdTestImplementation 'io.netty:netty-transport:4.1.97.Final'
+    zstdTestRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:6.1.1'
+}
+
+tasks.register('zstdTest', Test) {
+    group = 'verification'
+    testClassesDirs = sourceSets.zstdTest.output.classesDirs
+    classpath = sourceSets.zstdTest.runtimeClasspath
+    useJUnitPlatform()
 }
 
 

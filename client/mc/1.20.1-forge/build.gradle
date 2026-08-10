@@ -79,6 +79,7 @@ kotlin {
 }
 sourceSets.main {
     // java.srcDir '../../../mc/chunkcache/1.20.1/src/main/java'
+    kotlin.srcDir '../../../mc/common/codec/src/main/kotlin'
     kotlin.srcDir '../../../mc/common/2021/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
     ext["refMap"] = "rdi.mixins.refmap.json"
@@ -86,6 +87,10 @@ sourceSets.main {
     resources {
         srcDir project(":c-mc-common").file("src/main/resources")
     }
+}
+sourceSets.create('zstdTest') {
+    kotlin.srcDir '../../../mc/common/codec/src/main/kotlin'
+    kotlin.srcDir '../../../mc/common/codec/src/test/kotlin'
 }
 
 extraJavaModuleInfo {
@@ -303,9 +308,9 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     additionalRuntimeClasspath("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    //不需要夹在built jar里  rdi client已有
-    // implementation("com.github.luben:zstd-jni:1.5.7-11")
-    // additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11")
+    //正式运行由RDI启动器提供，以下依赖用于Windows开发和测试。
+    implementation("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
+    additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
     // implementation(jarJar("org.iq80.leveldb:leveldb-api:0.12"))
     // implementation(jarJar("org.iq80.leveldb:leveldb:0.12"))
     // additionalRuntimeClasspath("org.iq80.leveldb:leveldb:0.12")
@@ -344,7 +349,21 @@ dependencies {
     }
     compileOnly "dev.ftb.mods:ftb-chunks-forge:2001.3.8"
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
+    zstdTestImplementation 'org.jetbrains.kotlin:kotlin-test-junit5:2.4.0'
+    zstdTestImplementation 'com.github.luben:zstd-jni:1.5.7-11:win_amd64'
+    zstdTestImplementation 'io.netty:netty-buffer:4.1.97.Final'
+    zstdTestImplementation 'io.netty:netty-codec:4.1.97.Final'
+    zstdTestImplementation 'io.netty:netty-common:4.1.97.Final'
+    zstdTestImplementation 'io.netty:netty-transport:4.1.97.Final'
+    zstdTestRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:6.1.1'
     //jarjar(project(":c-mc-common"))
+}
+
+tasks.register('zstdTest', Test) {
+    group = 'verification'
+    testClassesDirs = sourceSets.zstdTest.output.classesDirs
+    classpath = sourceSets.zstdTest.runtimeClasspath
+    useJUnitPlatform()
 }
 
 tasks.register('extractMediaProcNatives', Sync) {

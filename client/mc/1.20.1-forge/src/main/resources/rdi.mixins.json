@@ -9,7 +9,8 @@
   "minVersion": "0.7",
   "mixins": [
     "mClientIntentionPacket",
-    "mServerboundHelloPacket"
+    "mServerboundHelloPacket",
+    "mZstdCompression"
   ],
   "client": [
     // "ASectionBlocksUpdatePacket",

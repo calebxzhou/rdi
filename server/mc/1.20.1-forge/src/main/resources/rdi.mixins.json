@@ -32,7 +32,8 @@
     "mSaveBandwidth",
     "mServerLoginPacketListener",
     "mServerPlayer",
-    "mTickingEntity"
+    "mTickingEntity",
+    "mZstdCompression"
   ],
   "client": [
   ]
