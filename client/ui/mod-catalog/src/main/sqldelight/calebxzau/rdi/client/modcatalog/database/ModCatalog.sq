@@ -87,6 +87,20 @@ JOIN catalog_mod ON catalog_mod.mcmod_id = catalog_project.mcmod_id
 WHERE catalog_project.mcmod_id = :mcmodId
 ORDER BY catalog_project.project_order, catalog_project.platform;
 
+selectProjectsByNormalizedSlugs:
+WITH matched_mod AS (
+    SELECT DISTINCT mcmod_id
+    FROM catalog_project
+    WHERE normalized_slug IN ?
+)
+SELECT catalog_mod.mcmod_id, catalog_mod.name, catalog_mod.name_cn, catalog_mod.intro,
+       catalog_mod.logo_url, catalog_project.platform, catalog_project.slug,
+       catalog_project.name_cn_override
+FROM matched_mod
+JOIN catalog_mod ON catalog_mod.mcmod_id = matched_mod.mcmod_id
+LEFT JOIN catalog_project ON catalog_project.mcmod_id = catalog_mod.mcmod_id
+ORDER BY catalog_mod.mcmod_id, catalog_project.project_order, catalog_project.platform;
+
 searchIdentity:
 WITH ranked_mod AS (
     SELECT catalog_search_term.mcmod_id,
@@ -106,21 +120,3 @@ JOIN catalog_mod ON catalog_mod.mcmod_id = ranked_mod.mcmod_id
 LEFT JOIN catalog_project ON catalog_project.mcmod_id = catalog_mod.mcmod_id
 ORDER BY ranked_mod.result_rank DESC, catalog_mod.popularity DESC,
          catalog_mod.mcmod_id, catalog_project.project_order, catalog_project.platform;
-
-searchExactFullPinyinIdentity:
-WITH matched_mod AS (
-    SELECT catalog_search_term.mcmod_id
-    FROM catalog_search_term
-    JOIN catalog_mod ON catalog_mod.mcmod_id = catalog_search_term.mcmod_id
-    WHERE catalog_search_term.normalized_term = :normalizedQuery
-      AND catalog_search_term.weight = 70
-    ORDER BY catalog_mod.popularity DESC, catalog_search_term.mcmod_id
-    LIMIT 1
-)
-SELECT catalog_mod.mcmod_id, catalog_mod.name, catalog_mod.name_cn, catalog_mod.intro,
-       catalog_mod.logo_url, catalog_project.platform, catalog_project.slug,
-       catalog_project.name_cn_override
-FROM matched_mod
-JOIN catalog_mod ON catalog_mod.mcmod_id = matched_mod.mcmod_id
-LEFT JOIN catalog_project ON catalog_project.mcmod_id = catalog_mod.mcmod_id
-ORDER BY catalog_project.project_order, catalog_project.platform;

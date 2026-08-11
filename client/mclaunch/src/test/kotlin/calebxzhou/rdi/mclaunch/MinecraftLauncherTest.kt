@@ -77,6 +77,20 @@ class MinecraftLauncherTest {
     }
 
     @Test
+    fun addsEarlyDisplayFfmpegPathForMinecraft211() {
+        val nativeDir = Files.createTempDirectory("early-display-native").toFile()
+        try {
+            assertEquals(
+                listOf("-Drdi.earlyDisplay.ffmpeg=${nativeDir.resolve("ffmpeg.exe").absolutePath}"),
+                earlyDisplayJvmArgs(McVersion.V211, nativeDir),
+            )
+            assertTrue(earlyDisplayJvmArgs(McVersion.V201, nativeDir).isEmpty())
+        } finally {
+            nativeDir.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
     fun prepareRepairsMissingMinecraftClientJar() = runBlocking {
         val root = Files.createTempDirectory("mclaunch-client-jar").toFile()
         try {

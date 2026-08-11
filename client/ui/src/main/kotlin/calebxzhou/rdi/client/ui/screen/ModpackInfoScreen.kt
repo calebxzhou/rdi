@@ -1,10 +1,6 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHostState
@@ -19,14 +15,12 @@ import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
-import calebxzau.rdi.client.ui.RScrollableColumn
-import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
-import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TinyClickCopyText
 import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.openUrl
 import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzhou.mykotutils.std.humanFileSize
@@ -62,12 +56,10 @@ fun ModpackInfoScreen(
     var confirmDeleteVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var confirmRebuildVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var confirmRedownloadVersion by remember { mutableStateOf<Modpack.Version?>(null) }
-    val versionListState = rememberLazyListState()
     var downloadMethodVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
     var dialogMessage by remember { mutableStateOf<String?>(null) }
     var dialogErrorMessage by remember { mutableStateOf<String?>(null) }
-    var selectedTab by remember { mutableStateOf(0) }
 
     LaunchedEffect(dialogMessage) {
         dialogMessage?.let {
@@ -112,6 +104,7 @@ fun ModpackInfoScreen(
     }
     val pack = uiState.pack
     val isAuthor = pack?.let {  it.authorId == loggedAccount._id || loggedAccount.isDav } ?: false
+    val sourceUrl = pack?.sourceUrl?.trim()?.takeIf(String::isNotBlank)
 
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.LARGE) {
@@ -124,6 +117,11 @@ fun ModpackInfoScreen(
                     TinyClickCopyText("mid", pack._id.toString())
                     HeadButton(pack.authorId, showName = false)
                     Text(pack.mcVer.simpleVer)
+                }
+                sourceUrl?.let { url ->
+                    OutlinedButton(onClick = { openUrl(url) }) {
+                        Text("打开原帖")
+                    }
                 }
                 if (isAuthor) {
                     CircleIconButton(
@@ -161,131 +159,32 @@ fun ModpackInfoScreen(
             }
 
             if (pack != null) {
-                val tabTitles = buildList {
-                    add("简介")
-                    add("Mod列表(${pack.modCount})")
-                    add("\uF019 下载版本(${pack.versions.size})")
-                }
-                val activeTab = selectedTab.takeIf { it in tabTitles.indices } ?: 0
-                TabRow(
-                    selectedTabIndex = activeTab,
-                    containerColor = MaterialTheme.colorScheme.surfaceContainer
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    tabTitles.forEachIndexed { index, title ->
-                        Tab(
-                            selected = activeTab == index,
-                            onClick = { selectedTab = index },
-                            text = { Text(title) }
-                        )
+                    ModpackDownloadVersions(
+                        pack = pack,
+                        isAuthor = isAuthor,
+                        onOpenVersionEdit = onOpenVersionEdit,
+                        onDeleteVersion = { confirmDeleteVersion = it },
+                        onRebuildVersion = { confirmRebuildVersion = it },
+                        onDownloadVersion = viewModel::requestDownload,
+                    )
+                    ModpackIntroContent(pack)
+                    if (uiState.modsLoading) {
+                        Text("正在载入${pack.modCount}个Mod的详细信息...")
                     }
+                    ModGrid(
+                        mods = uiState.mods,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f),
+                        emptyText = "没有可显示的mod",
+                        initialIconOnly = true,
+                    )
                 }
-                Space8h()
-                when (activeTab) {
-                    0 -> {
-                        ModpackIntroTabContent(
-                            pack = pack
-                        )
-                    }
-
-                    1 -> {
-                        if (pack.categories.isNotEmpty()) {
-                            ModpackCategoryChips(
-                                categories = pack.categories,
-                                modifier = Modifier.padding(bottom = 12.dp)
-                            )
-                        }
-                        if (pack.versions.isEmpty()) {
-                            Text("此整合包暂无可用版本，等待作者上传....", color = Color.Gray)
-                        } else {
-                            if (uiState.modsLoading) {
-                                Text("正在载入${pack.modCount}个Mod的详细信息...")
-                            }
-                            Space8h()
-                            ModGrid(
-                                mods = uiState.mods,
-                                emptyText = "没有可显示的mod"
-                            )
-                        }
-                    }
-
-                    else -> {
-                        Space8h()
-                        Box(Modifier.fillMaxWidth().weight(1f)) {
-                            LazyColumn(
-                                state = versionListState,
-                                modifier = Modifier.fillMaxSize().padding(end = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                items(pack.versions, key = { it.name }) { version ->
-                                val statusText = when (version.status) {
-                                    Modpack.Status.OK -> "\uF058 可用"
-                                    Modpack.Status.BUILDING -> "\uEEFF 构建中"
-                                    Modpack.Status.FAIL -> "\uEA87 构建失败"
-                                    Modpack.Status.WAIT -> "\uE641 等待构建"
-                                }
-                                val statusColor = when (version.status) {
-                                    Modpack.Status.OK -> themeNow.primary
-                                    Modpack.Status.BUILDING -> themeNow.tertiary
-                                    Modpack.Status.FAIL -> MaterialTheme.colorScheme.error
-                                    Modpack.Status.WAIT -> themeNow.onSurfaceVariant
-                                }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Text(
-                                        text = "V${version.name} - \uE641 ${version.time.millisToHumanDateTime} - \uF0C7${version.totalSize?.humanFileSize ?: ""}".asIconText,
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    Text(statusText.asIconText, color = statusColor)
-                                    Space8w()
-                                    if (isAuthor) {
-                                        onOpenVersionEdit?.let { openVersionEdit ->
-                                            CircleIconButton(
-                                                icon = "\uF044",
-                                                label = "编辑版本Mod",
-                                                bgColor = themeNow.secondary
-                                            ) { openVersionEdit(version.name) }
-                                            Space8w()
-                                        }
-                                        CircleIconButton(
-                                            icon = "\uEA81",
-                                            label = "删除版本",
-                                            bgColor = MaterialTheme.colorScheme.error
-                                        ) { confirmDeleteVersion = version }
-                                        Space8w()
-                                        CircleIconButton(
-                                            icon = "\uF0AD",
-                                            label = "重构",
-                                            bgColor = MaterialTheme.colorScheme.primary
-                                        ) { confirmRebuildVersion = version }
-                                    }
-                                    if (version.status == Modpack.Status.OK) {
-                                        Space8w()
-                                        CircleIconButton(
-                                            icon = "\uF019",
-                                            label = "下载整合包"
-                                        ) {
-                                            viewModel.requestDownload(version.name)
-                                        }
-                                    }
-                                }
-                            }
-                                item {
-                                    if (pack.versions.isEmpty()) {
-                                        Text("此整合包暂无可用版本，等待作者上传....", color = Color.Gray)
-                                    }
-                                }
-                            }
-                            RVerticalScrollbar(
-                                listState = versionListState,
-                                modifier = Modifier.align(Alignment.CenterEnd)
-                            )
-                        }
-                    }
-                }
-                }
-            }
+            }}
         }
         BottomSnakebarM3(snackbarHostState)
     }
@@ -466,27 +365,89 @@ fun ModpackInfoScreen(
 }
 
 @Composable
-private fun ModpackIntroTabContent(
+private fun ModpackDownloadVersions(
+    pack: Modpack.DetailVo,
+    isAuthor: Boolean,
+    onOpenVersionEdit: ((String) -> Unit)?,
+    onDeleteVersion: (Modpack.Version) -> Unit,
+    onRebuildVersion: (Modpack.Version) -> Unit,
+    onDownloadVersion: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            text = "\uF019 下载版本(${pack.versions.size})".asIconText,
+            style = MaterialTheme.typography.titleMedium
+        )
+        if (pack.versions.isEmpty()) {
+            Text("此整合包暂无可用版本，等待作者上传....", color = Color.Gray)
+        }
+        pack.versions.forEach { version ->
+            val statusText = when (version.status) {
+                Modpack.Status.OK -> "\uF058 可用"
+                Modpack.Status.BUILDING -> "\uEEFF 构建中"
+                Modpack.Status.FAIL -> "\uEA87 构建失败"
+                Modpack.Status.WAIT -> "\uE641 等待构建"
+            }
+            val statusColor = when (version.status) {
+                Modpack.Status.OK -> themeNow.primary
+                Modpack.Status.BUILDING -> themeNow.tertiary
+                Modpack.Status.FAIL -> MaterialTheme.colorScheme.error
+                Modpack.Status.WAIT -> themeNow.onSurfaceVariant
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "V${version.name} - \uE641 ${version.time.millisToHumanDateTime} - \uF0C7${version.totalSize?.humanFileSize ?: ""}".asIconText,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(statusText.asIconText, color = statusColor)
+                Space8w()
+                if (isAuthor) {
+                    onOpenVersionEdit?.let { openVersionEdit ->
+                        CircleIconButton(
+                            icon = "\uF044",
+                            label = "编辑版本Mod",
+                            bgColor = themeNow.secondary
+                        ) { openVersionEdit(version.name) }
+                        Space8w()
+                    }
+                    CircleIconButton(
+                        icon = "\uEA81",
+                        label = "删除版本",
+                        bgColor = MaterialTheme.colorScheme.error
+                    ) { onDeleteVersion(version) }
+                    Space8w()
+                    CircleIconButton(
+                        icon = "\uF0AD",
+                        label = "重构",
+                        bgColor = MaterialTheme.colorScheme.primary
+                    ) { onRebuildVersion(version) }
+                }
+                if (version.status == Modpack.Status.OK) {
+                    Space8w()
+                    CircleIconButton(
+                        icon = "\uF019",
+                        label = "下载整合包"
+                    ) { onDownloadVersion(version.name) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ModpackIntroContent(
     pack: Modpack.DetailVo
 ) {
-    val sourceUrl = pack.sourceUrl?.trim()?.takeIf(String::isNotBlank)
-    if (sourceUrl != null) {
-        WebPagePane(
-            url = sourceUrl,
-            title = sourceUrl ?: "来源网页",
-            modifier = Modifier.fillMaxSize()
-        )
-        return
-    }
-
-    val scrollState = rememberScrollState()
     val displaySummary = pack.info?.takeIf(String::isNotBlank)
 
-    RScrollableColumn(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        state = scrollState,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        Text("简介", style = MaterialTheme.typography.titleMedium)
         if (pack.categories.isNotEmpty()) {
             ModpackCategoryChips(categories = pack.categories)
         }

@@ -7,6 +7,7 @@ import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.Modpack
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.bson.types.ObjectId
@@ -200,14 +201,11 @@ class ModpackInfoViewModelTest {
             return Result.success(Unit)
         }
 
-        override suspend fun hydrateMods(
-            mods: List<Mod>,
-            onBatch: suspend (List<UiMod>) -> Unit,
-        ): Result<Unit> {
+        override fun hydrateMods(mods: List<Mod>) = flow {
             hydrateCalled = true
-            hydrationFailure?.let { return Result.failure(it) }
-            onBatch(mods.map { it.copy(slug = "${it.slug}-hydrated") }.toUiMods())
-            return Result.success(Unit)
+            hydrationFailure?.let { throw it }
+            emit(mods.toUiMods())
+            emit(mods.map { it.copy(slug = "${it.slug}-hydrated") }.toUiMods())
         }
 
         override suspend fun isVersionInstalled(

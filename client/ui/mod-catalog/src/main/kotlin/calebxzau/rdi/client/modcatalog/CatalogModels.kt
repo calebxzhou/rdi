@@ -329,9 +329,14 @@ data class CatalogCachePolicy(
 
 internal data class SearchCursorState(
     val requestKey: String,
+    val localOffset: Int,
+    val localExhausted: Boolean,
+    val localBuffer: List<CatalogMod>,
+    val fallbackQuery: String?,
     val platformOffsets: Map<ModPlatform, Int>,
     val platformBuffers: Map<ModPlatform, List<CatalogProjectSource>>,
     val exhausted: Set<ModPlatform>,
+    val unavailablePlatforms: Set<ModPlatform>,
     val seenIdentities: Set<String>
 )
 

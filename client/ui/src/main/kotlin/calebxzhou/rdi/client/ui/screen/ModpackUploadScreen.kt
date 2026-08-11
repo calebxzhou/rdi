@@ -31,6 +31,7 @@ import calebxzau.rdi.client.ui.RRow
 import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
@@ -50,6 +51,7 @@ import calebxzau.rdi.client.ui.viewmodel.ModpackUploadMode
 import calebxzau.rdi.client.ui.viewmodel.ModpackUploadUiState
 import calebxzau.rdi.client.ui.viewmodel.ModpackUploadViewModel
 import calebxzhou.rdi.common.model.Modpack
+import calebxzhou.rdi.common.model.modpackInfoCharacterCount
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import org.koin.compose.viewmodel.koinViewModel
@@ -132,15 +134,15 @@ fun ModpackUploadScreen(
                     CircleIconButton(
                         "\uF019",
                         "下载测试服务端",
-                        enabled = uiState.loadedModpack != null && uiState.downloadTaskRunId == null,
+                        enabled = uiState.loadedModpack != null &&
+                            !uiState.uiModsLoading &&
+                            uiState.downloadTaskRunId == null,
                         onClick = viewModel::downloadTestServer,
                     )
                     Space8w()
-                    CircleIconButton(
-                        "\uF058",
-                        "开始传包",
-                        bgColor = themeNow.primary,
+                    UploadSubmitButton(
                         enabled = uiState.canSubmitUpload,
+                        disabledReason = uiState.uploadDisabledReason,
                         onClick = viewModel::submitUpload,
                     )
                 }
@@ -201,12 +203,21 @@ fun ModpackUploadScreen(
                             viewModel = viewModel,
                         )
 
-                        1 -> ModGrid(
-                            mods = uiState.uiMods,
-                            modifier = Modifier.fillMaxSize(),
-                            emptyText = "没有可显示的mod",
-                            onSideChange = viewModel::updateModSide,
-                        )
+                        1 -> Column(modifier = Modifier.fillMaxSize()) {
+                            if (uiState.uiModsLoading) {
+                                Text(
+                                    "正在补充Mod详细信息...",
+                                    color = themeNow.onSurfaceVariant,
+                                )
+                                Space8h()
+                            }
+                            ModGrid(
+                                mods = uiState.uiMods,
+                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                emptyText = "没有可显示的mod",
+                                onSideChange = viewModel::updateModSide,
+                            )
+                        }
 
                         2 -> TestConsolePane(
                             statusText = testStatusText(
@@ -298,10 +309,35 @@ fun ModpackUploadScreen(
 }
 
 @Composable
+private fun UploadSubmitButton(
+    enabled: Boolean,
+    disabledReason: String?,
+    onClick: () -> Unit,
+) {
+    val button: @Composable () -> Unit = {
+        CircleIconButton(
+            icon = "\uF058",
+            label = "开始传包",
+            bgColor = themeNow.primary,
+            enabled = enabled,
+            onClick = onClick,
+        )
+    }
+    if (enabled) {
+        button()
+    } else {
+        SimpleTooltip(disabledReason ?: "当前暂时不能上传") {
+            button()
+        }
+    }
+}
+
+@Composable
 private fun ModpackUploadInfoTab(
     state: ModpackUploadUiState,
     viewModel: ModpackUploadViewModel,
 ) {
+    val metadataEnabled = state.uploadMode == ModpackUploadMode.CREATE
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -348,26 +384,42 @@ private fun ModpackUploadInfoTab(
                 onValueChange = { viewModel.updateDraft(state.draft.copy(iconUrl = it)) },
                 label = { Text("图标链接") },
                 singleLine = true,
+                enabled = metadataEnabled,
+                isError = state.draftErrors.iconUrl != null,
+                supportingText = { state.draftErrors.iconUrl?.let { Text(it) } },
             )
             OutlinedTextField(
                 value = state.draft.sourceUrl,
                 onValueChange = { viewModel.updateDraft(state.draft.copy(sourceUrl = it)) },
                 label = { Text("原帖发布链接") },
                 singleLine = true,
+                enabled = metadataEnabled,
             )
             OutlinedTextField(
                 value = state.draft.info,
                 onValueChange = { viewModel.updateDraft(state.draft.copy(info = it)) },
-                label = { Text("一句话简介") },
+                label = { Text("简介(10~100字符)") },
                 singleLine = true,
+                enabled = metadataEnabled,
+                isError = state.draftErrors.info != null,
+                supportingText = {
+                    Text(
+                        state.draftErrors.info
+                            ?: "${state.draft.info.trim().modpackInfoCharacterCount()}/100"
+                    )
+                },
             )
         }
-        Text("分类最多${Modpack.MAX_CATEGORY_COUNT}个")
+        Text("分类(至少1个，最多${Modpack.MAX_CATEGORY_COUNT}个)")
         ModpackCategorySelector(
             selected = state.draft.categories,
             onSelectedChange = { viewModel.updateDraft(state.draft.copy(categories = it)) },
             modifier = Modifier.fillMaxWidth(),
+            enabled = metadataEnabled,
         )
+        state.draftErrors.categories?.let { error ->
+            Text(error, color = MaterialTheme.colorScheme.error)
+        }
     }
 }
 

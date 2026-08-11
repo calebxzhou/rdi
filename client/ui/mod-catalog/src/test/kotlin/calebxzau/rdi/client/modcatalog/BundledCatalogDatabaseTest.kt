@@ -31,9 +31,15 @@ class BundledCatalogDatabaseTest {
                 ).size
             )
             assertEquals(2021, index.search("机械动力", 0, 10).first().mcmodId)
-            assertEquals(2, index.findExactFullPinyin("gongyeshidai2")?.mcmodId)
-            assertEquals(null, index.findExactFullPinyin("gysd2"))
-            assertEquals(null, index.findExactFullPinyin("工业时代2"))
+            assertEquals(2, index.search("gongyeshidai2", 0, 10).first().mcmodId)
+            assertEquals(2, index.search("gysd2", 0, 10).first().mcmodId)
+            assertEquals(459, index.search("Just Enough Items", 0, 10).first().mcmodId)
+            assertEquals(459, index.search("jei", 0, 10).first().mcmodId)
+            val firstPage = index.search("j", 0, 1)
+            val secondPage = index.search("j", 1, 1)
+            assertEquals(1, firstPage.size)
+            assertEquals(1, secondPage.size)
+            assertTrue(firstPage.single().mcmodId != secondPage.single().mcmodId)
         } finally {
             index.close()
             Files.deleteIfExists(directory.resolve("mod_catalog.db"))

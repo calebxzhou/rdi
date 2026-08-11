@@ -54,7 +54,6 @@ suspend fun uploadModpack(
     val totalBytes = uploadZip.length()
     val startTime = System.nanoTime()
     var lastProgressUpdate = 0L
-
     try {
         if (updateModpackId != null) {
             uploadNewVersion(
@@ -280,14 +279,12 @@ private suspend fun uploadNewModpack(
         categories = Modpack.normalizeCategories(categories),
         mods = mods.toMutableList()
     )
-    val dtoJson = serdesJson.encodeToString(dto)
-
     var lastUpdate = lastProgressUpdate
     val multipartContent = MultiPartFormDataContent(
         formData {
             append(
                 key = "dto",
-                value = dtoJson,
+                value = serdesJson.encodeToString(dto),
                 headers = io.ktor.http.Headers.build {
                     append(HttpHeaders.ContentType, ContentType.Application.Json.toString())
                 }
@@ -370,14 +367,12 @@ private suspend fun uploadNewVersion(
 
     val modpackIdStr = modpackId.toHexString()
     val versionEncoded = versionName.urlEncoded
-    val modsJson = serdesJson.encodeToString(mods.toMutableList())
-
     var lastUpdate = lastProgressUpdate
     val multipartContent = MultiPartFormDataContent(
         formData {
             append(
                 key = "mods",
-                value = modsJson,
+                value = serdesJson.encodeToString(mods.toMutableList()),
                 headers = io.ktor.http.Headers.build {
                     append(HttpHeaders.ContentType, ContentType.Application.Json.toString())
                 }

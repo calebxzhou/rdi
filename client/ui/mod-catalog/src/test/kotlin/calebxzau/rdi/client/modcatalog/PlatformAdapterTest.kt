@@ -74,13 +74,45 @@ class PlatformAdapterTest {
             json
         )
 
-        val project = adapter.findProjectBySlug(
-            "jei",
+        val project = adapter.resolveSlugs(
+            listOf("jei"),
             CatalogTarget(McVersion.V211, ModLoader.neoforge)
-        )
+        ).found["jei"]
 
         assertEquals("238222", project?.ref?.projectId)
         assertEquals(1, requestCount)
+    }
+
+    @Test
+    fun `modrinth resolves multiple slugs in one request and filters target`() = runBlocking {
+        var requestCount = 0
+        val engine = MockEngine { request ->
+            requestCount++
+            assertEquals("/v2/projects", request.url.encodedPath)
+            respond(
+                content = """[
+                    {"id":"2","slug":"second","title":"Second","game_versions":["1.21.1"],"loaders":["neoforge"]},
+                    {"id":"1","slug":"first","title":"First","game_versions":["1.21.1"],"loaders":["neoforge"]},
+                    {"id":"3","slug":"old","title":"Old","game_versions":["1.20.1"],"loaders":["forge"]}
+                ]""",
+                headers = headersOf(HttpHeaders.ContentType, ContentType.Application.Json.toString())
+            )
+        }
+        val adapter = ModrinthAdapter(
+            HttpClient(engine),
+            ModrinthConfig(),
+            CatalogNetworkPolicy(preferMirror = false),
+            json
+        )
+
+        val result = adapter.resolveSlugs(
+            listOf("first", "second", "old"),
+            CatalogTarget(McVersion.V211, ModLoader.neoforge)
+        )
+
+        assertEquals(1, requestCount)
+        assertEquals(setOf("first", "second"), result.found.keys)
+        assertEquals(setOf("old"), result.missing)
     }
 
     @Test

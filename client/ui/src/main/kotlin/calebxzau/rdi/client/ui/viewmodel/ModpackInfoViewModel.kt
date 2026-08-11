@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -82,10 +84,7 @@ interface ModpackInfoGateway {
 
     suspend fun mutate(modpackId: String, mutation: ModpackInfoMutation): Result<Unit>
 
-    suspend fun hydrateMods(
-        mods: List<Mod>,
-        onBatch: suspend (List<UiMod>) -> Unit,
-    ): Result<Unit>
+    fun hydrateMods(mods: List<Mod>): Flow<List<UiMod>>
 
     suspend fun isVersionInstalled(pack: Modpack.DetailVo, version: Modpack.Version): Result<Boolean>
 
@@ -132,13 +131,8 @@ class RdiModpackInfoGateway(
         if (!response.ok) throw RequestError(response.msg)
     }
 
-    override suspend fun hydrateMods(
-        mods: List<Mod>,
-        onBatch: suspend (List<UiMod>) -> Unit,
-    ): Result<Unit> = resultOf {
-        mods.hydrateToUiModsInBatches(modCatalog, onBatch = onBatch)
-        Unit
-    }
+    override fun hydrateMods(mods: List<Mod>): Flow<List<UiMod>> =
+        mods.hydrateToUiModsInBatches(modCatalog)
 
     override fun queueInstall(
         pack: Modpack.DetailVo,
@@ -353,16 +347,15 @@ class ModpackInfoViewModel(
         hydrateJob?.cancel()
         hydrateJob = viewModelScope.launch {
             try {
-                val result = withContext(Dispatchers.IO) {
-                    gateway.hydrateMods(mods) { batch ->
+                gateway.hydrateMods(mods)
+                    .flowOn(Dispatchers.IO)
+                    .collect { batch ->
                         _uiState.update { it.copy(mods = batch) }
                     }
-                }
-                result.exceptionOrNull()?.let { cause ->
-                    lgr.warn(cause) { "整合包Mod详细信息补全失败，保留Fallback" }
-                }
             } catch (cancel: CancellationException) {
                 throw cancel
+            } catch (cause: Throwable) {
+                lgr.warn(cause) { "整合包Mod详细信息补全失败，保留Fallback" }
             } finally {
                 if (currentCoroutineContext().isActive) {
                     _uiState.update { it.copy(modsLoading = false) }

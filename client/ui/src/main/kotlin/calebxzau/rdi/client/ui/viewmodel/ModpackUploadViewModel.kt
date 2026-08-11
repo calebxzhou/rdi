@@ -22,6 +22,7 @@ import calebxzhou.rdi.client.service.ModpackTester
 import calebxzhou.rdi.client.service.TestStatus
 import calebxzhou.rdi.client.service.createUploadModpackTask2
 import calebxzhou.rdi.client.service.hydrateToUiMods
+import calebxzhou.rdi.client.service.hydrateToUiModsInBatches
 import calebxzhou.rdi.client.service.modpackUploadTaskKey
 import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.ui.comp.ConsoleState
@@ -30,12 +31,17 @@ import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.IGNORE_MODPACK_TEST
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.LoadProgress
+import calebxzhou.rdi.common.model.MODPACK_INFO_MAX_CHARACTERS
+import calebxzhou.rdi.common.model.MODPACK_INFO_MIN_CHARACTERS
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Task2Entry
 import calebxzhou.rdi.common.model.Task2Status
 import calebxzhou.rdi.common.service.ModService
+import calebxzhou.rdi.common.service.validateIconUrl
+import calebxzhou.rdi.common.service.validateIconUrlAddress
+import calebxzhou.rdi.common.model.modpackInfoCharacterCount
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -44,7 +50,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -63,6 +71,51 @@ data class ModpackUploadDraft(
     val sourceUrl: String = "",
     val info: String = "",
 )
+
+data class ModpackUploadFieldErrors(
+    val info: String? = null,
+    val iconUrl: String? = null,
+    val categories: String? = null,
+) {
+    val isEmpty: Boolean
+        get() = info == null && iconUrl == null && categories == null
+
+    val firstMessage: String?
+        get() = info ?: iconUrl ?: categories
+}
+
+private fun validateModpackUploadDraft(
+    draft: ModpackUploadDraft,
+    mode: ModpackUploadMode,
+): ModpackUploadFieldErrors {
+    if (mode == ModpackUploadMode.UPDATE) return ModpackUploadFieldErrors()
+
+    val normalizedInfo = draft.info.trim()
+    val infoLength = normalizedInfo.modpackInfoCharacterCount()
+    val infoError = when {
+        normalizedInfo.isBlank() -> "简介不能为空"
+        infoLength < MODPACK_INFO_MIN_CHARACTERS ->
+            "简介至少需要${MODPACK_INFO_MIN_CHARACTERS}个字符"
+        infoLength > MODPACK_INFO_MAX_CHARACTERS ->
+            "简介最多${MODPACK_INFO_MAX_CHARACTERS}个字符"
+        else -> null
+    }
+    val normalizedIconUrl = draft.iconUrl.trim()
+    val iconError = when {
+        normalizedIconUrl.isBlank() -> "图标链接不能为空"
+        else -> validateIconUrlAddress(normalizedIconUrl).fold(
+            onSuccess = { null },
+            onFailure = { cause -> cause.message ?: "图标链接无效" },
+        )
+    }
+    val categoriesError = when {
+        draft.categories.isEmpty() -> "至少选择1个分类"
+        draft.categories.distinct().size > Modpack.MAX_CATEGORY_COUNT ->
+            "分类最多选择${Modpack.MAX_CATEGORY_COUNT}个"
+        else -> null
+    }
+    return ModpackUploadFieldErrors(infoError, iconError, categoriesError)
+}
 
 data class PendingMissingModDownload(
     val usage: String,
@@ -89,10 +142,13 @@ data class ModpackUploadSubmission(
 data class ModpackUploadUiState(
     val title: String = "上传整合包",
     val loading: Boolean = false,
+    val iconValidationRunning: Boolean = false,
     val editMode: Boolean = false,
     val loadedModpack: LoadedLocalModpack? = null,
     val draft: ModpackUploadDraft = ModpackUploadDraft(),
+    val draftErrors: ModpackUploadFieldErrors = ModpackUploadFieldErrors(),
     val uiMods: List<UiMod> = emptyList(),
+    val uiModsLoading: Boolean = false,
     val serverPackName: String? = null,
     val progressText: String? = null,
     val progressFraction: Float? = null,
@@ -116,18 +172,30 @@ data class ModpackUploadUiState(
     val allowUploadWithoutTests: Boolean
         get() = DEBUG || ignoreModpackTest
 
+    val uploadDisabledReason: String?
+        get() {
+            validateModpackUploadDraft(draft, uploadMode).firstMessage?.let { return it }
+            if (iconValidationRunning) return "正在验证图标链接"
+            if (ignoreModpackTest) return null
+            return when {
+                loading -> "正在处理整合包"
+                uiModsLoading -> "正在补充Mod详细信息"
+                downloadTaskRunId != null -> "正在下载测试服务端"
+                serverTestStatus == TestStatus.RUNNING -> "服务端测试进行中"
+                clientTestStatus == TestStatus.RUNNING -> "客户端测试进行中"
+                uploadMode == ModpackUploadMode.UPDATE && selectedUpdateTarget == null ->
+                    "请选择要更新的已有整合包"
+                else -> null
+            }
+        }
+
     val canSubmitUpload: Boolean
-        get() = ignoreModpackTest || (
-            !loading &&
-                downloadTaskRunId == null &&
-                serverTestStatus != TestStatus.RUNNING &&
-                clientTestStatus != TestStatus.RUNNING &&
-                (uploadMode == ModpackUploadMode.CREATE || selectedUpdateTarget != null)
-            )
+        get() = uploadDisabledReason == null
 
     val canSelectServerPack: Boolean
         get() = editMode &&
             !loading &&
+            !uiModsLoading &&
             downloadTaskRunId == null &&
             serverTestStatus != TestStatus.RUNNING &&
             clientTestStatus != TestStatus.RUNNING
@@ -150,6 +218,8 @@ interface ModpackUploadGateway {
         file: File,
         onProgress: (LoadProgress) -> Unit,
     ): Result<PreparedClientPack>
+
+    fun hydrateMods(mods: List<UiMod>): Flow<List<UiMod>>
 
     suspend fun prepareServerPack(
         directory: File,
@@ -206,12 +276,15 @@ class RdiModpackUploadGateway(
             onProgress = onProgress,
         ).getOrThrow()
         val initialUiMods = defaultCurseForgeUnknownMods(pack.mods.toUiMods())
-        val processedUiMods = processUiMods(initialUiMods).getOrThrow().hydrateToUiMods(modCatalog)
+        val processedUiMods = processUiMods(initialUiMods).getOrThrow()
         PreparedClientPack(
             pack = pack.copy(mods = processedUiMods.map(UiMod::toMod)),
             uiMods = processedUiMods,
         )
     }
+
+    override fun hydrateMods(mods: List<UiMod>): Flow<List<UiMod>> =
+        mods.hydrateToUiModsInBatches(modCatalog)
 
     override suspend fun prepareServerPack(
         directory: File,
@@ -295,6 +368,7 @@ class RdiModpackUploadGateway(
 
 class ModpackUploadViewModel(
     private val gateway: ModpackUploadGateway,
+    private val validateFullIconUrl: suspend (String?) -> Result<Unit> = ::validateIconUrl,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         ModpackUploadUiState(ignoreModpackTest = gateway.ignoreModpackTestInitially)
@@ -316,7 +390,13 @@ class ModpackUploadViewModel(
     }
 
     fun updateDraft(draft: ModpackUploadDraft) {
-        _uiState.update { it.copy(draft = draft, errorMessage = null) }
+        _uiState.update {
+            it.copy(
+                draft = draft,
+                draftErrors = validateModpackUploadDraft(draft, it.uploadMode),
+                errorMessage = null,
+            )
+        }
     }
 
     fun updateVersionName(value: String) {
@@ -340,16 +420,18 @@ class ModpackUploadViewModel(
                 withContext(Dispatchers.IO) {
                     gateway.validateRuntime(prepared.pack.mcVersion).getOrThrow()
                 }
-                replaceTesters(prepared.pack, prepared.uiMods)
                 _uiState.update {
                     it.copy(
+                        loading = false,
                         editMode = true,
                         loadedModpack = prepared.pack,
+                        draftErrors = ModpackUploadFieldErrors(),
                         draft = ModpackUploadDraft(
                             name = prepared.pack.packName,
                             versionName = prepared.pack.packVersion.replace(' ', '_'),
                         ),
                         uiMods = prepared.uiMods,
+                        uiModsLoading = prepared.uiMods.isNotEmpty(),
                         serverPackName = null,
                         uploadMode = ModpackUploadMode.CREATE,
                         selectedUpdateTarget = null,
@@ -358,11 +440,34 @@ class ModpackUploadViewModel(
                     )
                 }
                 eventChannel.send(ModpackUploadEvent.ClientPackLoaded())
+                try {
+                    gateway.hydrateMods(prepared.uiMods)
+                        .flowOn(Dispatchers.IO)
+                        .collect { batch ->
+                            _uiState.update { state ->
+                                state.copy(uiMods = mergeHydratedUiMods(state.uiMods, batch))
+                            }
+                        }
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (cause: Throwable) {
+                    lgr.warn(cause) { "加载整合包Mod展示信息失败，将使用基础Mod数据" }
+                }
+                val finalUiMods = _uiState.value.uiMods
+                val finalPack = prepared.pack.copy(mods = finalUiMods.map(UiMod::toMod))
+                replaceTesters(finalPack, finalUiMods)
+                _uiState.update {
+                    it.copy(
+                        loadedModpack = finalPack,
+                        uiModsLoading = false,
+                    )
+                }
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (cause: Throwable) {
                 reportError("读取整合包失败", cause)
             } finally {
+                _uiState.update { it.copy(uiModsLoading = false) }
                 finishLoading()
             }
         }
@@ -412,9 +517,12 @@ class ModpackUploadViewModel(
             it.copy(
                 uploadMode = ModpackUploadMode.CREATE,
                 selectedUpdateTarget = null,
+                draftErrors = ModpackUploadFieldErrors(),
                 draft = it.draft.copy(
                     name = it.loadedModpack?.packName ?: it.draft.name,
                     categories = emptyList(),
+                    iconUrl = "",
+                    info = "",
                 ),
             )
         }
@@ -425,7 +533,13 @@ class ModpackUploadViewModel(
             it.copy(
                 uploadMode = ModpackUploadMode.UPDATE,
                 selectedUpdateTarget = target,
-                draft = it.draft.copy(name = target.name, categories = target.categories),
+                draftErrors = ModpackUploadFieldErrors(),
+                draft = it.draft.copy(
+                    name = target.name,
+                    categories = target.categories,
+                    iconUrl = target.icon.orEmpty(),
+                    info = target.info.orEmpty(),
+                ),
             )
         }
     }
@@ -457,6 +571,7 @@ class ModpackUploadViewModel(
     fun startClientTest() {
         val tester = clientTester
         when {
+            _uiState.value.uiModsLoading -> _uiState.update { it.copy(errorMessage = "Mod信息仍在载入中") }
             tester == null -> _uiState.update { it.copy(errorMessage = "请先选择整合包文件") }
             tester.isRunning() -> _uiState.update { it.copy(errorMessage = "测试客户端已经在运行中") }
             else -> requireModsDownloadedFor("客户端测试") { startClientTestAfterModsReady(tester) }
@@ -473,6 +588,7 @@ class ModpackUploadViewModel(
     fun startServerTest() {
         val tester = serverTester
         when {
+            _uiState.value.uiModsLoading -> _uiState.update { it.copy(errorMessage = "Mod信息仍在载入中") }
             tester == null -> _uiState.update { it.copy(errorMessage = "请先选择整合包文件") }
             tester.isRunning() -> _uiState.update { it.copy(errorMessage = "测试服务器已经在运行中") }
             else -> requireModsDownloadedFor("服务端测试") { startServerTestAfterModsReady(tester) }
@@ -523,6 +639,7 @@ class ModpackUploadViewModel(
 
     fun submitUpload() {
         val state = _uiState.value
+        if (state.iconValidationRunning) return
         val pack = state.loadedModpack
         if (pack == null) {
             _uiState.update { it.copy(errorMessage = "请先选择整合包文件") }
@@ -536,6 +653,16 @@ class ModpackUploadViewModel(
         }
         if (versionName.isBlank()) {
             _uiState.update { it.copy(errorMessage = "版本号不能为空") }
+            return
+        }
+        val draftErrors = validateModpackUploadDraft(state.draft, state.uploadMode)
+        if (!draftErrors.isEmpty) {
+            _uiState.update {
+                it.copy(
+                    draftErrors = draftErrors,
+                    errorMessage = draftErrors.firstMessage,
+                )
+            }
             return
         }
         if (state.serverPackName == null && !state.allowUploadWithoutTests) {
@@ -564,6 +691,43 @@ class ModpackUploadViewModel(
             updateModpackId = state.selectedUpdateTarget?.id
                 .takeIf { state.uploadMode == ModpackUploadMode.UPDATE },
         )
+        if (state.uploadMode == ModpackUploadMode.CREATE) {
+            _uiState.update {
+                it.copy(iconValidationRunning = true, errorMessage = null)
+            }
+            viewModelScope.launch {
+                try {
+                    withContext(Dispatchers.IO) {
+                        validateFullIconUrl(submission.draft.iconUrl).getOrThrow()
+                    }
+                    val currentState = _uiState.value
+                    if (currentState.uploadMode != ModpackUploadMode.CREATE ||
+                        currentState.draft != state.draft ||
+                        currentState.loadedModpack !== pack
+                    ) {
+                        _uiState.update {
+                            it.copy(
+                                iconValidationRunning = false,
+                                errorMessage = "上传信息已更改，请重新提交",
+                            )
+                        }
+                        return@launch
+                    }
+                    queueUploadSubmission(submission)
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (cause: Throwable) {
+                    reportError("验证图标链接失败", cause)
+                } finally {
+                    _uiState.update { it.copy(iconValidationRunning = false) }
+                }
+            }
+            return
+        }
+        queueUploadSubmission(submission)
+    }
+
+    private fun queueUploadSubmission(submission: ModpackUploadSubmission) {
         gateway.queueUpload(submission)
             .onSuccess { runId ->
                 if (runId.isNotBlank()) viewModelScope.launch {
@@ -841,6 +1005,19 @@ private fun preserveUiMods(source: List<UiMod>, updatedMods: List<Mod>): List<Ui
                 card = sourceUiMod.card?.copy(side = updatedMod.side),
             )
         } ?: UiMod(mod = updatedMod)
+    }
+}
+
+private fun mergeHydratedUiMods(current: List<UiMod>, hydrated: List<UiMod>): List<UiMod> {
+    val currentByKey = current.associateBy { modStableKey(it.mod) }
+    return hydrated.map { hydratedMod ->
+        currentByKey[modStableKey(hydratedMod.mod)]?.let { currentMod ->
+            hydratedMod.copy(
+                mod = hydratedMod.mod.copy(side = currentMod.side),
+                card = hydratedMod.card?.copy(side = currentMod.side),
+                file = currentMod.file ?: hydratedMod.file,
+            )
+        } ?: hydratedMod
     }
 }
 

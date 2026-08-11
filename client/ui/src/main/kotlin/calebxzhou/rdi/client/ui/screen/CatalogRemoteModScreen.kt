@@ -26,6 +26,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -72,6 +73,10 @@ fun RemoteModScreen(
     val versions = requiredMcVersion?.let(::listOf)
         ?: McVersion.entries.filter { it.enabled && (requiredLoader == null || requiredLoader in it.loaderVersions) }
     val loaders = requiredLoader?.let(::listOf) ?: state.selectedMcVersion.loaderVersions.keys.toList()
+
+    LaunchedEffect(state.query, state.selectedMcVersion, state.selectedLoader) {
+        gridState.scrollToItem(0)
+    }
 
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.LARGE) {

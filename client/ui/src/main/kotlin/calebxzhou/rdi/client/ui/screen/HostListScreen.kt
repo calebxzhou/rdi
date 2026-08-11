@@ -177,7 +177,7 @@ fun HostBrowserPane(
     var okMessage by remember { mutableStateOf<String?>(null) }
     var installConfirmTask by remember { mutableStateOf<StartPlayResult.NeedInstall?>(null) }
     var deleteHost by remember { mutableStateOf<Host.DetailVo?>(null) }
-    var deleteWorld by remember { mutableStateOf(false) }
+    var deleteWorld by remember { mutableStateOf(true) }
     var page by remember { mutableStateOf(0) }
     var loadingMore by remember { mutableStateOf(false) }
     var initialLoading by remember { mutableStateOf(true) }
@@ -397,16 +397,16 @@ fun HostBrowserPane(
             title = { Text("确认删除") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("确认删除房间吗？")
+                    Text("确认删除房间吗？所有的数据都会丢失（不可恢复）")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Checkbox(
                             checked = deleteWorld,
                             enabled = host.worldId != null,
                             onCheckedChange = { deleteWorld = it }
                         )
-                        Text(if (host.worldId == null) "该房间没有关联存档" else "同时删除关联存档（不可恢复）")
+                        Text(if (host.worldId == null) "该房间没有关联存档" else "确认删除房间存档")
                     }
-                    Text(if (deleteWorld && host.worldId != null) "房间和存档都会被删除，无法恢复。" else "默认仅删除房间，存档会保留，可导出或复用。")
+                    //Text(if (deleteWorld && host.worldId != null) "房间和存档都会被删除，无法恢复。" else "默认仅删除房间，存档会保留，可导出或复用。")
                 }
             },
             confirmButton = {

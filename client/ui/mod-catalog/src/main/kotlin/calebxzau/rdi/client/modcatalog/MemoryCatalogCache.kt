@@ -16,6 +16,25 @@ internal class MemoryCatalogCache<K : Any, V : Any>(
     private val values = mutableMapOf<K, Entry<V>>()
     private val inFlight = mutableMapOf<K, CompletableDeferred<V?>>()
 
+    suspend fun get(key: K): CachedCatalogValue<V>? = mutex.withLock {
+        val now = clock.instant()
+        values[key]?.takeIf { now.isBefore(it.expiresAt) }
+            ?.let { CachedCatalogValue(it.value) }
+            ?: run {
+                values.remove(key)
+                null
+            }
+    }
+
+    suspend fun put(key: K, value: V?) {
+        mutex.withLock {
+            values[key] = Entry(
+                value = value,
+                expiresAt = clock.instant().plus(if (value == null) negativeTtl else positiveTtl)
+            )
+        }
+    }
+
     suspend fun getOrLoad(key: K, load: suspend () -> V?): V? {
         val now = clock.instant()
         var owner = false
@@ -52,3 +71,5 @@ internal class MemoryCatalogCache<K : Any, V : Any>(
         val expiresAt: Instant
     )
 }
+
+internal data class CachedCatalogValue<V>(val value: V?)

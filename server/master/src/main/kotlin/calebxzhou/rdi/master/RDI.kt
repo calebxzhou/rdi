@@ -43,6 +43,9 @@ import io.ktor.server.routing.*
 import io.ktor.server.sse.*
 import io.ktor.server.websocket.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo
@@ -62,6 +65,7 @@ import java.security.PrivateKey
 import java.security.Security
 import java.security.cert.CertificateFactory
 import java.security.cert.X509Certificate
+import kotlin.time.Duration.Companion.hours
 import kotlin.time.Duration.Companion.seconds
 
 val CONF = AppConfig.load().getOrThrow()
@@ -119,6 +123,12 @@ fun main(): Unit = runBlocking {
     WORLDS_DIR.mkdirs()
     WORLD_CACHE_DIR.mkdirs()
     ModpackService.cleanupStaleUploadsOnStartup()
+    val uploadSessionCleanupJob = launch(Dispatchers.IO) {
+        while (isActive) {
+            delay(1.hours)
+            ModpackService.cleanupExpiredUploadSessions()
+        }
+    }
     lgr.info { "worlds: ${WORLDS_DIR.absolutePath}" }
     lgr.info { "world cache: ${WORLD_CACHE_DIR.absolutePath}" }
     lgr.info { "world bkup: ${WORLD_BACKUP_DIR.absolutePath}" }
@@ -145,7 +155,11 @@ fun main(): Unit = runBlocking {
         lgr.info { "Application shutdown complete" }
     })
     // Start server with HTTP and optionally HTTPS on the same port
-    startServer()
+    try {
+        startServer()
+    } finally {
+        uploadSessionCleanupJob.cancelAndJoin()
+    }
 
 }
 

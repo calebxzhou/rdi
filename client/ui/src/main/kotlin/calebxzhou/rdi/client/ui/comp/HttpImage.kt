@@ -10,14 +10,15 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import calebxzau.rdi.client.lgr
-import calebxzau.rdi.client.ui.decodeImageBitmap
 import calebxzhou.rdi.client.service.HttpImageState
+import calebxzhou.rdi.client.service.resolveLocalFirstModIcon
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * calebxzhou @ 2026-01-12 23:34
@@ -70,35 +71,14 @@ fun rememberLocalFirstImage(
     iconData: ByteArray?,
     iconUrls: List<String>
 ): ImageBitmap? {
-    val localBitmap = remember(iconData) {
-        iconData?.let { bytes ->
-            decodeImageBitmap(bytes)
-                .onFailure { lgr.warn(it) { "读取本地Mod图标失败，将尝试网络图标" } }
-                .getOrNull()
+    val resolvedBitmap by produceState<ImageBitmap?>(null, iconData, iconUrls) {
+        value = withContext(Dispatchers.Default) {
+            resolveLocalFirstModIcon(iconData, iconUrls)
+        }.getOrElse { error ->
+            lgr.warn(error) { "Mod图标加载失败" }
+            null
         }
     }
-    val candidates = remember(iconUrls, localBitmap) {
-        iconUrls
-            .takeIf { localBitmap == null }
-            .orEmpty()
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .distinct()
-    }
-    val cachedRemoteBitmap = remember(candidates) {
-        candidates.firstNotNullOfOrNull { HttpImageState.peek(it)?.bitmap }
-    }
-    val remoteBitmap by produceState(cachedRemoteBitmap, candidates) {
-        value = cachedRemoteBitmap
-        if (cachedRemoteBitmap != null) return@produceState
-        candidates.forEach { url ->
-            val bitmap = (HttpImageState.peek(url) ?: HttpImageState.fetch(url)).bitmap
-            if (bitmap != null) {
-                value = bitmap
-                return@produceState
-            }
-        }
-    }
-    return localBitmap ?: remoteBitmap
+    return resolvedBitmap
 }
 

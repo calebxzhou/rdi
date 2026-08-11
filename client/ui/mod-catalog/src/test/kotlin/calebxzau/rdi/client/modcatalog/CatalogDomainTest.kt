@@ -154,7 +154,7 @@ class CatalogDomainTest {
     }
 
     @Test
-    fun `exact full pinyin resolves only the best local identity`() = runBlocking {
+    fun `query resolves ranked local identity before remote fallback`() = runBlocking {
         val record = CatalogIdentityRecord(
             mcmodId = 459,
             name = "Just Enough Items",
@@ -170,41 +170,176 @@ class CatalogDomainTest {
         )
         val modrinth = FakeAdapter(
             ModPlatform.MODRINTH,
-            searchItems = listOf(source(ModPlatform.MODRINTH, "1", "jei"))
+            slugSources = mapOf("jei" to source(ModPlatform.MODRINTH, "1", "jei"))
         )
         val curseForge = FakeAdapter(
             ModPlatform.CURSEFORGE,
-            searchItems = listOf(source(ModPlatform.CURSEFORGE, "2", "jei"))
+            slugSources = mapOf("jei" to source(ModPlatform.CURSEFORGE, "2", "jei"))
         )
         val catalog = testCatalog(
             mapOf(ModPlatform.MODRINTH to modrinth, ModPlatform.CURSEFORGE to curseForge),
-            FakeIdentityIndex(fullPinyinRecords = mapOf("jeiwupinguanliqi" to record))
+            FakeIdentityIndex(searchRecords = listOf(record))
         )
 
-        val page = catalog.search(searchRequest(query = "jeiwupinguanliqi")).getOrThrow().value
+        val page = catalog.search(searchRequest(query = "物品管理器")).getOrThrow().value
 
-        assertEquals(listOf("jei"), modrinth.searchQueries)
-        assertEquals(listOf("jei"), curseForge.searchQueries)
+        assertEquals(listOf(listOf("jei", "jei-alias")), modrinth.slugRequests)
+        assertEquals(listOf(listOf("jei")), curseForge.slugRequests)
+        assertEquals(listOf("Just Enough Items"), modrinth.searchQueries)
+        assertEquals(listOf("Just Enough Items"), curseForge.searchQueries)
         assertEquals("mcmod:459", page.items.single().identity.stableKey)
         assertEquals(2, page.items.single().sources.size)
         assertEquals(null, page.nextCursor)
     }
 
     @Test
-    fun `ordinary query skips local identity expansion`() = runBlocking {
+    fun `curseforge tries aliases in order within three request budget`() = runBlocking {
+        val records = (1..4).map { id ->
+            CatalogIdentityRecord(
+                mcmodId = id,
+                name = "Mod$id",
+                nameCn = null,
+                intro = null,
+                logoUrl = null,
+                projects = listOf(CatalogIdentityProject(ModPlatform.CURSEFORGE, "slug$id", null))
+            )
+        }
+        val adapter = FakeAdapter(
+            ModPlatform.CURSEFORGE,
+            slugSources = mapOf("slug2" to source(ModPlatform.CURSEFORGE, "2", "slug2"))
+        )
+        val catalog = testCatalog(
+            mapOf(ModPlatform.CURSEFORGE to adapter),
+            FakeIdentityIndex(searchRecords = records)
+        )
+
+        catalog.search(searchRequest(query = "模组")).getOrThrow()
+
+        assertEquals(listOf(listOf("slug1"), listOf("slug2"), listOf("slug3")), adapter.slugRequests)
+    }
+
+    @Test
+    fun `missing slug is negatively cached for repeated search`() = runBlocking {
+        val record = CatalogIdentityRecord(
+            mcmodId = 1,
+            name = "Missing",
+            nameCn = null,
+            intro = null,
+            logoUrl = null,
+            projects = listOf(CatalogIdentityProject(ModPlatform.MODRINTH, "missing", null))
+        )
+        val adapter = FakeAdapter(ModPlatform.MODRINTH)
+        val catalog = testCatalog(
+            mapOf(ModPlatform.MODRINTH to adapter),
+            FakeIdentityIndex(searchRecords = listOf(record))
+        )
+
+        catalog.search(searchRequest(query = "missing")).getOrThrow()
+        catalog.search(searchRequest(query = "missing")).getOrThrow()
+
+        assertEquals(listOf(listOf("missing")), adapter.slugRequests)
+        assertEquals(listOf("missing", "missing"), adapter.searchQueries)
+    }
+
+    @Test
+    fun `local overflow is paged before remote fallback`() = runBlocking {
+        val records = (1..3).map { id ->
+            CatalogIdentityRecord(
+                mcmodId = id,
+                name = "Local$id",
+                nameCn = null,
+                intro = null,
+                logoUrl = null,
+                projects = listOf(CatalogIdentityProject(ModPlatform.MODRINTH, "local$id", null))
+            )
+        }
         val adapter = FakeAdapter(
             ModPlatform.MODRINTH,
-            searchItems = listOf(source(ModPlatform.MODRINTH, "1", "jei"))
+            slugSources = records.associate { record ->
+                val slug = record.projects.single().slug
+                slug to source(ModPlatform.MODRINTH, record.mcmodId.toString(), slug)
+            }
         )
         val catalog = testCatalog(
             mapOf(ModPlatform.MODRINTH to adapter),
-            FakeIdentityIndex(searchFailure = AssertionError("ordinary search must not query local candidates"))
+            FakeIdentityIndex(searchRecords = records)
         )
 
-        val page = catalog.search(searchRequest(query = "jei")).getOrThrow().value
+        val first = catalog.search(searchRequest(query = "本地")).getOrThrow().value
+        val second = catalog.search(searchRequest(first.nextCursor, query = "本地")).getOrThrow().value
 
-        assertEquals(listOf("jei"), adapter.searchQueries)
-        assertEquals("modrinth:1", page.items.single().identity.stableKey)
+        assertEquals(listOf("mcmod:1", "mcmod:2"), first.items.map { it.identity.stableKey })
+        assertEquals(listOf("mcmod:3"), second.items.map { it.identity.stableKey })
+        assertEquals(listOf("Local1"), adapter.searchQueries)
+        assertEquals(null, second.nextCursor)
+    }
+
+    @Test
+    fun `failed platform is not retained as next page work`() = runBlocking {
+        val modrinth = FakeAdapter(ModPlatform.MODRINTH, searchFailure = IllegalStateException("offline"))
+        val curseForge = FakeAdapter(
+            ModPlatform.CURSEFORGE,
+            searchItems = listOf(source(ModPlatform.CURSEFORGE, "1", "available"))
+        )
+        val catalog = testCatalog(
+            mapOf(ModPlatform.MODRINTH to modrinth, ModPlatform.CURSEFORGE to curseForge),
+            FakeIdentityIndex(),
+            onWarning = {}
+        )
+
+        val page = catalog.search(searchRequest(query = "available")).getOrThrow()
+
+        assertEquals(1, page.value.items.size)
+        assertEquals(null, page.value.nextCursor)
+        assertTrue(page.issues.any { it is CatalogIssue.SourceFailed })
+    }
+
+    @Test
+    fun `later page failure closes cursor without discarding shown results`() = runBlocking {
+        val adapter = FakeAdapter(
+            ModPlatform.MODRINTH,
+            searchItems = listOf(
+                source(ModPlatform.MODRINTH, "1", "a"),
+                source(ModPlatform.MODRINTH, "2", "b"),
+                source(ModPlatform.MODRINTH, "3", "c")
+            ),
+            searchFailure = IllegalStateException("offline"),
+            searchFailureAtOffset = 2
+        )
+        val catalog = testCatalog(
+            mapOf(ModPlatform.MODRINTH to adapter),
+            FakeIdentityIndex(),
+            onWarning = {}
+        )
+
+        val first = catalog.search(searchRequest(query = "remote")).getOrThrow().value
+        val second = catalog.search(searchRequest(first.nextCursor, query = "remote")).getOrThrow()
+
+        assertEquals(2, first.items.size)
+        assertEquals(emptyList(), second.value.items)
+        assertEquals(null, second.value.nextCursor)
+        assertTrue(second.issues.any { it is CatalogIssue.SourceFailed })
+    }
+
+    @Test
+    fun `remote result grouping batches identity lookup once`() = runBlocking {
+        val index = FakeIdentityIndex()
+        val catalog = testCatalog(
+            mapOf(
+                ModPlatform.MODRINTH to FakeAdapter(
+                    ModPlatform.MODRINTH,
+                    searchItems = listOf(
+                        source(ModPlatform.MODRINTH, "1", "a"),
+                        source(ModPlatform.MODRINTH, "2", "b")
+                    )
+                )
+            ),
+            index
+        )
+
+        catalog.search(searchRequest(query = "unknown")).getOrThrow()
+
+        assertEquals(1, index.findAllCalls)
     }
 
     @Test
@@ -254,14 +389,15 @@ class CatalogDomainTest {
 
     private fun testCatalog(
         adapters: Map<ModPlatform, PlatformAdapter>,
-        index: CatalogIdentityIndex
+        index: CatalogIdentityIndex,
+        onWarning: (Throwable) -> Unit = { throw AssertionError(it) }
     ) = DefaultModCatalog(
         adapters = adapters,
         identityIndex = index,
         cachePolicy = CatalogCachePolicy(),
         clock = Clock.systemUTC(),
         ioDispatcher = Dispatchers.IO,
-        onWarning = { throw AssertionError(it) }
+        onWarning = onWarning
     )
 
     private fun searchRequest(
@@ -282,10 +418,11 @@ class CatalogDomainTest {
 
 private class FakeIdentityIndex(
     private val records: Map<String, CatalogIdentityRecord> = emptyMap(),
-    private val fullPinyinRecords: Map<String, CatalogIdentityRecord> = emptyMap(),
+    private val searchRecords: List<CatalogIdentityRecord> = emptyList(),
     private val searchFailure: Throwable? = null
 ) : CatalogIdentityIndex {
     override val unavailableCause: Throwable? = null
+    var findAllCalls = 0
 
     override suspend fun find(platform: ModPlatform, slug: String): CatalogIdentityRecord? =
         records["${platform.name}:$slug"]
@@ -293,14 +430,12 @@ private class FakeIdentityIndex(
     override suspend fun findAll(refs: Set<CatalogSlugRef>): Map<CatalogSlugRef, CatalogIdentityRecord> =
         refs.mapNotNull { ref ->
             records["${ref.platform.name}:${ref.slug}"]?.let { ref to it }
-        }.toMap()
+        }.toMap().also { findAllCalls++ }
 
     override suspend fun search(query: String, offset: Int, limit: Int): List<CatalogIdentityRecord> {
         searchFailure?.let { throw it }
-        return emptyList()
+        return searchRecords.drop(offset).take(limit)
     }
-
-    override suspend fun findExactFullPinyin(query: String): CatalogIdentityRecord? = fullPinyinRecords[query]
 
     override fun close() = Unit
 }
@@ -308,10 +443,13 @@ private class FakeIdentityIndex(
 private class FakeAdapter(
     override val platform: ModPlatform,
     private val searchItems: List<CatalogProjectSource> = emptyList(),
+    private val slugSources: Map<String, CatalogProjectSource> = emptyMap(),
     private val files: Map<String, CatalogFile> = emptyMap(),
-    private val searchFailure: Throwable? = null
+    private val searchFailure: Throwable? = null,
+    private val searchFailureAtOffset: Int = 0
 ) : PlatformAdapter {
     val searchQueries = mutableListOf<String>()
+    val slugRequests = mutableListOf<List<String>>()
 
     override suspend fun search(
         query: String,
@@ -321,12 +459,21 @@ private class FakeAdapter(
         limit: Int
     ): SourcePage {
         searchQueries += query
-        searchFailure?.let { throw it }
+        searchFailure?.takeIf { offset >= searchFailureAtOffset }?.let { throw it }
+        val items = searchItems.drop(offset).take(limit)
         return SourcePage(
-            items = if (offset == 0) searchItems.take(limit) else emptyList(),
-            nextOffset = null,
+            items = items,
+            nextOffset = (offset + items.size).takeIf { items.isNotEmpty() && it < searchItems.size },
             totalCount = searchItems.size.toLong()
         )
+    }
+
+    override suspend fun resolveSlugs(slugs: List<String>, target: CatalogTarget): SlugResolution {
+        slugRequests += slugs
+        val found = slugs.mapNotNull { slug ->
+            slugSources[normalizeProjectSlug(slug)]?.let { normalizeProjectSlug(slug) to it }
+        }.toMap()
+        return SlugResolution(found, slugs.map(::normalizeProjectSlug).toSet() - found.keys)
     }
 
     override suspend fun getProjects(ids: Set<String>) = AdapterResult<CatalogProjectSource>(emptyMap(), ids)

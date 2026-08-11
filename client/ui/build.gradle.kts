@@ -231,11 +231,16 @@ tasks.matching { it.name == "hotRun" || it.name == "hotDev" }.configureEach {
         jvmArgs(hotRunBaseJvmArgs)
     }
 }
+
+evaluationDependsOn(":early-display")
+val earlyDisplayJar = project(":early-display").tasks.named<Jar>("jar")
+
 tasks.register<Sync>("desktopInstallLibs") {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-    dependsOn("jar")
+    dependsOn("jar", earlyDisplayJar)
     from(configurations.runtimeClasspath)
     from(tasks.named<Jar>("jar"))
+    from(earlyDisplayJar)
     into(layout.buildDirectory.dir("install/ui/lib"))
 }
 

@@ -16,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -55,25 +56,33 @@ import java.net.URI
  * calebxzhou @ 2026-01-15 19:38
  */
 
-private enum class HostScreenPage {
-    Info,
-    Mods
-}
-
 @Composable
 fun HostInfoScreen(
     hostId: ObjectId,
     onBack: () -> Unit = {},
     onOpenModpackInfo: (String) -> Unit
-) = HostScreen(
-    page = HostScreenPage.Info,
-    modCatalog = null,
-    hostId = hostId,
-    onBack = onBack,
-    onOpenModpackInfo = onOpenModpackInfo,
-    onOpenResourceMods = null,
-    onOpenTaskList = {}
-)
+) {
+    HostDetailScreen(
+        hostId = hostId,
+        size = ScreenContentSize.SMALL,
+        title = { it?.name ?: "房间详情" },
+        onBack = onBack,
+        titleActions = { host ->
+            host?.let {
+                Column {
+                    TinyClickCopyText("hid", it._id.toHexString())
+                    TinyClickCopyText("mid", it.modpack.id.toHexString())
+                    TinyClickCopyText("wid", it.worldId?.toHexString())
+                }
+            }
+        },
+    ) { context ->
+        HostOverviewPane(
+            host = context.host,
+            onOpenModpackInfo = onOpenModpackInfo,
+        )
+    }
+}
 
 @Composable
 fun HostModsScreen(
@@ -82,33 +91,144 @@ fun HostModsScreen(
     onBack: () -> Unit,
     onOpenResourceMods: (McVersion, ModLoader) -> Unit,
     onOpenTaskList: (String) -> Unit
-) = HostScreen(
-    page = HostScreenPage.Mods,
-    modCatalog = modCatalog,
-    hostId = hostId,
-    onBack = onBack,
-    onOpenModpackInfo = {},
-    onOpenResourceMods = onOpenResourceMods,
-    onOpenTaskList = onOpenTaskList
+) {
+    HostDetailScreen(
+        hostId = hostId,
+        size = ScreenContentSize.FULL,
+        title = { it?.let { host -> "${host.name} - 模组" } ?: "房间模组" },
+        onBack = onBack,
+        titleActions = { Text("增删mod可能会导致整合包bug！", fontWeight = FontWeight.SemiBold)}
+    ) { context ->
+        val canViewMods = context.host.ownerId == loggedAccount._id ||
+            context.host.members.any { member -> member.id == loggedAccount._id } ||
+            loggedAccount.isDav
+        if (!canViewMods) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("仅房间成员可查看模组", color = MaterialTheme.colorScheme.error)
+            }
+        } else {
+            HostModsContent(
+                context = context,
+                modCatalog = modCatalog,
+                hostId = hostId,
+                onOpenResourceMods = onOpenResourceMods,
+                onOpenTaskList = onOpenTaskList,
+            )
+        }
+    }
+}
+
+private data class HostDetailContext(
+    val host: Host.DetailVo,
+    val modpack: Modpack.DetailVo?,
+    val updateHost: (Host.DetailVo.() -> Host.DetailVo) -> Unit,
+    val showSuccess: (String) -> Unit,
+    val showError: (String) -> Unit,
 )
 
 @Composable
-private fun HostScreen(
-    page: HostScreenPage,
-    modCatalog: ModCatalog?,
+private fun HostDetailScreen(
     hostId: ObjectId,
-    onBack: () -> Unit = {},
-    onOpenModpackInfo: (String) -> Unit,
-    onOpenResourceMods: ((McVersion, ModLoader) -> Unit)?,
-    onOpenTaskList: (String) -> Unit
+    size: ScreenContentSize,
+    title: (Host.DetailVo?) -> String,
+    onBack: () -> Unit,
+    titleActions: @Composable RowScope.(Host.DetailVo?) -> Unit = {},
+    content: @Composable (HostDetailContext) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var okMessage by remember { mutableStateOf<String?>(null) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var loading by remember { mutableStateOf(true) }
-    var hostDetail by remember { mutableStateOf<Host.DetailVo?>(null) }
-    var modpackDetail by remember { mutableStateOf<Modpack.DetailVo?>(null) }
+    var okMessage by remember(hostId) { mutableStateOf<String?>(null) }
+    var errorMessage by remember(hostId) { mutableStateOf<String?>(null) }
+    var loading by remember(hostId) { mutableStateOf(true) }
+    var hostDetail by remember(hostId) { mutableStateOf<Host.DetailVo?>(null) }
+    var modpackDetail by remember(hostId) { mutableStateOf<Modpack.DetailVo?>(null) }
+
+    fun reload() {
+        loading = true
+        errorMessage = null
+        scope.rdiRequest<Host.DetailVo>(
+            path = "host/$hostId/detail",
+            onOk = { response ->
+                val detail = response.data
+                if (detail == null) {
+                    errorMessage = "无法加载房间信息"
+                    loading = false
+                    return@rdiRequest
+                }
+                hostDetail = detail
+                scope.rdiRequest<Modpack.DetailVo>(
+                    path = "modpack/${detail.modpack.id}",
+                    onOk = { modpackDetail = it.data },
+                    onErr = {
+                        errorMessage = "加载整合包信息失败: ${it.message}"
+                        modpackDetail = null
+                    },
+                    onDone = { loading = false },
+                )
+            },
+            onErr = { errorMessage = "加载房间信息失败: ${it.message}" },
+            onDone = { loading = false },
+        )
+    }
+
+    LaunchedEffect(hostId) { reload() }
+    LaunchedEffect(okMessage) {
+        okMessage?.let {
+            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+            okMessage = null
+        }
+    }
+
+    errorMessage?.let { AlertErr(it) { errorMessage = null } }
+
+    MaxBox {
+        ScreenContentSurface(size = size) {
+            TitleRow(title(hostDetail), onBack) {
+                titleActions(hostDetail)
+            }
+            ContentBody {
+                when {
+                    loading -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator()
+                        }
+                    }
+
+                    hostDetail == null -> {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            Text(errorMessage ?: "无法加载房间信息", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+
+                    else -> key(hostId) {
+                        content(
+                            HostDetailContext(
+                                host = requireNotNull(hostDetail),
+                                modpack = modpackDetail,
+                                updateHost = { transform ->
+                                    hostDetail = hostDetail?.run(transform)
+                                },
+                                showSuccess = { okMessage = it },
+                                showError = { errorMessage = it },
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        BottomSnakebarM3(snackbarHostState)
+    }
+}
+
+@Composable
+private fun HostModsContent(
+    context: HostDetailContext,
+    modCatalog: ModCatalog,
+    hostId: ObjectId,
+    onOpenResourceMods: (McVersion, ModLoader) -> Unit,
+    onOpenTaskList: (String) -> Unit,
+) {
+    val scope = rememberCoroutineScope()
     var showAddExtraModAdvancedDialog by remember { mutableStateOf(false) }
     var addExtraModLoading by remember { mutableStateOf(false) }
     var addExtraModLoadingText by remember { mutableStateOf("") }
@@ -125,7 +245,7 @@ private fun HostScreen(
     var extraModGithubReleases by remember { mutableStateOf<List<GithubRelease>>(emptyList()) }
     var selectedGithubAsset by remember { mutableStateOf<GithubReleaseAsset?>(null) }
     var extraModSide by remember { mutableStateOf(Mod.Side.BOTH) }
-    var disabledMods by remember { mutableStateOf<List<Mod>>(emptyList()) }
+    var disabledMods by remember(hostId) { mutableStateOf(context.host.disabledMods) }
     var removeExtraModsConfirm by remember { mutableStateOf<List<Mod>?>(null) }
     fun resetAddExtraModAdvancedDialog() {
         addExtraModLoading = false
@@ -145,68 +265,25 @@ private fun HostScreen(
     }
 
     fun applyExtraMods(updatedMods: List<Mod>) {
-        hostDetail = hostDetail?.copy(extraMods = updatedMods)
+        context.updateHost { copy(extraMods = updatedMods) }
     }
 
     fun applyDisabledMods(updatedMods: List<Mod>) {
         disabledMods = updatedMods
-        hostDetail = hostDetail?.copy(disabledMods = updatedMods)
+        context.updateHost { copy(disabledMods = updatedMods) }
     }
 
-    fun reload() {
-        loading = true
-        errorMessage = null
-        scope.rdiRequest<Host.DetailVo>(
-            path = "host/$hostId/detail",
-            onOk = { response ->
-                val detail = response.data
-                if (detail == null) {
-                    errorMessage = "无法加载房间信息"
-                    loading = false
-                    return@rdiRequest
-                }
-                hostDetail = detail
-                applyDisabledMods(detail.disabledMods)
-                scope.rdiRequest<Modpack.DetailVo>(
-                    path = "modpack/${detail.modpack.id}",
-                    onOk = { modpackResponse ->
-                        modpackDetail = modpackResponse.data
-                    },
-                    onErr = {
-                        errorMessage = "加载整合包信息失败: ${it.message}"
-                        modpackDetail = null
-                    },
-                    onDone = { loading = false }
-                )
-            },
-            onErr = {
-                errorMessage = "加载房间信息失败: ${it.message}"
-            },
-            onDone = { loading = false }
-        )
+    LaunchedEffect(context.host.disabledMods) {
+        disabledMods = context.host.disabledMods
     }
 
-    LaunchedEffect(hostId) {
-        disabledMods = emptyList()
-        reload()
-    }
-    LaunchedEffect(okMessage) {
-        okMessage?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
-            okMessage = null
-        }
-    }
-
-    val host = hostDetail
-    val meAdmin = host?.let { it.isAdmin(loggedAccount) || loggedAccount.isDav } ?: false
-    val meOwner = host?.let { it.ownerId == loggedAccount._id || loggedAccount.isDav } ?: false
-    val canViewMods = host?.let {
-        it.ownerId == loggedAccount._id || it.members.any { member -> member.id == loggedAccount._id } || loggedAccount.isDav
-    } ?: false
+    val host = context.host
+    val meAdmin = host.isAdmin(loggedAccount) || loggedAccount.isDav
+    val meOwner = host.ownerId == loggedAccount._id || loggedAccount.isDav
     val canManageExtraMods = meAdmin || meOwner
-    val extraMods = host?.extraMods.orEmpty()
-    val baseVersionMods = modpackDetail?.versions
-        ?.firstOrNull { it.name == host?.packVer }
+    val extraMods = host.extraMods
+    val baseVersionMods = context.modpack?.versions
+        ?.firstOrNull { it.name == host.packVer }
         ?.mods
         ?.filterNot { versionMod -> disabledMods.any { sameMod(it, versionMod) } }
         .orEmpty()
@@ -240,7 +317,7 @@ private fun HostScreen(
             method = HttpMethod.Post,
             body = serdesJson.encodeToString(listOf(acceptedMod)),
             onOk = {
-                okMessage = "已提交附加Mod添加任务，请在邮件中查看进度"
+                context.showSuccess("已提交附加Mod添加任务，请在邮件中查看进度")
                 showAddExtraModAdvancedDialog = false
                 resetAddExtraModAdvancedDialog()
             },
@@ -303,87 +380,28 @@ private fun HostScreen(
         }
     }
 
-    errorMessage?.let { message ->
-        AlertErr(message) { errorMessage = null }
-    }
-
-    MaxBox {
-        ScreenContentSurface(
-            size = if (page == HostScreenPage.Info) ScreenContentSize.SMALL else ScreenContentSize.LARGE
-        ) {
-            TitleRow(
-                title = when (page) {
-                    HostScreenPage.Info -> host?.name ?: "房间详情"
-                    HostScreenPage.Mods -> host?.let { "${it.name} - 模组" } ?: "房间模组"
-                },
-                onBack = onBack
-            ) {
-                if (page == HostScreenPage.Info) host?.let { host ->
-                    Column {
-                        TinyClickCopyText("hid", host._id.toHexString())
-                        TinyClickCopyText("mid", host.modpack.id.toHexString())
-                        TinyClickCopyText("wid", host.worldId?.toHexString())
-                    }
-                }
-
-            }
-
-            ContentBody {
-                when {
-                loading -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator()
-                    }
-                }
-
-                host == null -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(text = errorMessage ?: "无法加载房间信息", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-
-                page == HostScreenPage.Mods && !canViewMods -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("仅房间成员可查看模组", color = MaterialTheme.colorScheme.error)
-                    }
-                }
-
-                else -> key(hostId) {
-                    when (page) {
-                        HostScreenPage.Info -> HostOverviewPane(
-                                    host = host,
-                                    onOpenModpackInfo = onOpenModpackInfo
-                                )
-
-                        HostScreenPage.Mods -> HostModsPane(
-                                    modCatalog = requireNotNull(modCatalog),
-                                    hostId = hostId,
-                                    extraMods = extraMods,
-                                    baseVersionMods = baseVersionMods,
-                                    disabledMods = disabledMods,
-                                    canManage = canManageExtraMods,
-                                    addExtraModLoading = addExtraModLoading,
-                                    addExtraModLoadingText = addExtraModLoadingText,
-                                    onDisabledModsChanged = ::applyDisabledMods,
-                                    onRemoveExtraMods = { removeExtraModsConfirm = it },
-                                    onOpenResourceMods = {
-                                        onOpenResourceMods?.invoke(host.modpack.mcVer, host.modpack.modloader)
-                                    },
-                                    onAddExtraModAdvanced = {
-                                        resetAddExtraModAdvancedDialog()
-                                        showAddExtraModAdvancedDialog = true
-                                    },
-                                    onOk = { okMessage = it },
-                                    onError = { errorMessage = it },
-                                    onOpenTaskList = onOpenTaskList
-                                )
-                    }
-                }
-                }
-            }
-        }
-        BottomSnakebarM3(snackbarHostState)
-    }
+    HostModsPane(
+        modCatalog = modCatalog,
+        hostId = hostId,
+        extraMods = extraMods,
+        baseVersionMods = baseVersionMods,
+        disabledMods = disabledMods,
+        canManage = canManageExtraMods,
+        addExtraModLoading = addExtraModLoading,
+        addExtraModLoadingText = addExtraModLoadingText,
+        onDisabledModsChanged = ::applyDisabledMods,
+        onRemoveExtraMods = { removeExtraModsConfirm = it },
+        onOpenResourceMods = {
+            onOpenResourceMods(host.modpack.mcVer, host.modpack.modloader)
+        },
+        onAddExtraModAdvanced = {
+            resetAddExtraModAdvancedDialog()
+            showAddExtraModAdvancedDialog = true
+        },
+        onOk = context.showSuccess,
+        onError = context.showError,
+        onOpenTaskList = onOpenTaskList,
+    )
 
     if (showAddExtraModAdvancedDialog) {
         Dialog(
@@ -680,9 +698,9 @@ private fun HostScreen(
                     body = serdesJson.encodeToString(targetProjectIds),
                     onOk = { response ->
                         applyExtraMods(response.data ?: emptyList())
-                        okMessage = "已删除附加Mod"
+                        context.showSuccess("已删除附加Mod")
                     },
-                    onErr = { errorMessage = it.message ?: "删除附加Mod失败" }
+                    onErr = { context.showError(it.message ?: "删除附加Mod失败") }
                 )
                 removeExtraModsConfirm = null
             },

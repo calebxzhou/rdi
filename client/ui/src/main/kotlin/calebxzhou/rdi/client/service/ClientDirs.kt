@@ -17,4 +17,5 @@ object ClientDirs {
     val assetIndexesDir: File = assetsDir.resolve("indexes").also { it.mkdirs() }
     val assetObjectsDir: File = assetsDir.resolve("objects").also { it.mkdirs() }
     val toolsDir: File = RDIClient.DIR.resolve("tools")
+    val launcherLibDir: File = RDIClient.DIR.resolve("lib")
 }

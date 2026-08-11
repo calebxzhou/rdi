@@ -2,6 +2,7 @@ package calebxzhou.rdi.client.ui.comp
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -11,20 +12,35 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import calebxzau.rdi.client.lgr
 import calebxzhou.rdi.client.model.UiMod
+import calebxzhou.rdi.client.service.analyzeModIconColors
+import calebxzhou.rdi.client.service.sortModsByIconColor
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.RVerticalScrollbar as SharedRVerticalScrollbar
 import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8w
 import calebxzhou.rdi.common.model.Mod
 import java.util.Locale
+
+sealed interface ModGridDragEvent {
+    data class Start(val mod: UiMod, val pointerInWindow: Offset) : ModGridDragEvent
+    data class Move(val pointerInWindow: Offset) : ModGridDragEvent
+    data class End(val pointerInWindow: Offset) : ModGridDragEvent
+    data object Cancel : ModGridDragEvent
+}
 
 /**
  * calebxzhou @ 2026-04-02 13:27
@@ -34,15 +50,20 @@ fun ModGrid(
     mods: List<UiMod>,
     modifier: Modifier = Modifier,
     gridState: LazyGridState = rememberLazyGridState(),
-    emptyText: String = "没有找到mod",
+    emptyText: String = "无mod",
     selectedKeys: Set<String> = emptySet(),
+    draggedKey: String? = null,
     onModClick: ((UiMod) -> Unit)? = null,
-    onSideChange: ((UiMod, Mod.Side) -> Unit)? = null
+    onSideChange: ((UiMod, Mod.Side) -> Unit)? = null,
+    onDragEvent: ((ModGridDragEvent) -> Unit)? = null,
+    initialIconOnly: Boolean = false,
 ) {
     var modSearch by rememberSaveable { mutableStateOf("") }
     var showSearchBox by rememberSaveable { mutableStateOf(false) }
-    var iconOnly by rememberSaveable { mutableStateOf(false) }
+    var iconOnly by rememberSaveable(initialIconOnly) { mutableStateOf(initialIconOnly) }
     val clipboardManager = LocalClipboardManager.current
+    val currentOnDragEvent by rememberUpdatedState(onDragEvent)
+    val currentIconOnly by rememberUpdatedState(iconOnly)
     val sortedMods = remember(mods) {
         mods.sortedWith(
             compareBy(
@@ -52,10 +73,34 @@ fun ModGrid(
             }
         )
     }
-    val filteredMods = remember(sortedMods, modSearch) {
+    val currentSortedMods by rememberUpdatedState(sortedMods)
+    var iconColorSortedMods by remember { mutableStateOf<List<UiMod>?>(null) }
+    var iconAnalysisGeneration by remember { mutableStateOf(0L) }
+    LaunchedEffect(iconOnly, sortedMods) {
+        val generation = iconAnalysisGeneration + 1
+        iconAnalysisGeneration = generation
+        iconColorSortedMods = null
+        if (!iconOnly) return@LaunchedEffect
+
+        analyzeModIconColors(sortedMods)
+            .onFailure { error ->
+                lgr.warn(error) { "ModGrid图标颜色分析失败，将保持名称顺序" }
+            }
+            .onSuccess { colors ->
+                if (
+                    generation == iconAnalysisGeneration &&
+                    currentIconOnly &&
+                    currentSortedMods === sortedMods
+                ) {
+                    iconColorSortedMods = sortModsByIconColor(sortedMods, colors)
+                }
+            }
+    }
+    val orderedMods = if (iconOnly) iconColorSortedMods ?: sortedMods else sortedMods
+    val filteredMods = remember(orderedMods, modSearch) {
         val query = modSearch.trim().lowercase(Locale.ROOT)
-        if (query.isBlank()) sortedMods
-        else sortedMods.filter { mod ->
+        if (query.isBlank()) orderedMods
+        else orderedMods.filter { mod ->
             mod.searchText.contains(query)
         }
     }
@@ -83,6 +128,8 @@ fun ModGrid(
             items(filteredMods, key = { it.key }) { mod ->
                 val selected = mod.key in selectedKeys
                 var showContextMenu by remember(mod.key) { mutableStateOf(false) }
+                var primaryButtonPressed by remember(mod.key) { mutableStateOf(false) }
+                var cardCoordinates by remember(mod.key) { mutableStateOf<LayoutCoordinates?>(null) }
                 val clickableModifier = if (onModClick != null) {
                     Modifier.clickable { onModClick(mod) }
                 } else {
@@ -92,15 +139,56 @@ fun ModGrid(
                     awaitPointerEventScope {
                         while (true) {
                             val event = awaitPointerEvent()
+                            primaryButtonPressed = event.buttons.isPrimaryPressed
                             if (event.buttons.isSecondaryPressed) {
                                 showContextMenu = true
                             }
                         }
                     }
                 }
+                val dragModifier = if (onDragEvent == null) {
+                    Modifier
+                } else {
+                    Modifier
+                        .onGloballyPositioned { cardCoordinates = it }
+                        .pointerInput(mod.key) {
+                            var dragging = false
+                            var lastPointerInWindow: Offset? = null
+                            detectDragGestures(
+                                onDragStart = { position ->
+                                    if (primaryButtonPressed) {
+                                        cardCoordinates?.localToWindow(position)?.let { pointer ->
+                                            dragging = true
+                                            lastPointerInWindow = pointer
+                                            currentOnDragEvent?.invoke(ModGridDragEvent.Start(mod, pointer))
+                                        }
+                                    }
+                                },
+                                onDrag = { change, _ ->
+                                    if (dragging) {
+                                        change.consume()
+                                        cardCoordinates?.localToWindow(change.position)?.let { pointer ->
+                                            lastPointerInWindow = pointer
+                                            currentOnDragEvent?.invoke(ModGridDragEvent.Move(pointer))
+                                        }
+                                    }
+                                },
+                                onDragEnd = {
+                                    val pointer = lastPointerInWindow
+                                    if (dragging && pointer != null) {
+                                        currentOnDragEvent?.invoke(ModGridDragEvent.End(pointer))
+                                    } else {
+                                        currentOnDragEvent?.invoke(ModGridDragEvent.Cancel)
+                                    }
+                                },
+                                onDragCancel = { currentOnDragEvent?.invoke(ModGridDragEvent.Cancel) },
+                            )
+                        }
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .alpha(if (draggedKey == mod.key) 0.4f else 1f)
                         .background(
                             if (selected) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
                             RoundedCornerShape(18.dp)
@@ -108,6 +196,7 @@ fun ModGrid(
                         .padding(2.dp)
                         .then(clickableModifier)
                         .then(contextMenuModifier)
+                        .then(dragModifier)
                 ) {
                     if (iconOnly) {
                         SimpleTooltip(mod.primaryName) {

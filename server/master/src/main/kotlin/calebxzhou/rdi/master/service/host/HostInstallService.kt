@@ -76,7 +76,7 @@ object HostInstallService {
                 defaultPropsFile.inputStream().use { load(it) }
             }
             defaultProps.forEach { key, value ->
-                if (key.toString() != "server-port") {
+                if (key.toString() != "server-port" && key.toString() != "online-mode") {
                     lgr.info { "apply prop $key = $value" }
                     serverProps.setProperty(key.toString(), value.toString())
                 }

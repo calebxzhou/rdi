@@ -58,6 +58,7 @@ import com.mongodb.client.model.UpdateOptions
 import com.mongodb.client.model.Updates
 import com.mongodb.kotlin.client.coroutine.MongoCollection
 import io.ktor.http.content.*
+import io.ktor.http.HttpHeaders
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
@@ -105,6 +106,10 @@ const val CLIENT_ONLY_MARK_PREFIX = "C" + "$$" + "_"
 val MAX_PACK_SIZE = 2L * 1024 * 1024 * 1024
 private val modpackUploadTempStorage = ModpackUploadTempStorage(MODPACK_DATA_DIR.resolve(".upload-tmp"))
 private val legacyModpackUploadTempStorage = ModpackUploadTempStorage(MODPACK_DATA_DIR)
+private val parallelUploadService = ModpackParallelUploadService(
+    MODPACK_DATA_DIR.resolve(".upload-tmp").resolve("sessions"),
+    MAX_PACK_SIZE
+)
 private val uploadLgr by Loggers
 
 private fun deleteUploadTempFile(file: File, reason: String) {
@@ -218,6 +223,50 @@ fun Route.modpackRoutes() {
             dto.createWithVersion(call.player(), payload)
             ok()
         }
+        route("/upload-sessions") {
+            post {
+                response(
+                    data = parallelUploadService.create(
+                        call.uid,
+                        call.receive<ModpackUploadSessionCreateDto>()
+                    ).getOrThrow()
+                )
+            }
+            route("/{uploadId}") {
+                get {
+                    response(data = parallelUploadService.status(call.uid, uploadSessionId()).getOrThrow())
+                }
+                delete {
+                    parallelUploadService.cancel(call.uid, uploadSessionId()).getOrThrow()
+                    ok()
+                }
+                put("/parts/{index}") {
+                    val partSha1 = call.request.headers[PART_SHA1_HEADER]
+                        ?: throw ParamError("缺少分片SHA-1")
+                    val contentLength = call.request.headers[HttpHeaders.ContentLength]?.toLongOrNull()
+                    parallelUploadService.uploadPart(
+                        ownerId = call.uid,
+                        id = uploadSessionId(),
+                        index = param("index").toIntOrNull() ?: throw ParamError("分片序号无效"),
+                        declaredLength = contentLength,
+                        expectedSha1 = partSha1,
+                        source = call.receiveChannel()
+                    ).getOrThrow()
+                    ok()
+                }
+                post("/complete") {
+                    response(data = parallelUploadService.complete(call.uid, uploadSessionId()).getOrThrow())
+                }
+            }
+        }
+        post("/from-upload") {
+            val dto = call.receive<ModpackCreateFromUploadDto>()
+            val player = call.player()
+            parallelUploadService.withReadyUpload(player._id, dto.uploadId) { uploadFile ->
+                dto.modpack.createWithVersion(player, uploadFile)
+            }.getOrThrow()
+            ok()
+        }
         get("/my") {
             val mods = ModpackService.listByAuthor(call.uid)
             response(data = mods)
@@ -316,6 +365,19 @@ fun Route.modpackRoutes() {
                     ok()
 
                 }
+                post("/from-upload") {
+                    val ctx = call.modpackGuardContext()
+                    ctx.requireAuthor()
+                    val verName = param("verName").validateVerName().getOrThrow()
+                    if (ctx.modpack.versions.any { it.name.equals(verName, ignoreCase = true) }) {
+                        throw RequestError("版本 $verName 已存在")
+                    }
+                    val dto = call.receive<ModpackVersionCreateFromUploadDto>()
+                    parallelUploadService.withReadyUpload(call.uid, dto.uploadId) { uploadFile ->
+                        ctx.createVersion(verName, uploadFile, dto.mods)
+                    }.getOrThrow()
+                    ok()
+                }
                 post {
                     val ctx = call.modpackGuardContext()
                     ctx.requireAuthor()
@@ -355,6 +417,14 @@ fun Route.modpackRoutes() {
     }
 }
 
+private const val PART_SHA1_HEADER = "X-Part-SHA1"
+
+private suspend fun RoutingContext.uploadSessionId(): java.util.UUID =
+    param("uploadId").let { value ->
+        runCatching { java.util.UUID.fromString(value) }
+            .getOrElse { throw ParamError("上传会话ID无效") }
+    }
+
 class ModpackContext(
     val player: RAccount,
     val modpack: Modpack,
@@ -386,7 +456,18 @@ object ModpackService {
                 .onSuccess { cleanedCount += it }
                 .onFailure { error -> lgr.warn(error) { "启动清理${name}遗留上传文件失败" } }
         }
+        parallelUploadService.cleanupStaleSessions()
+            .onSuccess { cleanedCount += it }
+            .onFailure { error -> lgr.warn(error) { "启动清理分片上传会话失败" } }
         lgr.info { "启动清理遗留整合包上传文件${cleanedCount}个" }
+    }
+
+    fun cleanupExpiredUploadSessions() {
+        parallelUploadService.cleanupStaleSessions()
+            .onSuccess { cleanedCount ->
+                if (cleanedCount > 0) lgr.info { "清理过期整合包上传会话${cleanedCount}个" }
+            }
+            .onFailure { error -> lgr.warn(error) { "清理过期整合包上传会话失败" } }
     }
 
     //private val clientNeedDirs = listOf("config", "mods", "defaultconfigs", "kubejs", "global_packs", "resourcepacks")
@@ -837,12 +918,19 @@ object ModpackService {
         requireModpackUploadVersion(mcVer)
         val normalizedVerName = verName.validateVerName().getOrThrow()
         val normalizedCategories = Modpack.normalizeCategories(categories)
-        Modpack.OptionsDto(name, iconUrl, info, sourceUrl, normalizedCategories).validate()
         if (!player.hasMsid) throw RequestError("必须有微软账号才能传包")
         if (getModpackCount(player._id) >= MAX_MODPACK_PER_USER && !player.isDav) {
             throw RequestError("一个人最多传${MAX_MODPACK_PER_USER}个包")
         }
         if (hasModpack(name)) throw RequestError("同名整合包已存在")
+        validateRequiredModpackUploadMetadata(
+            info = info,
+            iconUrl = iconUrl,
+            categories = categories,
+        ).getOrElse { error ->
+            throw RequestError(error.message ?: "整合包简介、图标和分类不能为空")
+        }
+        Modpack.OptionsDto(name, iconUrl, info, sourceUrl, normalizedCategories).validate()
         val modpack = Modpack(
             name = this.name,
             authorId = player._id,

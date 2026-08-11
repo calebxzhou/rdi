@@ -25,6 +25,13 @@ private val utf8LoggingJvmArgs = listOf(
     "-Dsun.stderr.encoding=UTF-8",
 )
 
+internal fun earlyDisplayJvmArgs(mcVersion: McVersion, nativeLibraryDir: File): List<String> =
+    if (mcVersion == McVersion.V211) {
+        listOf("-Drdi.earlyDisplay.ffmpeg=${nativeLibraryDir.resolve("ffmpeg.exe").absolutePath}")
+    } else {
+        emptyList()
+    }
+
 private data class LaunchManifests(
     val manifest: MojangVersionManifest,
     val loaderManifest: MojangVersionManifest,
@@ -246,6 +253,7 @@ class MinecraftLauncher(
         mediaRuntime?.let {
             processedJvmArgs += "-Dorg.bytedeco.javacpp.pathsFirst=true"
             processedJvmArgs += "-Dorg.bytedeco.javacpp.platform.preloadpath=${it.nativeLibraryDir.absolutePath}"
+            processedJvmArgs += earlyDisplayJvmArgs(request.mcVersion, it.nativeLibraryDir)
         }
         launchManifests.gtnhExtensionRoot?.let {
             processedJvmArgs += gtnh.java25JvmArgs(

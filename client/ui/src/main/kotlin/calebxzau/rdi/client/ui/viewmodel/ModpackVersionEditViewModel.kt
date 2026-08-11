@@ -7,7 +7,7 @@ import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.rdiRequest
 import calebxzhou.rdi.client.net.rdiRequestU
-import calebxzhou.rdi.client.service.hydrateToUiMods
+import calebxzhou.rdi.client.service.hydrateToUiModsInBatches
 import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.ui.screen.matchHostExtraModFiles
 import calebxzhou.rdi.common.model.Mod
@@ -22,13 +22,17 @@ import calebxzhou.rdi.common.serdesJson
 import io.ktor.http.HttpMethod
 import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.update
 import java.io.File
 
@@ -94,25 +98,28 @@ class ModpackVersionEditViewModel(
                     it.copy(
                         pack = detail,
                         version = currentVersion,
-                        uiMods = emptyList(),
+                        uiMods = currentVersion?.mods?.toUiMods().orEmpty(),
                         uiModsLoading = currentVersion != null,
                         errorMessage = if (currentVersion == null) "未找到版本 V$verName" else null,
                     )
                 }
                 if (currentVersion != null) {
                     hydrateJob = viewModelScope.launch {
-                        val loaded = withContext(Dispatchers.IO) {
-                            runCatching { currentVersion.mods.hydrateToUiMods(modCatalog) }
-                                .getOrElse {
-                                    lgr.warn(it) { "加载版本Mod展示信息失败，将使用基础Mod数据" }
-                                    currentVersion.mods.toUiMods()
+                        try {
+                            currentVersion.mods
+                                .hydrateToUiModsInBatches(modCatalog)
+                                .flowOn(Dispatchers.IO)
+                                .collect { batch ->
+                                    _uiState.update { it.copy(uiMods = batch) }
                                 }
-                        }
-                        _uiState.update {
-                            it.copy(
-                                uiMods = loaded,
-                                uiModsLoading = false,
-                            )
+                        } catch (cancel: CancellationException) {
+                            throw cancel
+                        } catch (cause: Throwable) {
+                            lgr.warn(cause) { "加载版本Mod展示信息失败，将使用基础Mod数据" }
+                        } finally {
+                            if (currentCoroutineContext().isActive) {
+                                _uiState.update { it.copy(uiModsLoading = false) }
+                            }
                         }
                     }
                 }

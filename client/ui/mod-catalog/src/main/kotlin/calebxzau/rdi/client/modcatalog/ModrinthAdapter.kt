@@ -63,6 +63,19 @@ internal class ModrinthAdapter(
         return AdapterResult(projects, ids - projects.keys)
     }
 
+    override suspend fun resolveSlugs(slugs: List<String>, target: CatalogTarget): SlugResolution {
+        val requested = slugs.map(::normalizeProjectSlug).distinct()
+        if (requested.isEmpty()) return SlugResolution(emptyMap(), emptySet())
+        val projects = slugs.distinctBy(::normalizeProjectSlug).chunked(SLUG_BATCH_SIZE).flatMap { chunk ->
+            get<List<MrProjectDto>>("projects", mapOf("ids" to json.encodeToString(chunk)))
+        }.filter { project ->
+            project.projectType == "mod" &&
+                target.minecraftVersion.mcVer in project.gameVersions &&
+                target.loader.modrinthName() in project.loaders
+        }.associateBy({ normalizeProjectSlug(it.slug) }, { it.toSource() })
+        return SlugResolution(projects, requested.toSet() - projects.keys)
+    }
+
     override suspend fun getDetails(ref: CatalogProjectRef): CatalogModDetailsSource {
         require(ref.platform == platform)
         val project = get<MrProjectDto>("project/${ref.projectId}")
@@ -236,6 +249,7 @@ internal class ModrinthAdapter(
 
     companion object {
         private const val BATCH_SIZE = 100
+        private const val SLUG_BATCH_SIZE = 50
     }
 }
 
@@ -288,6 +302,8 @@ private data class MrProjectDto(
     @SerialName("icon_url") val iconUrl: String? = null,
     val updated: String? = null,
     val categories: List<String> = emptyList(),
+    @SerialName("game_versions") val gameVersions: List<String> = emptyList(),
+    val loaders: List<String> = emptyList(),
     @SerialName("client_side") val clientSide: String? = null,
     @SerialName("server_side") val serverSide: String? = null,
     @SerialName("issues_url") val issuesUrl: String? = null,

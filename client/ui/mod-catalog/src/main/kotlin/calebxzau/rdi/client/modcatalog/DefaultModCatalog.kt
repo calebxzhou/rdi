@@ -26,6 +26,11 @@ internal class DefaultModCatalog(
         cachePolicy.metadataTtl,
         cachePolicy.negativeTtl
     )
+    private val slugCache = MemoryCatalogCache<SlugTargetKey, CatalogProjectSource>(
+        clock,
+        cachePolicy.metadataTtl,
+        cachePolicy.negativeTtl
+    )
     private val detailsCache = MemoryCatalogCache<CatalogProjectRef, CatalogModDetailsSource>(
         clock,
         cachePolicy.metadataTtl,
@@ -59,86 +64,172 @@ internal class DefaultModCatalog(
     override suspend fun search(
         request: CatalogSearchRequest
     ): Result<CatalogOutcome<CatalogSearchPage>> = catalogResult {
-        if (request.cursor == null) {
-            searchExactFullPinyin(request)?.let { return@catalogResult it }
-        }
         val requestKey = request.requestKey()
+        val hasQuery = request.query.isNotBlank()
         val initial = request.cursor?.state ?: SearchCursorState(
             requestKey = requestKey,
+            localOffset = 0,
+            localExhausted = !hasQuery,
+            localBuffer = emptyList(),
+            fallbackQuery = null,
             platformOffsets = adapters.keys.associateWith { 0 },
             platformBuffers = emptyMap(),
             exhausted = emptySet(),
+            unavailablePlatforms = emptySet(),
             seenIdentities = emptySet()
         )
         require(initial.requestKey == requestKey) { "Search cursor belongs to a different request" }
 
         val issues = mutableListOf<CatalogIssue>()
         identityIssue()?.let(issues::add)
-        val fetches = supervisorScope {
+        val failures = linkedMapOf<ModPlatform, Throwable>()
+        val unavailablePlatforms = initial.unavailablePlatforms.toMutableSet()
+        var localOffset = initial.localOffset
+        var localExhausted = initial.localExhausted
+        var fallbackQuery = initial.fallbackQuery
+        val seen = initial.seenIdentities.toMutableSet()
+        val localBuffer = initial.localBuffer.toMutableList()
+        val buffers = initial.platformBuffers.mapValuesTo(linkedMapOf()) { it.value.toMutableList() }
+        val offsets = initial.platformOffsets.toMutableMap()
+        val exhausted = initial.exhausted.toMutableSet()
+
+        if (hasQuery && localBuffer.size < request.pageSize && !localExhausted) {
+            val candidateLimit = minOf(maxOf(request.pageSize * 2, 20), 50)
+            val records = try {
+                identityIndex.search(request.query, localOffset, candidateLimit)
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (cause: Exception) {
+                onWarning(cause)
+                issues += CatalogIssue.IdentityIndexUnavailable(cause.message ?: cause.toString())
+                localExhausted = true
+                emptyList()
+            }
+            localOffset += records.size
+            localExhausted = localExhausted || records.size < candidateLimit
+            fallbackQuery = fallbackQuery ?: if (request.query.containsHan()) {
+                records.firstOrNull()?.name ?: request.query
+            } else {
+                request.query
+            }
+            val resolved = resolveIdentityCandidates(records, request.target)
+            resolved.failures.forEach { (platform, cause) ->
+                failures[platform] = cause
+                unavailablePlatforms += platform
+                issues += CatalogIssue.SourceFailed(platform, cause.message ?: cause.toString())
+            }
+            val bufferedKeys = localBuffer.mapTo(mutableSetOf()) { it.identity.stableKey }
+            resolved.mods.forEach { mod ->
+                if (mod.identity.stableKey !in seen && bufferedKeys.add(mod.identity.stableKey)) localBuffer += mod
+            }
+        }
+
+        val page = mutableListOf<CatalogMod>()
+        val retainedLocal = mutableListOf<CatalogMod>()
+        localBuffer.forEach { mod ->
+            when {
+                mod.identity.stableKey in seen -> Unit
+                page.size < request.pageSize -> {
+                    seen += mod.identity.stableKey
+                    page += mod
+                }
+                else -> retainedLocal += mod
+            }
+        }
+
+        val fetches = if (page.size < request.pageSize) supervisorScope {
             adapters.values.mapNotNull { adapter ->
-                val buffered = initial.platformBuffers[adapter.platform].orEmpty()
-                if (buffered.isNotEmpty() || adapter.platform in initial.exhausted) return@mapNotNull null
+                val buffered = buffers[adapter.platform].orEmpty()
+                if (buffered.isNotEmpty() || adapter.platform in exhausted ||
+                    adapter.platform in unavailablePlatforms
+                ) return@mapNotNull null
                 async {
                     runSource(adapter.platform) {
                         adapter.search(
-                            query = request.query,
+                            query = if (hasQuery) fallbackQuery ?: request.query else request.query,
                             target = request.target,
                             sort = request.sort,
-                            offset = initial.platformOffsets[adapter.platform] ?: 0,
+                            offset = offsets[adapter.platform] ?: 0,
                             limit = request.pageSize
                         )
                     }
                 }
             }.awaitAll()
+        } else {
+            emptyList()
         }
         val successfulFetches = fetches.filterIsInstance<SourceCall.Success<SourcePage>>()
         fetches.filterIsInstance<SourceCall.Failure>().forEach {
+            failures[it.platform] = it.cause
+            unavailablePlatforms += it.platform
             issues += CatalogIssue.SourceFailed(it.platform, it.cause.message ?: it.cause.toString())
         }
-        val alreadyBuffered = initial.platformBuffers.values.any { it.isNotEmpty() }
-        if (successfulFetches.isEmpty() && fetches.isNotEmpty() && !alreadyBuffered) {
-            throw CatalogException.AllSourcesFailed(
-                fetches.filterIsInstance<SourceCall.Failure>().associate { it.platform to it.cause }
-            )
-        }
-
-        val buffers = initial.platformBuffers.mapValuesTo(linkedMapOf()) { it.value.toMutableList() }
-        val offsets = initial.platformOffsets.toMutableMap()
-        val exhausted = initial.exhausted.toMutableSet()
         successfulFetches.forEach { result ->
             buffers.getOrPut(result.platform, ::mutableListOf) += result.value.items
             result.value.nextOffset?.let { offsets[result.platform] = it } ?: exhausted.add(result.platform)
         }
 
         val remoteSources = buffers.values.flatten()
-        val remoteGroups = groupSourcesByIdentity(remoteSources)
-        val orderedRemoteMods = remoteGroups.map { (record, sources) -> sources.toCatalogMod(record) }
-            .sortedWith(request.sort.comparator())
-        val seen = initial.seenIdentities.toMutableSet()
-        val page = buildList {
-            orderedRemoteMods.forEach { mod ->
-                if (size >= request.pageSize) return@forEach
-                if (seen.add(mod.identity.stableKey)) add(mod)
+        val groupedRemote = groupSourcesByIdentity(remoteSources, issues)
+        val remoteRanks = buffers.values.flatMap { sources ->
+            sources.mapIndexed { index, source -> source.ref to index }
+        }.toMap()
+        val rankedRemoteMods = groupedRemote.groups.map { (record, sources) ->
+            RankedCatalogMod(
+                mod = sources.toCatalogMod(record),
+                relevanceRank = sources.minOf { remoteRanks.getValue(it.ref) }
+            )
+        }
+        val orderedRemoteMods = if (request.sort == CatalogSort.RELEVANCE) {
+            rankedRemoteMods.sortedWith(
+                compareBy<RankedCatalogMod>(RankedCatalogMod::relevanceRank)
+                    .thenByDescending { it.mod.downloadCount }
+                    .thenBy { it.mod.identity.stableKey }
+            ).map(RankedCatalogMod::mod)
+        } else {
+            rankedRemoteMods.map(RankedCatalogMod::mod).sortedWith(request.sort.comparator())
+        }
+        val retainedLocalKeys = retainedLocal.mapTo(mutableSetOf()) { it.identity.stableKey }
+        orderedRemoteMods.forEach { mod ->
+            if (page.size < request.pageSize && mod.identity.stableKey !in retainedLocalKeys &&
+                seen.add(mod.identity.stableKey)
+            ) {
+                page += mod
             }
         }
 
         val retainedIdentities = orderedRemoteMods.asSequence()
-            .filter { it.identity.stableKey !in seen }
+            .filter { it.identity.stableKey !in seen && it.identity.stableKey !in retainedLocalKeys }
             .map { it.identity.stableKey }
             .toSet()
         buffers.keys.forEach { platform ->
             buffers[platform] = buffers[platform].orEmpty().filterTo(mutableListOf()) { source ->
-                identityFor(source).first.stableKey in retainedIdentities
+                groupedRemote.identityByRef[source.ref]?.stableKey in retainedIdentities
             }
         }
-        val hasNext = buffers.values.any { it.isNotEmpty() } ||
-            exhausted.size < adapters.size
+
+        if (initial.seenIdentities.isEmpty() &&
+            page.isEmpty() && retainedLocal.isEmpty() && failures.isNotEmpty() &&
+            adapters.keys.all { it in unavailablePlatforms }
+        ) {
+            throw CatalogException.AllSourcesFailed(failures)
+        }
+
+        val hasNext = retainedLocal.isNotEmpty() ||
+            (hasQuery && !localExhausted) ||
+            buffers.values.any { it.isNotEmpty() } ||
+            adapters.keys.any { it !in exhausted && it !in unavailablePlatforms }
         val nextState = if (hasNext) {
             SearchCursorState(
                 requestKey = requestKey,
+                localOffset = localOffset,
+                localExhausted = localExhausted,
+                localBuffer = retainedLocal,
+                fallbackQuery = fallbackQuery,
                 platformOffsets = offsets,
                 platformBuffers = buffers,
                 exhausted = exhausted,
+                unavailablePlatforms = unavailablePlatforms,
                 seenIdentities = seen
             )
         } else {
@@ -148,7 +239,10 @@ internal class DefaultModCatalog(
             CatalogSearchPage(
                 items = page,
                 nextCursor = nextState?.let(::CatalogSearchCursor),
-                estimatedTotal = successfulFetches.mapNotNull { it.value.totalCount }.takeIf { it.isNotEmpty() }?.sum()
+                estimatedTotal = if (hasQuery) null else successfulFetches
+                    .mapNotNull { it.value.totalCount }
+                    .takeIf { it.isNotEmpty() }
+                    ?.sum()
             ),
             issues
         )
@@ -182,11 +276,12 @@ internal class DefaultModCatalog(
                 }.toMap()
             )
         }
-        val logicalByIdentity = groupSourcesByIdentity(sources.values.toList())
+        val groupedSources = groupSourcesByIdentity(sources.values.toList(), issues)
+        val logicalByIdentity = groupedSources.groups
             .map { (record, grouped) -> grouped.toCatalogMod(record) }
             .associateBy { it.identity.stableKey }
         val found = sources.mapValues { (_, source) ->
-            logicalByIdentity.getValue(identityFor(source).first.stableKey)
+            logicalByIdentity.getValue(groupedSources.identityByRef.getValue(source.ref).stableKey)
         }
         CatalogOutcome(found, issues)
     }
@@ -457,61 +552,154 @@ internal class DefaultModCatalog(
         identityIndex.close()
     }
 
-    private suspend fun searchExactFullPinyin(
-        request: CatalogSearchRequest
-    ): CatalogOutcome<CatalogSearchPage>? {
-        val record = try {
-            identityIndex.findExactFullPinyin(request.query)
+    private suspend fun groupSourcesByIdentity(
+        sources: List<CatalogProjectSource>,
+        issues: MutableList<CatalogIssue>
+    ): GroupedSources {
+        if (sources.isEmpty()) return GroupedSources(emptyList(), emptyMap())
+        val slugRefs = sources.mapTo(linkedSetOf()) { CatalogSlugRef(it.ref.platform, it.slug) }
+        val records = try {
+            identityIndex.findAll(slugRefs)
         } catch (cause: CancellationException) {
             throw cause
         } catch (cause: Exception) {
             onWarning(cause)
-            null
-        } ?: return null
-        val issues = mutableListOf<CatalogIssue>()
-        identityIssue()?.let(issues::add)
-        val mod = findProjectsForIdentity(record, request.target, issues)
-            .takeIf { it.isNotEmpty() }
-            ?.toCatalogMod(record)
-        return CatalogOutcome(
-            CatalogSearchPage(
-                items = listOfNotNull(mod),
-                nextCursor = null,
-                estimatedTotal = if (mod == null) 0 else 1
-            ),
-            issues
+            issues += CatalogIssue.IdentityIndexUnavailable(cause.message ?: cause.toString())
+            emptyMap()
+        }
+        val recordsBySource = sources.associateWith { source ->
+            records[CatalogSlugRef(source.ref.platform, source.slug)]
+        }
+        val identityByRef = sources.associate { source ->
+            val record = recordsBySource[source]
+            source.ref to (record?.let { CatalogIdentity.Mcmod(it.mcmodId) }
+                ?: CatalogIdentity.Unmapped(source.ref))
+        }
+        val groups = sources.groupBy { identityByRef.getValue(it.ref).stableKey }.values.map { group ->
+            recordsBySource[group.first()] to group
+        }
+        return GroupedSources(groups, identityByRef)
+    }
+
+    private suspend fun resolveIdentityCandidates(
+        records: List<CatalogIdentityRecord>,
+        target: CatalogTarget
+    ): LocalResolution = supervisorScope {
+        if (records.isEmpty()) return@supervisorScope LocalResolution(emptyList(), emptyMap())
+        val resolutions = listOfNotNull(
+            adapters[ModPlatform.MODRINTH]?.let { adapter ->
+                async { resolveModrinthCandidates(adapter, records, target) }
+            },
+            adapters[ModPlatform.CURSEFORGE]?.let { adapter ->
+                async { resolveCurseForgeCandidates(adapter, records, target) }
+            }
+        ).awaitAll()
+        val failures = resolutions.mapNotNull { resolution ->
+            resolution.failure?.let { resolution.platform to it }
+        }.toMap()
+
+        LocalResolution(
+            mods = records.mapNotNull { record ->
+                resolutions.mapNotNull { it.sources[record.mcmodId] }
+                    .takeIf { it.isNotEmpty() }
+                    ?.toCatalogMod(record)
+            },
+            failures = failures
         )
     }
 
-    private suspend fun findProjectsForIdentity(
-        record: CatalogIdentityRecord,
-        target: CatalogTarget,
-        issues: MutableList<CatalogIssue>
-    ): List<CatalogProjectSource> = supervisorScope {
-        val results = record.projects.distinctBy(CatalogIdentityProject::platform).map { project ->
-            async {
-                val adapter = adapters[project.platform] ?: return@async null
-                when (val result = runSource(project.platform) {
-                    adapter.findProjectBySlug(project.slug, target)
-                }) {
-                    is SourceCall.Success -> LocalProjectCall.Found(result.value)
-                    is SourceCall.Failure -> LocalProjectCall.Failed(result.platform, result.cause)
-                }
-            }
-        }.awaitAll().filterNotNull()
-        results.filterIsInstance<LocalProjectCall.Failed>().forEach {
-            issues += CatalogIssue.SourceFailed(it.platform, it.cause.message ?: it.cause.toString())
+    private suspend fun resolveModrinthCandidates(
+        adapter: PlatformAdapter,
+        records: List<CatalogIdentityRecord>,
+        target: CatalogTarget
+    ): CandidateResolution {
+        val slugs = records.flatMap { record ->
+            record.projects.filter { it.platform == ModPlatform.MODRINTH }.map(CatalogIdentityProject::slug)
         }
-        results.filterIsInstance<LocalProjectCall.Found>().mapNotNull(LocalProjectCall.Found::source)
+        return when (val result = runSource(adapter.platform) { resolveCachedSlugs(adapter, slugs, target) }) {
+            is SourceCall.Success -> CandidateResolution(
+                platform = adapter.platform,
+                sources = records.mapNotNull { record ->
+                    record.projects.asSequence()
+                        .filter { it.platform == ModPlatform.MODRINTH }
+                        .mapNotNull { result.value[normalizeProjectSlug(it.slug)] }
+                        .firstOrNull()
+                        ?.let { record.mcmodId to it }
+                }.toMap()
+            )
+            is SourceCall.Failure -> CandidateResolution(adapter.platform, failure = result.cause)
+        }
     }
 
-    private suspend fun groupSourcesByIdentity(
-        sources: List<CatalogProjectSource>
-    ): List<Pair<CatalogIdentityRecord?, List<CatalogProjectSource>>> {
-        val records = sources.map { it to identityFor(it) }
-        return records.groupBy { it.second.first.stableKey }.values.map { group ->
-            group.first().second.second to group.map { it.first }
+    private suspend fun resolveCurseForgeCandidates(
+        adapter: PlatformAdapter,
+        records: List<CatalogIdentityRecord>,
+        target: CatalogTarget
+    ): CandidateResolution {
+        val sources = linkedMapOf<Int, CatalogProjectSource>()
+        var requestBudget = CURSEFORGE_SLUG_REQUEST_BUDGET
+        for (record in records) {
+            for (project in record.projects.filter { it.platform == ModPlatform.CURSEFORGE }) {
+                val key = project.slug.toSlugTargetKey(adapter.platform, target)
+                val cached = slugCache.get(key)
+                if (cached == null && requestBudget == 0) break
+                if (cached == null) requestBudget--
+                when (val result = runSource(adapter.platform) {
+                    resolveCachedSlug(adapter, project.slug, target, cached)
+                }) {
+                    is SourceCall.Success -> if (result.value != null) {
+                        sources[record.mcmodId] = result.value
+                        break
+                    }
+                    is SourceCall.Failure -> return CandidateResolution(
+                        platform = adapter.platform,
+                        sources = sources,
+                        failure = result.cause
+                    )
+                }
+            }
         }
+        return CandidateResolution(adapter.platform, sources)
+    }
+
+    private suspend fun resolveCachedSlugs(
+        adapter: PlatformAdapter,
+        slugs: List<String>,
+        target: CatalogTarget
+    ): Map<String, CatalogProjectSource> {
+        val found = linkedMapOf<String, CatalogProjectSource>()
+        val uncached = mutableListOf<String>()
+        slugs.distinctBy(::normalizeProjectSlug).forEach { slug ->
+            val normalized = normalizeProjectSlug(slug)
+            val cached = slugCache.get(slug.toSlugTargetKey(adapter.platform, target))
+            if (cached == null) uncached += slug else cached.value?.let { found[normalized] = it }
+        }
+        if (uncached.isEmpty()) return found
+        val resolved = adapter.resolveSlugs(uncached, target)
+        uncached.forEach { slug ->
+            val normalized = normalizeProjectSlug(slug)
+            val source = resolved.found[normalized]
+            slugCache.put(slug.toSlugTargetKey(adapter.platform, target), source)
+            source?.let {
+                projectCache.put(it.ref, it)
+                found[normalized] = it
+            }
+        }
+        return found
+    }
+
+    private suspend fun resolveCachedSlug(
+        adapter: PlatformAdapter,
+        slug: String,
+        target: CatalogTarget,
+        cached: CachedCatalogValue<CatalogProjectSource>?
+    ): CatalogProjectSource? {
+        cached?.let { return it.value }
+        val normalized = normalizeProjectSlug(slug)
+        val source = adapter.resolveSlugs(listOf(slug), target).found[normalized]
+        slugCache.put(slug.toSlugTargetKey(adapter.platform, target), source)
+        source?.let { projectCache.put(it.ref, it) }
+        return source
     }
 
     private suspend fun identityFor(
@@ -529,7 +717,7 @@ internal class DefaultModCatalog(
             ?: CatalogIdentity.Unmapped(source.ref)) to record
     }
 
-    private suspend fun List<CatalogProjectSource>.toCatalogMod(
+    private fun List<CatalogProjectSource>.toCatalogMod(
         identityRecord: CatalogIdentityRecord?
     ): CatalogMod {
         val primary = firstOrNull { it.ref.platform == ModPlatform.MODRINTH } ?: first()
@@ -612,13 +800,27 @@ internal class DefaultModCatalog(
         append('|').append(pageSize)
     }
 
+    private fun String.toSlugTargetKey(platform: ModPlatform, target: CatalogTarget) = SlugTargetKey(
+        platform = platform,
+        slug = normalizeProjectSlug(this),
+        minecraftVersion = target.minecraftVersion.mcVer,
+        loader = target.loader.name
+    )
+
+    private fun String.containsHan(): Boolean = any {
+        Character.UnicodeScript.of(it.code) == Character.UnicodeScript.HAN
+    }
+
     private fun CatalogSort.comparator(): Comparator<CatalogMod> = when (this) {
         CatalogSort.RELEVANCE -> compareBy<CatalogMod> {
             if (it.primaryRef.platform == ModPlatform.MODRINTH) 0 else 1
         }.thenByDescending(CatalogMod::downloadCount)
+            .thenBy { it.identity.stableKey }
 
-        CatalogSort.DOWNLOADS -> compareByDescending(CatalogMod::downloadCount)
-        CatalogSort.UPDATED -> compareByDescending(CatalogMod::updatedAt)
+        CatalogSort.DOWNLOADS -> compareByDescending<CatalogMod>(CatalogMod::downloadCount)
+            .thenBy { it.identity.stableKey }
+        CatalogSort.UPDATED -> compareByDescending<CatalogMod>(CatalogMod::updatedAt)
+            .thenBy { it.identity.stableKey }
     }
 
     private data class Traversal(
@@ -627,10 +829,33 @@ internal class DefaultModCatalog(
         val depth: Int
     )
 
-    private sealed interface LocalProjectCall {
-        data class Found(val source: CatalogProjectSource?) : LocalProjectCall
-        data class Failed(val platform: ModPlatform, val cause: Throwable) : LocalProjectCall
-    }
+    private data class GroupedSources(
+        val groups: List<Pair<CatalogIdentityRecord?, List<CatalogProjectSource>>>,
+        val identityByRef: Map<CatalogProjectRef, CatalogIdentity>
+    )
+
+    private data class LocalResolution(
+        val mods: List<CatalogMod>,
+        val failures: Map<ModPlatform, Throwable>
+    )
+
+    private data class CandidateResolution(
+        val platform: ModPlatform,
+        val sources: Map<Int, CatalogProjectSource> = emptyMap(),
+        val failure: Throwable? = null
+    )
+
+    private data class RankedCatalogMod(
+        val mod: CatalogMod,
+        val relevanceRank: Int
+    )
+
+    private data class SlugTargetKey(
+        val platform: ModPlatform,
+        val slug: String,
+        val minecraftVersion: String,
+        val loader: String
+    )
 
     private sealed interface SourceCall<out T> {
         val platform: ModPlatform
@@ -641,6 +866,8 @@ internal class DefaultModCatalog(
     }
 
     companion object {
+        private const val CURSEFORGE_SLUG_REQUEST_BUDGET = 3
+
         fun create(
             httpClient: HttpClient,
             identityDatabaseMaterializationDir: Path,

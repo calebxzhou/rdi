@@ -30,6 +30,7 @@ include(
     ":webview2",
     ":forgeguard",
     ":mclaunch",
+    ":early-display",
     ":local-mc-proxy",
     ":mc-proxy"
 )
@@ -51,5 +52,6 @@ project(":mod-catalog-tools").projectDir = file("mod-catalog-tools")
 project(":webview2").projectDir = file("webview2")
 project(":forgeguard").projectDir = file("../../mc/forgeguard")
 project(":mclaunch").projectDir = file("../mclaunch")
+project(":early-display").projectDir = file("../early-display")
 project(":local-mc-proxy").projectDir = file("../local-mc-proxy")
 project(":mc-proxy").projectDir = file("../../mc/proxy")

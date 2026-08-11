@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.mykotutils.std.encodeBase64
 import calebxzhou.rdi.client.service.GameService
+import calebxzhou.rdi.client.service.EarlyDisplayMount
 import calebxzhou.rdi.client.service.LocalMcProxyService
 import calebxzhou.rdi.client.service.ModpackLaunchOptionsService
 import calebxzhou.rdi.client.service.UpdateService
@@ -159,6 +160,26 @@ fun McPlayScreen(
                 }.getOrThrow()
                 session.appendLog("[RDI] 游戏资源已就绪")
                 if (session.stopRequested) return@launchSessionTask
+
+                EarlyDisplayMount.mount(
+                    mcVersion = args.mcVer,
+                    modLoader = args.modLoader,
+                    versionDir = GameService.versionListDir.resolve(args.versionId),
+                ).fold(
+                    onSuccess = {
+                        EarlyDisplayMount.configureProvider(
+                            mcVersion = args.mcVer,
+                            modLoader = args.modLoader,
+                            versionDir = GameService.versionListDir.resolve(args.versionId),
+                        ).onFailure { error ->
+                            session.appendLog("[RDI] Early Display Provider配置失败，将使用NeoForge默认窗口: ${error.message ?: error.javaClass.simpleName}")
+                        }
+                        Unit
+                    },
+                    onFailure = { error ->
+                        session.appendLog("[RDI] Early Display未挂载，将使用NeoForge默认窗口: ${error.message ?: error.javaClass.simpleName}")
+                    },
+                )
 
                 val launchJvmArgs = buildList {
                     addAll(launchSnapshot.customJvmArgs)

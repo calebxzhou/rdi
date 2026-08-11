@@ -74,6 +74,7 @@ class RemoteModViewModel(
 
     fun selectMcVersion(version: McVersion) {
         if (requiredMcVersion != null) return
+        if (_uiState.value.selectedMcVersion == version) return
         val loader = _uiState.value.selectedLoader
             .takeIf { it in availableLoadersFor(version) }
             ?: availableLoadersFor(version).first()
@@ -103,31 +104,27 @@ class RemoteModViewModel(
     private fun load(reset: Boolean) {
         val state = _uiState.value
         val cursor = if (reset) null else state.nextCursor ?: return
-        if (!reset && state.loadingMore) return
+        if (!reset && (state.loadingMore || searchJob?.isActive == true)) return
         if (reset) searchJob?.cancel()
 
+        val request = CatalogSearchRequest(
+            query = state.query,
+            target = CatalogTarget(state.selectedMcVersion, state.selectedLoader),
+            sort = if (state.query.isBlank()) CatalogSort.DOWNLOADS else CatalogSort.RELEVANCE,
+            cursor = cursor,
+        )
+        _uiState.update {
+            it.copy(
+                loading = reset,
+                loadingMore = !reset,
+                nextCursor = if (reset) null else it.nextCursor,
+                errorMessage = null,
+            )
+        }
+
         searchJob = viewModelScope.launch {
-            _uiState.update {
-                it.copy(
-                    loading = reset,
-                    loadingMore = !reset,
-                    nextCursor = if (reset) null else it.nextCursor,
-                    errorMessage = null,
-                )
-            }
             try {
-                val requestState = _uiState.value
-                val outcome = catalog.search(
-                    CatalogSearchRequest(
-                        query = requestState.query,
-                        target = CatalogTarget(
-                            requestState.selectedMcVersion,
-                            requestState.selectedLoader,
-                        ),
-                        sort = CatalogSort.DOWNLOADS,
-                        cursor = cursor,
-                    )
-                ).getOrThrow()
+                val outcome = catalog.search(request).getOrThrow()
                 _uiState.update {
                     it.copy(
                         mods = if (reset) outcome.value.items else it.mods + outcome.value.items,

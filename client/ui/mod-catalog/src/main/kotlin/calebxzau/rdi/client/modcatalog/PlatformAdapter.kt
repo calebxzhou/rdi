@@ -14,6 +14,11 @@ internal data class AdapterResult<T>(
     val missing: Set<String>
 )
 
+internal data class SlugResolution(
+    val found: Map<String, CatalogProjectSource>,
+    val missing: Set<String>
+)
+
 internal interface PlatformAdapter {
     val platform: ModPlatform
 
@@ -25,10 +30,7 @@ internal interface PlatformAdapter {
         limit: Int
     ): SourcePage
 
-    suspend fun findProjectBySlug(slug: String, target: CatalogTarget): CatalogProjectSource? =
-        search(slug, target, CatalogSort.RELEVANCE, 0, 5).items.firstOrNull {
-            normalizeProjectSlug(it.slug) == normalizeProjectSlug(slug)
-        }
+    suspend fun resolveSlugs(slugs: List<String>, target: CatalogTarget): SlugResolution
 
     suspend fun getProjects(ids: Set<String>): AdapterResult<CatalogProjectSource>
 

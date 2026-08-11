@@ -217,7 +217,7 @@ fun ModpackVersionEditScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     when {
-                                        uiState.uiModsLoading -> {
+                                        uiState.uiModsLoading && uiState.uiMods.isEmpty() -> {
                                             Column(
                                                 horizontalAlignment = Alignment.CenterHorizontally,
                                                 verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -232,19 +232,28 @@ fun ModpackVersionEditScreen(
                                         }
 
                                         else -> {
-                                            ModGrid(
-                                                mods = uiState.uiMods,
-                                                modifier = Modifier.fillMaxSize(),
-                                                selectedKeys = selectedModKeys,
-                                                emptyText = "当前版本没有Mod",
-                                                onModClick = { uiMod ->
-                                                    selectedModKeys = if (uiMod.key in selectedModKeys) {
-                                                        selectedModKeys - uiMod.key
-                                                    } else {
-                                                        selectedModKeys + uiMod.key
-                                                    }
+                                            Column(modifier = Modifier.fillMaxSize()) {
+                                                if (uiState.uiModsLoading) {
+                                                    Text(
+                                                        "正在补充Mod详细信息...",
+                                                        color = themeNow.onSurfaceVariant,
+                                                    )
+                                                    Spacer(Modifier.height(8.dp))
                                                 }
-                                            )
+                                                ModGrid(
+                                                    mods = uiState.uiMods,
+                                                    modifier = Modifier.fillMaxWidth().weight(1f),
+                                                    selectedKeys = selectedModKeys,
+                                                    emptyText = "当前版本没有Mod",
+                                                    onModClick = { uiMod ->
+                                                        selectedModKeys = if (uiMod.key in selectedModKeys) {
+                                                            selectedModKeys - uiMod.key
+                                                        } else {
+                                                            selectedModKeys + uiMod.key
+                                                        }
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }

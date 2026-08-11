@@ -1,4 +1,5 @@
 import java.nio.charset.Charset
+import java.nio.file.Files
 
 plugins {
     id 'java-library'
@@ -62,6 +63,7 @@ base {
 }
 
 def sharedBuildProjects = [':c-mc-common', ':rmcp-common', ':rmcp-client', ':mediaproc']
+evaluationDependsOn(':early-display')
 project(':mediaproc').tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
     enabled = false
 }
@@ -147,6 +149,8 @@ neoForge {
             systemProperty 'mixin.hotSwap', 'true'
             systemProperty 'rdi.debug', 'true'
             systemProperty 'rdi.play', Base64.encoder.encodeToString(playArg.getBytes(Charset.forName("UTF-8")))
+            systemProperty 'rdi.earlyDisplay.ffmpeg', layout.buildDirectory.file('early-display/ffmpeg/ffmpeg.exe').get().asFile.absolutePath
+            systemProperty 'rdi.earlyDisplay.video', file('startup.mp4').absolutePath
 
         }
         client2 {
@@ -159,6 +163,8 @@ neoForge {
             systemProperty 'mixin.hotSwap', 'true'
             systemProperty 'rdi.debug', 'true'
             systemProperty 'rdi.play', Base64.encoder.encodeToString(playArg2.getBytes(Charset.forName("UTF-8")))
+            systemProperty 'rdi.earlyDisplay.ffmpeg', layout.buildDirectory.file('early-display/ffmpeg/ffmpeg.exe').get().asFile.absolutePath
+            systemProperty 'rdi.earlyDisplay.video', file('startup.mp4').absolutePath
         }
         configureEach {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
@@ -177,6 +183,7 @@ neoForge {
 def localRuntimeConfiguration = configurations.maybeCreate('localRuntime')
 def librariesConfiguration = configurations.maybeCreate('libraries')
 def shadedConfiguration = configurations.maybeCreate('shaded')
+def earlyDisplayNativeConfiguration = configurations.maybeCreate('earlyDisplayNative')
 
 configurations.named('runtimeClasspath') {
     extendsFrom localRuntimeConfiguration
@@ -248,6 +255,9 @@ extraJavaModuleInfo {
     activate(configurations.client2LegacyClasspath)
 }
 dependencies {
+    earlyDisplayNative("org.bytedeco:ffmpeg:8.0.1-1.5.13:windows-x86_64-gpl") {
+        transitive = false
+    }
     implementation project(':c-mc-common')
     additionalRuntimeClasspath project(':c-mc-common')
     //RMCP runtime dependencies
@@ -352,6 +362,66 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.withType(Test).configureEach {
     useJUnitPlatform()
+}
+
+def earlyDisplayNativeJarFile = earlyDisplayNativeConfiguration.singleFile
+def extractEarlyDisplayFfmpeg = tasks.register('extractEarlyDisplayFfmpeg', Sync) {
+    from(zipTree(earlyDisplayNativeJarFile)) {
+        include 'org/bytedeco/ffmpeg/windows-x86_64-gpl/*.dll'
+        include 'org/bytedeco/ffmpeg/windows-x86_64-gpl/ffmpeg.exe'
+        eachFile { details -> details.path = details.name }
+        includeEmptyDirs = false
+    }
+    into layout.buildDirectory.dir('early-display/ffmpeg')
+}
+
+def earlyDisplayConfigFile = file('run/config/fml.toml')
+def earlyDisplayModsDir = file('run/mods')
+def earlyDisplayProviderJarFile = project(':early-display').tasks.named('jar').get().archiveFile.get().asFile
+
+def configureEarlyDisplayProvider = {
+    def configFile = earlyDisplayConfigFile
+    if (!configFile.isFile()) return
+
+    def config = configFile.getText('UTF-8')
+    def controlMatcher = config =~ /(?m)^\s*earlyWindowControl\s*=\s*(true|false)\s*$/
+    if (controlMatcher.find() && controlMatcher.group(1) == 'false') return
+
+    def providerMatcher = config =~ /(?m)^\s*earlyWindowProvider\s*=\s*"([^"]+)"\s*$/
+    def currentProvider = providerMatcher.find() ? providerMatcher.group(1) : null
+    if (currentProvider != null && currentProvider != 'fmlearlywindow' && currentProvider != 'rdiearlywindow') return
+
+    def providerJar = earlyDisplayProviderJarFile
+    def modsDir = earlyDisplayModsDir
+    def targetJar = new File(modsDir, 'rdi-early-display.jar')
+    def linked = false
+    try {
+        modsDir.mkdirs()
+        if (targetJar.exists() && !Files.isSymbolicLink(targetJar.toPath()) && Files.isSameFile(targetJar.toPath(), providerJar.toPath())) {
+            linked = true
+        } else {
+            Files.deleteIfExists(targetJar.toPath())
+            Files.createLink(targetJar.toPath(), providerJar.toPath())
+            linked = true
+        }
+    } catch (Exception exception) {
+    }
+
+    def selectedProvider = linked ? 'rdiearlywindow' : 'fmlearlywindow'
+    if (currentProvider == null) {
+        config += System.lineSeparator() + "earlyWindowProvider = \"${selectedProvider}\"" + System.lineSeparator()
+    } else if (currentProvider != selectedProvider) {
+        config = config.replaceFirst(
+                /(?m)^(\s*earlyWindowProvider\s*=\s*)"[^"]+"\s*$/,
+                "\$1\"${selectedProvider}\"")
+    }
+    configFile.setText(config, 'UTF-8')
+}
+
+tasks.matching { it.name == 'runClient' || it.name == 'runClient2' }.configureEach {
+    dependsOn project(':early-display').tasks.named('jar')
+    dependsOn extractEarlyDisplayFfmpeg
+    doFirst configureEarlyDisplayProvider
 }
 
 idea {
