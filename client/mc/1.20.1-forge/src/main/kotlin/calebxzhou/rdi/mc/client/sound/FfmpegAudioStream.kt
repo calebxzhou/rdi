@@ -22,6 +22,8 @@ class FfmpegAudioStream(
 
     override fun read(size: Int): ByteBuffer = stream.read(size).getOrElse(::decodeFailure)
 
+    fun readAll(): ByteBuffer = stream.readAll().getOrElse(::decodeFailure)
+
     override fun close() {
         stream.closeResult().getOrElse(::decodeFailure)
     }

@@ -17,27 +17,37 @@ object RSoundStreamFactory {
     @Throws(IOException::class)
     fun open(input: InputStream): AudioStream {
         val buffered = input as? BufferedInputStream ?: BufferedInputStream(input)
+        val opus = openOpusOrNull(buffered)
+        if (opus != null) {
+            return opus
+        }
+
+        return try {
+            OggAudioStream(buffered)
+        } catch (error: Throwable) {
+            runCatching { buffered.close() }
+            throw if (error is IOException) error else IOException("Failed to open OGG audio", error)
+        }
+    }
+
+    @JvmStatic
+    @Throws(IOException::class)
+    fun openOpusOrNull(input: BufferedInputStream): AudioStream? {
         val codec = try {
-            OggCodecDetector.detect(buffered).getOrElse { error ->
+            OggCodecDetector.detect(input).getOrElse { error ->
                 throw IOException("Failed to inspect OGG audio", error)
             }
         } catch (error: Throwable) {
-            runCatching { buffered.close() }
+            runCatching { input.close() }
             throw if (error is IOException) error else IOException("Failed to inspect OGG audio", error)
         }
-
         if (codec != OggAudioCodec.OPUS) {
-            return try {
-                OggAudioStream(buffered)
-            } catch (error: Throwable) {
-                runCatching { buffered.close() }
-                throw if (error is IOException) error else IOException("Failed to open OGG audio", error)
-            }
+            return null
         }
 
         lgr.info("RDI Opus audio routed to FFmpeg decoder")
         return FfmpegAudioStream(
-            FfmpegPcmDecoder.open(buffered).getOrElse { error ->
+            FfmpegPcmDecoder.open(input).getOrElse { error ->
                 lgr.error("Opus OGG初始化失败", error)
                 throw IOException("Failed to open Opus OGG audio", error)
             }
