@@ -7,12 +7,10 @@ package calebxzhou.rdi.earlydisplay.internal;
 
 import static org.lwjgl.opengl.GL32C.*;
 
+import calebxzhou.rdi.earlydisplay.RdiProgressSource;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Supplier;
-import net.neoforged.fml.loading.progress.Message;
-import net.neoforged.fml.loading.progress.ProgressMeter;
-import net.neoforged.fml.loading.progress.StartupNotificationManager;
 
 public class RenderElement {
     static final int INDEX_TEXTURE_OFFSET = 5;
@@ -43,7 +41,7 @@ public class RenderElement {
         void accept(SimpleBufferBuilder bb, SimpleFont fh, DisplayContext ctx);
     }
 
-    public record DisplayContext(int width, int height, int scale, ElementShader elementShader, ColourScheme colourScheme, PerformanceInfo performance) {
+    public record DisplayContext(int width, int height, int scale, ElementShader elementShader, ColourScheme colourScheme, PerformanceInfo performance, RdiProgressSource progress) {
         public int scaledWidth() {
             return scale() * width();
         }
@@ -68,15 +66,14 @@ public class RenderElement {
     }
 
     private static void startupLogMessages(SimpleBufferBuilder bb, SimpleFont font, DisplayContext context) {
-        List<StartupNotificationManager.AgeMessage> messages = StartupNotificationManager.getMessages();
+        List<RdiProgressSource.AgeMessage> messages = context.progress().messages();
         List<SimpleFont.DisplayText> texts = new ArrayList<>();
         for (int i = messages.size() - 1; i >= 0; i--) {
-            final StartupNotificationManager.AgeMessage pair = messages.get(i);
-            final float fade = clamp((4000.0f - (float) pair.age() - (i - 4) * 1000.0f) / 5000.0f, 0.0f, 1.0f);
+            final RdiProgressSource.AgeMessage pair = messages.get(i);
+            final float fade = clamp((4000.0f - (float) pair.ageMillis() - (i - 4) * 1000.0f) / 5000.0f, 0.0f, 1.0f);
             if (fade < 0.01f) continue;
-            Message msg = pair.message();
             int colour = context.colourScheme.foreground().packedint(Math.min((int) (fade * 255f), globalAlpha));
-            texts.add(new SimpleFont.DisplayText(msg.getText() + "\n", colour));
+            texts.add(new SimpleFont.DisplayText(pair.text() + "\n", colour));
         }
 
         font.generateVerticesForTexts(10, context.scaledHeight() - texts.size() * font.lineSpacing() + font.descent() - 10, bb, texts.toArray(SimpleFont.DisplayText[]::new));
@@ -161,11 +158,11 @@ public class RenderElement {
     public static void startupProgressBars(SimpleFont font, final SimpleBufferBuilder buffer, final DisplayContext context, final int frameNumber) {
         Renderer acc = null;
         var barCount = 2;
-        List<ProgressMeter> currentProgress = StartupNotificationManager.getCurrentProgress();
+        List<RdiProgressSource.ProgressBar> currentProgress = context.progress().progressBars();
         var size = currentProgress.size();
         var alpha = 0xFF;
         for (int i = 0; i < barCount && i < size; i++) {
-            final ProgressMeter pm = currentProgress.get(i);
+            final RdiProgressSource.ProgressBar pm = currentProgress.get(i);
             Renderer barRenderer = barRenderer(i, alpha, font, pm, context);
             acc = barRenderer.then(acc);
         }
@@ -176,7 +173,7 @@ public class RenderElement {
     private static final int BAR_HEIGHT = 20;
     private static final int BAR_WIDTH = 400;
 
-    private static Renderer barRenderer(int cnt, int alpha, SimpleFont font, ProgressMeter pm, DisplayContext context) {
+    private static Renderer barRenderer(int cnt, int alpha, SimpleFont font, RdiProgressSource.ProgressBar pm, DisplayContext context) {
         var barSpacing = font.lineSpacing() - font.descent() + BAR_HEIGHT;
         var y = 250 * context.scale() + cnt * barSpacing;
         var colour = context.colourScheme.foreground().packedint(alpha);
@@ -186,7 +183,7 @@ public class RenderElement {
         } else {
             bar = progressBar(ctx -> new int[] { (ctx.scaledWidth() - BAR_WIDTH * ctx.scale()) / 2, y + font.lineSpacing() - font.descent(), BAR_WIDTH * ctx.scale() }, f -> colour, f -> new float[] { 0f, pm.progress() });
         }
-        Renderer label = (bb, ctx, frame) -> renderText(font, text((ctx.scaledWidth() - BAR_WIDTH * ctx.scale()) / 2, y, pm.label().getText(), colour), bb, ctx);
+            Renderer label = (bb, ctx, frame) -> renderText(font, text((ctx.scaledWidth() - BAR_WIDTH * ctx.scale()) / 2, y, pm.label(), colour), bb, ctx);
         return bar.then(label);
     }
 

@@ -7,6 +7,7 @@ version = "1"
 
 repositories {
     mavenCentral()
+    maven("https://maven.minecraftforge.net")
     maven("https://libraries.minecraft.net")
     maven("https://maven.neoforged.net/releases")
 }
@@ -16,6 +17,7 @@ java {
 }
 
 dependencies {
+    compileOnly("net.minecraftforge:fmlloader:1.20.1-47.4.20")
     compileOnly("net.neoforged.fancymodloader:loader:4.0.42")
     compileOnly("net.neoforged.fancymodloader:earlydisplay:4.0.42")
     compileOnly("net.sf.jopt-simple:jopt-simple:5.0.4")

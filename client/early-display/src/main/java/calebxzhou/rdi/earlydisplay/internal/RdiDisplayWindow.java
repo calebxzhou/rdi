@@ -4,6 +4,8 @@ import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.opengl.GL.createCapabilities;
 import static org.lwjgl.opengl.GL32C.*;
 
+import calebxzhou.rdi.earlydisplay.RdiDisplayPlatform;
+import calebxzhou.rdi.earlydisplay.RdiEarlyDisplaySession;
 import java.awt.Desktop;
 import java.io.IOException;
 import java.lang.reflect.Method;
@@ -33,11 +35,6 @@ import java.util.function.LongSupplier;
 import java.util.function.Supplier;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
-import joptsimple.OptionParser;
-import net.neoforged.fml.loading.FMLConfig;
-import net.neoforged.fml.loading.ImmediateWindowHandler;
-import net.neoforged.fml.loading.progress.StartupNotificationManager;
-import net.neoforged.neoforgespi.earlywindow.ImmediateWindowProvider;
 import org.jetbrains.annotations.Nullable;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.glfw.GLFWImage;
@@ -62,11 +59,14 @@ import org.slf4j.LoggerFactory;
  *
  * Based on the prior ClientVisualization, with some personal touches.
  */
-public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi.earlydisplay.RdiEarlyDisplaySession {
+/** Shared loader-neutral implementation used by both provider adapters. */
+public class RdiDisplayWindow implements RdiEarlyDisplaySession {
     private static final int[][] GL_VERSIONS = new int[][] { { 4, 6 }, { 4, 5 }, { 4, 4 }, { 4, 3 }, { 4, 2 }, { 4, 1 }, { 4, 0 }, { 3, 3 }, { 3, 2 } };
     private static final Logger LOGGER = LoggerFactory.getLogger("EARLYDISPLAY");
     private final AtomicBoolean animationTimerTrigger = new AtomicBoolean(true);
     private final AtomicBoolean closed = new AtomicBoolean();
+    private final RdiDisplayPlatform platform;
+    private RdiDisplayPlatform.Settings settings;
 
     private ColourScheme colourScheme;
     private ElementShader elementShader;
@@ -100,37 +100,20 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
     private SimpleFont font;
     private Runnable repaintTick = () -> {};
 
-    @Override
-    public String name() {
-        return "rdiearlywindow";
+    public RdiDisplayWindow(RdiDisplayPlatform platform) {
+        this.platform = platform;
     }
 
-    @Override
     public Runnable initialize(String[] arguments) {
-        final OptionParser parser = new OptionParser();
-        var mcversionopt = parser.accepts("fml.mcVersion").withRequiredArg().ofType(String.class);
-        var forgeversionopt = parser.accepts("fml.neoForgeVersion").withRequiredArg().ofType(String.class);
-        var widthopt = parser.accepts("width")
-                .withRequiredArg().ofType(Integer.class)
-                .defaultsTo(FMLConfig.getIntConfigValue(FMLConfig.ConfigValue.EARLY_WINDOW_WIDTH));
-        var heightopt = parser.accepts("height")
-                .withRequiredArg().ofType(Integer.class)
-                .defaultsTo(FMLConfig.getIntConfigValue(FMLConfig.ConfigValue.EARLY_WINDOW_HEIGHT));
-        var maximizedopt = parser.accepts("earlywindow.maximized");
-        parser.allowsUnrecognizedOptions();
-        var parsed = parser.parse(arguments);
-        winWidth = parsed.valueOf(widthopt);
-        winHeight = parsed.valueOf(heightopt);
-        FMLConfig.updateConfig(FMLConfig.ConfigValue.EARLY_WINDOW_WIDTH, winWidth);
-        FMLConfig.updateConfig(FMLConfig.ConfigValue.EARLY_WINDOW_HEIGHT, winHeight);
-        fbScale = FMLConfig.getIntConfigValue(FMLConfig.ConfigValue.EARLY_WINDOW_FBSCALE);
-        this.colourScheme = ColourScheme.BLACK;
-        this.maximized = parsed.has(maximizedopt) || FMLConfig.getBoolConfigValue(FMLConfig.ConfigValue.EARLY_WINDOW_MAXIMIZED);
-
-        var forgeVersion = parsed.valueOf(forgeversionopt);
-        StartupNotificationManager.modLoaderConsumer().ifPresent(c -> c.accept("NeoForge loading " + forgeVersion));
+        settings = platform.parse(arguments);
+        winWidth = settings.windowWidth();
+        winHeight = settings.windowHeight();
+        fbScale = settings.framebufferScale();
+        colourScheme = settings.dark() ? ColourScheme.BLACK : ColourScheme.RED;
+        maximized = settings.maximized();
+        platform.reportLoaderMessage(platform.loaderDisplayName() + " loading " + settings.loaderVersion());
         performanceInfo = new PerformanceInfo();
-        return start(parsed.valueOf(mcversionopt), forgeVersion);
+        return start(settings.minecraftVersion(), settings.loaderVersion());
     }
 
     private static final long MINFRAMETIME = TimeUnit.MILLISECONDS.toNanos(10); // This is the FPS cap on the window - note animation is capped at 20FPS via the tickTimer
@@ -191,7 +174,7 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
         glClearColor(colourScheme.background().redf(), colourScheme.background().greenf(), colourScheme.background().bluef(), 1f);
 
         // we always render to an 854x480 texture and then fit that to the screen - with a scale factor
-        this.context = new RenderElement.DisplayContext(854, 480, fbScale, elementShader, colourScheme, performanceInfo);
+        this.context = new RenderElement.DisplayContext(854, 480, fbScale, elementShader, colourScheme, performanceInfo, platform.progressSource());
         framebuffer = new EarlyFramebuffer(this.context);
         compositor = new RdiCompositor(elementShader);
         video = new RdiVideoTexture();
@@ -265,7 +248,6 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
 
     private static final String ERROR_URL = "https://links.neoforged.net/early-display-errors";
 
-    @Override
     public String getGLVersion() {
         return this.glVersion;
     }
@@ -365,7 +347,7 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
             if (!successfulWindow.get()) crashElegantly("Timed out trying to setup the Game Window.");
         }, 30, TimeUnit.SECONDS);
         int versidx = 0;
-        var skipVersions = FMLConfig.<String>getListConfigValue(FMLConfig.ConfigValue.EARLY_WINDOW_SKIP_GL_VERSIONS);
+        var skipVersions = settings.skippedGlVersions();
         final String[] lastGLError = new String[GL_VERSIONS.length];
         do {
             final var glVersionToTry = GL_VERSIONS[versidx][0] + "." + GL_VERSIONS[versidx][1];
@@ -510,7 +492,7 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
             crashElegantly("We seem to be having trouble initializing the window, waited for 30 seconds");
         }
         // we have to spin wait for the window ticker
-        ImmediateWindowHandler.updateProgress("Initializing Game Graphics");
+        platform.updateProgress("Initializing Game Graphics");
         while (!this.windowTick.isDone()) {
             this.windowTick.cancel(false);
         }
@@ -544,7 +526,6 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
         }
     }
 
-    @Override
     public boolean positionWindow(final Optional<Object> monitor, final IntConsumer widthSetter, final IntConsumer heightSetter, final IntConsumer xSetter, final IntConsumer ySetter) {
         widthSetter.accept(this.winWidth);
         heightSetter.accept(this.winHeight);
@@ -553,7 +534,6 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
         return true;
     }
 
-    @Override
     public void updateFramebufferSize(final IntConsumer width, final IntConsumer height) {
         width.accept(this.fbWidth);
         height.accept(this.fbHeight);
@@ -564,7 +544,6 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
     private boolean customLoadingOverlay;
 
     @SuppressWarnings("unchecked")
-    @Override
     public <T> Supplier<T> loadingOverlay(final Supplier<?> mc, final Supplier<?> ri, final Consumer<Optional<Throwable>> ex, final boolean fade) {
         try {
             if (customLoadingOverlay) {
@@ -585,11 +564,10 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
         }
     }
 
-    @Override
     public void updateModuleReads(final ModuleLayer layer) {
-        var fm = layer.findModule("neoforge").orElseThrow();
+        var fm = layer.findModule(platform.loaderModuleName()).orElseThrow();
         getClass().getModule().addReads(fm);
-        var fallback = Class.forName(fm, "net.neoforged.neoforge.client.loading.NoVizFallback");
+        var fallback = Class.forName(fm, platform.fallbackLoadingOverlayClassName());
         fallbackLoadingOverlay = Arrays.stream(fallback.getMethods())
                 .filter(m -> Modifier.isStatic(m.getModifiers()) && m.getName().equals("loadingOverlay"))
                 .findFirst()
@@ -623,7 +601,6 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
     @Override public int framebufferScale() { return context.scale(); }
     @Override public boolean hasVideoFrame() { return video.texture() != 0; }
 
-    @Override
     public void periodicTick() {
         glfwPollEvents();
         repaintTick.run();
@@ -640,8 +617,5 @@ public class RdiDisplayWindow implements ImmediateWindowProvider, calebxzhou.rdi
         SimpleBufferBuilder.destroy();
     }
 
-    @Override
-    public void crash(final String message) {
-        crashElegantly(message);
-    }
+    public void crash(final String message) { crashElegantly(message); }
 }

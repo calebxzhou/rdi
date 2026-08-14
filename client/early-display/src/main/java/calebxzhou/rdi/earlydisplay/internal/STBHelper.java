@@ -21,7 +21,7 @@ public class STBHelper {
         ByteBuffer buf;
         var resource = STBHelper.class.getClassLoader().getResourceAsStream(name);
         if (resource == null) {
-            resource = net.neoforged.fml.earlydisplay.DisplayWindow.class.getClassLoader().getResourceAsStream(name);
+            resource = ClassLoader.getSystemResourceAsStream(name);
         }
         try (var channel = Channels.newChannel(
                 Objects.requireNonNull(resource, "The resource " + name + " cannot be found"))) {
