@@ -15,7 +15,9 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -27,7 +29,7 @@ import calebxzau.rdi.client.modcatalog.CatalogFile
 import calebxzau.rdi.client.modcatalog.CatalogMod
 import calebxzau.rdi.client.ui.*
 import calebxzau.rdi.client.ui.viewmodel.*
-import calebxzhou.mykotutils.std.humanFileSize
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.client.ui.comp.CatalogModCard
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -121,6 +123,7 @@ private fun RemoteModInfoContent(
     val latestFile = state.files.maxByOrNull { it.publishedAt }
     val olderFiles = state.files.filterNot { it.ref == latestFile?.ref }
     val gridState = rememberLazyGridState()
+    var showOtherVersions by remember { mutableStateOf(false) }
 
     TitleRow(title, onBack) {
         if (state.filesLoading || state.resolvingDownload) {
@@ -166,23 +169,25 @@ private fun RemoteModInfoContent(
                 horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                gridItems(olderFiles, key = { it.ref.fileId }) { file ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        val installStatus = state.installStatuses[file.ref]
-                        CatalogFileCard(
-                            file = file,
-                            installStatus = installStatus,
-                            downloadEnabled = !state.resolvingDownload &&
-                                    installStatus !in setOf("下载中", "已安装", "运行中不可更新"),
-                            modifier = Modifier.widthIn(max = 300.dp),
-                            onClick = { viewModel.requestDownload(file) },
-                        )
+                if (showOtherVersions) {
+                    gridItems(olderFiles, key = { it.ref.fileId }) { file ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                            val installStatus = state.installStatuses[file.ref]
+                            CatalogFileCard(
+                                file = file,
+                                installStatus = installStatus,
+                                downloadEnabled = !state.resolvingDownload &&
+                                        installStatus !in setOf("下载中", "已安装", "运行中不可更新"),
+                                modifier = Modifier.widthIn(max = 300.dp),
+                                onClick = { viewModel.requestDownload(file) },
+                            )
+                        }
                     }
                 }
                 if (!state.filesLoading && state.files.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) { Text("没有兼容版本") }
                 }
-                if (state.fileCursor != null) {
+                if (showOtherVersions && state.fileCursor != null) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                             if (state.loadingMore) {
@@ -190,6 +195,13 @@ private fun RemoteModInfoContent(
                             } else {
                                 TextButton(onClick = viewModel::loadMoreFiles) { Text("加载更多") }
                             }
+                        }
+                    }
+                }
+                if (!showOtherVersions && (olderFiles.isNotEmpty() || state.fileCursor != null)) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                            TextButton(onClick = { showOtherVersions = true }) { Text("显示其他版本") }
                         }
                     }
                 }
