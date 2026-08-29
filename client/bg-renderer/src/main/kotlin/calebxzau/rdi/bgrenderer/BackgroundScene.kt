@@ -76,7 +76,8 @@ internal const val SCENE_VERTEX_BUDGET = 14_000
 const val REFLECTION_WIDTH = RENDER_WIDTH / 2
 const val REFLECTION_HEIGHT = RENDER_HEIGHT / 2
 const val BOAT_SLIDE_PERIOD_SECONDS = 18.0
-const val BOAT_CENTER_X = -14f
+const val BOAT_CENTER_X = -7f
+const val BOAT_CENTER_Z = 25f
 internal const val BOAT_VISUAL_SCALE = 1.25f
 internal const val PLAYER_VISUAL_SCALE = 0.08f
 const val BOAT_SLIDE_DISTANCE = 1.2f
@@ -197,6 +198,22 @@ object BackgroundScene {
         addTerrace(HarborGroup.Background, 42f, -56f, 34f, 22f, 8, 1.1f, 3.2f, 2f, -.85f, .45f, .6f, -.3f)
         addTerrace(HarborGroup.Background, 64f, -50f, 22f, 18f, 6, 1.1f, 2.8f, 2f, .65f, .5f, .7f, .3f)
 
+        // Phase2B foreground shoulders.
+        addTerrace(HarborGroup.Foreground, -44f, -18f, 8f, 4f, 3, 0.8f, 1.4f, 0.9f, 0.35f, 0.10f, 0.30f, 0.15f)
+        addTerrace(HarborGroup.Foreground, -33f, -19f, 10f, 5f, 3, 0.8f, 1.8f, 1.0f, 0.35f, 0.12f, 0.30f, 0.16f)
+        addTerrace(HarborGroup.Foreground, 26f, -19f, 3f, 5f, 3, 0.8f, 0.5f, 1.0f, -0.12f, 0.12f, 0.10f, 0.16f)
+
+        // Phase2B midground banks.
+        addTerrace(HarborGroup.Midground, -37f, -31f, 10f, 8f, 4, 0.9f, 1.8f, 1.2f, 0.45f, 0.18f, 0.35f, 0.20f)
+        addTerrace(HarborGroup.Midground, -28f, -34f, 6f, 7f, 4, 0.9f, 1.0f, 1.0f, -0.30f, 0.22f, 0.20f, 0.18f)
+        addTerrace(HarborGroup.Midground, 26f, -34f, 3f, 7f, 4, 0.9f, 0.5f, 1.0f, 0.22f, 0.20f, 0.10f, 0.18f)
+        addTerrace(HarborGroup.Midground, 37f, -31f, 10f, 8f, 4, 0.9f, 1.8f, 1.2f, -0.45f, 0.18f, 0.35f, 0.20f)
+
+        // Phase2B background silhouette: side peaks above the existing banks, center lower.
+        addTerrace(HarborGroup.Background, -50f, -54f, 20f, 16f, 10, 1.05f, 1.5f, 1.1f, 0.55f, 0.30f, 0.45f, 0.22f)
+        addTerrace(HarborGroup.Background, 48f, -54f, 18f, 16f, 10, 1.05f, 1.35f, 1.1f, -0.50f, 0.30f, 0.40f, 0.22f)
+        addTerrace(HarborGroup.Background, 0f, -66f, 18f, 12f, 8, 1.0f, 1.7f, 1.1f, 0.30f, 0.25f, 0.35f, 0.18f)
+
         addPier(HarborGroup.LeftDock, -43f)
         addPier(HarborGroup.RightDock, 43f)
         addShelter(HarborGroup.LeftShelter, -47f, 5.35f, -16f)
@@ -288,7 +305,7 @@ object BackgroundScene {
         return BoatPose(
             x = BOAT_CENTER_X + wave.toFloat() * BOAT_SLIDE_DISTANCE,
             y = BOAT_WATERLINE + (wave * 0.08).toFloat(),
-            z = 0f,
+            z = BOAT_CENTER_Z,
             yawRadians = (wave * 0.035).toFloat(),
             rollRadians = (kotlin.math.cos(phase * Math.PI * 2.0) * 0.018).toFloat()
         )

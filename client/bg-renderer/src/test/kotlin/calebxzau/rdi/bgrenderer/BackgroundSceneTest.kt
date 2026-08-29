@@ -63,6 +63,33 @@ class BackgroundSceneTest {
         assertTrue(blocks.filter { it.group == HarborGroup.Background }.all { it.z < -42f })
         val corridor = blocks.filter { it.material == BlockMaterial.SAND && it.group in setOf(HarborGroup.Foreground, HarborGroup.Midground) && it.z > -24f }
         assertTrue(corridor.none { it.x + it.sizeX / 2f >= -24f && it.x - it.sizeX / 2f <= 24f && it.z + it.sizeZ / 2f >= -24f && it.z - it.sizeZ / 2f <= -8f })
+        assertEquals(19, foreground.size)
+        assertEquals(38, blocks.count { it.group == HarborGroup.Midground })
+        assertEquals(63, blocks.count { it.group == HarborGroup.Background })
+        val newForeground = foreground.drop(10).take(9)
+        val newMidground = blocks.filter { it.group == HarborGroup.Midground }.drop(22).take(16)
+        val newBackground = blocks.filter { it.group == HarborGroup.Background }.drop(35).take(28)
+        assertTrue((newForeground + newMidground + newBackground).all { it.material == BlockMaterial.SAND && it.sizeX > 0f && it.sizeZ > 0f })
+        val protectedBounds = { block: HarborBlock ->
+            block.x - block.sizeX / 2f <= 24f && block.x + block.sizeX / 2f >= -24f &&
+                block.z - block.sizeZ / 2f <= -8f && block.z + block.sizeZ / 2f >= -24f
+        }
+        assertTrue((newForeground + newMidground).none(protectedBounds))
+        val rightAdditions = (newForeground + newMidground).filter { it.x in 24f..30f }
+        assertTrue(rightAdditions.all { it.x - it.sizeX / 2f > 24f && it.x + it.sizeX / 2f <= 28f })
+        val newBackgroundTop = newBackground.map { it.y + it.sizeY / 2f }
+        assertEquals(12.85f, newBackgroundTop.take(10).maxOrNull()!!, absoluteTolerance = 0.00001f)
+        assertEquals(12.85f, newBackgroundTop.drop(10).take(10).maxOrNull()!!, absoluteTolerance = 0.00001f)
+        assertEquals(10.35f, newBackgroundTop.drop(20).take(8).maxOrNull()!!, absoluteTolerance = 0.00001f)
+        assertTrue(newBackgroundTop.drop(20).maxOrNull()!! < newBackgroundTop.take(20).maxOrNull()!!)
+        assertTrue(newBackgroundTop.maxOrNull()!! < blocks.filter { it.group == HarborGroup.RightLighthouse }.maxOf { it.y + it.sizeY / 2f })
+        val originalBackground = blocks.filter { it.group == HarborGroup.Background }.take(35)
+        val oldLeftBankTop = originalBackground.filter { it.x < 0f }.maxOf { it.y + it.sizeY / 2f }
+        val oldRightBankTop = originalBackground.filter { it.x > 30f }.maxOf { it.y + it.sizeY / 2f }
+        val oldCenterBankTop = originalBackground.filter { it.x in 0f..30f }.maxOf { it.y + it.sizeY / 2f }
+        assertTrue(newBackgroundTop.take(10).maxOrNull()!! > oldLeftBankTop)
+        assertTrue(newBackgroundTop.drop(10).take(10).maxOrNull()!! > oldRightBankTop)
+        assertTrue(newBackgroundTop.drop(20).take(8).maxOrNull()!! > oldCenterBankTop)
         fun maxTop(group: HarborGroup) = blocks.filter { it.group == group }.maxOf { it.y + it.sizeY / 2f }
         assertTrue(maxTop(HarborGroup.RightLighthouse) > maxTop(HarborGroup.LeftPavilion))
         assertTrue(maxTop(HarborGroup.RightLighthouse) > maxTop(HarborGroup.LeftShelter))
@@ -86,12 +113,22 @@ class BackgroundSceneTest {
         assertTrue(blocks.any { it.group == HarborGroup.CenterMarket && it.material == BlockMaterial.OAK_PLANKS && it.sizeY == 3.2f })
         assertTrue(blocks.any { it.group == HarborGroup.RightLighthouse && it.material == BlockMaterial.OAK_PLANKS && it.sizeY == 7.2f })
         val mesh = buildSceneMesh(123L)
-        assertEquals(13_182, mesh.vertices.size / SCENE_VERTEX_FLOATS)
+        assertEquals(11_690, mesh.vertices.size / SCENE_VERTEX_FLOATS)
+        assertEquals(17_460, mesh.indices.size)
         assertTrue(mesh.vertices.size / SCENE_VERTEX_FLOATS < SCENE_VERTEX_BUDGET)
+        assertTrue(mesh.vertices.size / SCENE_VERTEX_FLOATS < 13_182)
+        assertTrue(mesh.vertices.size / SCENE_VERTEX_FLOATS < 12_500)
+        assertTrue(mesh.indices.all { it in 0 until mesh.vertices.size / SCENE_VERTEX_FLOATS })
+        val referencedVertices = mesh.indices.toSet()
+        assertTrue((0 until mesh.vertices.size / SCENE_VERTEX_FLOATS).all { it in referencedVertices })
         val kinds = mesh.vertices.asSequence().chunked(SCENE_VERTEX_FLOATS).map { it[9] }.toList()
         assertTrue(kinds.all { it == 0f || it == 1f || it == 2f })
         assertEquals(144, kinds.count { it == 2f })
         assertEquals(6, kinds.count { it == 1f })
+        val vertexCount = mesh.vertices.size / SCENE_VERTEX_FLOATS
+        assertEquals(11_540, kinds.count { it == 0f })
+        assertEquals(17_310, mesh.indices.count { kinds[it] == 0f })
+        assertTrue(mesh.indices.all { it in 0 until vertexCount })
     }
 
     @Test
@@ -176,16 +213,53 @@ class BackgroundSceneTest {
             BOAT_SLIDE_PERIOD_SECONDS / 2.0,
             BOAT_SLIDE_PERIOD_SECONDS * 3.0 / 4.0
         ).map(BackgroundScene::boat)
-        assertEquals(-14f, poses.first().x)
-        assertEquals(-14f, BOAT_CENTER_X)
+        assertEquals(-7f, poses.first().x)
+        assertEquals(-7f, BOAT_CENTER_X)
+        assertEquals(25f, BOAT_CENTER_Z)
         assertEquals(1.25f, BOAT_VISUAL_SCALE)
         assertEquals(0.08f, PLAYER_VISUAL_SCALE)
         assertTrue(poses.all { it.x in BOAT_CENTER_X - BOAT_SLIDE_DISTANCE..BOAT_CENTER_X + BOAT_SLIDE_DISTANCE && it.y > WATER_LEVEL })
+        assertTrue(poses.all { it.z == BOAT_CENTER_Z })
         poses.forEach { boat ->
             val anchor = BackgroundScene.playerAnchor(boat)
             assertEquals(boat.x, anchor.x)
             assertEquals(boat.z, anchor.z)
             assertTrue(anchor.y > WATER_LEVEL)
+        }
+    }
+
+    @Test
+    fun boatAndPlayerAnchorsAreTwiceAsCloseAndStayInFrustum() {
+        val projection = Matrix4f().perspective(
+            Math.toRadians(CAMERA_FOV_DEGREES.toDouble()).toFloat(),
+            RENDER_WIDTH.toFloat() / RENDER_HEIGHT,
+            CAMERA_NEAR_PLANE,
+            CAMERA_FAR_PLANE
+        )
+        val target = Vector3f(CAMERA_TARGET_X, CAMERA_TARGET_Y, CAMERA_TARGET_Z)
+        val times = listOf(0.0, 15.0, 30.0, 45.0, 60.0)
+        times.forEach { time ->
+            val camera = BackgroundScene.camera(time)
+            val eye = Vector3f(
+                camera.distance * cos(camera.yawRadians),
+                camera.height,
+                camera.distance * sin(camera.yawRadians)
+            )
+            val view = Matrix4f().lookAt(eye, target, Vector3f(0f, 1f, 0f))
+            val viewProjection = Matrix4f(projection).mul(view)
+            val boat = BackgroundScene.boat(time)
+            val player = BackgroundScene.playerAnchor(boat)
+            val newViewPosition = Vector4f(boat.x, boat.y, boat.z, 1f).mul(view)
+            val legacyViewPosition = Vector4f(-14f, boat.y, 0f, 1f).mul(view)
+            val depthRatio = (-legacyViewPosition.z) / (-newViewPosition.z)
+            assertTrue(depthRatio in 1.95f..2.05f)
+            listOf(boat.x to boat.y, player.x to player.y).forEach { (x, y) ->
+                val clip = Vector4f(x, y, boat.z, 1f).mul(viewProjection)
+                assertTrue(clip.w > 0f)
+                assertTrue(clip.x / clip.w in -1f..1f)
+                assertTrue(clip.y / clip.w in -1f..1f)
+                assertTrue(clip.z / clip.w in -1f..1f)
+            }
         }
     }
 
@@ -246,16 +320,17 @@ class BackgroundSceneTest {
     fun sceneMaterialBatchesAreContiguousAndCoverEveryVertex() {
         val mesh = buildSceneMesh(123L)
         assertEquals(0, mesh.vertices.size % SCENE_VERTEX_FLOATS)
-        assertEquals(mesh.vertices.size / SCENE_VERTEX_FLOATS, mesh.batches.sumOf { it.vertexCount })
+        assertEquals(mesh.indices.size, mesh.batches.sumOf { it.indexCount })
         assertEquals(BlockMaterial.entries.toList(), mesh.batches.map { it.material })
-        var nextVertex = 0
+        var nextIndex = 0
         mesh.batches.forEach { batch ->
-            assertEquals(nextVertex, batch.firstVertex)
-            assertTrue(batch.vertexCount > 0)
-            assertTrue(batch.firstVertex + batch.vertexCount <= mesh.vertices.size / SCENE_VERTEX_FLOATS)
-            nextVertex += batch.vertexCount
+            assertEquals(nextIndex, batch.firstIndex)
+            assertTrue(batch.indexCount > 0)
+            assertTrue(batch.firstIndex + batch.indexCount <= mesh.indices.size)
+            nextIndex += batch.indexCount
         }
-        assertEquals(mesh.vertices.size / SCENE_VERTEX_FLOATS, nextVertex)
+        assertEquals(mesh.indices.size, nextIndex)
+        assertTrue(mesh.indices.toSet().all { it in 0 until mesh.vertices.size / SCENE_VERTEX_FLOATS })
     }
 
     @Test
@@ -273,7 +348,7 @@ class BackgroundSceneTest {
         assertTrue(WATER_EXTENT >= CAMERA_DISTANCE + CAMERA_FAR_PLANE * 1.25f)
         val mesh = buildSceneMesh(123L)
         val waterBatch = mesh.batches.single { it.material == BlockMaterial.WATER }
-        assertEquals(6, waterBatch.vertexCount)
+        assertEquals(6, waterBatch.indexCount)
     }
 
     @Test

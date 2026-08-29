@@ -58,31 +58,42 @@ private data class PlayerMeshKey(val slim: Boolean, val legacy: Boolean, val sho
 
 internal data class SceneMaterialBatch(
     val material: BlockMaterial,
-    val firstVertex: Int,
-    val vertexCount: Int
+    val firstIndex: Int,
+    val indexCount: Int
 )
 
 internal data class SceneMesh(
     val vertices: FloatArray,
+    val indices: IntArray,
     val batches: List<SceneMaterialBatch>,
     val staticAabbs: List<StaticAabb> = emptyList()
 )
 
 private class SceneVertexBuckets {
     private val values = Array(BlockMaterial.entries.size) { ArrayList<Float>() }
+    private val indexValues = Array(BlockMaterial.entries.size) { ArrayList<Int>() }
 
     operator fun get(material: BlockMaterial): MutableList<Float> = values[material.ordinal]
 
+    fun appendIndex(material: BlockMaterial, index: Int) {
+        indexValues[material.ordinal] += index
+    }
+
     fun flatten(staticAabbs: List<StaticAabb> = emptyList()): SceneMesh {
         val vertices = FloatArray(values.sumOf { it.size })
+        val indices = IntArray(indexValues.sumOf { it.size })
         val batches = ArrayList<SceneMaterialBatch>(BlockMaterial.entries.size)
-        var offset = 0
+        var vertexOffset = 0
+        var indexOffset = 0
         values.forEachIndexed { index, bucket ->
-            bucket.toFloatArray().copyInto(vertices, offset)
-            batches += SceneMaterialBatch(BlockMaterial.entries[index], offset / SCENE_VERTEX_FLOATS, bucket.size / SCENE_VERTEX_FLOATS)
-            offset += bucket.size
+            bucket.toFloatArray().copyInto(vertices, vertexOffset)
+            val localIndices = indexValues[index]
+            localIndices.forEachIndexed { localIndex, value -> indices[indexOffset + localIndex] = value + vertexOffset / SCENE_VERTEX_FLOATS }
+            batches += SceneMaterialBatch(BlockMaterial.entries[index], indexOffset, localIndices.size)
+            vertexOffset += bucket.size
+            indexOffset += localIndices.size
         }
-        return SceneMesh(vertices, batches, staticAabbs)
+        return SceneMesh(vertices, indices, batches, staticAabbs)
     }
 }
 
@@ -201,6 +212,7 @@ internal class RendererState {
                     framebuffer.bindForReflection()
                     renderer.renderReflectionScene(state, frameAppearance)
                     framebuffer.bindForRender()
+                    framebuffer.generateReflectionMipmaps()
                     renderer.renderWater(
                         state,
                         framebuffer.sceneColorTexture(),
@@ -346,7 +358,7 @@ private class OffscreenFramebuffer(private val width: Int, private val height: I
             HDR_COLOR_EXTERNAL_TYPE,
             0L
         )
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
@@ -359,6 +371,18 @@ private class OffscreenFramebuffer(private val width: Int, private val height: I
             "Background reflection framebuffer is incomplete"
         }
         glBindFramebuffer(GL_FRAMEBUFFER, 0)
+    }
+
+    fun generateReflectionMipmaps() {
+        val previousActiveTexture = glGetInteger(GL_ACTIVE_TEXTURE)
+        val previousTexture = glGetInteger(GL_TEXTURE_BINDING_2D)
+        try {
+            glBindTexture(GL_TEXTURE_2D, reflectionColor)
+            glGenerateMipmap(GL_TEXTURE_2D)
+        } finally {
+            glBindTexture(GL_TEXTURE_2D, previousTexture)
+            glActiveTexture(previousActiveTexture)
+        }
     }
 
     fun bindForRender() {
@@ -420,6 +444,7 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
     private var program = 0
     private var vertexArray = 0
     private var vertexBuffer = 0
+    private var indexBuffer = 0
     private var projectionLocation = -1
     private var viewLocation = -1
     private var boatModelLocation = -1
@@ -531,6 +556,7 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
     private val waterBatch = sceneMesh.batches.single { it.material == BlockMaterial.WATER }
     private val nonWaterBatches = sceneMesh.batches.filter { it.material != BlockMaterial.WATER }
     private val sceneVertices = sceneMesh.vertices
+    private val sceneIndices = sceneMesh.indices
     private val sunVertices = buildSunVertices()
     private val shadowFrame = buildStaticShadowFrame(staticAabbs, BackgroundScene.sun(0f))
     private val shadowViewProjection = shadowFrame.viewProjection
@@ -563,6 +589,10 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         glVertexAttribPointer(4, 2, GL_FLOAT, false, stride, 10L * Float.SIZE_BYTES)
         glVertexAttribPointer(5, 1, GL_FLOAT, false, stride, 12L * Float.SIZE_BYTES)
         repeat(6) { glEnableVertexAttribArray(it) }
+        indexBuffer = glGenBuffers()
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer)
+        val indices = BufferUtils.createIntBuffer(sceneIndices.size).put(sceneIndices).flip()
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices, GL_STATIC_DRAW)
         glBindVertexArray(0)
 
         skyProgram = createProgram(SKY_VERTEX_SHADER, SKY_FRAGMENT_SHADER)
@@ -754,7 +784,7 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
                 glBindTexture(GL_TEXTURE_2D, materialTextures[batch.material.ordinal])
                 glUniform1i(shadowTextureLocation, 0)
                 glUniform1i(shadowMaterialLocation, batch.material.ordinal)
-                glDrawArrays(GL_TRIANGLES, batch.firstVertex, batch.vertexCount)
+                glDrawElements(GL_TRIANGLES, batch.indexCount, GL_UNSIGNED_INT, batch.firstIndex.toLong() * Int.SIZE_BYTES)
             }
             glBindVertexArray(0)
             glUseProgram(0)
@@ -853,7 +883,7 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
                 glBindTexture(GL_TEXTURE_2D, materialTextures[batch.material.ordinal])
                 glUniform1i(textureLocation, 0)
                 glUniform1i(materialLocation, batch.material.ordinal)
-                glDrawArrays(GL_TRIANGLES, batch.firstVertex, batch.vertexCount)
+                glDrawElements(GL_TRIANGLES, batch.indexCount, GL_UNSIGNED_INT, batch.firstIndex.toLong() * Int.SIZE_BYTES)
             }
             glBindVertexArray(0)
             glUseProgram(0)
@@ -917,7 +947,7 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         glDisable(GL_BLEND)
         glDepthMask(false)
         glBindVertexArray(vertexArray)
-        glDrawArrays(GL_TRIANGLES, waterBatch.firstVertex, waterBatch.vertexCount)
+        glDrawElements(GL_TRIANGLES, waterBatch.indexCount, GL_UNSIGNED_INT, waterBatch.firstIndex.toLong() * Int.SIZE_BYTES)
         glBindVertexArray(0)
         glDepthMask(true)
         glEnable(GL_BLEND)
@@ -1065,10 +1095,12 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         if (skyVertexArray != 0) glDeleteVertexArrays(skyVertexArray)
         if (skyProgram != 0) glDeleteProgram(skyProgram)
         if (vertexBuffer != 0) glDeleteBuffers(vertexBuffer)
+        if (indexBuffer != 0) glDeleteBuffers(indexBuffer)
         if (vertexArray != 0) glDeleteVertexArrays(vertexArray)
         if (program != 0) glDeleteProgram(program)
         if (waterProgram != 0) glDeleteProgram(waterProgram)
         vertexBuffer = 0
+        indexBuffer = 0
         vertexArray = 0
         program = 0
         waterProgram = 0
@@ -1248,13 +1280,22 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
             staticAabb(cube.x, cube.y, cube.z, cube.sizeX, cube.sizeY, cube.sizeZ)
         }
         staticCubes.forEachIndexed { index, staticCube ->
-            cube(
-                values,
-                staticCube.x, staticCube.y, staticCube.z, staticCube.material, 0,
-                staticCube.sizeX, staticCube.sizeY, staticCube.sizeZ,
-                staticCube.topMaterial, staticCube.bottomMaterial,
-                staticAabbs, staticAabbs[index]
-            )
+            exposedStaticFaces(index, staticAabbs).forEach { quad ->
+                val material = when (quad.direction) {
+                    StaticFaceDirection.PositiveY -> staticCube.topMaterial
+                    StaticFaceDirection.NegativeY -> staticCube.bottomMaterial
+                    else -> staticCube.material
+                }
+                staticFace(
+                    values,
+                    quad.points,
+                    floatArrayOf(quad.direction.normalX, quad.direction.normalY, quad.direction.normalZ),
+                    material,
+                    0,
+                    staticAabbs,
+                    staticAabbs[index]
+                )
+            }
         }
         // Local boat geometry is transformed by the animated boat pose at draw time.
         cube(values, 0f, 2.18f, 0f, BlockMaterial.OAK_PLANKS, 2, 2.7f * BOAT_VISUAL_SCALE, 0.35f * BOAT_VISUAL_SCALE, 1.1f * BOAT_VISUAL_SCALE)
@@ -1318,35 +1359,67 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
     ) {
         val bucket = values[material]
         val indices = intArrayOf(0, 1, 2, 0, 2, 3)
-        indices.forEach { index ->
-            bucket += points[index * 3]
-            bucket += points[index * 3 + 1]
-            bucket += points[index * 3 + 2]
-            bucket += normal[0]
-            bucket += normal[1]
-            bucket += normal[2]
-            bucket += material.red
-            bucket += material.green
-            bucket += material.blue
-            bucket += kind.toFloat()
-            val uv = faceUv(
-                points[index * 3],
-                points[index * 3 + 1],
-                points[index * 3 + 2],
-                normal[0],
-                normal[1],
-                normal[2]
-            )
-            bucket += uv[0]
-            bucket += uv[1]
-            bucket += if (kind == 0 && sourceAabb != null) {
-                cornerAmbientOcclusion(
-                    sourceAabb,
-                    points[index * 3], points[index * 3 + 1], points[index * 3 + 2],
-                    normal[0], normal[1], normal[2], staticAabbs
-                )
+        val baseVertex = bucket.size / SCENE_VERTEX_FLOATS
+        indices.forEachIndexed { emittedIndex, index ->
+            val x = points[index * 3]
+            val y = points[index * 3 + 1]
+            val z = points[index * 3 + 2]
+            val ao = if (kind == 0 && sourceAabb != null) {
+                cornerAmbientOcclusion(sourceAabb, x, y, z, normal[0], normal[1], normal[2], staticAabbs)
             } else 1f
+            appendSceneVertex(bucket, x, y, z, normal, material, kind, ao)
+            values.appendIndex(material, baseVertex + emittedIndex)
         }
+    }
+
+    private fun staticFace(
+        values: SceneVertexBuckets,
+        points: FloatArray,
+        normal: FloatArray,
+        material: BlockMaterial,
+        kind: Int,
+        staticAabbs: List<StaticAabb>,
+        sourceAabb: StaticAabb
+    ) {
+        val bucket = values[material]
+        val baseVertex = bucket.size / SCENE_VERTEX_FLOATS
+        repeat(4) { index ->
+            val point = index * 3
+            val x = points[point]
+            val y = points[point + 1]
+            val z = points[point + 2]
+            val ao = if (kind == 0) {
+                cornerAmbientOcclusion(sourceAabb, x, y, z, normal[0], normal[1], normal[2], staticAabbs)
+            } else 1f
+            appendSceneVertex(bucket, x, y, z, normal, material, kind, ao)
+        }
+        intArrayOf(0, 1, 2, 0, 2, 3).forEach { index -> values.appendIndex(material, baseVertex + index) }
+    }
+
+    private fun appendSceneVertex(
+        bucket: MutableList<Float>,
+        x: Float,
+        y: Float,
+        z: Float,
+        normal: FloatArray,
+        material: BlockMaterial,
+        kind: Int,
+        ao: Float
+    ) {
+        bucket += x
+        bucket += y
+        bucket += z
+        bucket += normal[0]
+        bucket += normal[1]
+        bucket += normal[2]
+        bucket += material.red
+        bucket += material.green
+        bucket += material.blue
+        bucket += kind.toFloat()
+        val uv = faceUv(x, y, z, normal[0], normal[1], normal[2])
+        bucket += uv[0]
+        bucket += uv[1]
+        bucket += ao
     }
 }
 
@@ -1792,15 +1865,18 @@ vec3 ggxSunHighlight(vec3 normal, vec3 viewDirection, vec3 lightDirection) {
     vec3 f0 = vec3(0.02);
     vec3 fresnel = f0 + (1.0 - f0) * pow(1.0 - VdotH, 5.0);
     vec3 highlight = distribution * geometry * fresnel / (4.0 * NdotV * NdotL)
-        * vec3(1.0, 0.84, 0.62) * 0.10;
-    return min(highlight, vec3(2.0));
+        * vec3(1.0, 0.84, 0.62) * 0.08;
+    return min(highlight, vec3(1.8));
 }
 
 void main() {
     const float BASE_WATER_OPACITY = 0.65;
+    float waterDistance = length(vWorldPosition.xz - uEyePosition.xz);
     vec3 baseWater = vColor;
     float waterNoise = texture(uWaterNoise, vWorldPosition.xz * 0.018).g;
     baseWater *= exp((waterNoise - 0.5) * 0.16);
+    float nearWater = 1.0 - smoothstep(18.0, 110.0, waterDistance);
+    baseWater *= mix(vec3(1.0), vec3(0.92, 0.98, 1.04), nearWater * 0.35);
     vec3 viewDirection = normalize(uEyePosition - vWorldPosition);
     float viewEdge = 1.0 - clamp(dot(vec3(0.0, 1.0, 0.0), viewDirection), 0.0, 1.0);
 
@@ -1811,8 +1887,8 @@ void main() {
     vec2 small = texture(uCloudWaterNormal, waterPos * 4.0 - wind * 2.0).rg * 2.0 - 1.0;
     vec2 big = texture(uCloudWaterNormal, waterPos * 0.25 - wind * 0.5).rg * 2.0 - 1.0;
     vec2 extraBig = texture(uCloudWaterNormal, waterPos * 0.05 - wind * 0.05).rg * 2.0 - 1.0;
-    vec2 normalXY = (medium * 1.70 + small * 0.75 + big * 1.25 + extraBig * 0.75)
-        * (0.24 * (1.0 - 0.7 * viewEdge)) * 1.25;
+    vec2 normalXY = (medium * 1.10 + small * 0.35 + big * 1.55 + extraBig * 0.85)
+        * (0.27 * (1.0 - 0.60 * viewEdge));
     float normalLength = min(length(normalXY), 0.98);
     normalXY = normalLength > 0.0 ? normalize(normalXY) * normalLength : vec2(0.0);
     vec3 surfaceNormal = normalize(vec3(normalXY.x, sqrt(max(1.0 - dot(normalXY, normalXY), 0.0)), normalXY.y));
@@ -1856,14 +1932,19 @@ void main() {
         reflectionUv.y >= 0.0 && reflectionUv.y <= 1.0;
     vec3 planarReflection = skyReflection;
     if (reflectionInBounds) {
-        vec2 sampledReflectionUv = clamp(reflectionUv + normalXY * 0.008, vec2(0.001), vec2(0.999));
-        planarReflection = texture(uReflectionColor, sampledReflectionUv).rgb;
+        vec2 sampledReflectionUv = clamp(reflectionUv + normalXY * 0.012, vec2(0.001), vec2(0.999));
+        float distanceLod = clamp((waterDistance - 24.0) / 88.0 * 2.5, 0.0, 2.5);
+        float edgeLod = viewEdge * 0.65;
+        float reflectionLod = clamp(distanceLod + edgeLod, 0.0, 3.5);
+        planarReflection = textureLod(uReflectionColor, sampledReflectionUv, reflectionLod).rgb;
     }
-    vec3 result = mix(tintedWater, planarReflection, fresnel);
+    float reflectionStrength = clamp(0.06 + fresnel * 0.92, 0.0, 0.92);
+    vec3 result = mix(tintedWater, planarReflection, reflectionStrength);
     result = mix(result, vec3(0.82, 0.96, 0.98), foamMask * 0.42);
-    result += ggxSunHighlight(surfaceNormal, viewDirection, normalize(-uSunDirection));
+    float solarFade = (1.0 - smoothstep(80.0, 180.0, waterDistance)) * (1.0 - 0.35 * viewEdge);
+    result += ggxSunHighlight(surfaceNormal, viewDirection, normalize(-uSunDirection)) * solarFade;
 
-    float horizon = smoothstep(uHorizonFogStart, uHorizonFogEnd, length(vWorldPosition.xz - uEyePosition.xz));
+    float horizon = smoothstep(uHorizonFogStart, uHorizonFogEnd, waterDistance);
     result = mix(result, uHorizonColor, horizon);
     color = vec4(result, 1.0);
 }

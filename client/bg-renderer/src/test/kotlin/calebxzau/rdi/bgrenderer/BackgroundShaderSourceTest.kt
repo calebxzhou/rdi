@@ -80,7 +80,7 @@ class BackgroundShaderSourceTest {
             rendererSource.indexOf("private fun renderStaticShadowMap").also { check(it >= 0) },
             rendererSource.indexOf("\n    fun renderSceneBeforeWater").also { check(it >= 0) }
         )
-        val draw = body.indexOf("glDrawArrays")
+        val draw = body.indexOf("glDrawElements")
         val finallyBlock = body.indexOf("} finally {")
         listOf(
             "val previousDepthFunc = glGetInteger(GL_DEPTH_FUNC)",
@@ -236,11 +236,30 @@ class BackgroundShaderSourceTest {
     }
 
     @Test
+    fun sceneUsesOneIndexedElementBufferForAllScenePasses() {
+        val rendererSource = java.io.File(
+            "src/main/kotlin/calebxzau/rdi/bgrenderer/BackgroundRenderer.kt"
+        ).readText()
+        assertTrue(rendererSource.contains("indexBuffer = glGenBuffers()"))
+        assertTrue(rendererSource.contains("glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indexBuffer)"))
+        assertTrue(rendererSource.contains("glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices, GL_STATIC_DRAW)"))
+        assertTrue(rendererSource.contains("glDrawElements(GL_TRIANGLES, batch.indexCount"))
+        assertTrue(rendererSource.contains("glDrawElements(GL_TRIANGLES, waterBatch.indexCount"))
+        assertTrue(rendererSource.contains("glDeleteBuffers(indexBuffer)"))
+    }
+
+    @Test
     fun waterShaderUsesComplementaryNormalLayersFresnelNoiseAndSharedSun() {
         assertTrue(WATER_FRAGMENT_SHADER.contains("waterPos = 0.032"))
-        assertTrue(WATER_FRAGMENT_SHADER.contains("waterPos * 4.0"))
-        assertTrue(WATER_FRAGMENT_SHADER.contains("waterPos * 0.25"))
-        assertTrue(WATER_FRAGMENT_SHADER.contains("waterPos * 0.05"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("waterPos + wind"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("waterPos * 4.0 - wind * 2.0"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("waterPos * 0.25 - wind * 0.5"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("waterPos * 0.05 - wind * 0.05"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("medium * 1.10 + small * 0.35 + big * 1.55 + extraBig * 0.85"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("0.27 * (1.0 - 0.60 * viewEdge)"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("float waterDistance = length(vWorldPosition.xz - uEyePosition.xz);"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("float nearWater = 1.0 - smoothstep(18.0, 110.0, waterDistance);"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("vec3(0.92, 0.98, 1.04)"))
         assertTrue(WATER_FRAGMENT_SHADER.contains("uWaterNoise"))
         assertTrue(WATER_FRAGMENT_SHADER.contains("fresnel = 0.02 + 0.98 * pow(1.0 - NdotV, 5.0)"))
         assertTrue(WATER_FRAGMENT_SHADER.contains("const float BASE_WATER_OPACITY = 0.65;"))
@@ -272,9 +291,38 @@ class BackgroundShaderSourceTest {
         assertTrue(WATER_FRAGMENT_SHADER.contains("vReflectionClipPosition.w > 0.0"))
         assertTrue(WATER_FRAGMENT_SHADER.contains("reflectionInBounds"))
         assertTrue(WATER_FRAGMENT_SHADER.contains("roughness = 0.12"))
-        assertTrue(WATER_FRAGMENT_SHADER.contains("* vec3(1.0, 0.84, 0.62) * 0.10;"))
-        assertTrue(WATER_FRAGMENT_SHADER.contains("return min(highlight, vec3(2.0));"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("* vec3(1.0, 0.84, 0.62) * 0.08;"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("return min(highlight, vec3(1.8));"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("float reflectionLod = clamp(distanceLod + edgeLod, 0.0, 3.5);"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("textureLod(uReflectionColor, sampledReflectionUv, reflectionLod)"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("float reflectionStrength = clamp(0.06 + fresnel * 0.92, 0.0, 0.92);"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("vec3 result = mix(tintedWater, planarReflection, reflectionStrength);"))
+        assertTrue(!WATER_FRAGMENT_SHADER.contains("fresnel * 0.78"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("float solarFade = (1.0 - smoothstep(80.0, 180.0, waterDistance)) * (1.0 - 0.35 * viewEdge);"))
         assertTrue(!WATER_FRAGMENT_SHADER.contains("* vec3(1.0, 0.84, 0.62) * 0.32;"))
+    }
+
+    @Test
+    fun reflectionUsesGeneratedMipmapsImmediatelyBeforeWaterSampling() {
+        val rendererSource = java.io.File(
+            "src/main/kotlin/calebxzau/rdi/bgrenderer/BackgroundRenderer.kt"
+        ).readText()
+        val reflectionBlock = rendererSource.substring(
+            rendererSource.indexOf("glBindFramebuffer(GL_FRAMEBUFFER, reflectionFramebuffer)").also { check(it >= 0) },
+            rendererSource.indexOf("fun bindForRender").also { check(it >= 0) }
+        )
+        assertTrue(reflectionBlock.contains("GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR"))
+        assertTrue(reflectionBlock.contains("GL_TEXTURE_MAG_FILTER, GL_LINEAR"))
+        assertTrue(reflectionBlock.contains("glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, reflectionColor, 0)"))
+        assertTrue(rendererSource.contains("fun generateReflectionMipmaps()"))
+        assertTrue(rendererSource.contains("val previousActiveTexture = glGetInteger(GL_ACTIVE_TEXTURE)"))
+        assertTrue(rendererSource.contains("val previousTexture = glGetInteger(GL_TEXTURE_BINDING_2D)"))
+        assertTrue(rendererSource.contains("glGenerateMipmap(GL_TEXTURE_2D)"))
+        val reflection = rendererSource.indexOf("renderer.renderReflectionScene")
+        val mainBind = rendererSource.indexOf("framebuffer.bindForRender()", reflection)
+        val mipmap = rendererSource.indexOf("framebuffer.generateReflectionMipmaps()", mainBind)
+        val water = rendererSource.indexOf("renderer.renderWater", mipmap)
+        assertTrue(reflection >= 0 && mainBind > reflection && mipmap > mainBind && water > mipmap)
     }
 
     @Test
