@@ -27,10 +27,10 @@ internal class BackgroundPostProcessor(
     private val finalTexture = glGenTextures()
     private val vertexArray = glGenVertexArrays()
     private val vertexBuffer = glGenBuffers()
-    private val linearProgram = createProgram(POST_VERTEX_SHADER, LINEARIZE_FRAGMENT_SHADER)
+    private val hdrCopyProgram = createProgram(POST_VERTEX_SHADER, HDR_COPY_FRAGMENT_SHADER)
     private val bloomProgram = createProgram(POST_VERTEX_SHADER, BLOOM_ATLAS_FRAGMENT_SHADER)
     private val finalProgram = createProgram(POST_VERTEX_SHADER, FINAL_TONEMAP_FRAGMENT_SHADER)
-    private val linearInputLocation = glGetUniformLocation(linearProgram, "uRawHdr")
+    private val hdrCopyInputLocation = glGetUniformLocation(hdrCopyProgram, "uRawHdr")
     private val bloomInputLocation = glGetUniformLocation(bloomProgram, "uLinearHdr")
     private val finalColorLocation = glGetUniformLocation(finalProgram, "uLinearHdr")
     private val finalBloomLocation = glGetUniformLocation(finalProgram, "uBloomAtlas")
@@ -92,8 +92,8 @@ internal class BackgroundPostProcessor(
         glViewport(0, 0, width, height)
         glActiveTexture(GL_TEXTURE0)
         glBindTexture(GL_TEXTURE_2D, rawHdrTexture)
-        glUseProgram(linearProgram)
-        glUniform1i(linearInputLocation, 0)
+        glUseProgram(hdrCopyProgram)
+        glUniform1i(hdrCopyInputLocation, 0)
         drawFullscreen()
 
         glBindTexture(GL_TEXTURE_2D, linearTexture)
@@ -143,7 +143,7 @@ internal class BackgroundPostProcessor(
         glDeleteTextures(linearTexture)
         glDeleteTextures(bloomTexture)
         glDeleteTextures(finalTexture)
-        glDeleteProgram(linearProgram)
+        glDeleteProgram(hdrCopyProgram)
         glDeleteProgram(bloomProgram)
         glDeleteProgram(finalProgram)
         glDeleteBuffers(vertexBuffer)
@@ -167,14 +167,14 @@ void main() {
 }
 """
 
-internal const val LINEARIZE_FRAGMENT_SHADER = """
+internal const val HDR_COPY_FRAGMENT_SHADER = """
 #version 450 core
 in vec2 texCoord;
 uniform sampler2D uRawHdr;
 out vec4 color;
 void main() {
     vec3 raw = texture(uRawHdr, texCoord).rgb;
-    color = vec4(pow(max(raw, vec3(0.0)), vec3(2.2)), 1.0);
+    color = vec4(max(raw, vec3(0.0)), 1.0);
 }
 """
 

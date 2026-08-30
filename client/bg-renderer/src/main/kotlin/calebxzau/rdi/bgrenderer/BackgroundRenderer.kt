@@ -1,7 +1,6 @@
 package calebxzau.rdi.bgrenderer
 
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.toComposeImageBitmap
+import androidx.compose.ui.graphics.painter.Painter
 import calebxzau.rdi.render.GlfwRuntime
 import calebxzau.rdi.playermodel.core.PlayerModelPart
 import calebxzau.rdi.playermodel.core.PlayerSkinTexture
@@ -9,9 +8,6 @@ import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import org.jetbrains.skia.ColorAlphaType
-import org.jetbrains.skia.Image as SkiaImage
-import org.jetbrains.skia.ImageInfo
 import org.joml.Matrix4f
 import org.joml.Vector3f
 import org.lwjgl.BufferUtils
@@ -36,6 +32,7 @@ import org.lwjgl.opengl.GL14.GL_DEPTH_COMPONENT24
 import org.lwjgl.opengl.GL14.GL_TEXTURE_COMPARE_FUNC
 import org.lwjgl.opengl.GL14.GL_TEXTURE_COMPARE_MODE
 import org.lwjgl.opengl.GL14.glBlendFuncSeparate
+import org.lwjgl.opengl.GL21.GL_SRGB8_ALPHA8
 import org.lwjgl.opengl.GL15.GL_ARRAY_BUFFER
 import org.lwjgl.opengl.GL15.GL_STATIC_DRAW
 import org.lwjgl.opengl.GL15.glBindBuffer
@@ -68,6 +65,11 @@ internal data class SceneMesh(
     val batches: List<SceneMaterialBatch>,
     val staticAabbs: List<StaticAabb> = emptyList()
 )
+
+internal enum class TextureEncoding(val internalFormat: Int) {
+    SrgbColor(GL_SRGB8_ALPHA8),
+    LinearData(GL_RGBA8)
+}
 
 private class SceneVertexBuckets {
     private val values = Array(BlockMaterial.entries.size) { ArrayList<Float>() }
@@ -104,7 +106,7 @@ private fun pivotRotation(matrix: Matrix4f, x: Float, y: Float, z: Float, angle:
 class BackgroundRenderSession internal constructor(
     private val state: RendererState
 ) : AutoCloseable {
-    val frame: StateFlow<ImageBitmap?> = state.frame
+    val frame: StateFlow<Painter?> = state.frame
     val failure: StateFlow<String?> = state.failure
     val lowPerformance: StateFlow<Boolean> = state.lowPerformance
 
@@ -133,12 +135,15 @@ object BackgroundRenderer {
     fun openSession(): BackgroundRenderSession = BackgroundRenderSession(RendererState())
 }
 
-internal class RendererState {
+internal class RendererState(
+    private val threadFactory: (Runnable, String) -> Thread = { runnable, name -> Thread(runnable, name) },
+    private val renderLoopOverride: (() -> Unit)? = null
+) {
     private val logger = KotlinLogging.logger {}
     private val running = AtomicBoolean(true)
     val active = AtomicBoolean(false)
     private val terminalFailure = AtomicBoolean(false)
-    private val _frame = MutableStateFlow<ImageBitmap?>(null)
+    private val _frame = MutableStateFlow<Painter?>(null)
     val frame = _frame.asStateFlow()
     private val _failure = MutableStateFlow<String?>(null)
     val failure = _failure.asStateFlow()
@@ -149,6 +154,7 @@ internal class RendererState {
     private val sessionSeed = Random.nextLong()
     val appearance = java.util.concurrent.atomic.AtomicReference<BackgroundPlayerAppearance?>(null)
     private val threadLock = Any()
+    internal val framePool = createBackgroundFramePool()
     @Volatile
     var thread: Thread? = null
 
@@ -156,20 +162,23 @@ internal class RendererState {
         if (!running.get() || terminalFailure.get() || lowPerformance.value || thread?.isAlive == true) return
         synchronized(threadLock) {
             if (!running.get() || terminalFailure.get() || lowPerformance.value || thread?.isAlive == true) return
-            thread = Thread(::renderLoop, "rdi-background-renderer").apply {
+            val newThread = threadFactory(Runnable { (renderLoopOverride ?: ::renderLoop).invoke() }, "rdi-background-renderer").apply {
                 isDaemon = true
-                start()
             }
+            thread = newThread
+            newThread.start()
         }
     }
 
     fun close() {
         running.set(false)
         active.set(false)
-        thread?.let {
+        val renderThread = synchronized(threadLock) { thread }
+        renderThread?.let {
             LockSupport.unpark(it)
             if (it !== Thread.currentThread()) it.join()
         }
+        framePool.close()
     }
 
     private fun renderLoop() {
@@ -184,7 +193,6 @@ internal class RendererState {
             val renderer = SceneGlRenderer(sessionSeed)
             val framebuffer = OffscreenFramebuffer(RENDER_WIDTH, RENDER_HEIGHT)
             val pixels = BufferUtils.createByteBuffer(RENDER_WIDTH * RENDER_HEIGHT * 4)
-            val bitmapBuffer = FrameBitmapBuffer()
             var postProcessor: BackgroundPostProcessor? = null
             try {
                 renderer.initialize()
@@ -223,7 +231,15 @@ internal class RendererState {
                     initializedPostProcessor.process(framebuffer.rawHdrTexture())
                     pixels.clear()
                     glReadPixels(0, 0, RENDER_WIDTH, RENDER_HEIGHT, GL_BGRA, GL_UNSIGNED_BYTE, pixels)
-                    _frame.value = bitmapBuffer.update(pixels, RENDER_WIDTH, RENDER_HEIGHT)
+                    framePool.write()?.let { write ->
+                        try {
+                            write.payload.copyFrom(pixels, RENDER_WIDTH, RENDER_HEIGHT)
+                            _frame.value = write.publish()
+                        } catch (error: Throwable) {
+                            write.close()
+                            throw error
+                        }
+                    }
                     if (performance.record(System.nanoTime() - frameStarted)) {
                         _lowPerformance.value = true
                         logger.warn { "GPU background renderer is too slow; using the static background" }
@@ -233,7 +249,7 @@ internal class RendererState {
                     nextFrame = now + 1_000_000_000L / TARGET_FPS
                 }
             } finally {
-                bitmapBuffer.close()
+                framePool.close()
                 postProcessor?.close()
                 framebuffer.close()
                 renderer.close()
@@ -450,7 +466,9 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
     private var boatModelLocation = -1
     private var clipHeightLocation = -1
     private var textureLocation = -1
-    private var materialLocation = -1
+    private var alphaCutoutLocation = -1
+    private var textureVScaleLocation = -1
+    private var emissiveLocation = -1
     private var sunLocation = -1
     private var shadowViewProjectionLocation = -1
     private var shadowMapLocation = -1
@@ -459,7 +477,8 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
     private var shadowProgram = 0
     private var shadowProjectionLocation = -1
     private var shadowTextureLocation = -1
-    private var shadowMaterialLocation = -1
+    private var shadowAlphaCutoutLocation = -1
+    private var shadowTextureVScaleLocation = -1
     private var waterProgram = 0
     private var waterProjectionLocation = -1
     private var waterViewLocation = -1
@@ -572,7 +591,9 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         boatModelLocation = glGetUniformLocation(program, "uBoatModel")
         clipHeightLocation = glGetUniformLocation(program, "uClipHeight")
         textureLocation = glGetUniformLocation(program, "uTexture")
-        materialLocation = glGetUniformLocation(program, "uMaterial")
+        alphaCutoutLocation = glGetUniformLocation(program, "uAlphaCutout")
+        textureVScaleLocation = glGetUniformLocation(program, "uTextureVScale")
+        emissiveLocation = glGetUniformLocation(program, "uEmissive")
         shadowViewProjectionLocation = glGetUniformLocation(program, "uShadowViewProjection")
         shadowMapLocation = glGetUniformLocation(program, "uShadowMap")
         vertexArray = glGenVertexArrays()
@@ -629,24 +650,31 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
 
         BlockMaterial.entries.forEachIndexed { index, material ->
             material.texturePath?.let { path ->
-                materialTextures[index] = uploadClasspathTexture(path)
+                materialTextures[index] = uploadClasspathTexture(path, TextureEncoding.SrgbColor)
             }
         }
         waterCloudNormalTexture = uploadClasspathTexture(
             "assets/complementary/textures/cloud-water.png",
+            TextureEncoding.LinearData,
             repeat = true,
             linear = true,
             mipmaps = true
         )
         waterNoiseTexture = uploadClasspathTexture(
             "assets/complementary/textures/noise.png",
+            TextureEncoding.LinearData,
             repeat = true,
             linear = true,
             mipmaps = true
         )
-        sunTexture = uploadClasspathTexture("assets/minecraft/textures/environment/sun.png", repeat = false)
+        sunTexture = uploadClasspathTexture(
+            "assets/minecraft/textures/environment/sun.png",
+            TextureEncoding.SrgbColor,
+            repeat = false
+        )
         cloudTexture = uploadClasspathTexture(
             "assets/minecraft/textures/environment/clouds.png",
+            TextureEncoding.SrgbColor,
             linear = CLOUD_TEXTURE_LINEAR_FILTER
         )
 
@@ -710,7 +738,8 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         shadowProgram = createProgram(SHADOW_VERTEX_SHADER, SHADOW_FRAGMENT_SHADER)
         shadowProjectionLocation = glGetUniformLocation(shadowProgram, "uShadowViewProjection")
         shadowTextureLocation = glGetUniformLocation(shadowProgram, "uTexture")
-        shadowMaterialLocation = glGetUniformLocation(shadowProgram, "uMaterial")
+        shadowAlphaCutoutLocation = glGetUniformLocation(shadowProgram, "uAlphaCutout")
+        shadowTextureVScaleLocation = glGetUniformLocation(shadowProgram, "uTextureVScale")
         shadowTexture = glGenTextures()
         glBindTexture(GL_TEXTURE_2D, shadowTexture)
         glTexImage2D(
@@ -783,7 +812,7 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
             nonWaterBatches.forEach { batch ->
                 glBindTexture(GL_TEXTURE_2D, materialTextures[batch.material.ordinal])
                 glUniform1i(shadowTextureLocation, 0)
-                glUniform1i(shadowMaterialLocation, batch.material.ordinal)
+                uploadMaterialTraits(batch.material, shadowAlphaCutoutLocation, shadowTextureVScaleLocation)
                 glDrawElements(GL_TRIANGLES, batch.indexCount, GL_UNSIGNED_INT, batch.firstIndex.toLong() * Int.SIZE_BYTES)
             }
             glBindVertexArray(0)
@@ -831,7 +860,12 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         mainViewProjection.set(projection).mul(view)
         inverseViewProjection.set(mainViewProjection).invert()
         glViewport(0, 0, RENDER_WIDTH, RENDER_HEIGHT)
-        glClearColor(NOON_SKY_COLOR.red, NOON_SKY_COLOR.green, NOON_SKY_COLOR.blue, 1f)
+        glClearColor(
+            NOON_SKY_COLOR_LINEAR.red,
+            NOON_SKY_COLOR_LINEAR.green,
+            NOON_SKY_COLOR_LINEAR.blue,
+            1f
+        )
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
 
         renderScenePass(state, appearance, view, eye, false)
@@ -843,7 +877,12 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         reflectionTarget.set(target.x, reflectedY(target.y), target.z)
         reflectionView.identity().lookAt(reflectionEye, reflectionTarget, reflectionUp)
         reflectionViewProjection.set(projection).mul(reflectionView)
-        glClearColor(NOON_SKY_COLOR.red, NOON_SKY_COLOR.green, NOON_SKY_COLOR.blue, 1f)
+        glClearColor(
+            NOON_SKY_COLOR_LINEAR.red,
+            NOON_SKY_COLOR_LINEAR.green,
+            NOON_SKY_COLOR_LINEAR.blue,
+            1f
+        )
         glClear(GL_COLOR_BUFFER_BIT or GL_DEPTH_BUFFER_BIT)
         renderScenePass(state, appearance, reflectionView, reflectionEye, true)
     }
@@ -882,7 +921,12 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
             nonWaterBatches.forEach { batch ->
                 glBindTexture(GL_TEXTURE_2D, materialTextures[batch.material.ordinal])
                 glUniform1i(textureLocation, 0)
-                glUniform1i(materialLocation, batch.material.ordinal)
+                uploadMaterialTraits(
+                    batch.material,
+                    alphaCutoutLocation,
+                    textureVScaleLocation,
+                    emissiveLocation
+                )
                 glDrawElements(GL_TRIANGLES, batch.indexCount, GL_UNSIGNED_INT, batch.firstIndex.toLong() * Int.SIZE_BYTES)
             }
             glBindVertexArray(0)
@@ -923,9 +967,9 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         glUniform3f(waterSkyColorLocation, NOON_SKY_COLOR.red, NOON_SKY_COLOR.green, NOON_SKY_COLOR.blue)
         glUniform3f(
             waterHorizonColorLocation,
-            NOON_WATER_HORIZON_COLOR.red,
-            NOON_WATER_HORIZON_COLOR.green,
-            NOON_WATER_HORIZON_COLOR.blue
+            NOON_WATER_HORIZON_COLOR_LINEAR.red,
+            NOON_WATER_HORIZON_COLOR_LINEAR.green,
+            NOON_WATER_HORIZON_COLOR_LINEAR.blue
         )
         glUniform1f(waterHorizonFogStartLocation, WATER_HORIZON_FOG_START)
         glUniform1f(waterHorizonFogEndLocation, WATER_HORIZON_FOG_END)
@@ -993,8 +1037,8 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         if (playerAppearance === appearance && playerMeshKey == key) return
         if (playerSkinTexture != 0) glDeleteTextures(playerSkinTexture)
         if (playerCapeTexture != 0) glDeleteTextures(playerCapeTexture)
-        playerSkinTexture = uploadTexture(appearance.skin)
-        playerCapeTexture = appearance.cape?.let(::uploadTexture) ?: 0
+        playerSkinTexture = uploadTexture(appearance.skin, TextureEncoding.SrgbColor)
+        playerCapeTexture = appearance.cape?.let { uploadTexture(it, TextureEncoding.SrgbColor) } ?: 0
         if (playerMeshKey != key) {
             if (playerVertexBuffer != 0) glDeleteBuffers(playerVertexBuffer)
             if (playerVertexArray != 0) glDeleteVertexArrays(playerVertexArray)
@@ -1027,8 +1071,20 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         playerAppearance = null
     }
 
+    private fun uploadMaterialTraits(
+        material: BlockMaterial,
+        alphaCutoutLocation: Int,
+        textureVScaleLocation: Int,
+        emissiveLocation: Int = -1
+    ) {
+        glUniform1i(alphaCutoutLocation, if (material.alphaCutout) 1 else 0)
+        glUniform1f(textureVScaleLocation, material.textureVScale)
+        if (emissiveLocation >= 0) glUniform1i(emissiveLocation, if (material.emissive) 1 else 0)
+    }
+
     private fun uploadTexture(
         texture: PlayerSkinTexture,
+        encoding: TextureEncoding,
         repeat: Boolean = false,
         linear: Boolean = false,
         mipmaps: Boolean = false
@@ -1042,13 +1098,24 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, if (repeat) GL_REPEAT else GL_CLAMP_TO_EDGE)
         glPixelStorei(GL_UNPACK_ALIGNMENT, 1)
         val pixels = BufferUtils.createByteBuffer(texture.rgba.size).put(texture.rgba).flip()
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, texture.width, texture.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels)
+        glTexImage2D(
+            GL_TEXTURE_2D,
+            0,
+            encoding.internalFormat,
+            texture.width,
+            texture.height,
+            0,
+            GL_RGBA,
+            GL_UNSIGNED_BYTE,
+            pixels
+        )
         if (mipmaps) glGenerateMipmap(GL_TEXTURE_2D)
         return id
     }
 
     private fun uploadClasspathTexture(
         path: String,
+        encoding: TextureEncoding,
         repeat: Boolean = true,
         linear: Boolean = false,
         mipmaps: Boolean = false
@@ -1069,7 +1136,13 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
                 rgba[offset++] = (argb ushr 24).toByte()
             }
         }
-        return uploadTexture(PlayerSkinTexture(image.width, image.height, rgba, false), repeat, linear, mipmaps)
+        return uploadTexture(
+            PlayerSkinTexture(image.width, image.height, rgba, false),
+            encoding,
+            repeat,
+            linear,
+            mipmaps
+        )
     }
 
     override fun close() {
@@ -1170,6 +1243,7 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
             }
         }
         val cloudColor = NOON_CLOUD_COLOR
+        val cloudLinearColor = NOON_CLOUD_COLOR_LINEAR
         if (coordinates.floorX != previousCloudX ||
             coordinates.floorY != previousCloudY ||
             coordinates.floorZ != previousCloudZ ||
@@ -1179,7 +1253,7 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
             previousCloudY = coordinates.floorY
             previousCloudZ = coordinates.floorZ
             previousCloudColor = cloudColor
-            val vertices = buildFancyCloudVertices(coordinates, cloudColor)
+            val vertices = buildFancyCloudVertices(coordinates, cloudLinearColor)
             glBindBuffer(GL_ARRAY_BUFFER, cloudVertexBuffer)
             val cloudBuffer = BufferUtils.createFloatBuffer(vertices.size).put(vertices).flip()
             glBufferData(GL_ARRAY_BUFFER, cloudBuffer, GL_STATIC_DRAW)
@@ -1194,7 +1268,12 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
             cloudHeightLocation,
             if (reflection) reflectionCloudHeight(eye.y, reflectionEye.y, coordinates.fractionY) else coordinates.fractionY
         )
-        glUniform3f(cloudFogColorLocation, NOON_CLOUD_FOG_COLOR.red, NOON_CLOUD_FOG_COLOR.green, NOON_CLOUD_FOG_COLOR.blue)
+        glUniform3f(
+            cloudFogColorLocation,
+            NOON_CLOUD_FOG_COLOR_LINEAR.red,
+            NOON_CLOUD_FOG_COLOR_LINEAR.green,
+            NOON_CLOUD_FOG_COLOR_LINEAR.blue
+        )
         glUniform1f(cloudFogStartLocation, CLOUD_FOG_START)
         glUniform1f(cloudFogEndLocation, CLOUD_FOG_END)
         glUniform3f(cloudSunDirectionLocation, sun.directionX, sun.directionY, sun.directionZ)
@@ -1412,9 +1491,10 @@ internal class SceneGlRenderer(private val sceneSeed: Long) : AutoCloseable {
         bucket += normal[0]
         bucket += normal[1]
         bucket += normal[2]
-        bucket += material.red
-        bucket += material.green
-        bucket += material.blue
+        val linearColor = material.linearColor()
+        bucket += linearColor.red
+        bucket += linearColor.green
+        bucket += linearColor.blue
         bucket += kind.toFloat()
         val uv = faceUv(x, y, z, normal[0], normal[1], normal[2])
         bucket += uv[0]
@@ -1554,42 +1634,6 @@ internal fun faceUv(x: Float, y: Float, z: Float, normalX: Float, normalY: Float
 /** Builds the fixed, CPU-only scene mesh for deterministic batch/range tests. */
 internal fun buildSceneMesh(seed: Long): SceneMesh = SceneGlRenderer(seed).meshForTesting()
 
-private class FrameBitmapBuffer : AutoCloseable {
-    private var width = 0
-    private var height = 0
-    private var pixels = ByteArray(0)
-    private var imageInfo = ImageInfo.makeS32(1, 1, ColorAlphaType.PREMUL)
-
-    fun update(source: ByteBuffer, width: Int, height: Int): ImageBitmap {
-        ensureSize(width, height)
-        val rowBytes = width * 4
-        repeat(height) { targetY ->
-            source.position((height - targetY - 1) * rowBytes)
-            source.get(pixels, targetY * rowBytes, rowBytes)
-        }
-        val image = SkiaImage.makeRaster(imageInfo, pixels, rowBytes)
-        return try {
-            image.toComposeImageBitmap()
-        } finally {
-            image.close()
-        }
-    }
-
-    private fun ensureSize(width: Int, height: Int) {
-        if (this.width == width && this.height == height) return
-        this.width = width
-        this.height = height
-        pixels = ByteArray(width * height * 4)
-        imageInfo = ImageInfo.makeS32(width, height, ColorAlphaType.PREMUL)
-    }
-
-    override fun close() {
-        pixels = ByteArray(0)
-        width = 0
-        height = 0
-    }
-}
-
 internal fun createProgram(vertexSource: String, fragmentSource: String): Int {
     val vertex = compileShader(GL_VERTEX_SHADER, vertexSource)
     val fragment = compileShader(GL_FRAGMENT_SHADER, fragmentSource)
@@ -1635,15 +1679,15 @@ internal const val SHADOW_FRAGMENT_SHADER = """
 flat in int vKind;
 in vec2 vUv;
 uniform sampler2D uTexture;
-uniform int uMaterial;
+uniform bool uAlphaCutout;
+uniform float uTextureVScale;
 out vec4 color;
 void main() {
     if (vKind != 0) discard;
     vec2 uv = fract(vUv);
-    if (uMaterial == 7) uv = vec2(uv.x, uv.y / 3.0);
+    uv.y *= uTextureVScale;
     vec4 texel = texture(uTexture, uv);
-    bool cutout = (uMaterial >= 4 && uMaterial <= 6) || uMaterial == 7;
-    if (cutout && texel.a < 0.1) discard;
+    if (uAlphaCutout && texel.a < 0.1) discard;
     color = vec4(1.0);
 }
 """
@@ -1697,15 +1741,16 @@ in float vAmbientOcclusion;
 uniform vec3 uSunDirection;
 uniform sampler2D uTexture;
 uniform sampler2DShadow uShadowMap;
-uniform int uMaterial;
+uniform bool uAlphaCutout;
+uniform float uTextureVScale;
+uniform bool uEmissive;
 out vec4 color;
 void main() {
     float light = max(dot(normalize(vNormal), normalize(-uSunDirection)), 0.0);
     vec2 uv = fract(vUv);
-    if (uMaterial == 7) uv = vec2(uv.x, uv.y / 3.0);
+    uv.y *= uTextureVScale;
     vec4 texel = texture(uTexture, uv);
-    bool cutout = (uMaterial >= 4 && uMaterial <= 6) || uMaterial == 7;
-    if (cutout && texel.a < 0.1) discard;
+    if (uAlphaCutout && texel.a < 0.1) discard;
     vec3 shadowCoord = vShadowClipPosition.xyz / vShadowClipPosition.w * 0.5 + 0.5;
     float shadowFactor = 1.0;
     vec3 lightDirection = normalize(-uSunDirection);
@@ -1726,7 +1771,7 @@ void main() {
     float directShadow = mix(0.22, 1.0, shadowFactor);
     vec3 directLight = vec3(1.10, 0.90, 0.68) * light * directShadow;
     vec3 litColor = vColor * texel.rgb * (ambientLight + directLight);
-    if (uMaterial == 7) {
+    if (uEmissive) {
         float lanternBrightness = max(texel.r, max(texel.g, texel.b));
         float emissionMask = smoothstep(0.25, 0.75, lanternBrightness);
         litColor += vColor * vec3(1.8, 0.72, 0.16) * emissionMask;
@@ -1756,7 +1801,17 @@ float smoothstep1(float value) {
     return value * value * (3.0 - 2.0 * value);
 }
 
-vec3 noonSkyColor(vec3 worldRay, vec3 sunDirection, vec3 skyColor) {
+float srgbToLinear(float value) {
+    return value <= 0.04045
+        ? value / 12.92
+        : pow((value + 0.055) / 1.055, 2.4);
+}
+
+vec3 srgbToLinear(vec3 value) {
+    return vec3(srgbToLinear(value.r), srgbToLinear(value.g), srgbToLinear(value.b));
+}
+
+vec3 noonSkyDisplayColor(vec3 worldRay, vec3 sunDirection, vec3 skyColor) {
     float VdotU = dot(worldRay, vec3(0.0, 1.0, 0.0));
     float VdotS = dot(worldRay, normalize(sunDirection));
     float VdotSM1 = pow2(max(VdotS, 0.0));
@@ -1803,8 +1858,8 @@ out vec3 vWorldPosition;
 out vec4 vReflectionClipPosition;
 void main() {
     vec3 position = aPosition;
-    position.y += sin(position.x * 0.8 + uTime * 1.4) * 0.07
-        + cos(position.z * 0.5 + uTime) * 0.04;
+    position.y += sin(position.x * ${WATER_WAVE_X_FREQUENCY} + uTime * ${WATER_WAVE_X_TIME_SPEED}) * ${WATER_WAVE_X_AMPLITUDE}
+        + cos(position.z * ${WATER_WAVE_Z_FREQUENCY} + uTime * ${WATER_WAVE_Z_TIME_SPEED}) * ${WATER_WAVE_Z_AMPLITUDE};
     vWorldPosition = position;
     vNormal = aNormal;
     vColor = aColor;
@@ -1924,7 +1979,10 @@ void main() {
         : 0.0;
 
     vec3 reflectedDirection = reflect(-viewDirection, surfaceNormal);
-    vec3 skyReflection = noonSkyColor(reflectedDirection, normalize(-uSunDirection), uSkyColor);
+    vec3 skyReflection = srgbToLinear(max(
+        noonSkyDisplayColor(reflectedDirection, normalize(-uSunDirection), uSkyColor),
+        vec3(0.0)
+    ));
     float reflectionW = vReflectionClipPosition.w;
     vec2 reflectionUv = vReflectionClipPosition.xy / vReflectionClipPosition.w * 0.5 + 0.5;
     bool reflectionInBounds = vReflectionClipPosition.w > 0.0 &&
@@ -2038,10 +2096,10 @@ float Bayer8(vec2 coordinate) {
 void main() {
     vec4 viewRay = uInverseProjection * vec4(vNdc, 1.0, 1.0);
     vec3 worldRay = normalize(mat3(uInverseView) * (viewRay.xyz / viewRay.w));
-    vec3 finalSky = noonSkyColor(worldRay, normalize(uSunDirection), uSkyColor);
+    vec3 finalSky = noonSkyDisplayColor(worldRay, normalize(uSunDirection), uSkyColor);
 
     finalSky += (Bayer8(gl_FragCoord.xy) - 0.5) / 128.0;
-    color = vec4(finalSky, 1.0);
+    color = vec4(srgbToLinear(max(finalSky, vec3(0.0))), 1.0);
 }
 """
 

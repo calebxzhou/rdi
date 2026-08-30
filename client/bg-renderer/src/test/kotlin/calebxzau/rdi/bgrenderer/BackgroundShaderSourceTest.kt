@@ -1,13 +1,21 @@
 package calebxzau.rdi.bgrenderer
 
 import kotlin.test.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class BackgroundShaderSourceTest {
     @Test
     fun dedicatedWaterShaderOwnsWaterAnimation() {
         assertTrue(WATER_VERTEX_SHADER.contains("uniform float uTime;"))
-        assertTrue(WATER_VERTEX_SHADER.contains("uTime * 1.4"))
+        assertTrue(WATER_VERTEX_SHADER.contains("position.x * ${WATER_WAVE_X_FREQUENCY} + uTime * ${WATER_WAVE_X_TIME_SPEED}) * ${WATER_WAVE_X_AMPLITUDE}"))
+        assertTrue(WATER_VERTEX_SHADER.contains("position.z * ${WATER_WAVE_Z_FREQUENCY} + uTime * ${WATER_WAVE_Z_TIME_SPEED}) * ${WATER_WAVE_Z_AMPLITUDE}"))
+        assertTrue(WATER_VERTEX_SHADER.contains("0.8"))
+        assertTrue(WATER_VERTEX_SHADER.contains("1.4"))
+        assertTrue(WATER_VERTEX_SHADER.contains("0.07"))
+        assertTrue(WATER_VERTEX_SHADER.contains("0.5"))
+        assertTrue(WATER_VERTEX_SHADER.contains("1.0"))
+        assertTrue(WATER_VERTEX_SHADER.contains("0.04"))
         assertTrue(WATER_FRAGMENT_SHADER.contains("uWaterNormalOffset"))
         assertTrue(WATER_FRAGMENT_SHADER.contains("waterPos * 4.0"))
         assertTrue(!WATER_FRAGMENT_SHADER.contains("uniform float uTime;"))
@@ -19,6 +27,14 @@ class BackgroundShaderSourceTest {
         val rendererSource = java.io.File(
             "src/main/kotlin/calebxzau/rdi/bgrenderer/BackgroundRenderer.kt"
         ).readText()
+        listOf(
+            "\${WATER_WAVE_X_FREQUENCY}",
+            "\${WATER_WAVE_X_TIME_SPEED}",
+            "\${WATER_WAVE_X_AMPLITUDE}",
+            "\${WATER_WAVE_Z_FREQUENCY}",
+            "\${WATER_WAVE_Z_TIME_SPEED}",
+            "\${WATER_WAVE_Z_AMPLITUDE}"
+        ).forEach { token -> assertTrue(rendererSource.contains(token)) }
         assertTrue(!rendererSource.contains("waterFrameLocation"))
         assertTrue(!rendererSource.contains("waterAlbedoLocation"))
         assertTrue(!rendererSource.contains("\"uWaterFrame\""))
@@ -31,9 +47,12 @@ class BackgroundShaderSourceTest {
         assertTrue(VERTEX_SHADER.contains("in vec2 aUv;"))
         assertTrue(VERTEX_SHADER.contains("vUv = aUv;"))
         assertTrue(FRAGMENT_SHADER.contains("uniform sampler2D uTexture;"))
-        assertTrue(FRAGMENT_SHADER.contains("uniform int uMaterial;"))
+        assertTrue(FRAGMENT_SHADER.contains("uniform bool uAlphaCutout;"))
+        assertTrue(FRAGMENT_SHADER.contains("uniform float uTextureVScale;"))
+        assertTrue(FRAGMENT_SHADER.contains("uniform bool uEmissive;"))
         assertTrue(FRAGMENT_SHADER.contains("texture(uTexture, uv)"))
-        assertTrue(FRAGMENT_SHADER.contains("uv.y / 3.0"))
+        assertTrue(FRAGMENT_SHADER.contains("uv.y *= uTextureVScale"))
+        assertTrue(!FRAGMENT_SHADER.contains("uMaterial"))
         assertTrue(FRAGMENT_SHADER.contains("uniform sampler2DShadow uShadowMap;"))
         assertTrue(FRAGMENT_SHADER.contains("vec3 ambientLight = vec3(0.46, 0.48, 0.52) * mix(1.0, vAmbientOcclusion, 0.55);"))
         assertTrue(FRAGMENT_SHADER.contains("float directShadow = mix(0.22, 1.0, shadowFactor);"))
@@ -55,12 +74,31 @@ class BackgroundShaderSourceTest {
     }
 
     @Test
+    fun textureEncodingsKeepColorAndDataTexturesDistinct() {
+        assertEquals(org.lwjgl.opengl.GL21.GL_SRGB8_ALPHA8, TextureEncoding.SrgbColor.internalFormat)
+        assertEquals(org.lwjgl.opengl.GL11.GL_RGBA8, TextureEncoding.LinearData.internalFormat)
+        val rendererSource = java.io.File(
+            "src/main/kotlin/calebxzau/rdi/bgrenderer/BackgroundRenderer.kt"
+        ).readText()
+        assertTrue(rendererSource.contains("uploadClasspathTexture(path, TextureEncoding.SrgbColor)"))
+        assertTrue(rendererSource.contains("\"assets/complementary/textures/cloud-water.png\",\n            TextureEncoding.LinearData"))
+        assertTrue(rendererSource.contains("\"assets/complementary/textures/noise.png\",\n            TextureEncoding.LinearData"))
+        assertTrue(rendererSource.contains("\"assets/minecraft/textures/environment/sun.png\",\n            TextureEncoding.SrgbColor"))
+        assertTrue(rendererSource.contains("\"assets/minecraft/textures/environment/clouds.png\",\n            TextureEncoding.SrgbColor"))
+        assertTrue(rendererSource.contains("uploadTexture(appearance.skin, TextureEncoding.SrgbColor)"))
+        assertTrue(rendererSource.contains("uploadTexture(it, TextureEncoding.SrgbColor)"))
+    }
+
+    @Test
     fun staticShadowShaderExcludesDynamicGeometryAndKeepsCutouts() {
         assertTrue(SHADOW_VERTEX_SHADER.contains("layout(location = 3) in float aKind;"))
         assertTrue(SHADOW_VERTEX_SHADER.contains("layout(location = 4) in vec2 aUv;"))
         assertTrue(SHADOW_FRAGMENT_SHADER.contains("if (vKind != 0) discard;"))
-        assertTrue(SHADOW_FRAGMENT_SHADER.contains("if (uMaterial == 7) uv = vec2(uv.x, uv.y / 3.0);"))
-        assertTrue(SHADOW_FRAGMENT_SHADER.contains("if (cutout && texel.a < 0.1) discard;"))
+        assertTrue(SHADOW_FRAGMENT_SHADER.contains("uniform bool uAlphaCutout;"))
+        assertTrue(SHADOW_FRAGMENT_SHADER.contains("uniform float uTextureVScale;"))
+        assertTrue(SHADOW_FRAGMENT_SHADER.contains("uv.y *= uTextureVScale"))
+        assertTrue(!SHADOW_FRAGMENT_SHADER.contains("uMaterial"))
+        assertTrue(SHADOW_FRAGMENT_SHADER.contains("if (uAlphaCutout && texel.a < 0.1) discard;"))
         val rendererSource = java.io.File(
             "src/main/kotlin/calebxzau/rdi/bgrenderer/BackgroundRenderer.kt"
         ).readText()
@@ -167,8 +205,8 @@ class BackgroundShaderSourceTest {
         assertTrue(SKY_FRAGMENT_SHADER.contains("uniform vec3 uSunDirection;"))
         assertTrue(SKY_FRAGMENT_SHADER.contains("uInverseProjection * vec4(vNdc, 1.0, 1.0)"))
         assertTrue(SKY_FRAGMENT_SHADER.contains("mat3(uInverseView)"))
-        assertTrue(SKY_FRAGMENT_SHADER.contains("noonSkyColor(worldRay, normalize(uSunDirection)"))
-        assertTrue(WATER_FRAGMENT_SHADER.contains("noonSkyColor(reflectedDirection"))
+        assertTrue(SKY_FRAGMENT_SHADER.contains("noonSkyDisplayColor(worldRay, normalize(uSunDirection)"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("noonSkyDisplayColor(reflectedDirection"))
     }
 
     @Test
@@ -188,7 +226,8 @@ class BackgroundShaderSourceTest {
         assertTrue(HDR_COLOR_FORMAT == org.lwjgl.opengl.GL30.GL_R11F_G11F_B10F)
         assertTrue(FINAL_COLOR_FORMAT == org.lwjgl.opengl.GL11.GL_RGBA8)
         assertTrue(BackgroundPostProcessor::class.java.declaredFields.any { it.name == "linearTexture" })
-        assertTrue(LINEARIZE_FRAGMENT_SHADER.contains("pow(max(raw, vec3(0.0)), vec3(2.2))"))
+        assertTrue(HDR_COPY_FRAGMENT_SHADER.contains("color = vec4(max(raw, vec3(0.0)), 1.0)"))
+        assertTrue(!HDR_COPY_FRAGMENT_SHADER.contains("2.2"))
         assertTrue(BLOOM_ATLAS_FRAGMENT_SHADER.contains("textureLod(uLinearHdr, bloomCoord, lod)"))
         assertTrue(BLOOM_ATLAS_FRAGMENT_SHADER.contains("textureSize(uLinearHdr, 0)"))
         assertTrue(!BLOOM_ATLAS_FRAGMENT_SHADER.contains("vec2(900.0, 540.0)"))
@@ -271,8 +310,8 @@ class BackgroundShaderSourceTest {
         assertTrue(WATER_FRAGMENT_SHADER.contains("uniform vec3 uSunDirection;"))
         assertTrue(WATER_FRAGMENT_SHADER.contains("ggxSunHighlight"))
         assertTrue(WATER_FRAGMENT_SHADER.indexOf("ggxSunHighlight") < WATER_FRAGMENT_SHADER.indexOf("smoothstep(uHorizonFogStart"))
-        assertTrue(NOON_SKY_FUNCTIONS.contains("vec3 noonSkyColor"))
-        assertTrue(WATER_FRAGMENT_SHADER.contains("vec3 noonSkyColor"))
+        assertTrue(NOON_SKY_FUNCTIONS.contains("vec3 noonSkyDisplayColor"))
+        assertTrue(WATER_FRAGMENT_SHADER.contains("vec3 noonSkyDisplayColor"))
     }
 
     @Test

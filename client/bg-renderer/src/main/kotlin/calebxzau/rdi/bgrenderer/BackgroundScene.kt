@@ -1,20 +1,40 @@
 package calebxzau.rdi.bgrenderer
 
+import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.floor
+import kotlin.math.pow
 import kotlin.random.Random
 
-enum class BlockMaterial(val red: Float, val green: Float, val blue: Float, val texturePath: String?) {
+enum class BlockMaterial(
+    val red: Float,
+    val green: Float,
+    val blue: Float,
+    val texturePath: String?,
+    val alphaCutout: Boolean = false,
+    val textureVScale: Float = 1f,
+    val emissive: Boolean = false
+) {
     SAND(1.0f, 0.94f, 0.72f, "assets/minecraft/textures/block/sand.png"),
     OAK_PLANKS(0.88f, 0.68f, 0.44f, "assets/minecraft/textures/block/oak_planks.png"),
     OAK_LOG(0.88f, 0.68f, 0.44f, "assets/minecraft/textures/block/oak_log.png"),
     OAK_LOG_TOP(0.95f, 0.78f, 0.56f, "assets/minecraft/textures/block/oak_log_top.png"),
-    CACTUS_SIDE(0.70f, 0.92f, 0.58f, "assets/minecraft/textures/block/cactus_side.png"),
-    CACTUS_TOP(0.74f, 0.96f, 0.62f, "assets/minecraft/textures/block/cactus_top.png"),
-    CACTUS_BOTTOM(0.62f, 0.84f, 0.48f, "assets/minecraft/textures/block/cactus_bottom.png"),
-    LANTERN(1.0f, 0.86f, 0.54f, "assets/minecraft/textures/block/lantern.png"),
-    WATER(0.08f, 0.30f, 0.58f, null)
+    CACTUS_SIDE(0.70f, 0.92f, 0.58f, "assets/minecraft/textures/block/cactus_side.png", alphaCutout = true),
+    CACTUS_TOP(0.74f, 0.96f, 0.62f, "assets/minecraft/textures/block/cactus_top.png", alphaCutout = true),
+    CACTUS_BOTTOM(0.62f, 0.84f, 0.48f, "assets/minecraft/textures/block/cactus_bottom.png", alphaCutout = true),
+    LANTERN(
+        1.0f,
+        0.86f,
+        0.54f,
+        "assets/minecraft/textures/block/lantern.png",
+        alphaCutout = true,
+        textureVScale = 1f / 3f,
+        emissive = true
+    ),
+    WATER(0.08f, 0.30f, 0.58f, null);
+
+    fun linearColor(): SkyColor = SkyColor(red, green, blue).toLinear()
 }
 
 data class CameraPose(val yawRadians: Float, val height: Float, val distance: Float)
@@ -34,6 +54,16 @@ data class SunState(
 )
 
 data class SkyColor(val red: Float, val green: Float, val blue: Float)
+
+/** Exact IEC 61966-2-1 sRGB transfer function for authored color inputs. */
+internal fun srgbToLinear(channel: Float): Float =
+    if (channel <= 0.04045f) channel / 12.92f else ((channel + 0.055f) / 1.055f).pow(2.4f)
+
+fun SkyColor.toLinear(): SkyColor = SkyColor(
+    srgbToLinear(red),
+    srgbToLinear(green),
+    srgbToLinear(blue)
+)
 
 data class SunBillboardBasis(
     val rightX: Float,
@@ -90,6 +120,32 @@ const val WATER_NORMAL_SCROLL_PERIOD = 20.0
 const val WATER_EXTENT = 640f
 const val WATER_HORIZON_FOG_START = 260f
 const val WATER_HORIZON_FOG_END = 360f
+internal const val WATER_WAVE_X_FREQUENCY = 0.8f
+internal const val WATER_WAVE_X_TIME_SPEED = 1.4f
+internal const val WATER_WAVE_X_AMPLITUDE = 0.07f
+internal const val WATER_WAVE_Z_FREQUENCY = 0.5f
+internal const val WATER_WAVE_Z_TIME_SPEED = 1.0f
+internal const val WATER_WAVE_Z_AMPLITUDE = 0.04f
+
+internal fun waterVertexOffset(x: Float, z: Float, waterTimeSeconds: Float): Float =
+    sin((x * WATER_WAVE_X_FREQUENCY + waterTimeSeconds * WATER_WAVE_X_TIME_SPEED).toDouble()).toFloat() * WATER_WAVE_X_AMPLITUDE +
+        cos((z * WATER_WAVE_Z_FREQUENCY + waterTimeSeconds * WATER_WAVE_Z_TIME_SPEED).toDouble()).toFloat() * WATER_WAVE_Z_AMPLITUDE
+
+internal fun waterSurfaceHeightAt(x: Float, z: Float, waterTimeSeconds: Float): Float {
+    val s = WATER_EXTENT
+    val u = (x + s) / (2f * s)
+    val v = (s - z) / (2f * s)
+    val h0 = waterVertexOffset(-s, s, waterTimeSeconds)
+    val h1 = waterVertexOffset(s, s, waterTimeSeconds)
+    val h2 = waterVertexOffset(s, -s, waterTimeSeconds)
+    val h3 = waterVertexOffset(-s, -s, waterTimeSeconds)
+    val offset = if (u >= v) {
+        (1f - u) * h0 + (u - v) * h1 + v * h2
+    } else {
+        (1f - v) * h0 + u * h2 + (v - u) * h3
+    }
+    return WATER_LEVEL + offset
+}
 
 /** Mirrors a world-space height around the water plane for the planar reflection camera. */
 fun reflectedY(y: Float): Float = 2f * WATER_LEVEL - y
@@ -102,6 +158,10 @@ val NOON_SKY_COLOR = SkyColor(0.14f, 0.40f, 0.78f)
 val NOON_WATER_HORIZON_COLOR = SkyColor(0.34f, 0.62f, 0.84f)
 val NOON_CLOUD_FOG_COLOR = SkyColor(0.86f, 0.90f, 0.96f)
 val NOON_CLOUD_COLOR = SkyColor(1.0f, 1.0f, 1.0f)
+val NOON_SKY_COLOR_LINEAR = NOON_SKY_COLOR.toLinear()
+val NOON_WATER_HORIZON_COLOR_LINEAR = NOON_WATER_HORIZON_COLOR.toLinear()
+val NOON_CLOUD_FOG_COLOR_LINEAR = NOON_CLOUD_FOG_COLOR.toLinear()
+val NOON_CLOUD_COLOR_LINEAR = NOON_CLOUD_COLOR.toLinear()
 
 data class CloudCoordinates(
     val x: Double,
@@ -299,12 +359,15 @@ object BackgroundScene {
 
     fun boat(timeSeconds: Float): BoatPose = boat(timeSeconds.toDouble())
 
-    fun boat(timeSeconds: Double): BoatPose {
+    fun boat(timeSeconds: Double): BoatPose = boat(timeSeconds, waterAnimationTime(timeSeconds))
+
+    private fun boat(timeSeconds: Double, waterTimeSeconds: Float): BoatPose {
         val phase = positiveModulo(timeSeconds, BOAT_SLIDE_PERIOD_SECONDS) / BOAT_SLIDE_PERIOD_SECONDS
         val wave = kotlin.math.sin(phase * Math.PI * 2.0)
+        val x = BOAT_CENTER_X + wave.toFloat() * BOAT_SLIDE_DISTANCE
         return BoatPose(
-            x = BOAT_CENTER_X + wave.toFloat() * BOAT_SLIDE_DISTANCE,
-            y = BOAT_WATERLINE + (wave * 0.08).toFloat(),
+            x = x,
+            y = BOAT_WATERLINE + (waterSurfaceHeightAt(x, BOAT_CENTER_Z, waterTimeSeconds) - WATER_LEVEL),
             z = BOAT_CENTER_Z,
             yawRadians = (wave * 0.035).toFloat(),
             rollRadians = (kotlin.math.cos(phase * Math.PI * 2.0) * 0.018).toFloat()
@@ -321,13 +384,19 @@ object BackgroundScene {
         val cloudTimeSeconds: Double
     )
 
-    fun frameState(elapsedSeconds: Double): FrameState = FrameState(
-        camera = camera(elapsedSeconds),
-        boat = boat(elapsedSeconds),
-        waterTimeSeconds = positiveModulo(elapsedSeconds, WATER_ANIMATION_PERIOD_SECONDS).toFloat(),
-        waterNormalOffset = waterNormalOffset(elapsedSeconds),
-        cloudTimeSeconds = elapsedSeconds
-    )
+    fun frameState(elapsedSeconds: Double): FrameState {
+        val waterTimeSeconds = waterAnimationTime(elapsedSeconds)
+        return FrameState(
+            camera = camera(elapsedSeconds),
+            boat = boat(elapsedSeconds, waterTimeSeconds),
+            waterTimeSeconds = waterTimeSeconds,
+            waterNormalOffset = waterNormalOffset(elapsedSeconds),
+            cloudTimeSeconds = elapsedSeconds
+        )
+    }
+
+    internal fun waterAnimationTime(elapsedSeconds: Double): Float =
+        positiveModulo(elapsedSeconds, WATER_ANIMATION_PERIOD_SECONDS).toFloat()
 
     /** Stable, repeating scroll offset for the Complementary water normal layers. */
     fun waterNormalOffset(elapsedSeconds: Double): Float =

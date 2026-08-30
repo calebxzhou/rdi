@@ -9,6 +9,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
+import kotlin.math.pow
 import org.joml.Matrix4f
 import org.joml.Vector3f
 import org.joml.Vector4f
@@ -218,13 +219,111 @@ class BackgroundSceneTest {
         assertEquals(25f, BOAT_CENTER_Z)
         assertEquals(1.25f, BOAT_VISUAL_SCALE)
         assertEquals(0.08f, PLAYER_VISUAL_SCALE)
+        assertEquals(BOAT_CENTER_X + BOAT_SLIDE_DISTANCE, poses[1].x, absoluteTolerance = 0.000001f)
+        assertEquals(BOAT_CENTER_X, poses[2].x, absoluteTolerance = 0.000001f)
+        assertEquals(BOAT_CENTER_X - BOAT_SLIDE_DISTANCE, poses[3].x, absoluteTolerance = 0.000001f)
+        assertEquals(0.035f, poses[1].yawRadians, absoluteTolerance = 0.000001f)
+        assertEquals(0f, poses[2].yawRadians, absoluteTolerance = 0.000001f)
+        assertEquals(-0.035f, poses[3].yawRadians, absoluteTolerance = 0.000001f)
+        assertEquals(0f, poses[1].rollRadians, absoluteTolerance = 0.000001f)
+        assertEquals(-0.018f, poses[2].rollRadians, absoluteTolerance = 0.000001f)
+        assertEquals(0f, poses[3].rollRadians, absoluteTolerance = 0.000001f)
         assertTrue(poses.all { it.x in BOAT_CENTER_X - BOAT_SLIDE_DISTANCE..BOAT_CENTER_X + BOAT_SLIDE_DISTANCE && it.y > WATER_LEVEL })
         assertTrue(poses.all { it.z == BOAT_CENTER_Z })
         poses.forEach { boat ->
             val anchor = BackgroundScene.playerAnchor(boat)
             assertEquals(boat.x, anchor.x)
             assertEquals(boat.z, anchor.z)
+            assertEquals(0.05f, anchor.y - boat.y, absoluteTolerance = 0.000001f)
             assertTrue(anchor.y > WATER_LEVEL)
+        }
+    }
+
+    @Test
+    fun waterVertexOffsetMatchesTheRenderedVertexFormula() {
+        val samples = listOf(
+            Triple(0f, 0f, 0f),
+            Triple(-7.25f, 25f, 3.5f),
+            Triple(12.5f, -18.75f, 11.25f),
+            Triple(-640f, 640f, -2f)
+        )
+        samples.forEach { (x, z, time) ->
+            val expected = sin((x * 0.8f + time * 1.4f).toDouble()).toFloat() * 0.07f +
+                cos((z * 0.5f + time * 1.0f).toDouble()).toFloat() * 0.04f
+            assertEquals(expected, waterVertexOffset(x, z, time), absoluteTolerance = 0.000001f)
+        }
+    }
+
+    @Test
+    fun waterSurfaceHeightMatchesEachCornerAndBothTriangleInterpolations() {
+        val time = 7.25f
+        val s = WATER_EXTENT
+        val corners = listOf(-s to s, s to s, s to -s, -s to -s)
+        corners.forEach { (x, z) ->
+            assertEquals(
+                WATER_LEVEL + waterVertexOffset(x, z, time),
+                waterSurfaceHeightAt(x, z, time),
+                absoluteTolerance = 0.000001f
+            )
+        }
+
+        fun point(u: Float, v: Float): Pair<Float, Float> = (2f * s * u - s) to (s - 2f * s * v)
+        val h0 = waterVertexOffset(-s, s, time)
+        val h1 = waterVertexOffset(s, s, time)
+        val h2 = waterVertexOffset(s, -s, time)
+        val h3 = waterVertexOffset(-s, -s, time)
+        val first = point(0.75f, 0.25f)
+        assertEquals(
+            WATER_LEVEL + (1f - 0.75f) * h0 + (0.75f - 0.25f) * h1 + 0.25f * h2,
+            waterSurfaceHeightAt(first.first, first.second, time),
+            absoluteTolerance = 0.00001f
+        )
+        val second = point(0.25f, 0.75f)
+        assertEquals(
+            WATER_LEVEL + (1f - 0.75f) * h0 + 0.25f * h2 + (0.75f - 0.25f) * h3,
+            waterSurfaceHeightAt(second.first, second.second, time),
+            absoluteTolerance = 0.00001f
+        )
+    }
+
+    @Test
+    fun waterSurfaceIsContinuousAcrossTheSharedDiagonalAndAnimationPeriod() {
+        val time = 12.5f
+        val s = WATER_EXTENT
+        val u = 0.5f
+        val v = 0.5f
+        val h0 = waterVertexOffset(-s, s, time)
+        val h1 = waterVertexOffset(s, s, time)
+        val h2 = waterVertexOffset(s, -s, time)
+        val h3 = waterVertexOffset(-s, -s, time)
+        val firstDiagonal = (1f - u) * h0 + (u - v) * h1 + v * h2
+        val secondDiagonal = (1f - v) * h0 + u * h2 + (v - u) * h3
+        assertEquals(firstDiagonal, secondDiagonal, absoluteTolerance = 0.000001f)
+        val diagonalX = 2f * s * u - s
+        val diagonalZ = s - 2f * s * v
+        assertEquals(WATER_LEVEL + firstDiagonal, waterSurfaceHeightAt(diagonalX, diagonalZ, time), absoluteTolerance = 0.000001f)
+        val epsilon = 0.0001f
+        val belowDiagonal = waterSurfaceHeightAt(2f * s * (u - epsilon) - s, diagonalZ, time)
+        val aboveDiagonal = waterSurfaceHeightAt(2f * s * (u + epsilon) - s, diagonalZ, time)
+        assertTrue(abs(belowDiagonal - aboveDiagonal) < 0.0001f)
+
+        val before = waterSurfaceHeightAt(BOAT_CENTER_X, BOAT_CENTER_Z, WATER_ANIMATION_PERIOD_SECONDS.toFloat() - 0.001f)
+        val after = waterSurfaceHeightAt(BOAT_CENTER_X, BOAT_CENTER_Z, 0.001f)
+        assertTrue(abs(before - after) < 0.0003f)
+    }
+
+    @Test
+    fun frameStateAndBoatShareTheWrappedWaterTimeAndSurfaceHeight() {
+        val elapsedTimes = listOf(0.0, 7.25, 18.0, -1.0, 12345.678, WATER_ANIMATION_PERIOD_SECONDS - 0.001, WATER_ANIMATION_PERIOD_SECONDS + 0.001)
+        elapsedTimes.forEach { elapsed ->
+            val state = BackgroundScene.frameState(elapsed)
+            val expectedY = BOAT_WATERLINE + (
+                waterSurfaceHeightAt(state.boat.x, BOAT_CENTER_Z, state.waterTimeSeconds) - WATER_LEVEL
+                )
+            assertEquals(expectedY, state.boat.y, absoluteTolerance = 0.000001f)
+            assertEquals(state.boat, BackgroundScene.boat(elapsed))
+            assertEquals(BOAT_CENTER_Z, state.boat.z)
+            assertEquals(0.05f, BackgroundScene.playerAnchor(state.boat).y - state.boat.y, absoluteTolerance = 0.000001f)
         }
     }
 
@@ -283,6 +382,44 @@ class BackgroundSceneTest {
         assertEquals(0.30f, BlockMaterial.WATER.green)
         assertEquals(0.58f, BlockMaterial.WATER.blue)
         assertTrue(BlockMaterial.entries.filter { it != BlockMaterial.WATER }.all { it.texturePath != null })
+    }
+
+    @Test
+    fun authoredSrgbColorsAreConvertedToLinearSceneInputs() {
+        assertEquals(0f, srgbToLinear(0f), absoluteTolerance = 0.000001f)
+        assertEquals(1f, srgbToLinear(1f), absoluteTolerance = 0.000001f)
+        assertEquals(0.21404114f, srgbToLinear(0.5f), absoluteTolerance = 0.000001f)
+        assertEquals(0.04045f / 12.92f, srgbToLinear(0.04045f), absoluteTolerance = 0.000001f)
+        assertEquals(
+            ((0.04046f + 0.055f) / 1.055f).toDouble().pow(2.4).toFloat(),
+            srgbToLinear(0.04046f),
+            absoluteTolerance = 0.000001f
+        )
+
+        val mesh = buildSceneMesh(123L)
+        fun firstVertexColor(material: BlockMaterial): SkyColor {
+            val vertex = mesh.indices[mesh.batches.single { it.material == material }.firstIndex]
+            val offset = vertex * SCENE_VERTEX_FLOATS + 6
+            return SkyColor(mesh.vertices[offset], mesh.vertices[offset + 1], mesh.vertices[offset + 2])
+        }
+        assertEquals(BlockMaterial.SAND.linearColor(), firstVertexColor(BlockMaterial.SAND))
+        assertEquals(BlockMaterial.WATER.linearColor(), firstVertexColor(BlockMaterial.WATER))
+        assertTrue(firstVertexColor(BlockMaterial.SAND).green != BlockMaterial.SAND.green)
+    }
+
+    @Test
+    fun materialTraitsDescribeShaderSemanticsExplicitly() {
+        assertTrue(BlockMaterial.CACTUS_SIDE.alphaCutout)
+        assertTrue(BlockMaterial.CACTUS_TOP.alphaCutout)
+        assertTrue(BlockMaterial.CACTUS_BOTTOM.alphaCutout)
+        assertTrue(BlockMaterial.LANTERN.alphaCutout)
+        assertEquals(1f / 3f, BlockMaterial.LANTERN.textureVScale)
+        assertTrue(BlockMaterial.LANTERN.emissive)
+        listOf(BlockMaterial.SAND, BlockMaterial.OAK_PLANKS, BlockMaterial.OAK_LOG).forEach { material ->
+            assertTrue(!material.alphaCutout)
+            assertEquals(1f, material.textureVScale)
+            assertTrue(!material.emissive)
+        }
     }
 
     @Test
