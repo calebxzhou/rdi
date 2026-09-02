@@ -150,7 +150,6 @@ fun MyModpackScreen(
     var actionError by remember { mutableStateOf<String?>(null) }
     var packActionMessage by remember { mutableStateOf<String?>(null) }
     var deleteConfirmPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
-    var deleteIncludedMods by remember { mutableStateOf(false) }
     var reinstallConfirmPack by remember { mutableStateOf<ModpackLocalDir?>(null) }
     var copyDataSourcePack by remember { mutableStateOf<ModpackLocalDir?>(null) }
     var copyDataTargetVersionId by remember { mutableStateOf<String?>(null) }
@@ -393,13 +392,12 @@ fun MyModpackScreen(
                                             onReinstall = { reinstallConfirmPack = item.pack },
                                             onExport = {
                                                 scope.launch {
-                                                    val result = withContext(Dispatchers.IO) {
-                                                        exportRdiModpack(item.pack) { message ->
-                                                            packActionMessage = message
-                                                        }
-                                                    }
-                                                    result.onSuccess { packActionMessage = "导出完成" }
-                                                        .onFailure { actionError = it.message ?: "导出失败" }
+                                                    runCatching {
+                                                        val prepared = withContext(Dispatchers.IO) {
+                                                            exportRdiModpack2(item.pack)
+                                                        }.getOrThrow() ?: return@runCatching
+                                                        onOpenTask(ClientTaskManager.submit(prepared.task, prepared.dedupeKey))
+                                                    }.onFailure { actionError = it.message ?: "导出失败" }
                                                 }
                                             },
                                             onExportLogs = {
@@ -615,18 +613,6 @@ fun MyModpackScreen(
                     if (McPlayStore.aliveCount(pack.versionId) > 0) {
                         Text("整合包正在运行，结束游戏后才能删除", color = MaterialTheme.colorScheme.error)
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            deleteIncludedMods = !deleteIncludedMods
-                        },
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Checkbox(
-                            checked = deleteIncludedMods,
-                            onCheckedChange = { deleteIncludedMods = it },
-                        )
-                        Text("一并删除包中含有的Mod")
-                    }
                 }
             },
             dismissButton = {
@@ -638,10 +624,9 @@ fun MyModpackScreen(
                     onClick = {
                         deleteConfirmPack = null
                         scope.launch {
-                            ModpackService.deleteLocalPack(pack, deleteIncludedMods)
+                            ModpackService.deleteLocalPack(pack)
                                 .onFailure { actionError = "删除失败: ${it.message}" }
                                 .onSuccess { reloadLegacy() }
-                            deleteIncludedMods = false
                         }
                     },
                 ) { Text("确认") }

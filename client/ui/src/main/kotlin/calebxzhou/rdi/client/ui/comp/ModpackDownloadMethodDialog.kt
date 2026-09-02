@@ -13,7 +13,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.service.ClientTaskManager
-import calebxzhou.rdi.client.ui.screen.importRdiModpackTask2
+import calebxzhou.rdi.client.ui.screen.prepareRdiModpackImportTask2
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,14 +37,18 @@ fun ModpackDownloadMethodDialog(
             val task = withContext(Dispatchers.IO) {
                 runCatching {
                     onImportMessage("开始导入...")
-                    importRdiModpackTask2(onImportMessage)
+                    prepareRdiModpackImportTask2(onImportMessage)
                 }
             }.getOrElse {
                 onImportError(it.message ?: "导入失败")
                 return@launch
             }
+            if (task == null) {
+                onDismiss()
+                return@launch
+            }
             onDismiss()
-            val runId = ClientTaskManager.submit(task)
+            val runId = ClientTaskManager.submit(task.task, task.dedupeKey)
             if (onOpenTaskList != null) {
                 onOpenTaskList(runId)
             } else {
@@ -72,7 +76,7 @@ fun ModpackDownloadMethodDialog(
             },
             confirmButton = {
                 TextButton(onClick = ::importRdiModpack) {
-                    Text("5.点此选择他传完的包")
+                    Text("5.导入朋友发来的整合包")
                 }
             }
         )
@@ -85,12 +89,12 @@ fun ModpackDownloadMethodDialog(
         text = { Text("请选择${packTitle.ifBlank { "整合包" }}下载方式") },
         confirmButton = {
             TextButton(onClick = onDirectDownload) {
-                Text("2.直接下载")
+                Text("2.直接下载(很慢)")
             }
         },
         dismissButton = {
             TextButton(onClick = { showFriendTransferTodo = true }) {
-                Text("1.让朋友把下完的发我，速度更快")
+                Text("1.让朋友分享我(非常快)")
             }
         }
     )

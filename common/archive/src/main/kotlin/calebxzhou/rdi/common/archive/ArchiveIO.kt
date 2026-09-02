@@ -32,6 +32,17 @@ data class ArchiveEntryData(
     val bytes: ByteArray?
 )
 
+data class StreamingTarEntry(
+    val path: String,
+    val isDirectory: Boolean,
+    val size: Long,
+    val time: Long,
+    val isSymbolicLink: Boolean,
+    val isHardLink: Boolean,
+    val isSpecial: Boolean,
+    val isSparse: Boolean,
+)
+
 private val ZIP_MAGIC = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
 private val ZSTD_MAGIC = byteArrayOf(0x28, 0xB5.toByte(), 0x2F, 0xFD.toByte())
 
@@ -117,6 +128,62 @@ fun forEachArchiveEntry(file: File, onEntry: (ArchiveEntryData) -> Unit) {
                 )
             }
         }
+    }
+}
+
+/**
+ * Streams regular and special TAR.Zstandard entries without buffering their
+ * contents. The callback must consume the supplied stream when it needs the
+ * entry bytes; any remaining bytes are discarded before the next entry.
+ */
+fun forEachTarZstEntryStreaming(
+    file: File,
+    onEntry: (entry: StreamingTarEntry, input: InputStream) -> Unit,
+) {
+    openTarZstInput(file).use { input ->
+        while (true) {
+            val entry = input.nextTarEntry ?: break
+            onEntry(
+                StreamingTarEntry(
+                    path = entry.name,
+                    isDirectory = entry.isDirectory,
+                    size = entry.size,
+                    time = entry.modTime.time,
+                    isSymbolicLink = entry.isSymbolicLink,
+                    isHardLink = entry.isLink,
+                    isSpecial = entry.isCharacterDevice || entry.isBlockDevice || entry.isFIFO,
+                    isSparse = entry.isSparse,
+                ),
+                input,
+            )
+            while (input.read() != -1) {
+                // Drain an entry that the callback intentionally skipped.
+            }
+        }
+    }
+}
+
+/** Reads only the first TAR entry; closing the stream aborts before payload data is read. */
+fun readFirstTarZstEntry(
+    file: File,
+    onEntry: (entry: StreamingTarEntry, input: InputStream) -> Unit,
+): Boolean {
+    openTarZstInput(file).use { input ->
+        val entry = input.nextTarEntry ?: return false
+        onEntry(
+            StreamingTarEntry(
+                path = entry.name,
+                isDirectory = entry.isDirectory,
+                size = entry.size,
+                time = entry.modTime.time,
+                isSymbolicLink = entry.isSymbolicLink,
+                isHardLink = entry.isLink,
+                isSpecial = entry.isCharacterDevice || entry.isBlockDevice || entry.isFIFO,
+                isSparse = entry.isSparse,
+            ),
+            input,
+        )
+        return true
     }
 }
 
@@ -206,13 +273,67 @@ class TarZstArchiveWriter(target: File) : Closeable {
             mode = 0b110100100
         }
         output.putArchiveEntry(entry)
-        source.inputStream().buffered().use { it.copyTo(output) }
+        source.inputStream().buffered().use { input ->
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                output.write(buffer, 0, count)
+            }
+        }
         output.closeArchiveEntry()
     }
 
+    fun addFileStreaming(
+        path: String,
+        input: InputStream,
+        size: Long,
+        time: Long = System.currentTimeMillis(),
+        beforeChunk: () -> Unit = {},
+    ) {
+        require(size >= 0) { "Archive entry size must not be negative" }
+        val normalized = path.replace('\\', '/').trim('/').ifBlank { return }
+        val entry = TarArchiveEntry(normalized).apply {
+            this.size = size
+            modTime = java.util.Date(time)
+            mode = 0b110100100
+        }
+        output.putArchiveEntry(entry)
+        var complete = false
+        try {
+            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+            var remaining = size
+            while (remaining > 0) {
+                beforeChunk()
+                val count = input.read(buffer, 0, minOf(buffer.size.toLong(), remaining).toInt())
+                if (count < 0) throw java.io.EOFException("Archive entry ended before its declared size")
+                output.write(buffer, 0, count)
+                remaining -= count
+            }
+            complete = true
+        } finally {
+            if (complete) output.closeArchiveEntry()
+        }
+    }
+
     override fun close() {
-        output.finish()
-        output.close()
+        var finishFailure: Throwable? = null
+        try {
+            output.finish()
+        } catch (cause: Throwable) {
+            finishFailure = cause
+            throw cause
+        } finally {
+            try {
+                output.close()
+            } catch (closeFailure: Throwable) {
+                if (finishFailure != null) {
+                    finishFailure!!.addSuppressed(closeFailure)
+                } else {
+                    throw closeFailure
+                }
+            }
+        }
     }
 }
 

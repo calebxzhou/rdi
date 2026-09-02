@@ -82,10 +82,11 @@ fun Modpack2InstallScreen(
         importError = null
         scope.launch {
             val taskResult = withContext(Dispatchers.IO) {
-                runCatching { importRdiModpackTask2 {} }
+                runCatching { prepareRdiModpackImportTask2 {} }
             }
             taskResult.onSuccess { task ->
-                runCatching { ClientTaskManager.submit(task) }
+                if (task == null) return@onSuccess
+                runCatching { ClientTaskManager.submit(task.task, task.dedupeKey) }
                     .onSuccess(onOpenTask)
                     .onFailure { importError = it.message ?: "导入失败" }
             }.onFailure { importError = it.message ?: "导入失败" }
@@ -107,7 +108,7 @@ fun Modpack2InstallScreen(
                     }
                     CircleIconButton(
                         "\uDB82\uDD5D",
-                        "导入.rdimodpack",
+                        "导入朋友发来的整合包",
                         enabled = !importingRdiModpack,
                         onClick = ::importRdiModpack,
                     )

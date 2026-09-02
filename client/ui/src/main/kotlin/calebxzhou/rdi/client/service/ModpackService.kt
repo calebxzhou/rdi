@@ -86,10 +86,7 @@ object ModpackService {
         displayName = "客户端整合包 $verName"
     )
 
-    suspend fun deleteLocalPack(
-        packdir: ModpackLocalDir,
-        deleteIncludedMods: Boolean
-    ): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun deleteLocalPack(packdir: ModpackLocalDir): Result<Unit> = withContext(Dispatchers.IO) {
         runCatching {
             require(calebxzhou.rdi.client.ui.McPlayStore.aliveCount(packdir.versionId) == 0) {
                 "整合包正在运行，不能删除"

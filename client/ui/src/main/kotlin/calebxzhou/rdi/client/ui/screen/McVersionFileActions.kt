@@ -6,15 +6,16 @@ import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
+import calebxzhou.rdi.client.service.prepareRdiPack2ImportTask
+import calebxzhou.rdi.client.service.rdiPack2ExportTask
+import calebxzhou.rdi.client.service.PreparedRdiPack2Task
 import calebxzhou.rdi.client.service.content.ClientContentStore
 import calebxzhou.rdi.client.service.content.ContentDigest
 import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
 import calebxzhou.rdi.client.service.content.ContentRequest
 import calebxzhou.rdi.client.service.content.ContentSource
 import calebxzhou.rdi.client.service.content.toClientContentRequest
-import calebxzhou.rdi.common.archive.PackArchiveFormat
 import calebxzhou.rdi.common.archive.TarZstArchiveWriter
-import calebxzhou.rdi.common.archive.detectArchiveFormat
 import calebxzhou.rdi.common.archive.forEachArchiveEntry
 import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.model.Modpack
@@ -39,85 +40,24 @@ import java.nio.file.StandardOpenOption
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
-fun selectRdiPackFiles(): List<File>? {
-    val owner = Frame()
-    try {
-        val dialog = FileDialog(owner, "选择MC版本包", FileDialog.LOAD).apply {
-            isMultipleMode = true
-            directory = File(System.getProperty("user.home"), "Downloads").absolutePath
-            file = "*.rdimcpack"
-            filenameFilter = java.io.FilenameFilter { dir, name ->
-                val target = File(dir, name)
-                target.isDirectory || name.endsWith(".rdimcpack", ignoreCase = true)
-            }
-        }
-        dialog.isVisible = true
-        val files = dialog.files
-            ?.toList()
-            ?.filter { it.exists() && it.isFile && it.name.endsWith(".rdimcpack", ignoreCase = true) }
-            ?: emptyList()
-        return files.takeIf { it.isNotEmpty() }
-    } finally {
-        owner.dispose()
-    }
-}
-
 private fun selectRdiModpackFile(): File? {
     val owner = Frame()
     try {
         val dialog = FileDialog(owner, "选择RDI整合包", FileDialog.LOAD).apply {
             directory = File(System.getProperty("user.home"), "Downloads").absolutePath
-            file = "*.rdimodpack"
+            file = "*.rdi*"
             filenameFilter = java.io.FilenameFilter { dir, name ->
                 val target = File(dir, name)
-                target.isDirectory || name.endsWith(".rdimodpack", ignoreCase = true)
+                target.isDirectory || name.endsWith(".rdimodpack", ignoreCase = true) || name.endsWith(".rdipack2", ignoreCase = true)
             }
         }
         dialog.isVisible = true
         val dir = dialog.directory ?: return null
         val name = dialog.file ?: return null
         return File(dir, name)
-            .takeIf { it.exists() && it.isFile && it.name.endsWith(".rdimodpack", ignoreCase = true) }
+            .takeIf { it.exists() && it.isFile && (it.name.endsWith(".rdimodpack", ignoreCase = true) || it.name.endsWith(".rdipack2", ignoreCase = true)) }
     } finally {
         owner.dispose()
-    }
-}
-
-fun buildImportPackTask2(packFile: File): Task2 {
-    return Task2.Leaf("导入 ${packFile.name}") { ctx ->
-        if (!packFile.name.endsWith(".rdimcpack", ignoreCase = true)) {
-            throw IllegalStateException("仅支持.rdimcpack文件")
-        }
-        if (packFile.detectArchiveFormat() != PackArchiveFormat.TAR_ZST) {
-            throw IllegalStateException(".rdimcpack必须是tar.zst格式")
-        }
-        val targetRoot = ClientDirs.mcDir.canonicalFile
-        val totalFiles = listArchiveEntries(packFile).count { !it.isDirectory }.coerceAtLeast(1)
-        var processed = 0
-        forEachArchiveEntry(packFile) { entry ->
-            val name = entry.path.replace('\\', '/').trimStart('/')
-            if (name.isEmpty()) return@forEachArchiveEntry
-            val outFile = targetRoot.resolve(name)
-            val normalized = outFile.canonicalFile
-            if (!normalized.path.startsWith(targetRoot.path)) return@forEachArchiveEntry
-            if (entry.isDirectory) {
-                normalized.mkdirs()
-                return@forEachArchiveEntry
-            }
-            normalized.parentFile?.mkdirs()
-            Files.newOutputStream(
-                normalized.toPath(),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.TRUNCATE_EXISTING
-            ).use { output ->
-                output.write(entry.bytes ?: byteArrayOf())
-            }
-            processed += 1
-            ctx.emit(
-                Task2Progress("导入 ${entry.path}", processed.toFloat() / totalFiles)
-            )
-        }
-        ctx.emit(Task2Progress("完成", 1f))
     }
 }
 
@@ -171,6 +111,29 @@ private fun pickRdiModpackSaveFile(defaultName: String): File? {
         }
     } finally {
         owner.dispose()
+    }
+}
+suspend fun exportRdiModpack2(
+    packdir: ModpackLocalDir,
+): Result<PreparedRdiPack2Task?> = withContext(Dispatchers.IO) {
+    runCatching {
+        val safeName = packdir.name.ifBlank { "modpack" }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val output = pickAwtSaveFile(
+            title = "选择整合包保存位置",
+            defaultFileName = "${safeName}_${packdir.verName}.rdipack2",
+            defaultDirectory = File(System.getProperty("user.home")),
+            requiredExtension = "rdipack2",
+            filenameFilter = { _, name -> name.endsWith(".rdipack2", ignoreCase = true) },
+        ) ?: return@runCatching null
+        rdiPack2ExportTask(packdir, output)
+    }
+}
+
+suspend fun importRdiModpack2(): Result<PreparedRdiPack2Task?> = withContext(Dispatchers.IO) {
+    runCatching {
+        val file = selectRdiModpackFile() ?: return@runCatching null
+        require(file.name.endsWith(".rdipack2", ignoreCase = true)) { "所选文件不是.rdipack2" }
+        prepareRdiPack2ImportTask(file)
     }
 }
 
@@ -396,10 +359,10 @@ private fun buildImportedInstallTask(
     }
 }
 
-suspend fun importRdiModpackTask2(
+suspend fun importLegacyRdiModpackTask2(
+    file: File,
     onProgress: (String) -> Unit
 ): Task2 = withContext(Dispatchers.IO) {
-    val file = selectRdiModpackFile() ?: throw IllegalStateException("未选择整合包文件")
     val transactionDir = Files.createTempDirectory(
         ClientDirs.packProcDir.toPath(),
         "rdimodpack-import-",
@@ -522,6 +485,26 @@ suspend fun importRdiModpackTask2(
         throw cause
     }
 }
+
+data class PreparedRdiModpackImport(val task: Task2, val dedupeKey: String?)
+
+/** Unified Legacy picker. Null means the user cancelled the picker. */
+suspend fun prepareRdiModpackImportTask2(
+    onProgress: (String) -> Unit,
+): PreparedRdiModpackImport? = withContext(Dispatchers.IO) {
+    val file = selectRdiModpackFile() ?: return@withContext null
+    if (file.name.endsWith(".rdipack2", ignoreCase = true)) {
+        val prepared = prepareRdiPack2ImportTask(file)
+        return@withContext PreparedRdiModpackImport(prepared.task, prepared.dedupeKey)
+    }
+    PreparedRdiModpackImport(importLegacyRdiModpackTask2(file, onProgress), null)
+}
+
+suspend fun importRdiModpackTask2(onProgress: (String) -> Unit): Task2? =
+    prepareRdiModpackImportTask2(onProgress)?.task
+
+/** Format-specific prepared-task seam for callers that already selected a file. */
+fun importRdiModpack2(file: File): PreparedRdiPack2Task = prepareRdiPack2ImportTask(file)
 
 suspend fun exportLogsPack(packdir: ModpackLocalDir): Result<Unit> = withContext(Dispatchers.IO) {
     runCatching {
