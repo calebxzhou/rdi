@@ -5,7 +5,7 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
 }
 
-project.version = libs.versions.app.get()
+//project.version = libs.versions.app.get()
 
 repositories {
     mavenLocal()

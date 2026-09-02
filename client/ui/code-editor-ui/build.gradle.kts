@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.compose)
 }
 
-project.version = libs.versions.app.get()
+//project.version = libs.versions.app.get()
 
 repositories {
     mavenCentral()

@@ -11,7 +11,7 @@ repositories {
 }
 
 group = "calebxzhou.rdi"
-version = libs.versions.app.get()
+//version = libs.versions.app.get()
 
 kotlin {
     jvmToolchain(libs.versions.java.get().toInt())

@@ -11,7 +11,7 @@ repositories {
 }
 
 group = "calebxzhou.rdi"
-version = libs.versions.app.get()
+//version = libs.versions.app.get()
 /*
 val javaVersion = 21
 
