@@ -1,0 +1,421 @@
+package calebxzhou.rdi.client.service
+
+import calebxzau.rdi.common.logging.Loggers
+import kotlinx.coroutines.sync.Mutex
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
+import java.util.concurrent.ConcurrentHashMap
+
+/** A stable key for a prepared Host2 client overlay. */
+data class Host2PreparedCacheKey(
+    val hostId: String,
+    val versionId: String,
+    val activeContentRevision: Long,
+    val diskFingerprint: String,
+)
+
+fun host2PreparedCacheKey(
+    hostId: String,
+    versionId: String,
+    activeContentRevision: Long,
+    diskFingerprint: String,
+): Host2PreparedCacheKey = Host2PreparedCacheKey(
+    hostId = hostId,
+    versionId = versionId,
+    activeContentRevision = activeContentRevision,
+    diskFingerprint = diskFingerprint,
+)
+
+/** The result is retained by McGameSession so cleanup failures remain observable in the UI. */
+data class Host2PlayCleanupResult(
+    val restored: Boolean,
+    val message: String? = null,
+) {
+    companion object {
+        val Success = Host2PlayCleanupResult(restored = true)
+    }
+}
+
+/**
+ * A persistent, path-scoped overlay transaction.  Its directory is deliberately outside the
+ * Minecraft version directory, so a crash cannot make the recovery journal part of the game.
+ * The backup/added/touched trees are the journal; no JSON sidecar or second database truth source
+ * is needed.
+ */
+class Host2PlayPathTransaction internal constructor(
+    private val transactionDirectory: Path,
+    private val versionDirectory: Path,
+    private val touchedPaths: Set<String>,
+    private val releaseLock: () -> Unit,
+) {
+    @Volatile
+    private var restored = false
+
+    fun declaredPaths(): Set<String> = touchedPaths
+
+    fun resolveDeclared(rawPath: String): Path {
+        val path = normalizeHost2PlayPath(rawPath)
+        require(path in touchedPaths) { "房间启动尝试修改未声明路径: $path" }
+        val resolved = versionDirectory.resolve(path).normalize()
+        require(resolved.startsWith(versionDirectory)) { "房间内容路径越界: $path" }
+        checkNoSymlink(versionDirectory)
+        checkNoSymlink(resolved)
+        return resolved
+    }
+
+    fun removeDeclared(rawPath: String) {
+        val target = resolveDeclared(rawPath)
+        deletePath(target)
+    }
+
+    /** Restores only this transaction's touched paths. A failed restore leaves the journal. */
+    fun restore(): Host2PlayCleanupResult {
+        synchronized(this) {
+            if (restored) return Host2PlayCleanupResult.Success
+            return try {
+                restoreTree()
+                deleteTree(transactionDirectory)
+                restored = true
+                releaseLock()
+                Host2PlayCleanupResult.Success
+            } catch (error: Throwable) {
+                logger.error(error) { "Host2房间内容恢复失败，保留恢复事务: $transactionDirectory" }
+                Host2PlayCleanupResult(
+                    restored = false,
+                    message = error.message ?: error.javaClass.simpleName,
+                )
+            }
+        }
+    }
+
+    private fun restoreTree() {
+        val backupRoot = transactionDirectory.resolve(BACKUP)
+        val addedRoot = transactionDirectory.resolve(ADDED)
+        val touchedRoot = transactionDirectory.resolve(TOUCHED)
+        val paths = linkedSetOf<String>()
+        collectJournalPaths(touchedRoot, paths)
+        if (paths.isEmpty() &&
+            (Files.exists(backupRoot, LinkOption.NOFOLLOW_LINKS) ||
+                Files.exists(addedRoot, LinkOption.NOFOLLOW_LINKS))
+        ) {
+            throw IllegalStateException("恢复事务缺少完整提交标记")
+        }
+        paths.sortedWith(compareByDescending<String> { it.count { char -> char == '/' } }.thenByDescending { it.length })
+            .forEach { path ->
+                val normalized = normalizeHost2PlayPath(path)
+                require(normalized in touchedPaths) { "恢复事务包含未声明路径: $normalized" }
+                val target = versionDirectory.resolve(normalized).normalize()
+                require(target.startsWith(versionDirectory)) { "恢复路径越界: $normalized" }
+                checkNoSymlink(versionDirectory)
+                checkNoSymlink(target)
+                val backup = backupRoot.resolve(normalized).normalize()
+                val added = addedRoot.resolve(normalized).normalize()
+                require(backup.startsWith(backupRoot) && added.startsWith(addedRoot)) {
+                    "恢复事务路径越界: $normalized"
+                }
+                val addedMarker = addedRoot.resolve("$normalized$ENTRY_MARKER").normalize()
+                require(addedMarker.startsWith(addedRoot)) { "恢复事务路径越界: $normalized" }
+                when {
+                    Files.exists(backup, LinkOption.NOFOLLOW_LINKS) -> {
+                        deletePath(target)
+                        copyTree(backup, target)
+                    }
+                    Files.exists(addedMarker, LinkOption.NOFOLLOW_LINKS) -> deletePath(target)
+                    else -> throw IllegalStateException("恢复事务缺少路径记录: $normalized")
+                }
+            }
+    }
+
+    private fun collectJournalPaths(root: Path, output: MutableSet<String>) {
+        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) return
+        Files.walk(root).use { paths ->
+            paths.filter { it != root && Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }
+                .filter { it.fileName.toString().endsWith(ENTRY_MARKER) }
+                .forEach { marker ->
+                    val relative = root.relativize(marker).toString().replace('\\', '/')
+                    val path = relative.removeSuffix(ENTRY_MARKER)
+                    if (path.isNotBlank()) output += path
+                }
+        }
+    }
+
+    private fun copyTree(source: Path, target: Path) {
+        checkNoSymlink(source)
+        if (Files.isDirectory(source, LinkOption.NOFOLLOW_LINKS)) {
+            Files.createDirectories(target)
+            Files.walk(source).use { paths ->
+                paths.filter { it != source }.forEach { path ->
+                    val relative = source.relativize(path)
+                    val destination = target.resolve(relative.toString()).normalize()
+                    require(destination.startsWith(target)) { "恢复备份路径越界: $relative" }
+                    checkNoSymlink(path)
+                    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) {
+                        Files.createDirectories(destination)
+                    } else if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                        destination.parent?.let(Files::createDirectories)
+                        Files.copy(path, destination, StandardCopyOption.COPY_ATTRIBUTES)
+                    } else {
+                        throw IllegalStateException("恢复备份包含特殊文件: $path")
+                    }
+                }
+            }
+        } else {
+            target.parent?.let(Files::createDirectories)
+            Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES)
+        }
+    }
+
+    private fun deletePath(path: Path) {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return
+        checkNoSymlink(path)
+        if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(path)) {
+            Files.walk(path).use { paths ->
+                paths.sorted(Comparator.reverseOrder()).forEach {
+                    checkNoSymlink(it)
+                    Files.deleteIfExists(it)
+                }
+            }
+        } else {
+            Files.deleteIfExists(path)
+        }
+    }
+
+    private fun deleteTree(path: Path) {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return
+        checkNoSymlink(path.parent)
+        Files.walk(path).use { paths ->
+            paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
+        }
+    }
+
+    companion object {
+        private const val BACKUP = "backup"
+        private const val ADDED = "added"
+        private const val TOUCHED = "touched"
+        private const val ENTRY_MARKER = ".entry"
+        private val logger by Loggers
+    }
+}
+
+/**
+ * Owns the persistent transaction root and the in-process version locks. The same service is
+ * shared by Host2 starts; the on-disk transaction directory also protects starts after a crash.
+ */
+class Host2PlayTransactionService(
+    private val transactionRoot: Path = ClientDirs.versionsDir.toPath().resolve(".host2-play"),
+) {
+    private val locks = ConcurrentHashMap<String, Mutex>()
+
+    suspend fun begin(
+        versionId: String,
+        versionDirectory: Path,
+        paths: Set<String>,
+    ): Result<Host2PlayPathTransaction> = runCatching {
+        val normalizedVersion = normalizeVersionId(versionId)
+        val versionRoot = versionDirectory.toAbsolutePath().normalize()
+        require(Files.isDirectory(versionRoot, LinkOption.NOFOLLOW_LINKS)) {
+            "找不到整合包安装目录: $versionDirectory"
+        }
+        checkNoSymlink(versionRoot)
+        val touched = paths.map(::normalizeHost2PlayPath).toSortedSet()
+        val lock = locks.computeIfAbsent(normalizedVersion) { Mutex() }
+        check(lock.tryLock()) { "该整合包正在执行房间内容事务" }
+        try {
+            checkNoSymlink(transactionRoot.toAbsolutePath().normalize().parent)
+            // A start for another version must never recover the journal of a live game.
+            // The public no-argument hook still scans every version during process startup.
+            recoverInterrupted(normalizedVersion).getOrThrow()
+        } catch (error: Throwable) {
+            lock.unlock()
+            throw error
+        }
+        var transactionDirectory: Path? = null
+        try {
+            val journalRoot = transactionRoot.toAbsolutePath().normalize()
+            if (Files.exists(journalRoot, LinkOption.NOFOLLOW_LINKS)) {
+                require(!Files.isSymbolicLink(journalRoot)) { "房间事务目录不能是软链接" }
+                require(Files.isDirectory(journalRoot, LinkOption.NOFOLLOW_LINKS)) {
+                    "房间事务目录不是目录"
+                }
+            }
+            Files.createDirectories(journalRoot)
+            checkNoSymlink(journalRoot)
+            val directory = journalRoot.resolve(normalizedVersion).normalize()
+            require(directory.parent == journalRoot) {
+                "房间事务目录越界"
+            }
+            check(!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
+                "该整合包存在未完成的房间内容事务"
+            }
+            Files.createDirectories(directory)
+            transactionDirectory = directory
+            val backupRoot = directory.resolve("backup")
+            val addedRoot = directory.resolve("added")
+            val touchedRoot = directory.resolve("touched")
+            touched.forEach { path ->
+                val target = versionRoot.resolve(path).normalize()
+                require(target.startsWith(versionRoot)) { "房间内容路径越界: $path" }
+                checkNoSymlink(target.parent)
+                if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                    checkNoSymlink(target)
+                    copyTree(target, backupRoot.resolve(path).normalize(), backupRoot)
+                    // The touched marker is the completion record. A crash during copy leaves
+                    // only a partial backup, which recovery must not treat as restorable.
+                    mark(touchedRoot, path)
+                } else {
+                    mark(addedRoot, path)
+                    // Commit the added-path record only after its journal entry exists.
+                    mark(touchedRoot, path)
+                }
+            }
+            Host2PlayPathTransaction(
+                transactionDirectory = directory,
+                versionDirectory = versionRoot,
+                touchedPaths = touched,
+                releaseLock = { lock.unlock() },
+            )
+        } catch (error: Throwable) {
+            transactionDirectory?.let { deleteTree(it) }
+            lock.unlock()
+            throw error
+        }
+    }
+
+    suspend fun recoverInterrupted(): Result<Unit> = recoverInterruptedInternal(onlyVersionId = null)
+
+    /** Recovers one version before its disk fingerprint is read for a new start. */
+    suspend fun recoverInterrupted(versionId: String): Result<Unit> =
+        recoverInterruptedInternal(onlyVersionId = normalizeVersionId(versionId))
+
+    private suspend fun recoverInterruptedInternal(onlyVersionId: String?): Result<Unit> = runCatching {
+        val journalRoot = transactionRoot.toAbsolutePath().normalize()
+        checkNoSymlink(journalRoot.parent)
+        if (Files.exists(journalRoot, LinkOption.NOFOLLOW_LINKS)) {
+            require(!Files.isSymbolicLink(journalRoot)) { "房间事务目录不能是软链接" }
+        }
+        if (!Files.isDirectory(journalRoot, LinkOption.NOFOLLOW_LINKS)) return@runCatching
+        checkNoSymlink(journalRoot)
+        Files.list(journalRoot).use { children ->
+            children
+                .sorted()
+                .forEach { directory ->
+                    if (Files.isSymbolicLink(directory)) {
+                        throw IllegalStateException("房间事务子目录不能是软链接: $directory")
+                    }
+                    if (!Files.isDirectory(directory, LinkOption.NOFOLLOW_LINKS)) return@forEach
+                    val versionId = directory.fileName.toString()
+                    normalizeVersionId(versionId)
+                    if (onlyVersionId != null && versionId != onlyVersionId) return@forEach
+                    val versionDirectory = journalRoot.parent.resolve(versionId).normalize()
+                    val paths = deriveTouchedPaths(directory)
+                    val transaction = Host2PlayPathTransaction(
+                        transactionDirectory = directory,
+                        versionDirectory = versionDirectory,
+                        touchedPaths = paths,
+                        releaseLock = {},
+                    )
+                    val result = transaction.restore()
+                    check(result.restored) { result.message ?: "房间内容恢复失败" }
+                }
+        }
+    }
+
+    private fun deriveTouchedPaths(directory: Path): Set<String> {
+        val paths = linkedSetOf<String>()
+        val root = directory.resolve("touched")
+        if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) return paths
+        Files.walk(root).use { entries ->
+            entries
+                .filter { it != root && Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }
+                .filter { it.fileName.toString().endsWith(".entry") }
+                .forEach { marker ->
+                    val relative = root.relativize(marker).toString().replace('\\', '/')
+                    val path = relative.removeSuffix(".entry")
+                    if (path.isNotBlank()) paths += normalizeHost2PlayPath(path)
+                }
+        }
+        return paths
+    }
+
+    private fun mark(root: Path, path: String) {
+        val marker = root.resolve("$path.entry").normalize()
+        require(marker.startsWith(root.toAbsolutePath().normalize())) { "事务记录路径越界: $path" }
+        marker.parent?.let(Files::createDirectories)
+        Files.write(
+            marker,
+            byteArrayOf(),
+            StandardOpenOption.CREATE_NEW,
+            StandardOpenOption.WRITE,
+        )
+    }
+
+    private fun copyTree(source: Path, target: Path, root: Path) {
+        require(target.normalize().startsWith(root.toAbsolutePath().normalize())) { "备份路径越界" }
+        checkNoSymlink(source)
+        if (Files.isDirectory(source, LinkOption.NOFOLLOW_LINKS)) {
+            Files.createDirectories(target)
+            Files.walk(source).use { paths ->
+                paths.filter { it != source }.forEach { path ->
+                    val destination = target.resolve(source.relativize(path).toString()).normalize()
+                    require(destination.startsWith(target)) { "备份路径越界" }
+                    checkNoSymlink(path)
+                    if (Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS)) Files.createDirectories(destination)
+                    else if (Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) {
+                        destination.parent?.let(Files::createDirectories)
+                        Files.copy(path, destination, StandardCopyOption.COPY_ATTRIBUTES)
+                    } else throw IllegalStateException("房间内容包含特殊文件: $path")
+                }
+            }
+        } else {
+            target.parent?.let(Files::createDirectories)
+            Files.copy(source, target, StandardCopyOption.COPY_ATTRIBUTES)
+        }
+    }
+
+    private fun deleteTree(path: Path) {
+        if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return
+        Files.walk(path).use { paths ->
+            paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) }
+        }
+    }
+
+    companion object {
+        private val logger by Loggers
+    }
+}
+
+/** Public startup hook; callers should run it before accepting a new Host2 play session. */
+suspend fun recoverHost2PlayTransactions(
+    transactionRoot: Path = ClientDirs.versionsDir.toPath().resolve(".host2-play"),
+): Result<Unit> = Host2PlayTransactionService(transactionRoot).recoverInterrupted()
+
+private fun normalizeVersionId(raw: String): String {
+    val value = raw.trim()
+    require(value.isNotBlank() && value != "." && value != "..") { "整合包版本ID为空" }
+    require(value.none { it == '/' || it == '\\' || it == ':' || it.isISOControl() }) { "整合包版本ID非法" }
+    return value
+}
+
+internal fun normalizeHost2PlayPath(raw: String): String {
+    val value = raw.replace('\\', '/')
+    require(value.isNotBlank() && !value.startsWith('/') && !Regex("^[A-Za-z]:").containsMatchIn(value)) {
+        "房间内容路径必须是相对路径: $raw"
+    }
+    val segments = value.split('/')
+    require(segments.none { it.isBlank() || it == "." || it == ".." }) { "房间内容路径非法: $raw" }
+    return segments.joinToString("/")
+}
+
+private fun checkNoSymlink(path: Path?) {
+    if (path == null) return
+    var current = path.toAbsolutePath().normalize()
+    val root = current.root ?: return
+    current = root
+    root.relativize(path.toAbsolutePath().normalize()).forEach { part ->
+        current = current.resolve(part)
+        require(!Files.isSymbolicLink(current)) { "房间内容路径不能穿过软链接: $current" }
+    }
+}

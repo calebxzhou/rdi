@@ -12,8 +12,8 @@ plugins {
     id 'net.neoforged.moddev.legacyforge' version '2.0.141'
     id 'org.gradlex.extra-java-module-info' version '1.14.2'
     id 'idea'
-    id "org.jetbrains.kotlin.jvm" version "2.4.0"
-    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.0'
+    id "org.jetbrains.kotlin.jvm" version "2.4.10"
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.10'
 }
 
 // Ensure the common project is configured before we read its outputs
@@ -271,7 +271,7 @@ dependencies {
     runtimeOnly("org.lwjgl:lwjgl-opengl:3.3.2")
     annotationProcessor "org.spongepowered:mixin:0.8.5:processor"
     // https://mvnrepository.com/artifact/org.jetbrains.kotlin/kotlin-stdlib
-    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.10")
     implementation(project(":c-mc-common"))
     additionalRuntimeClasspath(project(":c-mc-common"))
     implementation(project(":firmsection"))
@@ -356,7 +356,7 @@ dependencies {
     }
     compileOnly "dev.ftb.mods:ftb-chunks-forge:2001.3.8"
     testImplementation 'org.jetbrains.kotlin:kotlin-test'
-    zstdTestImplementation 'org.jetbrains.kotlin:kotlin-test-junit5:2.4.0'
+    zstdTestImplementation 'org.jetbrains.kotlin:kotlin-test-junit5:2.4.10'
     zstdTestImplementation 'com.github.luben:zstd-jni:1.5.7-11:win_amd64'
     zstdTestImplementation 'io.netty:netty-buffer:4.1.97.Final'
     zstdTestImplementation 'io.netty:netty-codec:4.1.97.Final'

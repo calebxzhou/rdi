@@ -25,5 +25,6 @@ class ModpackParallelUploadTest {
         )
 
         assertEquals(session, decoded)
+        assertEquals(8, decoded.maxParallelParts)
     }
 }

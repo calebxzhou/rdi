@@ -16,7 +16,7 @@ plugins {
 	kotlin("plugin.serialization") version "2.3.20" apply false
 }
 
-group = "calebxzhou.rdi.ktutils"
+group = "calebxzhou.mykotutils"
 version = "0.1"
 
 

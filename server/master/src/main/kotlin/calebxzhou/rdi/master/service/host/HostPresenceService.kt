@@ -16,7 +16,6 @@ import calebxzhou.rdi.master.service.host.HostControlService.clearShutFlag
 import calebxzhou.rdi.master.service.host.HostControlService.status
 import calebxzhou.rdi.master.service.host.HostControlService.stop
 import calebxzhou.rdi.master.service.host.HostControlService.updateShutFlag
-import calebxzhou.rdi.master.service.host2.Host2RuntimeService
 import com.mongodb.client.model.Filters.`in`
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -88,7 +87,6 @@ object HostPresenceService {
         )
         lastGlobalPlayerList = playerList
         HostRuntimeService.broadcastGlobalPlayerList(playerList)
-        Host2RuntimeService.broadcastGlobalPlayerList(playerList)
         lgr.info { "全局玩家列表已变化，广播${hosts.sumOf { it.players.size }}个玩家/${hosts.size}个房间" }
     }
 
@@ -97,7 +95,7 @@ object HostPresenceService {
             .map { host -> async { host.fetchGlobalPlayerListHostEntry() } }
             .awaitAll()
             .filterNotNull()
-        (legacy + Host2RuntimeService.globalEntries())
+        legacy
             .sortedWith(compareBy<RGlobalPlayerList.HostEntry> { it.hostName }.thenBy { it.hostId })
     }
 
@@ -234,8 +232,12 @@ object HostPresenceService {
     }
 
     internal suspend fun Host.fetchOnlinePlayersNow(): List<ObjectId> {
+        return fetchOnlinePlayersNow(status)
+    }
+
+    internal suspend fun Host.fetchOnlinePlayersNow(knownStatus: HostStatus): List<ObjectId> {
         return try {
-            if (status != HostStatus.PLAYABLE) {
+            if (knownStatus != HostStatus.PLAYABLE) {
                 return emptyList()
             }
             val players = McServerPinger.ping(port, timeoutMillis = 1_000).players
@@ -254,11 +256,15 @@ object HostPresenceService {
     }
 
     internal fun Host.refreshOnlinePlayersInBackground() {
+        refreshOnlinePlayersInBackground(status)
+    }
+
+    internal fun Host.refreshOnlinePlayersInBackground(knownStatus: HostStatus) {
         val existing = onlinePlayersRefreshJobs[_id]
         if (existing?.isActive == true) return
         onlinePlayersRefreshJobs[_id] = HostService.idleMonitorScope.launch {
             try {
-                fetchOnlinePlayersNow()
+                fetchOnlinePlayersNow(knownStatus)
             } finally {
                 onlinePlayersRefreshJobs.remove(_id)
             }
@@ -266,13 +272,17 @@ object HostPresenceService {
     }
 
     suspend fun Host.getOnlinePlayers(): List<ObjectId> {
-        if (status != HostStatus.PLAYABLE) return emptyList()
+        return getOnlinePlayers(status)
+    }
+
+    suspend fun Host.getOnlinePlayers(knownStatus: HostStatus): List<ObjectId> {
+        if (knownStatus != HostStatus.PLAYABLE) return emptyList()
         val cached = onlinePlayersCache[_id]
         val now = System.currentTimeMillis()
         if (cached != null && now - cached.updatedAt <= HostService.ONLINE_PLAYERS_CACHE_TTL_MS) {
             return cached.playerIds
         }
-        refreshOnlinePlayersInBackground()
+        refreshOnlinePlayersInBackground(knownStatus)
         return cached?.playerIds ?: emptyList()
     }
 

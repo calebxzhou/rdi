@@ -41,6 +41,7 @@ dependencies {
     implementation(libs.tomlkt)
     implementation(libs.kotlinx.io.core)
     implementation(libs.annotations)
+    testImplementation(kotlin("test"))
 }
 base {
     archivesName.set("rdi-net")

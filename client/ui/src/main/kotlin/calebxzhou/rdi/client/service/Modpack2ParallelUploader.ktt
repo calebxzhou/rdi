@@ -1,0 +1,239 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
+import calebxzhou.rdi.common.model.ModpackUploadSessionVo
+import calebxzhou.rdi.common.util.sha1
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.io.RandomAccessFile
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.min
+
+data class Modpack2UploadProgress(
+    val uploadedBytes: Long,
+    val totalBytes: Long,
+)
+
+data class Modpack2UploadReceipt(
+    val session: ModpackUploadSessionVo,
+    val sha1: String,
+)
+
+/**
+ * Resumable fixed-part uploader for Modpack2. The session status is queried before every retry,
+ * so a lost response never causes a confirmed part to be uploaded again.
+ */
+class Modpack2ParallelUploader(
+    private val gateway: Modpack2Gateway,
+    private val maxConcurrency: Int = MAX_CONCURRENCY,
+    private val maxAttempts: Int = 3,
+    private val retryDelayMillis: (Int) -> Long = { attempt -> 250L * attempt },
+) {
+    init {
+        require(maxConcurrency in 1..MAX_CONCURRENCY) { "上传并发必须在1到8之间" }
+        require(maxAttempts >= 1) { "上传至少需要一次尝试" }
+    }
+
+    suspend fun upload(
+        file: java.io.File,
+        existingSession: ModpackUploadSessionVo? = null,
+        onProgress: (Modpack2UploadProgress) -> Unit = {},
+        onState: suspend (Modpack2UploadState) -> Unit = {},
+        onNetworkBoundary: suspend (Modpack2NetworkBoundary) -> Unit = {},
+    ): Result<Modpack2UploadReceipt> = resultOf {
+        require(file.isFile && file.length() > 0L) { "上传文件不存在或为空" }
+        val fileSha1 = withContext(Dispatchers.IO) { file.sha1.lowercase() }
+        var session = existingSession
+            ?: gateway.createUploadSession(
+                ModpackUploadSessionCreateDto(file.name, file.length(), fileSha1)
+            ).also { onNetworkBoundary(Modpack2NetworkBoundary.CreateSession) }.getOrThrow()
+        require(session.size == file.length() && session.sha1.equals(fileSha1, ignoreCase = true)) {
+            "上传会话与冻结归档不匹配"
+        }
+        // Persist the server-assigned session immediately. If the following status request loses
+        // its response, a restarted task can still resume this exact upload session.
+        onState(session.toState())
+        session = statusWithRecovery(session.id, onNetworkBoundary)
+        require(session.size == file.length() && session.sha1.equals(fileSha1, ignoreCase = true)) {
+            "服务端上传会话与冻结归档不匹配"
+        }
+        onState(session.toState())
+        if (!session.ready) {
+            uploadMissingParts(file, session, onProgress, onState, onNetworkBoundary)
+            session = statusWithRecovery(session.id, onNetworkBoundary)
+            if (!session.ready) {
+                session = completeWithResponseRecovery(session.id, onNetworkBoundary)
+            }
+        }
+        onState(session.toState())
+        Modpack2UploadReceipt(session, fileSha1)
+    }
+
+    private suspend fun uploadMissingParts(
+        file: java.io.File,
+        initial: ModpackUploadSessionVo,
+        onProgress: (Modpack2UploadProgress) -> Unit,
+        onState: suspend (Modpack2UploadState) -> Unit,
+        onNetworkBoundary: suspend (Modpack2NetworkBoundary) -> Unit,
+    ) = coroutineScope {
+        val uploaded = ConcurrentHashMap.newKeySet<Int>().apply { addAll(initial.uploadedParts) }
+        val missing = (0 until initial.partCount).filterNot(uploaded::contains)
+        if (missing.isEmpty()) return@coroutineScope
+        val queue = Channel<Int>(Channel.UNLIMITED)
+        missing.forEach { queue.trySend(it).getOrThrow() }
+        queue.close()
+        val confirmedBytes = uploaded.sumOf { initial.partLength(it).toLong() }
+        val completedBytes = java.util.concurrent.atomic.AtomicLong(confirmedBytes)
+        onProgress(Modpack2UploadProgress(confirmedBytes, initial.size))
+        repeat(min(maxConcurrency, missing.size)) {
+            launch {
+                for (index in queue) {
+                    uploadPartWithRecovery(
+                        file = file,
+                        session = initial,
+                        index = index,
+                        onConfirmed = {
+                            if (uploaded.add(index)) {
+                                val completed = completedBytes.addAndGet(initial.partLength(index).toLong())
+                                onProgress(Modpack2UploadProgress(completed, initial.size))
+                                onState(initial.copy(uploadedParts = uploaded.sorted()).toState())
+                            }
+                        },
+                        onNetworkBoundary = onNetworkBoundary,
+                    )
+                }
+            }
+        }
+    }
+
+    private suspend fun uploadPartWithRecovery(
+        file: java.io.File,
+        session: ModpackUploadSessionVo,
+        index: Int,
+        onConfirmed: suspend () -> Unit,
+        onNetworkBoundary: suspend (Modpack2NetworkBoundary) -> Unit,
+    ) {
+        val offset = index.toLong() * session.partSize
+        val length = session.partLength(index)
+        val bytes = withContext(Dispatchers.IO) {
+            RandomAccessFile(file, "r").use { input ->
+                input.seek(offset)
+                ByteArray(length).also { input.readFully(it) }
+            }
+        }
+        val partSha1 = bytes.sha1()
+        repeat(maxAttempts) { attemptIndex ->
+            val attempt = attemptIndex + 1
+            try {
+                gateway.uploadPart(session.id, index, bytes, partSha1)
+                    .also { onNetworkBoundary(Modpack2NetworkBoundary.UploadPart(index)) }
+                    .getOrThrow()
+                onConfirmed()
+                return
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                // The server may have persisted the bytes before the response was lost.
+                val status = statusWithRecovery(session.id, onNetworkBoundary)
+                if (index in status.uploadedParts) {
+                    onConfirmed()
+                    return
+                }
+                if (attempt == maxAttempts) throw error
+                delay(retryDelayMillis(attempt))
+            }
+        }
+    }
+
+    private suspend fun completeWithResponseRecovery(
+        uploadId: UUID,
+        onNetworkBoundary: suspend (Modpack2NetworkBoundary) -> Unit,
+    ): ModpackUploadSessionVo {
+        repeat(maxAttempts) { attemptIndex ->
+            try {
+                return gateway.completeUpload(uploadId)
+                    .also { onNetworkBoundary(Modpack2NetworkBoundary.Complete) }
+                    .getOrThrow()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                val status = statusWithRecovery(uploadId, onNetworkBoundary)
+                if (status.ready) return status
+                if (attemptIndex + 1 == maxAttempts) throw error
+                delay(retryDelayMillis(attemptIndex + 1))
+            }
+        }
+        error("上传完成请求未返回")
+    }
+
+    private suspend fun statusWithRecovery(
+        uploadId: UUID,
+        onNetworkBoundary: suspend (Modpack2NetworkBoundary) -> Unit,
+    ): ModpackUploadSessionVo {
+        var failure: Throwable? = null
+        repeat(maxAttempts) { attemptIndex ->
+            try {
+                onNetworkBoundary(Modpack2NetworkBoundary.SessionStatus)
+                return gateway.uploadSessionStatus(uploadId).getOrThrow()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                failure = error
+                if (attemptIndex + 1 < maxAttempts) {
+                    delay(retryDelayMillis(attemptIndex + 1))
+                }
+            }
+        }
+        throw IllegalStateException("上传会话状态查询失败", failure)
+    }
+
+    private fun ModpackUploadSessionVo.toState() = Modpack2UploadState(
+        uploadId = id,
+        uploadedParts = uploadedParts,
+        partCount = partCount,
+        ready = ready,
+    )
+
+    private suspend fun <T> resultOf(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+    companion object {
+        const val MAX_CONCURRENCY = 8
+    }
+}
+
+data class Modpack2UploadState(
+    val uploadId: UUID,
+    val uploadedParts: List<Int>,
+    val partCount: Int,
+    val ready: Boolean,
+)
+
+/** A durable network boundary. Callers use it to advance a resume journal. */
+sealed interface Modpack2NetworkBoundary {
+    data object CreateSession : Modpack2NetworkBoundary
+    data object SessionStatus : Modpack2NetworkBoundary
+    data class UploadPart(val index: Int) : Modpack2NetworkBoundary
+    data object Complete : Modpack2NetworkBoundary
+}
+
+private fun ModpackUploadSessionVo.partLength(index: Int): Int {
+    require(index in 0 until partCount) { "分片序号无效" }
+    return min(partSize.toLong(), size - index.toLong() * partSize).toInt()
+}
+
+private fun ByteArray.sha1(): String {
+    val digest = java.security.MessageDigest.getInstance("SHA-1")
+    return digest.digest(this).joinToString("") { "%02x".format(it) }
+}

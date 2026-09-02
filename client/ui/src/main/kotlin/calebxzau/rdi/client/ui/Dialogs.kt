@@ -52,6 +52,17 @@ fun AlertErr(msg: String, onClose: (() -> Unit)? = null) {
 }
 
 @Composable
+fun AlertOk(msg: String, onClose: (() -> Unit)? = null) {
+    AlertDialog(
+        title = "成功",
+        icon = "\uF00C",
+        msg = msg,
+        accentColor = Color(0xFF3A9D5D),
+        onClose = onClose
+    )
+}
+
+@Composable
 fun ConfirmDialog(
     title: String,
     message: String,
@@ -85,11 +96,11 @@ private fun AlertDialog(
     accentColor: Color,
     onClose: (() -> Unit)? = null
 ) {
-    var visible by remember { mutableStateOf(true) }
-    if (!visible) return
+    var visible by remember(msg) { mutableStateOf(true) }
+    if (!visible && onClose == null) return
 
     fun close() {
-        visible = false
+        if (onClose == null) visible = false
         onClose?.invoke()
     }
 

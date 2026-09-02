@@ -1,5 +1,6 @@
 import groovy.json.JsonSlurper
 import org.gradle.api.GradleException
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
 import org.gradle.api.artifacts.type.ArtifactTypeDefinition
 import org.gradle.api.tasks.Copy
 import org.gradle.jvm.tasks.Jar
@@ -22,6 +23,7 @@ plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.kotlin.compose)
+    id("org.jetbrains.compose.hot-reload") version "1.1.1"
     alias(libs.plugins.compose)
     id("org.gradlex.extra-java-module-info") version "1.14.2"
     idea
@@ -69,6 +71,7 @@ kotlin {
     jvmToolchain(javaVersionInt)
     compilerOptions {
         jvmTarget.set(jvmTargetVersion)
+        optIn.add("kotlin.uuid.ExperimentalUuidApi")
     }
     sourceSets.all {
         languageSettings.optIn("androidx.compose.material3.ExperimentalMaterial3Api")
@@ -107,8 +110,6 @@ dependencies {
     */
     implementation(libs.minecraft.auth)
     implementation(libs.kotlin.logging.jvm)
-    implementation(libs.jna)
-    implementation(libs.jna.platform)
     implementation(libs.oshi.core.desktop)
     implementation(libs.logback.classic)
     implementation(libs.ktor.client.okhttp)
@@ -137,13 +138,20 @@ dependencies {
     implementation(project(":mediaproc"))
     implementation(project(":pack-proc"))
     implementation(project(":mclaunch"))
+    implementation(project(":mc-install"))
+    implementation(project(":modpack-test"))
+    implementation(project(":player-info"))
+    implementation(project(":player-model"))
+    implementation(project(":player-model-core"))
+    implementation(project(":bg-renderer"))
+    implementation(project(":render-core"))
     implementation(project(":mod-catalog"))
-    implementation(project(":webview2"))
+   // implementation(project(":webview2"))
     implementation(project(":forgeguard"))
     implementation(project(":local-mc-proxy"))
 
     val lwjglVersion = libs.versions.lwjgl.get()
-    listOf("", "glfw", "opengl").forEach { component ->
+    listOf("", "glfw").forEach { component ->
         val suffix = component.takeIf(String::isNotEmpty)?.let { "-$it" }.orEmpty()
         implementation("org.lwjgl:lwjgl${suffix}:$lwjglVersion")
         implementation("org.lwjgl:lwjgl${suffix}:$lwjglVersion:natives-windows")
@@ -193,6 +201,26 @@ tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
 
+val localModpackTest by sourceSets.creating {
+    kotlin.srcDir("src/test/kotlin")
+    kotlin.include(
+        "calebxzhou/rdi/client/service/ModpackArchiveReaderTest.kt",
+    )
+    compileClasspath += sourceSets.main.get().output + configurations.testRuntimeClasspath.get()
+    runtimeClasspath += output + compileClasspath
+}
+
+configurations[localModpackTest.implementationConfigurationName]
+    .extendsFrom(configurations.testImplementation.get())
+configurations[localModpackTest.runtimeOnlyConfigurationName]
+    .extendsFrom(configurations.testRuntimeOnly.get())
+
+tasks.register<Test>("localModpackTest") {
+    testClassesDirs = localModpackTest.output.classesDirs
+    classpath = localModpackTest.runtimeClasspath
+    useJUnitPlatform()
+}
+
 // Removed custom upToDateWhen — it was breaking Kotlin's incremental compilation,
 // causing full recompilation on every hot reload instead of only changed files.
 
@@ -207,6 +235,7 @@ idea {
 
 val runDir = layout.projectDirectory.dir("run").asFile
 val hotRunBaseJvmArgs = listOf(
+    "-Xmx1G",
     "-Drdi.debug=true",
     "-Drdi.noHttps=true",
    // "-Drdi.noUpdate=true",
@@ -233,10 +262,37 @@ tasks.matching { it.name == "hotRun" || it.name == "hotDev" }.configureEach {
 evaluationDependsOn(":early-display")
 val earlyDisplayJar = project(":early-display").tasks.named<Jar>("jar")
 
+val runtimeArtifactNames = providers.provider<Map<File, String>> {
+    configurations.getByName("runtimeClasspath").incoming.artifacts.resolvedArtifacts.get()
+        .groupBy { it.file.name }
+        .flatMap { (fileName, artifacts) ->
+            val isDuplicate = artifacts.size > 1
+            artifacts.map { artifact ->
+                val component = artifact.id.componentIdentifier
+                val outputName = if (
+                    isDuplicate &&
+                    component is ModuleComponentIdentifier &&
+                    component.group.startsWith("androidx.")
+                ) {
+                    "androidx-$fileName"
+                } else {
+                    fileName
+                }
+                artifact.file to outputName
+            }
+        }
+        .toMap()
+}
+
 tasks.register<Sync>("desktopInstallLibs") {
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+    duplicatesStrategy = DuplicatesStrategy.FAIL
+    notCompatibleWithConfigurationCache("resolves runtime artifact metadata while staging libraries")
     dependsOn("jar", earlyDisplayJar)
-    from(configurations.runtimeClasspath)
+    from(configurations.runtimeClasspath) {
+        eachFile {
+            name = runtimeArtifactNames.get()[file] ?: name
+        }
+    }
     from(tasks.named<Jar>("jar"))
     from(earlyDisplayJar)
     into(layout.buildDirectory.dir("install/ui/lib"))

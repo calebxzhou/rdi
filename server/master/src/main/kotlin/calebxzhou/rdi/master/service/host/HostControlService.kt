@@ -31,6 +31,16 @@ import org.bson.types.ObjectId
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CancellationException as KxCancellationException
 
+internal fun resolveHostStatus(
+    containerStatus: HostStatus,
+    debug: Boolean,
+    hasSession: Boolean,
+): HostStatus = if (hasSession && (debug || containerStatus == HostStatus.STARTED)) {
+    HostStatus.PLAYABLE
+} else {
+    containerStatus
+}
+
 object HostControlService {
     private val lgr by Loggers
 
@@ -145,13 +155,38 @@ object HostControlService {
 
     val Host.status: HostStatus
         get() {
-            if (DEBUG && HostRuntimeService.hasSession(_id)) return HostStatus.PLAYABLE
-            val status = DockerService.getContainerStatus(_id.str)
-            if (status == HostStatus.STARTED && HostRuntimeService.hasSession(_id)) {
-                return HostStatus.PLAYABLE
-            }
-            return status
+            val hasSession = HostRuntimeService.hasSession(_id)
+            if (DEBUG && hasSession) return HostStatus.PLAYABLE
+            val containerStatus = DockerService.getContainerStatus(_id.str)
+            return resolveHostStatus(
+                containerStatus = containerStatus,
+                debug = DEBUG,
+                hasSession = hasSession,
+            )
         }
+
+    internal fun Iterable<Host>.statusSnapshot(): Map<ObjectId, HostStatus> {
+        val hosts = toList()
+        val sessionIds = if (DEBUG) {
+            hosts.filter { HostRuntimeService.hasSession(it._id) }.map { it._id }.toSet()
+        } else {
+            emptySet()
+        }
+        val containerStatuses = if (DEBUG && sessionIds.size == hosts.size) {
+            emptyMap()
+        } else {
+            DockerService.getContainerStatusSnapshot()
+        }
+        val missingStatus = if (containerStatuses == null) HostStatus.UNKNOWN else HostStatus.STOPPED
+        return hosts.associate { host ->
+            val hasSession = host._id in sessionIds || HostRuntimeService.hasSession(host._id)
+            host._id to resolveHostStatus(
+                containerStatus = containerStatuses?.get(host._id.str) ?: missingStatus,
+                debug = DEBUG,
+                hasSession = hasSession,
+            )
+        }
+    }
 
     private fun Host.requireRequiredStartupMods(modpack: Modpack, version: Modpack.Version) {
         if (modpack.mcVer != McVersion.V201 && modpack.mcVer != McVersion.V211) return

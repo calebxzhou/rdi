@@ -1,0 +1,330 @@
+package calebxzhou.rdi.client.ui.screen
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import calebxzau.rdi.client.ui.AlertErr
+import calebxzau.rdi.client.ui.AlertWarn
+import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.ContentBody
+import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.ScreenContentSize
+import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.SimpleTooltip
+import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.pickLocalModpackFile
+import calebxzau.rdi.client.ui.pickLocalZipFile
+import calebxzau.rdi.client.ui.viewmodel.Modpack2UploadTestStatus
+import calebxzau.rdi.client.ui.viewmodel.Modpack2UploadViewModel
+import calebxzau.rdi.client.ui.viewmodel.Modpack2UploadMode
+import calebxzau.rdi.client.ui.viewmodel.Modpack2InstallStatus
+import calebxzau.rdi.client.ui.RDropdownMenuItem
+import calebxzhou.rdi.client.ui.comp.Console
+import calebxzhou.rdi.client.ui.comp.ConsoleState
+import calebxzau.rdi.client.ui.viewmodel.normalizeModpack2UploadPath
+import calebxzhou.rdi.client.service.toContentGridItems
+import calebxzhou.rdi.client.ui.comp.ContentGrid
+import calebxzhou.rdi.client.ui.comp.ContentGridItem
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ModpackCategory
+import calebxzhou.rdi.common.model.Mod
+import org.koin.compose.viewmodel.koinViewModel
+import kotlinx.coroutines.launch
+
+internal fun applyContentGridSideOverrides(
+    items: List<ContentGridItem>,
+    overrides: Map<String, ContentSide>,
+): List<ContentGridItem> = items.map { item ->
+    if (item !is ContentGridItem.ModItem) return@map item
+    val override = overrides["path:${normalizeModpack2UploadPath(item.archiveTargetPath)}"] ?: return@map item
+    item.copy(mod = item.mod.withSide(when (override) {
+        ContentSide.Client -> Mod.Side.CLIENT
+        ContentSide.Server -> Mod.Side.SERVER
+        ContentSide.Both -> Mod.Side.BOTH
+    }))
+}
+
+@Composable
+fun Modpack2UploadScreen(
+    onBack: () -> Unit,
+    onOpenTask: (String) -> Unit,
+    viewModel: Modpack2UploadViewModel = koinViewModel(),
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    var tab by rememberSaveable { mutableStateOf(0) }
+    var confirm by rememberSaveable { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    val focusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focusRequester.requestFocus() }
+    LaunchedEffect(Unit) {
+        viewModel.events.collect { onOpenTask(it.runId) }
+    }
+    MaxBox {
+        ScreenContentSurface(
+            size = ScreenContentSize.LARGE,
+            modifier = Modifier.focusRequester(focusRequester).focusable().onPreviewKeyEvent { event ->
+                viewModel.handleKey(event.type, event.key)
+            },
+        ) {
+            TitleRow("上传整合包", onBack) {
+                if (state.archive != null) {
+                    CircleIconButton(
+                        icon = "\uF07C",
+                        label = if (state.serverPack == null) "选择服务端包" else "重选服务端包",
+                        enabled = !state.submitting,
+                        onClick = {
+                            scope.launch {
+                                pickLocalZipFile("选择服务端整合包")?.toPath()?.let(viewModel::setServerPack)
+                            }
+                        },
+                    )
+                    if (state.serverPack != null) {
+                        CircleIconButton(
+                            icon = "×",
+                            tooltip = "清除服务端包",
+                            showText = false,
+                            enabled = !state.submitting,
+                            onClick = viewModel::clearServerPack,
+                        )
+                    }
+                    Modpack2UploadSubmitButton(
+                        enabled = state.canSubmit,
+                        disabledReason = state.disabledReason,
+                        onClick = { confirm = true },
+                    )
+                }
+            }
+            ContentBody {
+                Column(Modifier.fillMaxSize().padding(16.dp)) {
+                    if (state.archive == null) {
+                        CircleIconButton(icon = "\uF07C", label = "选择客户端安装包", onClick = {
+                            scope.launch {
+                                pickLocalModpackFile()?.toPath()?.let(viewModel::loadInstaller)
+                            }
+                        })
+                        state.errorMessage?.let { AlertErr(it) }
+                        return@Column
+                    }
+                    state.errorMessage?.let { AlertErr(it) }
+                    state.ownedError?.let { AlertErr("无法读取可更新的整合包：$it") }
+                    if (state.installStatus == Modpack2InstallStatus.FAILED && state.remoteResult != null) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("远端版本已创建，本地安装失败：${state.installError ?: "未知错误"}")
+                            CircleIconButton(icon = "\uF021", label = "重试安装", onClick = viewModel::retryInstall)
+                        }
+                    }
+                    if (state.installStatus == Modpack2InstallStatus.INSTALLED) {
+                        Text("远端版本已创建并安装")
+                    }
+                    if (state.ignoreModpackTest) {
+                        AlertWarn("已允许跳过客户端和服务端测试")
+                    }
+                    TabRow(selectedTabIndex = tab) {
+                        listOf("基本信息", "内容列表", "客户端测试", "服务端测试").forEachIndexed { index, title ->
+                            Tab(selected = tab == index, onClick = { tab = index }, text = { Text(title) })
+                        }
+                    }
+                    Box(Modifier.fillMaxWidth().weight(1f)) {
+                        when (tab) {
+                            0 -> MetadataTab(state, viewModel, Modifier.fillMaxSize())
+                            1 -> ContentListTab(state, viewModel, Modifier.fillMaxSize())
+                            2 -> TestTab("客户端测试", state.clientTestStatus, viewModel.clientTestConsoleState, viewModel::startClientTest, viewModel::stopClientTest, Modifier.fillMaxSize())
+                            else -> TestTab("服务端测试", state.serverTestStatus, viewModel.serverTestConsoleState, viewModel::startServerTest, viewModel::stopServerTest, Modifier.fillMaxSize())
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (confirm) AlertDialog(
+        onDismissRequest = { confirm = false },
+        title = { Text("确认上传") },
+        text = { Text(if (state.mode == Modpack2UploadMode.Create) "将创建一个新的整合包。" else "将向《${state.selectedOwned?.name.orEmpty()}》添加一个新版本。") },
+        confirmButton = { TextButton(onClick = { confirm = false; viewModel.submit() }) { Text("上传") } },
+        dismissButton = { TextButton(onClick = { confirm = false }) { Text("取消") } },
+    )
+    if (state.loading) AlertDialog(
+        onDismissRequest = {},
+        title = { Text("读取整合包") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                CircularProgressIndicator()
+                state.progress?.let { Text(it.stage.displayName) }
+            }
+        },
+        confirmButton = {},
+    )
+}
+
+@Composable
+private fun Modpack2UploadSubmitButton(
+    enabled: Boolean,
+    disabledReason: String?,
+    onClick: () -> Unit,
+) {
+    val button: @Composable () -> Unit = {
+        CircleIconButton(
+            icon = "\uF019",
+            label = "开始上传",
+            enabled = enabled,
+            onClick = onClick,
+        )
+    }
+    if (enabled) {
+        button()
+    } else {
+        SimpleTooltip(disabledReason ?: "当前暂时不能上传") {
+            button()
+        }
+    }
+}
+
+@Composable
+private fun MetadataTab(
+    state: calebxzau.rdi.client.ui.viewmodel.Modpack2UploadUiState,
+    viewModel: Modpack2UploadViewModel,
+    modifier: Modifier = Modifier,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = modifier.verticalScroll(rememberScrollState()).padding(top = 12.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilterChip(selected = state.mode == Modpack2UploadMode.Create, onClick = { viewModel.setUploadMode(Modpack2UploadMode.Create) }, label = { Text("新建整合包") })
+            FilterChip(selected = state.mode == Modpack2UploadMode.Update, onClick = { viewModel.setUploadMode(Modpack2UploadMode.Update) }, label = { Text("更新已有整合包") })
+        }
+        if (state.mode == Modpack2UploadMode.Update) {
+            var expanded by remember { mutableStateOf(false) }
+            Box(Modifier.fillMaxWidth().clickable(enabled = !state.ownedLoading && state.owned.isNotEmpty()) { expanded = true }) {
+                OutlinedTextField(
+                    value = state.selectedOwned?.name ?: if (state.ownedLoading) "正在读取…" else "请选择整合包",
+                    onValueChange = {}, readOnly = true, enabled = !state.ownedLoading && state.owned.isNotEmpty(),
+                    label = { Text("要更新的整合包") }, modifier = Modifier.fillMaxWidth(),
+                )
+                DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                    state.owned.forEach { pack ->
+                        RDropdownMenuItem(
+                            text = "${pack.name} · ${pack.currentVersionName ?: "无可用版本"}",
+                            icon = "\uF1B2",
+                            enabled = pack.currentVersionId != null,
+                            onClick = { expanded = false; viewModel.selectOwnedPack(pack.id) },
+                        )
+                    }
+                }
+            }
+            state.selectedOwned?.let { pack ->
+                Text("MC${pack.mc} · ${pack.loader} · 当前版本${pack.currentVersionName ?: "未命名"}")
+            }
+            OutlinedTextField(state.version, viewModel::updateVersion, label = { Text("版本名称") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(state.changelog, viewModel::updateChangelog, label = { Text("更新说明") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+        } else {
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(state.name, viewModel::updateName, label = { Text("整合包名称") }, modifier = Modifier.weight(1f))
+                OutlinedTextField(state.version, viewModel::updateVersion, label = { Text("版本名称") }, modifier = Modifier.weight(1f))
+            }
+            OutlinedTextField(state.intro, viewModel::updateIntro, label = { Text("整合包简介") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(state.iconUrl, viewModel::updateIconUrl, label = { Text("图标链接") }, modifier = Modifier.weight(1f))
+                OutlinedTextField(state.sourceUrl, viewModel::updateSourceUrl, label = { Text("原帖链接（可选）") }, modifier = Modifier.weight(1f))
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                ModpackCategory.entries.forEach { category ->
+                    FilterChip(selected = category in state.categories, onClick = { viewModel.toggleCategory(category) }, label = { Text(category.label) })
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ContentListTab(
+    state: calebxzau.rdi.client.ui.viewmodel.Modpack2UploadUiState,
+    viewModel: Modpack2UploadViewModel,
+    modifier: Modifier = Modifier,
+) {
+    val archive = state.archive
+    if (archive == null) {
+        Text("没有可显示的内容", modifier = modifier.padding(top = 12.dp))
+        return
+    }
+    val items = remember(archive.preview, state.resolvedMods, archive.selectedOptionalFiles, state.manualSideOverrides) {
+        applyContentGridSideOverrides(
+            archive.preview.toContentGridItems(state.resolvedMods, archive.selectedOptionalFiles),
+            state.manualSideOverrides,
+        )
+    }
+    ContentGrid(
+        items = items,
+        modifier = modifier,
+        emptyText = "没有可显示的内容",
+        onSelectionChange = { item, _ ->
+            if (!state.submitting && !item.required) viewModel.toggleOptionalFile(item.key)
+        },
+        onModItemSideChange = { item, side ->
+            viewModel.setModSide(item.archiveTargetPath, when (side) {
+                calebxzhou.rdi.common.model.Mod.Side.CLIENT -> calebxzau.rdi.common.model.ContentSide.Client
+                calebxzhou.rdi.common.model.Mod.Side.SERVER -> calebxzau.rdi.common.model.ContentSide.Server
+                else -> calebxzau.rdi.common.model.ContentSide.Both
+            })
+        },
+        stateKey = "modpack2-upload:${archive.preview.archive}:${archive.preview.archiveSize}:${archive.preview.archiveModifiedAt}",
+        isResolving = state.contentResolving,
+    )
+}
+
+@Composable
+private fun TestTab(
+    title: String,
+    status: Modpack2UploadTestStatus,
+    consoleState: ConsoleState,
+    onStart: () -> Unit,
+    onStop: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier.padding(top = 12.dp)) {
+        Text(title)
+        Text(when (status) {
+            Modpack2UploadTestStatus.NOT_RUN -> "尚未测试"
+            Modpack2UploadTestStatus.RUNNING -> "测试中…"
+            Modpack2UploadTestStatus.PASSED -> "测试通过"
+            Modpack2UploadTestStatus.FAILED -> "测试失败"
+        })
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(enabled = status != Modpack2UploadTestStatus.RUNNING, onClick = onStart) { Text("开始测试") }
+            Button(enabled = status == Modpack2UploadTestStatus.RUNNING, onClick = onStop) { Text("停止测试") }
+        }
+        Console(consoleState, Modifier.fillMaxWidth().weight(1f))
+    }
+}

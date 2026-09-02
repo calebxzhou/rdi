@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.model.UiMod
 import calebxzau.rdi.client.ui.wM
 import calebxzhou.rdi.common.model.Mod
+import androidx.compose.foundation.layout.RowScope
 
 /**
  * calebxzhou @ 2026-01-13 21:28
@@ -29,13 +30,13 @@ internal fun UiModCard(
     mod: UiMod,
     modifier: Modifier = Modifier,
     currentSide: Mod.Side = mod.side,
-    onSideChange: ((Mod.Side) -> Unit)? = null
+    onSideChange: ((Mod.Side) -> Unit)? = null,
+    trailingContent: (@Composable RowScope.() -> Unit)? = null,
 ) {
     val (clientEnabled, serverEnabled) = sideToFlags(currentSide)
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp)
             .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
             .padding(12.dp, 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -68,26 +69,30 @@ internal fun UiModCard(
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f)
                 )
-                Spacer(8.wM)
-                ToggleButton(
-                    icon = "\uF108",
-                    checked = clientEnabled,
-                    onClick = onSideChange?.let {
-                        {
-                            it(flagsToSide(clientEnabled = !clientEnabled, serverEnabled = serverEnabled))
+                if (trailingContent != null) {
+                    trailingContent.invoke(this)
+                } else {
+                    Spacer(8.wM)
+                    ToggleButton(
+                        icon = "\uF108",
+                        checked = clientEnabled,
+                        onClick = onSideChange?.let {
+                            {
+                                it(flagsToSide(clientEnabled = !clientEnabled, serverEnabled = serverEnabled))
+                            }
                         }
-                    }
-                )
-                Spacer(6.wM)
-                ToggleButton(
-                    icon = "\uF233",
-                    checked = serverEnabled,
-                    onClick = onSideChange?.let {
-                        {
-                            it(flagsToSide(clientEnabled = clientEnabled, serverEnabled = !serverEnabled))
+                    )
+                    Spacer(6.wM)
+                    ToggleButton(
+                        icon = "\uF233",
+                        checked = serverEnabled,
+                        onClick = onSideChange?.let {
+                            {
+                                it(flagsToSide(clientEnabled = clientEnabled, serverEnabled = !serverEnabled))
+                            }
                         }
-                    }
-                )
+                    )
+                }
             }
 
           /*  mod.secondaryName?.let { secondaryName ->

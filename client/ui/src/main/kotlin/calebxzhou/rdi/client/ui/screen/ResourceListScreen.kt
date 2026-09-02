@@ -1,31 +1,13 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,11 +27,12 @@ import calebxzhou.rdi.client.model.ModrinthProjectCardVo
 import calebxzhou.rdi.client.model.ModrinthProjectSearchResult
 import calebxzhou.rdi.client.service.ResourcepackSearchService
 import calebxzhou.rdi.client.service.ShaderSearchService
-import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzau.rdi.client.ui.RowV
-import calebxzau.rdi.client.ui.RVerticalScrollbar
-import calebxzau.rdi.client.ui.Space8h
-import calebxzau.rdi.client.ui.Space8w
+import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.ScreenContentSize
+import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.ScrollableContentBody
+import calebxzau.rdi.client.ui.SearchField
+import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.ModrinthProjectCard
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModrinthSearchIndex
@@ -60,11 +43,13 @@ import kotlinx.coroutines.launch
 fun ShaderListScreen(
     requiredMcVer: McVersion? = null,
     modifier: Modifier = Modifier,
+    onBack: () -> Unit = {},
     onOpenShader: (ModrinthProjectCardVo) -> Unit = {}
 ) = ModrinthProjectListScreen(
     requiredMcVer = requiredMcVer,
     modifier = modifier,
     projectDisplayName = "光影包",
+    onBack = onBack,
     searchProject = { query, mcVersion, index, offset, limit ->
         ShaderSearchService.searchShaders(query, mcVersion, index, offset, limit)
     },
@@ -76,11 +61,13 @@ fun ShaderListScreen(
 fun ResourcepackListScreen(
     requiredMcVer: McVersion? = null,
     modifier: Modifier = Modifier,
+    onBack: () -> Unit = {},
     onOpenResourcepack: ((ModrinthProjectCardVo) -> Unit)? = null
 ) = ModrinthProjectListScreen(
     requiredMcVer = requiredMcVer,
     modifier = modifier,
     projectDisplayName = "资源包",
+    onBack = onBack,
     searchProject = { query, mcVersion, index, offset, limit ->
         ResourcepackSearchService.searchResourcepacks(query, mcVersion, index, offset, limit)
     },
@@ -93,6 +80,7 @@ fun ModrinthProjectListScreen(
     requiredMcVer: McVersion? = null,
     modifier: Modifier = Modifier,
     projectDisplayName: String,
+    onBack: () -> Unit = {},
     searchProject: suspend (
         query: String?,
         mcVersion: String?,
@@ -103,19 +91,17 @@ fun ModrinthProjectListScreen(
     onOpenProject: ((ModrinthProjectCardVo) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
-    val gridState = rememberLazyGridState()
     var projects by remember { mutableStateOf<List<ModrinthProjectCardVo>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
     var hasMore by remember { mutableStateOf(false) }
     var totalHits by remember { mutableStateOf(0) }
-    val searchState = rememberTextFieldState()
+    var searchText by rememberSaveable { mutableStateOf("") }
     var requestKeyword by rememberSaveable { mutableStateOf("") }
     var requestVersion by rememberSaveable { mutableStateOf(0) }
     var selectedMcVer by rememberSaveable { mutableStateOf(requiredMcVer) }
     var selectedSort by rememberSaveable { mutableStateOf(ModrinthSearchIndex.DOWNLOADS) }
-    var compactFilterPanelExpanded by rememberSaveable { mutableStateOf(false) }
 
     suspend fun loadProjects(reset: Boolean) {
         val offset = if (reset) 0 else projects.size
@@ -128,8 +114,8 @@ fun ModrinthProjectListScreen(
         runCatching {
             searchProject(
                 requestKeyword,
-                 selectedMcVer?.mcVer,
-               selectedSort,
+                selectedMcVer?.mcVer,
+                selectedSort,
                 offset,
                 20
             )
@@ -150,7 +136,7 @@ fun ModrinthProjectListScreen(
     }
 
     fun submitSearch() {
-        val keyword = searchState.text.toString().trim()
+        val keyword = searchText.trim()
         if (keyword == requestKeyword) {
             requestVersion += 1
         } else {
@@ -158,139 +144,53 @@ fun ModrinthProjectListScreen(
         }
     }
 
-    fun clearFilters() {
-        searchState.setTextAndPlaceCursorAtEnd("")
-        requestKeyword = ""
-        selectedMcVer = requiredMcVer
-        selectedSort = ModrinthSearchIndex.DOWNLOADS
-        requestVersion += 1
-    }
-
     @Composable
-    fun SearchBar() {
-        RowV(modifier = Modifier.fillMaxWidth()) {
-            OutlinedTextField(
-                state = searchState,
-                placeholder = { Text("搜索${projectDisplayName}") },
-                lineLimits = TextFieldLineLimits.SingleLine,
-                textStyle = MaterialTheme.typography.bodyMedium,
-                shape = RoundedCornerShape(14.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                modifier = Modifier
-                    .weight(1f)
-                    .height(44.dp)
-            )
-            Space8w()
-            CircleIconButton(
-                icon = "\uF002",
-                tooltip = "搜索${projectDisplayName}",
-                showText = false,
+    fun ResultList() {
+        errorMessage?.let {
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
+        if (loading) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
             ) {
-                submitSearch()
+                CircularProgressIndicator()
             }
         }
-    }
-
-    @Composable
-    fun CompactFilterToggle() {
-        RowV(
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            itemVerticalAlignment = Alignment.Top
         ) {
-            CircleIconButton(
-                icon = if (compactFilterPanelExpanded) "\uE70D" else "\uE76C",
-                label = if (compactFilterPanelExpanded) "收起搜索与筛选" else "展开搜索与筛选",
-                bgColor = if (compactFilterPanelExpanded) {
-                    MaterialTheme.colorScheme.secondary
-                } else {
-                    MaterialTheme.colorScheme.primary
-                }
-            ) {
-                compactFilterPanelExpanded = !compactFilterPanelExpanded
+            projects.forEach { project ->
+                ModrinthProjectCard(
+                    project = project,
+                    modifier = Modifier.widthIn(max = 300.dp).fillMaxWidth(),
+                    onClick = onOpenProject?.let { open -> { open(project) } }
+                )
             }
+        }
+        if (!loading && projects.isEmpty()) {
             Text(
-                text = "共找到${if (loading) "--" else totalHits}个${projectDisplayName}",
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
+                text = "没有找到符合条件的${projectDisplayName}",
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
             )
         }
-    }
-
-    @Composable
-    fun ResultList(modifier: Modifier = Modifier) {
-        Column(modifier = modifier.fillMaxSize()) {
-            errorMessage?.let {
-                Text(it, color = MaterialTheme.colorScheme.error)
-                Space8h()
-            }
-            if (loading) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
+        if (hasMore) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (loadingMore) {
                     CircularProgressIndicator()
-                }
-                Space8h()
-            }
-            Box(Modifier.fillMaxWidth().weight(1f)) {
-                LazyVerticalGrid(
-                    state = gridState,
-                    columns = GridCells.Adaptive(minSize = 300.dp),
-                    modifier = Modifier.fillMaxSize().padding(end = 12.dp),
-                    contentPadding = PaddingValues(bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                items(projects, key = { it.projectId }) { project ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        ModrinthProjectCard(
-                            project = project,
-                            modifier = Modifier.widthIn(max = 300.dp),
-                            onClick = onOpenProject?.let { open -> { open(project) } }
-                        )
+                } else {
+                    TextButton(onClick = {
+                        scope.launch { loadProjects(reset = false) }
+                    }) {
+                        Text("加载更多")
                     }
                 }
-                if (!loading && projects.isEmpty()) {
-                    item(
-                        key = "empty",
-                        span = { GridItemSpan(maxLineSpan) }
-                    ) {
-                        Text(
-                            text = "没有找到符合条件的${projectDisplayName}",
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
-                        )
-                    }
-                }
-                if (hasMore) {
-                    item(
-                        key = "load-more",
-                        span = { GridItemSpan(maxLineSpan) }
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            if (loadingMore) {
-                                CircularProgressIndicator()
-                            } else {
-                                TextButton(onClick = {
-                                    scope.launch { loadProjects(reset = false) }
-                                }) {
-                                    Text("加载更多")
-                                }
-                            }
-                        }
-                    }
-                }
-                }
-                RVerticalScrollbar(
-                    gridState = gridState,
-                    modifier = Modifier.align(Alignment.CenterEnd)
-                )
             }
         }
     }
@@ -299,108 +199,27 @@ fun ModrinthProjectListScreen(
         loadProjects(reset = true)
     }
 
-    BoxWithConstraints(modifier = modifier.fillMaxSize()) {
-        val compactLayout = maxHeight > maxWidth || maxWidth < 960.dp
-        if (compactLayout) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                CompactFilterToggle()
-                if (compactFilterPanelExpanded) {
-                    SearchBar()
-                }
-                ResultList(modifier = Modifier.weight(1f))
+    MaxBox {
+        ScreenContentSurface(
+            size = ScreenContentSize.LARGE,
+            modifier = modifier
+        ) {
+            TitleRow(projectDisplayName, onBack) {
+                SearchField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    placeholder = "搜索${projectDisplayName}",
+                    onSearch = ::submitSearch,
+                    modifier = Modifier.width(240.dp),
+                    loading = loading,
+                )
             }
-        } else {
-            Row(
-                modifier = Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp),
-                verticalAlignment = Alignment.Top
+            ScrollableContentBody(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(
-                    modifier = Modifier.weight(1f).fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    SearchBar()
-                    ResultList(modifier = Modifier.weight(1f))
-                }
+                ResultList()
             }
         }
     }
 }
 
-@Composable
-private fun ModrinthProjectFilterSection(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.72f)
-        )
-        content()
-    }
-}
-
-private data class ModrinthProjectFilterChipItem(
-    val text: String,
-    val selected: Boolean,
-    val onClick: () -> Unit
-)
-
-@Composable
-private fun ModrinthProjectFilterChip(
-    text: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Surface(
-        modifier = modifier.clickable(onClick = onClick),
-        shape = RoundedCornerShape(16.dp),
-        color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
-    ) {
-        Text(
-            text = text,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 8.dp)
-        )
-    }
-}
-
-@Composable
-private fun ModrinthProjectFilterGrid(
-    items: List<ModrinthProjectFilterChipItem>,
-    columns: Int = 3
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        items.chunked(columns).forEach { rowItems ->
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                rowItems.forEach { item ->
-                    ModrinthProjectFilterChip(
-                        text = item.text,
-                        selected = item.selected,
-                        onClick = item.onClick,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                repeat(columns - rowItems.size) {
-                    androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}

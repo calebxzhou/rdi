@@ -17,6 +17,7 @@ import calebxzau.rdi.client.modcatalog.DependencyRequirement
 import calebxzau.rdi.client.modcatalog.DependencyTarget
 import calebxzau.rdi.client.modcatalog.EnvironmentCompatibility
 import calebxzau.rdi.client.modcatalog.EnvironmentRequirement
+import calebxzau.rdi.client.modcatalog.effectiveEnvironment
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.modcatalog.ModPlatform
 import calebxzau.rdi.client.modcatalog.ReleaseChannel
@@ -34,6 +35,9 @@ import calebxzhou.rdi.client.service.RemoteModDownloadService
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.McPlayStore
 import calebxzhou.rdi.client.ui.screen.RemoteModInfoRoute
+import calebxzhou.rdi.client.ui.screen.CatalogLocalTargetKind
+import calebxzhou.rdi.client.ui.screen.hasDisabledCatalogLocalTargetKind
+import calebxzhou.rdi.client.ui.screen.localCatalogTarget
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
@@ -115,10 +119,6 @@ sealed interface CatalogInstallTarget {
         val mcVersion: McVersion?,
     ) : CatalogInstallTarget
 
-    data class Host2Target(
-        val id: String,
-        val mcVersion: McVersion?,
-    ) : CatalogInstallTarget
 }
 
 data class CatalogHost(
@@ -145,7 +145,7 @@ data class CatalogDownloadUiState(
 
 class RemoteModInfoViewModel(
     private val route: RemoteModInfoRoute,
-    private val catalog: ModCatalog,
+    internal val catalog: ModCatalog,
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(RemoteModInfoUiState())
     val uiState: StateFlow<RemoteModInfoUiState> = _uiState.asStateFlow()
@@ -278,6 +278,7 @@ class RemoteModInfoViewModel(
                 DependencyRequest(
                     listOf(file),
                     CatalogTarget(state.selectedMcVersion, state.selectedLoader),
+                    requirements = setOf(DependencyRequirement.REQUIRED),
                 )
             ).getOrElse { cause ->
                 lgr.warn(cause) { "解析模组依赖失败" }
@@ -378,18 +379,6 @@ class RemoteModInfoViewModel(
                         "已提交房间附加Mod任务" to null
                     }
 
-                    is CatalogInstallTarget.Host2Target -> {
-                        validateTargetVersion(target.mcVersion, selection.file)
-                        val response = server.makeRequest<Unit>(
-                            "host2/${target.id}/mods",
-                            HttpMethod.Post
-                        ) {
-                            contentType(ContentType.Application.Json)
-                            setBody(serdesJson.encodeToString(listOf(legacyMod)))
-                        }
-                        if (!response.ok) error(response.msg)
-                        "已添加到新版房间" to null
-                    }
                 }
                 _uiState.update {
                     it.copy(
@@ -418,12 +407,16 @@ class RemoteModInfoViewModel(
     private fun loadRoute() {
         _uiState.update { it.copy(loading = true, errorMessage = null) }
         viewModelScope.launch {
-            val loadedPack = route.targetLocalVersionId?.let { versionId ->
-                withContext(Dispatchers.IO) {
-                    ModpackService.getLocalPackDirs().firstOrNull { it.versionId == versionId }
-                }
+            if (route.hasDisabledCatalogLocalTargetKind()) {
+                _uiState.update { it.copy(loading = false) }
+                emit(RemoteModInfoEvent.TargetUnavailable)
+                return@launch
             }
-            if (route.targetLocalVersionId != null && loadedPack == null) {
+            val localTarget = route.localCatalogTarget()
+            val loadedPack = localTarget?.takeIf { it.kind == CatalogLocalTargetKind.Legacy }?.let { target ->
+                withContext(Dispatchers.IO) { ModpackService.getLocalPackDirs().firstOrNull { it.versionId == target.id } }
+            }
+            if (localTarget != null && loadedPack == null) {
                 _uiState.update { it.copy(loading = false) }
                 emit(RemoteModInfoEvent.TargetUnavailable)
                 return@launch
@@ -434,8 +427,8 @@ class RemoteModInfoViewModel(
                 val ref = CatalogProjectRef(platform, route.projectId)
                 val loadedMod = catalog.getMods(setOf(ref)).getOrThrow().value[ref]
                     ?: error("模组不存在")
-                val targetMcVersion = loadedPack?.vo?.mcVer ?: route.requiredMcVer?.let(McVersion::from)
-                val targetLoader = loadedPack?.vo?.modloader ?: route.requiredLoader?.let(ModLoader::from)
+                val targetMcVersion = loadedPack?.mcVersion ?: route.requiredMcVer?.let(McVersion::from)
+                val targetLoader = loadedPack?.modLoader ?: route.requiredLoader?.let(ModLoader::from)
                 LoadedRoute(loadedMod, loadedPack, targetMcVersion, targetLoader)
             }.onSuccess { loaded ->
                 val selectedMcVersion = loaded.targetMcVersion ?: McVersion.V211
@@ -627,16 +620,10 @@ class RemoteModInfoViewModel(
         downloadTargetsJob = viewModelScope.launch {
             val state = uiState.value
             val targetPack = state.targetLocalPack
-            val host2Id = route.targetHost2Id
             val hostId = route.targetHostId
             try {
                 val fixedTarget = when {
                     targetPack != null -> CatalogInstallTarget.Local(targetPack)
-                    host2Id != null -> CatalogInstallTarget.Host2Target(
-                        host2Id,
-                        state.targetMcVersion,
-                    )
-
                     hostId != null -> CatalogInstallTarget.HostTarget(
                         ObjectId(hostId),
                         "当前房间",
@@ -656,7 +643,7 @@ class RemoteModInfoViewModel(
                     localPacks = withContext(Dispatchers.IO) {
                         ModpackService.getLocalPackDirs().filter { pack ->
                             selection.file.minecraftVersions.isEmpty() ||
-                                    pack.vo.mcVer.mcVer in selection.file.minecraftVersions
+                                    pack.mcVersion.mcVer in selection.file.minecraftVersions
                         }
                     }
                     hosts = loadCatalogAdminHosts().filter { host ->
@@ -827,8 +814,14 @@ private suspend fun resolveRequiredLocalMods(
     rootDownload: ResolvedDownload,
     packdir: ModpackLocalDir,
 ): Result<List<Mod>> = runCatching {
-    val target = CatalogTarget(packdir.vo.mcVer, packdir.vo.modloader)
-    val graph = catalog.resolveDependencies(DependencyRequest(listOf(rootFile), target)).getOrThrow().value
+    val target = CatalogTarget(packdir.mcVersion, packdir.modLoader)
+    val graph = catalog.resolveDependencies(
+        DependencyRequest(
+            listOf(rootFile),
+            target,
+            requirements = setOf(DependencyRequirement.REQUIRED),
+        )
+    ).getOrThrow().value
     val requiredRefs = requiredDependencyRefs(graph, rootFile.ref)
 
     val unresolvedRequired = graph.unresolved.filter { unresolved ->
@@ -848,6 +841,78 @@ private suspend fun resolveRequiredLocalMods(
         catalogMod.toLegacyMod(dependencyFile, download)
     }.sortedBy { if (it.projectId == rootFile.project.projectId) 0 else 1 }
 }
+
+/* Disabled Modpack2 install planning; retained for later re-enable.
+/** Builds one content request for the selected mod and every recursively-required dependency. */
+private suspend fun RemoteModInfoViewModel.resolveModpack2InstallItems(
+    pack: LocalModpack2InstanceRecord,
+    rootFile: CatalogFile,
+    rootDownload: ResolvedDownload,
+): List<Modpack2ContentRequest> {
+    val graph = catalog.resolveDependencies(
+        DependencyRequest(listOf(rootFile), CatalogTarget(pack.mcVersion, pack.modLoader))
+    ).getOrThrow().value
+    val refs = requiredDependencyRefs(graph, rootFile.ref)
+    require(graph.cycles.isEmpty()) { "必需依赖存在循环，暂时无法安全安装" }
+    val unresolved = graph.unresolved.filter { missing ->
+        graph.edges.any { it.requirement == DependencyRequirement.REQUIRED && it.from in refs && it.to == missing.target }
+    }
+    require(unresolved.isEmpty()) { "有${unresolved.size}个必需依赖没有兼容版本" }
+    // ContentService currently submits one row at a time; install dependencies first so the
+    // dependency FK can be persisted with each dependent row.
+    val files = refs.map { graph.nodes.getValue(it).file }
+        .sortedByDescending { graph.nodes.getValue(it.ref).depth }
+    val mods = catalog.getMods(files.mapTo(linkedSetOf(), CatalogFile::project)).getOrThrow().value
+    val ids = files.associate { it.ref to Uuid.generateV7() }
+    return files.map { file ->
+        val mod = mods.getValue(file.project)
+        val source = mod.sources.firstOrNull { it.ref == file.project } ?: error("模组来源信息缺失")
+        val download = if (file.ref == rootFile.ref) rootDownload else catalog.resolveDownload(file).getOrThrow()
+        val expectedDigest = when (file.ref.platform) {
+            ModPlatform.MODRINTH -> CatalogDigestAlgorithm.SHA1
+            ModPlatform.CURSEFORGE -> CatalogDigestAlgorithm.CURSEFORGE_MURMUR2
+        }
+        val digest = download.digests.firstOrNull { it.algorithm == expectedDigest }
+            ?: file.digests.firstOrNull { it.algorithm == expectedDigest }
+            ?: error("当前文件缺少校验信息，无法安全安装")
+        val record = LocalModpack2ContentRecord(
+            contentId = ids.getValue(file.ref), versionId = pack.versionId,
+            platform = when (file.ref.platform) {
+                ModPlatform.CURSEFORGE -> ContentPlatform.CurseForge
+                ModPlatform.MODRINTH -> ContentPlatform.Modrinth
+            },
+            type = ModpackContentType.Mod, projectId = file.project.projectId, fileId = file.ref.fileId,
+            slug = source.slug, hash = digest.value, targetPath = "mods/${download.fileName}",
+            side = file.effectiveEnvironment(source).toHost2ContentSide(), fileSize = file.fileSize,
+            logicalId = mod.identity.stableKey, origin = LocalModpack2ContentOrigin.Local,
+        )
+        val dependencies = graph.edges.filter { it.requirement == DependencyRequirement.REQUIRED && it.from == file.ref }
+            .mapNotNull { edge ->
+                val dependencyRef = when (val target = edge.to) {
+                    is DependencyTarget.File -> target.ref
+                    is DependencyTarget.Project -> files.firstOrNull { it.project == target.ref }?.ref
+                } ?: return@mapNotNull null
+                ids[dependencyRef]?.let { LocalModpack2ContentDependencyRecord(pack.versionId, record.contentId, it, true) }
+            }
+        Modpack2ContentRequest(
+            request = ContentRequest(
+                id = "catalog:${file.ref.platform}:${file.project.projectId}:${file.ref.fileId}",
+                relativePath = record.targetPath!!, size = file.fileSize,
+                digests = download.digests.mapNotNull { it.toContentDigest() },
+                sources = listOf(ContentSource(download.url, download.headers, file.fileSize, name = "catalog")),
+                displayName = mod.name,
+            ),
+            record = record, dependencies = dependencies,
+        )
+    }
+}
+*/
+
+/* private fun calebxzau.rdi.client.modcatalog.CatalogDigest.toContentDigest(): ContentDigest? = when (algorithm) {
+    CatalogDigestAlgorithm.SHA1 -> ContentDigest(ContentDigestAlgorithm.SHA1, value)
+    CatalogDigestAlgorithm.CURSEFORGE_MURMUR2 -> ContentDigest(ContentDigestAlgorithm.MURMUR2, value)
+    else -> null
+} */
 
 private fun requiredDependencyRefs(
     graph: DependencyGraph,
@@ -915,7 +980,7 @@ private fun CatalogMod.toLegacyMod(file: CatalogFile, resolved: ResolvedDownload
         slug = source.slug,
         fileId = file.ref.fileId,
         hash = digest.value,
-        side = environment.toLegacySide(),
+        side = file.effectiveEnvironment(source).toLegacySide(),
         downloadUrls = listOf(resolved.url),
     )
 }

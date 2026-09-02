@@ -6,7 +6,6 @@ import io.ktor.http.HttpHeaders
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
-import java.nio.file.Path
 import java.time.Instant
 
 internal class ModrinthAdapter(
@@ -23,7 +22,7 @@ internal class ModrinthAdapter(
         officialBaseUrl = config.baseUrl,
         mirrorBaseUrl = networkPolicy.mirrorBase(platform),
         defaultHeaders = mapOf(HttpHeaders.UserAgent to config.userAgent),
-        preferMirror = networkPolicy.preferMirror,
+        preferMirror = networkPolicy.preferMirrorProvider,
         json = json,
         onWarning = onWarning
     )
@@ -50,8 +49,10 @@ internal class ModrinthAdapter(
                 put("limit", limit.toString())
             }
         )
-        val items = response.hits.filter { it.projectType == "mod" }.map { it.toSource() }
-        val next = (offset + items.size).takeIf { items.isNotEmpty() && it < response.totalHits }
+        val items = response.hits.filter { it.projectType.equals("mod", ignoreCase = true) }.map { it.toSource() }
+        val next = (offset + response.hits.size).takeIf {
+            response.hits.isNotEmpty() && it < response.totalHits
+        }
         return SourcePage(items, next, response.totalHits)
     }
 
@@ -59,7 +60,7 @@ internal class ModrinthAdapter(
         if (ids.isEmpty()) return AdapterResult(emptyMap(), emptySet())
         val projects = ids.chunked(BATCH_SIZE).flatMap { chunk ->
             get<List<MrProjectDto>>("projects", mapOf("ids" to json.encodeToString(chunk)))
-        }.filter { it.projectType == "mod" }.associate { it.id to it.toSource() }
+        }.associate { it.id to it.toSource() }
         return AdapterResult(projects, ids - projects.keys)
     }
 
@@ -69,7 +70,7 @@ internal class ModrinthAdapter(
         val projects = slugs.distinctBy(::normalizeProjectSlug).chunked(SLUG_BATCH_SIZE).flatMap { chunk ->
             get<List<MrProjectDto>>("projects", mapOf("ids" to json.encodeToString(chunk)))
         }.filter { project ->
-            project.projectType == "mod" &&
+            project.projectType.equals("mod", ignoreCase = true) &&
                 target.minecraftVersion.mcVer in project.gameVersions &&
                 target.loader.modrinthName() in project.loaders
         }.associateBy({ normalizeProjectSlug(it.slug) }, { it.toSource() })
@@ -93,10 +94,9 @@ internal class ModrinthAdapter(
     override suspend fun listFiles(
         project: CatalogProjectRef,
         target: CatalogTarget,
-        channels: Set<ReleaseChannel>,
         offset: Int,
         limit: Int
-    ): Pair<List<CatalogFile>, Int?> {
+    ): AdapterFileList {
         require(project.platform == platform)
         val versions = get<List<MrVersionDto>>(
             "project/${project.projectId}/version",
@@ -105,12 +105,9 @@ internal class ModrinthAdapter(
                 "loaders" to json.encodeToString(listOf(target.loader.modrinthName()))
             )
         ).map { it.toFile() }
-            .filter { it.channel in channels }
             .distinctBy(CatalogFile::ref)
             .sortedByDescending(CatalogFile::publishedAt)
-        val page = versions.drop(offset).take(limit)
-        val next = (offset + page.size).takeIf { page.isNotEmpty() && it < versions.size }
-        return page to next
+        return AdapterFileList.Complete(versions)
     }
 
     override suspend fun getFiles(ids: Set<String>): AdapterResult<CatalogFile> {
@@ -121,17 +118,22 @@ internal class ModrinthAdapter(
         return AdapterResult(files, ids - files.keys)
     }
 
-    override suspend fun matchLocalFiles(files: List<LocalFileHashes>): Map<Path, CatalogFile> {
+    override suspend fun matchFiles(files: List<CatalogFileHashes>): Map<String, CatalogFile> {
         val byHash = files.groupBy { it.sha1.lowercase() }
-        val matches = linkedMapOf<Path, CatalogFile>()
+        val matches = linkedMapOf<String, CatalogFile>()
         byHash.keys.chunked(BATCH_SIZE).forEach { hashes ->
             val found = post<Map<String, MrVersionDto>>(
                 "version_files",
                 json.encodeToString(MrHashRequest(hashes))
             )
             found.forEach { (hash, version) ->
-                val mapped = version.toFile()
-                byHash[hash.lowercase()].orEmpty().forEach { matches[it.path] = mapped }
+                val requestedHash = hash.trim().lowercase()
+                val exactFiles = version.files.filter { file ->
+                    file.hashes["sha1"]?.trim()?.equals(requestedHash, ignoreCase = true) == true
+                }
+                require(exactFiles.size == 1) { "Modrinth版本文件SHA-1匹配不唯一：$requestedHash" }
+                val mapped = version.toFile(exactFiles.single())
+                byHash[requestedHash].orEmpty().forEach { matches[it.key] = mapped }
             }
         }
         return matches
@@ -144,13 +146,10 @@ internal class ModrinthAdapter(
 
     override suspend fun resolveDownload(file: CatalogFile): ResolvedDownload {
         require(file.ref.platform == platform)
-        val url = get<MrVersionDto>("version/${file.ref.fileId}")
-            .primaryFile()
-            ?.url
-            ?.trim()
-            ?.takeIf(String::isNotBlank)
-            ?.validatedDownloadUrl(platform)
-            ?: throw CatalogException.DownloadUnavailable(file.ref)
+        val url = file.downloadUrl?.validatedDownloadUrl(platform) ?: get<MrVersionDto>(
+            "version/${file.ref.fileId}"
+        ).primaryFile()?.url?.trim()?.takeIf(String::isNotBlank)?.validatedDownloadUrl(platform)
+        ?: throw CatalogException.DownloadUnavailable(file.ref)
         return ResolvedDownload(url, emptyMap(), file.fileName, file.digests)
     }
 
@@ -162,7 +161,8 @@ internal class ModrinthAdapter(
         iconUrl = iconUrl,
         downloadCount = downloads,
         updatedAt = updated.toInstant(),
-        environment = EnvironmentCompatibility(clientSide.toRequirement(), serverSide.toRequirement())
+        environment = EnvironmentCompatibility(clientSide.toRequirement(), serverSide.toRequirement()),
+        contentType = projectType.toContentType()
     )
 
     private fun MrSearchHitDto.toSource() = CatalogProjectSource(
@@ -173,14 +173,22 @@ internal class ModrinthAdapter(
         iconUrl = iconUrl,
         downloadCount = downloads,
         updatedAt = dateModified.toInstant(),
-        environment = EnvironmentCompatibility(clientSide.toRequirement(), serverSide.toRequirement())
+        environment = EnvironmentCompatibility(clientSide.toRequirement(), serverSide.toRequirement()),
+        contentType = projectType.toContentType()
     )
 
-    private fun MrVersionDto.toFile(): CatalogFile {
-        val primary = primaryFile() ?: throw invalidResponse()
-        val sha1 = primary.hashes["sha1"]?.trim()?.takeIf(String::isNotBlank) ?: throw invalidResponse()
-        val fileName = primary.filename.trim().takeIf(String::isNotBlank) ?: throw invalidResponse()
-        primary.url.trim().takeIf(String::isNotBlank) ?: throw invalidResponse()
+    private fun String.toContentType(): CatalogContentType = when (lowercase()) {
+        "mod" -> CatalogContentType.MOD
+        "resourcepack" -> CatalogContentType.RESOURCE_PACK
+        "shader" -> CatalogContentType.SHADER_PACK
+        else -> CatalogContentType.OTHER
+    }
+
+    private fun MrVersionDto.toFile(file: MrFileDto = primaryFile() ?: throw invalidResponse()): CatalogFile {
+        val sha1 = file.hashes["sha1"]?.trim()?.takeIf(String::isNotBlank) ?: throw invalidResponse()
+        val fileName = file.filename.trim().takeIf(String::isNotBlank) ?: throw invalidResponse()
+        val downloadUrl = file.url?.trim()?.takeIf(String::isNotBlank)
+            ?.validatedDownloadUrl(platform)
         val ref = CatalogFileRef(platform, id)
         return CatalogFile(
             ref = ref,
@@ -190,12 +198,13 @@ internal class ModrinthAdapter(
             fileName = fileName,
             channel = versionType.toReleaseChannel(),
             publishedAt = datePublished.toInstant(),
-            fileSize = primary.size,
+            fileSize = file.size,
             minecraftVersions = gameVersions.toSet(),
             loaders = loaders.mapNotNull(String::toModLoader).toSet(),
             environment = EnvironmentCompatibility(),
             digests = setOf(CatalogDigest(CatalogDigestAlgorithm.SHA1, sha1.lowercase())),
-            dependencies = dependencies.mapNotNull { it.toDomain() }
+            dependencies = dependencies.mapNotNull { it.toDomain() },
+            downloadUrl = downloadUrl
         )
     }
 
@@ -328,7 +337,7 @@ private data class MrVersionDto(
 @Serializable
 private data class MrFileDto(
     val filename: String,
-    val url: String,
+    val url: String? = null,
     val primary: Boolean = false,
     val size: Long = 0,
     val hashes: Map<String, String> = emptyMap()

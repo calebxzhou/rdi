@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    kotlin("jvm")  version "2.4.0"
+    kotlin("jvm")  version "2.4.10"
     `java-library`
 }
 
@@ -17,6 +17,6 @@ repositories {
 
 
 dependencies {
-    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    compileOnly("org.jetbrains.kotlin:kotlin-stdlib:2.4.10")
     testImplementation(kotlin("test"))
 }

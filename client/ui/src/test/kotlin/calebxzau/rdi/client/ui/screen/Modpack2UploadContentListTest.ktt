@@ -1,0 +1,193 @@
+package calebxzhou.rdi.client.ui.screen
+
+import calebxzhou.rdi.client.model.UiMod
+import calebxzhou.rdi.client.service.Modpack2UploadArchive
+import calebxzhou.rdi.client.service.ModpackArchiveContentType
+import calebxzhou.rdi.client.service.ModpackArchiveEmbeddedMod
+import calebxzhou.rdi.client.service.ModpackArchiveFile
+import calebxzhou.rdi.client.service.ModpackArchiveFormat
+import calebxzhou.rdi.client.service.ModpackArchivePreview
+import calebxzhou.rdi.client.service.toContentGridItems
+import calebxzhou.rdi.client.ui.comp.ConsoleState
+import calebxzau.rdi.client.ui.viewmodel.resolvedModsForTest
+import calebxzau.rdi.client.modcatalog.CatalogContentType
+import calebxzau.rdi.client.modcatalog.CatalogDigest
+import calebxzau.rdi.client.modcatalog.CatalogDigestAlgorithm
+import calebxzau.rdi.client.modcatalog.CatalogFile
+import calebxzau.rdi.client.modcatalog.CatalogFileRef
+import calebxzau.rdi.client.modcatalog.CatalogIdentity
+import calebxzau.rdi.client.modcatalog.CatalogMod
+import calebxzau.rdi.client.modcatalog.CatalogProjectRef
+import calebxzau.rdi.client.modcatalog.CatalogProjectSource
+import calebxzau.rdi.client.modcatalog.EnvironmentCompatibility
+import calebxzau.rdi.client.modcatalog.EnvironmentRequirement
+import calebxzau.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.ReleaseChannel
+import calebxzau.rdi.common.model.ContentSide
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.model.ModLoader
+import java.nio.file.Path
+import java.time.Instant
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertSame
+
+class Modpack2UploadContentListTest {
+    @Test
+    fun sideOverridesUseArchivePathEvenWhenUiModKeysMatch() {
+        val mod = Mod("mr", "project", "same", "file", "hash")
+        val uiMod = UiMod(mod)
+        val items = listOf(
+            calebxzhou.rdi.client.ui.comp.ContentGridItem.ModItem(uiMod, archiveKey = "one", archiveTargetPath = "mods/one.jar"),
+            calebxzhou.rdi.client.ui.comp.ContentGridItem.ModItem(uiMod, archiveKey = "two", archiveTargetPath = "mods/two.jar"),
+        )
+
+        val result = applyContentGridSideOverrides(
+            items,
+            mapOf("path:mods/one.jar" to ContentSide.Client),
+        )
+
+        assertEquals(Mod.Side.CLIENT, (result[0] as calebxzhou.rdi.client.ui.comp.ContentGridItem.ModItem).mod.side)
+        assertEquals(Mod.Side.BOTH, (result[1] as calebxzhou.rdi.client.ui.comp.ContentGridItem.ModItem).mod.side)
+        assertSame(uiMod, (result[1] as calebxzhou.rdi.client.ui.comp.ContentGridItem.ModItem).mod)
+    }
+
+    @Test
+    fun contentItemsContainAllArchiveTypesAndEmbeddedMods() {
+        val files = listOf(
+            archiveFile("mod", ModpackArchiveContentType.MOD, required = true),
+            archiveFile("resource", ModpackArchiveContentType.RESOURCE_PACK, required = false),
+            archiveFile("shader", ModpackArchiveContentType.SHADER_PACK, required = false),
+            archiveFile("data", ModpackArchiveContentType.DATA_PACK, required = false),
+            archiveFile("other", ModpackArchiveContentType.OTHER, required = false),
+        )
+        val preview = ModpackArchivePreview(
+            archive = Path.of("pack.zip"), archiveSize = 1, archiveModifiedAt = 1,
+            format = ModpackArchiveFormat.MODRINTH, name = "Pack", summary = null,
+            mcVersion = McVersion.V201, modLoader = ModLoader.forge,
+            files = files,
+            embeddedMods = listOf(ModpackArchiveEmbeddedMod("embedded", "nested.jar", "mods/nested.jar", "Nested", 1)),
+            overrides = emptyList(),
+        )
+
+        val items = preview.toContentGridItems(selectedOptionalFiles = setOf("resource", "shader", "data", "other"))
+
+        assertEquals(6, items.size)
+        assertEquals(
+            setOf(
+                calebxzhou.rdi.client.ui.comp.ContentGridType.MOD,
+                calebxzhou.rdi.client.ui.comp.ContentGridType.RESOURCE_PACK,
+                calebxzhou.rdi.client.ui.comp.ContentGridType.SHADER_PACK,
+                calebxzhou.rdi.client.ui.comp.ContentGridType.DATA_PACK,
+                calebxzhou.rdi.client.ui.comp.ContentGridType.OTHER,
+            ),
+            items.map { it.type }.toSet(),
+        )
+        assertEquals(calebxzhou.rdi.client.ui.comp.ContentSelectionState.SELECTED, items[1].selectionState)
+        assertEquals("embedded", items.last().key)
+    }
+
+    @Test
+    fun embeddedModSideIsResolvedAndMatchingSideIsNoOp() {
+        val project = CatalogProjectRef(ModPlatform.MODRINTH, "project")
+        val file = CatalogFile(
+            ref = CatalogFileRef(ModPlatform.MODRINTH, "file"), project = project,
+            displayName = "embedded.jar", versionNumber = null, fileName = "embedded.jar",
+            channel = ReleaseChannel.RELEASE, publishedAt = Instant.EPOCH, fileSize = 1,
+            minecraftVersions = emptySet(), loaders = emptySet(),
+            environment = EnvironmentCompatibility(client = EnvironmentRequirement.UNSUPPORTED),
+            digests = setOf(CatalogDigest(CatalogDigestAlgorithm.SHA1, "hash")), dependencies = emptyList(),
+        )
+        val source = CatalogProjectSource(
+            ref = project, slug = "project", name = "Project", summary = "", iconUrl = null,
+            downloadCount = 0, updatedAt = Instant.EPOCH, environment = EnvironmentCompatibility(),
+            contentType = CatalogContentType.MOD,
+        )
+        val resolved = calebxzhou.rdi.client.service.ResolvedArchiveMod(
+            archiveKey = "embedded", file = file,
+            mod = CatalogMod(
+                identity = CatalogIdentity.Unmapped(project), primaryRef = project, sources = listOf(source),
+                name = "Project", nameCn = null, summary = "", mcmodIconUrl = null, downloadCount = 0,
+                updatedAt = Instant.EPOCH, environment = EnvironmentCompatibility(),
+            ),
+        )
+        val preview = ModpackArchivePreview(
+            archive = Path.of("pack.zip"), archiveSize = 1, archiveModifiedAt = 1,
+            format = ModpackArchiveFormat.MODRINTH, name = "Pack", summary = null,
+            mcVersion = McVersion.V201, modLoader = ModLoader.forge, files = emptyList(),
+            embeddedMods = listOf(ModpackArchiveEmbeddedMod("embedded", "nested.jar", "mods/nested.jar", "Nested", 1)),
+            overrides = emptyList(),
+        )
+        val state = calebxzau.rdi.client.ui.viewmodel.Modpack2UploadUiState(
+            archive = Modpack2UploadArchive(Path.of("pack.zip"), preview),
+            resolvedMods = mapOf("embedded" to resolved),
+        )
+
+        assertEquals(ContentSide.Server, calebxzau.rdi.client.ui.viewmodel.currentArchiveModSide(state, "MODS\\NESTED.JAR"))
+        assertEquals(ContentSide.Server, calebxzau.rdi.client.ui.viewmodel.currentArchiveModSide(state, "mods/nested.jar"))
+    }
+
+    @Test
+    fun resolvedEmbeddedModsAreIncludedInTestModsWithPathOverride() {
+        val project = CatalogProjectRef(ModPlatform.MODRINTH, "project")
+        val source = CatalogProjectSource(
+            ref = project, slug = "project", name = "Project", summary = "", iconUrl = null,
+            downloadCount = 0, updatedAt = Instant.EPOCH, environment = EnvironmentCompatibility(),
+            contentType = CatalogContentType.MOD,
+        )
+        fun resolved(fileId: String) = calebxzhou.rdi.client.service.ResolvedArchiveMod(
+            archiveKey = fileId,
+            file = CatalogFile(
+                ref = CatalogFileRef(ModPlatform.MODRINTH, fileId), project = project,
+                displayName = "$fileId.jar", versionNumber = null, fileName = "$fileId.jar",
+                channel = ReleaseChannel.RELEASE, publishedAt = Instant.EPOCH, fileSize = 1,
+                minecraftVersions = emptySet(), loaders = emptySet(),
+                environment = EnvironmentCompatibility(server = EnvironmentRequirement.UNSUPPORTED),
+                digests = setOf(CatalogDigest(CatalogDigestAlgorithm.SHA1, "hash-$fileId")),
+                dependencies = emptyList(),
+            ),
+            mod = CatalogMod(
+                identity = CatalogIdentity.Unmapped(project), primaryRef = project, sources = listOf(source),
+                name = fileId, nameCn = null, summary = "", mcmodIconUrl = null, downloadCount = 0,
+                updatedAt = Instant.EPOCH, environment = EnvironmentCompatibility(),
+            ),
+        )
+        val preview = ModpackArchivePreview(
+            archive = Path.of("pack.zip"), archiveSize = 1, archiveModifiedAt = 1,
+            format = ModpackArchiveFormat.MODRINTH, name = "Pack", summary = null,
+            mcVersion = McVersion.V201, modLoader = ModLoader.forge,
+            files = listOf(archiveFile("normal", ModpackArchiveContentType.MOD, required = true)),
+            embeddedMods = listOf(ModpackArchiveEmbeddedMod("embedded", "nested.jar", "mods/nested.jar", "Nested", 1)),
+            overrides = emptyList(),
+        )
+        val state = calebxzau.rdi.client.ui.viewmodel.Modpack2UploadUiState(
+            archive = Modpack2UploadArchive(Path.of("pack.zip"), preview),
+            resolvedMods = mapOf("normal" to resolved("normal"), "embedded" to resolved("embedded")),
+            manualSideOverrides = mapOf("path:mods/nested.jar" to ContentSide.Server),
+        )
+
+        val mods = state.resolvedModsForTest()
+
+        assertEquals(listOf("normal", "embedded"), mods.map { it.fileId })
+        assertEquals(Mod.Side.CLIENT, mods[0].side)
+        assertEquals(Mod.Side.SERVER, mods[1].side)
+    }
+
+    @Test
+    fun testConsoleStatesRemainIndependent() {
+        val client = ConsoleState()
+        val server = ConsoleState()
+
+        client.append("client output")
+        server.append("server output")
+
+        assertEquals(listOf("client output"), client.snapshot())
+        assertEquals(listOf("server output"), server.snapshot())
+    }
+
+    private fun archiveFile(key: String, type: ModpackArchiveContentType, required: Boolean) = ModpackArchiveFile(
+        key = key, targetPath = "content/$key.bin", displayName = key, summary = null, iconUrls = emptyList(),
+        size = 1, sha1 = "hash-$key", urls = emptyList(), required = required, contentType = type,
+    )
+}

@@ -1,0 +1,373 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import calebxzhou.rdi.client.database.LocalModpack2ContentRecord
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.database.LocalModpack2SubmissionPhase
+import calebxzhou.rdi.client.database.LocalModpack2SubmissionRecord
+import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.LocalModpack2Repository
+import calebxzhou.rdi.client.service.Modpack2LocalService
+import calebxzhou.rdi.client.service.Modpack2ContentService
+import calebxzhou.rdi.client.service.Modpack2DiskContentUnit
+import calebxzhou.rdi.client.service.decodeManualSideOverrides
+import calebxzhou.rdi.client.service.Modpack2PublishRequest
+import calebxzhou.rdi.client.ui.comp.ContentGridItem
+import calebxzhou.rdi.client.ui.comp.ContentGridType
+import calebxzau.rdi.common.model.ContentType
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ModpackCategory
+import calebxzau.rdi.common.model.Modpack2CreateModpackDto
+import calebxzau.rdi.common.model.Modpack2Loader
+import calebxzau.rdi.common.model.Modpack2ServerMode
+import calebxzhou.rdi.common.model.Task2Status
+import calebxzhou.rdi.common.model.MODPACK_INFO_MAX_CHARACTERS
+import calebxzhou.rdi.common.model.MODPACK_INFO_MIN_CHARACTERS
+import calebxzhou.rdi.common.model.Modpack
+import calebxzhou.rdi.common.model.modpackInfoCharacterCount
+import calebxzhou.rdi.common.util.validateHttpUrl
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlin.uuid.Uuid
+
+data class Modpack2PublishUiState(
+    val loading: Boolean = true,
+    val local: LocalModpack2InstanceRecord? = null,
+    val submission: LocalModpack2SubmissionRecord? = null,
+    /** Parent id resolved from a copied Installed record when the workspace row is local-only. */
+    val publishModpackId: Uuid? = null,
+    val contents: List<LocalModpack2ContentRecord> = emptyList(),
+    val contentItems: List<ContentGridItem> = emptyList(),
+    val diskItems: List<Modpack2DiskContentUnit> = emptyList(),
+    val manualSideOverrides: Map<String, ContentSide> = emptyMap(),
+    val versionName: String = "",
+    val intro: String = "",
+    val iconUrl: String = "",
+    val categories: List<ModpackCategory> = listOf(ModpackCategory.Other),
+    val changelog: String = "",
+    val serverMode: Modpack2ServerMode = Modpack2ServerMode.Generated,
+    val providedServerPack: java.nio.file.Path? = null,
+    val baseVersionId: Uuid? = null,
+    val ignoreModpackTest: Boolean = false,
+    val contentEditingFrozen: Boolean = false,
+    val submittedRunId: String? = null,
+    val errorMessage: String? = null,
+)
+
+/** State and intent boundary for the four-part Modpack2 publish form. */
+class Modpack2PublishViewModel(
+    private val repository: LocalModpack2Repository,
+    private val service: Modpack2LocalService,
+    private val contentService: Modpack2ContentService,
+) : ViewModel() {
+    private val _uiState = MutableStateFlow(Modpack2PublishUiState())
+    val uiState: StateFlow<Modpack2PublishUiState> = _uiState.asStateFlow()
+
+    fun load(versionId: Uuid) {
+        _uiState.update { it.copy(loading = false, errorMessage = "入口已移除，请从上传页选择平台安装包", submittedRunId = null) }
+        /*
+            val local = repository.find(versionId).getOrElse { error ->
+                _uiState.update { it.copy(loading = false, errorMessage = error.message ?: "读取整合包失败") }
+                return@launch
+            }
+            if (local == null) {
+                _uiState.update { it.copy(loading = false, errorMessage = "找不到本地整合包") }
+                return@launch
+            }
+            val contentState = contentService.scan(versionId).getOrElse { error ->
+                _uiState.update { it.copy(loading = false, errorMessage = error.message ?: "读取整合包内容失败") }
+                return@launch
+            }
+            val contents = contentState.contents.filter { it.enabled }
+            val contentItems = contentState.snapshot?.items.orEmpty().filter { it.enabled }.map { it.toContentGridItem(contents) }
+            val submission = repository.submission(versionId).getOrElse { error ->
+                _uiState.update { it.copy(loading = false, errorMessage = error.message ?: "读取发布记录失败") }
+                return@launch
+            }
+            val sourceResult = local.sourceVersionId?.let { sourceVersionId ->
+                repository.find(sourceVersionId)
+            }
+            val sourceRecord = sourceResult?.getOrNull()
+            val sourceWarning = sourceResult?.exceptionOrNull()?.message?.let {
+                "读取基础整合包信息失败：${it}"
+            }
+            _uiState.update {
+                it.copy(
+                    loading = false,
+                    local = local,
+                    submission = submission,
+                    publishModpackId = local.remoteModpackId
+                        ?: local.sourceModpackId
+                        ?: sourceRecord?.remoteModpackId,
+                    contents = contents,
+                    contentItems = contentItems,
+                    diskItems = contentState.snapshot?.items.orEmpty().filter { it.enabled },
+                    manualSideOverrides = decodeManualSideOverrides(submission?.manualSideOverrides.orEmpty()),
+                    versionName = local.name,
+                    intro = local.comment.orEmpty(),
+                    iconUrl = local.iconUrl.orEmpty(),
+                    baseVersionId = local.baseVersionId ?: local.sourceVersionId,
+                    contentEditingFrozen = false,
+                    errorMessage = sourceWarning,
+                )
+            }
+        */
+    }
+
+    fun setVersionName(value: String) = _uiState.update { it.copy(versionName = value, errorMessage = null) }
+
+    fun setIntro(value: String) = _uiState.update { it.copy(intro = value, errorMessage = null) }
+
+    fun setIconUrl(value: String) = _uiState.update { it.copy(iconUrl = value, errorMessage = null) }
+
+    fun toggleCategory(category: ModpackCategory) {
+        _uiState.update { state ->
+            when {
+                category in state.categories && state.categories.size == 1 ->
+                    state.copy(errorMessage = "至少选择1个分类")
+                category in state.categories ->
+                    state.copy(
+                        categories = state.categories.filterNot { it == category },
+                        errorMessage = null,
+                    )
+                state.categories.size >= Modpack.MAX_CATEGORY_COUNT ->
+                    state.copy(errorMessage = "最多选择${Modpack.MAX_CATEGORY_COUNT}个分类")
+                else ->
+                    state.copy(categories = state.categories + category, errorMessage = null)
+            }
+        }
+    }
+
+    fun setChangelog(value: String) = _uiState.update { it.copy(changelog = value, errorMessage = null) }
+
+    fun setServerMode(value: Modpack2ServerMode) = _uiState.update { it.copy(serverMode = value, errorMessage = null) }
+
+    fun setProvidedServerPack(value: java.nio.file.Path) =
+        _uiState.update { it.copy(providedServerPack = value, errorMessage = null) }
+
+    fun setContentSide(path: String, side: ContentSide) {
+        _uiState.update { state ->
+            state.copy(
+                manualSideOverrides = state.manualSideOverrides + ("path:${normalizePublishPath(path)}" to side),
+                errorMessage = null,
+            )
+        }
+    }
+
+    fun rescan() {
+        _uiState.update { it.copy(errorMessage = "入口已移除，请从上传页选择平台安装包") }
+    }
+
+    /** Returns true only for the exact desktop Home key event. */
+    fun handleKey(type: KeyEventType, key: Key): Boolean {
+        if (!isExactModpackTestBypassKey(type, key)) return false
+        _uiState.update { it.copy(errorMessage = "入口已移除，请从上传页选择平台安装包") }
+        return true
+    }
+
+    fun submit(): String? {
+        _uiState.update { it.copy(errorMessage = "入口已移除，请从上传页选择平台安装包") }
+        return null
+        /*
+        val state = _uiState.value
+        val local = state.local ?: return null
+        if (state.versionName.isBlank()) {
+            _uiState.update { it.copy(errorMessage = "版本名称不能为空") }
+            return null
+        }
+        if (state.publishModpackId == null) {
+            validateModpack2CreateMetadata(
+                intro = state.intro,
+                iconUrl = state.iconUrl,
+                categories = state.categories,
+            ).onFailure { error ->
+                _uiState.update { it.copy(errorMessage = error.message ?: "发布元数据无效") }
+                return null
+            }
+        }
+        missingPublishSideSelection(state)?.let { missing ->
+            _uiState.update { it.copy(errorMessage = "请先选择${missing}的运行侧") }
+            return null
+        }
+        val request = buildPublishRequest(state, local)
+        val runId = ClientTaskManager.submit(
+            task = service.publishTask(request),
+            dedupeKey = "modpack2-publish:${local.versionId}",
+        )
+        _uiState.update {
+            it.copy(
+                submittedRunId = runId,
+                contentEditingFrozen = false,
+                errorMessage = null,
+            )
+        }
+        return runId
+    } */
+    }
+
+    fun retry(): String? {
+        _uiState.update { it.copy(errorMessage = "入口已移除，请从上传页选择平台安装包") }
+        return null
+    }
+
+    fun abandon() {
+        _uiState.update { it.copy(errorMessage = "入口已移除，请从上传页选择平台安装包") }
+    }
+
+    private fun buildPublishRequest(
+        state: Modpack2PublishUiState,
+        local: LocalModpack2InstanceRecord,
+    ) = Modpack2PublishRequest(
+            localVersionId = local.versionId,
+            modpackId = state.publishModpackId,
+            baseVersionId = state.baseVersionId,
+            versionName = state.versionName.trim(),
+            changelog = state.changelog,
+            serverMode = state.serverMode,
+            providedServerPack = state.providedServerPack,
+            manualSideOverrides = state.manualSideOverrides + buildModpack2ManualSideOverrides(state.contents),
+            modpack = if (state.publishModpackId == null) {
+                Modpack2CreateModpackDto(
+                    name = local.name,
+                    intro = state.intro,
+                    mc = local.mcVersion.vMinor.toInt(),
+                    loader = local.modLoader.toModpack2Loader(),
+                    iconUrl = state.iconUrl.trim(),
+                    categories = state.categories.distinct(),
+                )
+            } else null,
+        )
+}
+
+internal fun reduceModpack2RescanCompletion(
+    state: Modpack2PublishUiState,
+    status: Task2Status,
+    errorMessage: String?,
+): Modpack2PublishUiState = state.copy(
+    contentEditingFrozen = false,
+    errorMessage = if (status == Task2Status.DONE) null else errorMessage ?: "扫描失败",
+)
+
+internal fun buildModpack2ManualSideOverrides(
+    contents: List<LocalModpack2ContentRecord>,
+): Map<String, ContentSide> = buildMap {
+    contents.filter { it.manualSide != null }.forEach { content ->
+        val side = content.manualSide ?: return@forEach
+        content.targetPath?.takeIf(String::isNotBlank)?.let { path -> put("path:${normalizePublishPath(path)}", side) }
+    }
+}
+
+internal fun normalizePublishPath(path: String): String = path.replace('\\', '/').trimStart('/')
+
+internal fun missingPublishSideSelection(state: Modpack2PublishUiState): String? {
+    val knownByPath = state.contents.filter { it.enabled }.mapNotNull { record ->
+        record.targetPath?.let { normalizePublishPath(it) to record }
+    }.toMap()
+    return state.diskItems.firstOrNull { item ->
+        if (!item.enabled || item.type != ContentType.Mod) return@firstOrNull false
+        val key = "path:${normalizePublishPath(item.targetPath)}"
+        if (key in state.manualSideOverrides) return@firstOrNull false
+        if (item.sideHints.size == 1) return@firstOrNull false
+        val known = knownByPath[normalizePublishPath(item.targetPath)]
+        known == null
+    }?.displayName
+}
+
+/** Compose exposes Home as MoveHome on desktop; no other key is accepted here. */
+internal fun isExactModpackTestBypassKey(type: KeyEventType, key: Key): Boolean =
+    type == KeyEventType.KeyDown && key == Key.MoveHome
+
+internal fun validateModpack2CreateMetadata(
+    intro: String,
+    iconUrl: String,
+    categories: List<ModpackCategory>,
+    name: String? = null,
+    version: String? = null,
+): Result<Unit> = runCatching {
+    fun validateText(value: String, label: String, max: Int) {
+        require(value.none(Char::isISOControl)) { "${label}不能包含控制字符" }
+        val count = value.codePointCount(0, value.length)
+        require(count in 1..max) { "${label}长度必须为1~${max}个字符" }
+    }
+    name?.let { validateText(it.trim(), "整合包名称", 64) }
+    version?.let {
+        val normalized = it.trim().removePrefix("v").removePrefix("V").trimStart()
+        validateText(normalized, "版本名称", 32)
+    }
+    val normalizedIntro = intro.trim()
+    require(normalizedIntro.none(Char::isISOControl)) { "简介不能包含控制字符" }
+    val introLength = normalizedIntro.modpackInfoCharacterCount()
+    require(introLength in MODPACK_INFO_MIN_CHARACTERS..MODPACK_INFO_MAX_CHARACTERS) {
+        "简介长度必须为${MODPACK_INFO_MIN_CHARACTERS}~${MODPACK_INFO_MAX_CHARACTERS}个字符"
+    }
+    val normalizedIconUrl = iconUrl.trim()
+    require(normalizedIconUrl.isNotBlank()) { "图标链接不能为空" }
+    require(normalizedIconUrl.none(Char::isISOControl) && normalizedIconUrl.codePointCount(0, normalizedIconUrl.length) <= 2048) {
+        "图标链接长度无效"
+    }
+    val iconUri = normalizedIconUrl.validateHttpUrl().getOrThrow()
+    require(!iconUri.host.isNullOrBlank()) { "图标链接必须包含有效主机" }
+    val distinctCategories = categories.distinct()
+    require(distinctCategories.size in 1..Modpack.MAX_CATEGORY_COUNT) {
+        "分类数量须在1到${Modpack.MAX_CATEGORY_COUNT}个"
+    }
+}
+
+internal fun reduceModpack2PublishKey(
+    state: Modpack2PublishUiState,
+    type: KeyEventType,
+    key: Key,
+): Modpack2PublishUiState = state.takeIf { !isExactModpackTestBypassKey(type, key) }
+    ?: state.copy(ignoreModpackTest = true)
+
+private fun Modpack2DiskContentUnit.toContentGridItem(known: List<LocalModpack2ContentRecord>): ContentGridItem.ContentItem {
+    val path = targetPath
+    val record = known.firstOrNull { it.targetPath == targetPath && it.hash.equals(hash, true) }
+    return ContentGridItem.ContentItem(
+        key = path,
+        type = when (type) {
+            ContentType.Mod -> ContentGridType.MOD
+            ContentType.ResPack -> ContentGridType.RESOURCE_PACK
+            ContentType.ShaderPack -> ContentGridType.SHADER_PACK
+            ContentType.DataPack -> ContentGridType.DATA_PACK
+            ContentType.Other -> ContentGridType.OTHER
+        },
+        name = record?.slug?.ifBlank { null } ?: displayName,
+        fileName = path.substringAfterLast('/'),
+        targetPath = path,
+        required = record?.required ?: false,
+        status = record?.let { "${it.platform.name} · ${it.side.name}" } ?: "未识别 · ${if (sideHints.isEmpty()) "请选择运行侧" else "可推断运行侧"}",
+    )
+}
+
+private fun LocalModpack2ContentRecord.toContentGridItem(): ContentGridItem.ContentItem {
+    val path = targetPath.orEmpty().ifBlank { slug }
+    return ContentGridItem.ContentItem(
+        key = contentId.toString(),
+        type = when (type) {
+            ContentType.Mod -> ContentGridType.MOD
+            ContentType.ResPack -> ContentGridType.RESOURCE_PACK
+            ContentType.ShaderPack -> ContentGridType.SHADER_PACK
+            ContentType.DataPack -> ContentGridType.DATA_PACK
+            ContentType.Other -> ContentGridType.OTHER
+        },
+        name = slug.ifBlank { path.substringAfterLast('/') },
+        fileName = path.substringAfterLast('/'),
+        targetPath = path,
+        required = required,
+        status = "${platform.name} · ${side.name}",
+    )
+}
+
+private fun calebxzhou.rdi.common.model.ModLoader.toModpack2Loader(): Modpack2Loader = when (this) {
+    calebxzhou.rdi.common.model.ModLoader.neoforge -> Modpack2Loader.NeoForge
+    else -> Modpack2Loader.Forge
+}

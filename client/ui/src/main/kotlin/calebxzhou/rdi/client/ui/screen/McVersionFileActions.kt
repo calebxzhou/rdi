@@ -3,18 +3,29 @@ package calebxzhou.rdi.client.ui.screen
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.client.service.ModpackLocalDir
-import calebxzhou.rdi.common.DL_MOD_DIR
+import calebxzhou.rdi.client.service.ModpackService
+import calebxzhou.rdi.client.service.NodeRefreshCoordinator
+import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.ContentDigest
+import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
+import calebxzhou.rdi.client.service.content.ContentRequest
+import calebxzhou.rdi.client.service.content.ContentSource
+import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.common.archive.PackArchiveFormat
 import calebxzhou.rdi.common.archive.TarZstArchiveWriter
 import calebxzhou.rdi.common.archive.detectArchiveFormat
 import calebxzhou.rdi.common.archive.forEachArchiveEntry
 import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
 import calebxzhou.rdi.client.ui.pickAwtSaveFile
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Progress
+import calebxzhou.rdi.common.service.murmur2
+import calebxzhou.rdi.common.service.runInline
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.sha1
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.awt.FileDialog
@@ -22,6 +33,8 @@ import java.awt.Frame
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -108,11 +121,6 @@ fun buildImportPackTask2(packFile: File): Task2 {
     }
 }
 
-private fun findExportableModpackArchive(packdir: ModpackLocalDir): File? {
-    val baseName = "${packdir.vo.id}_${packdir.verName}"
-    return ClientDirs.dlPacksDir.resolve("$baseName.tar.zst").takeIf(File::exists)
-}
-
 private fun parseImportedModpackArchiveName(packArchiveName: String): Pair<org.bson.types.ObjectId, String> {
     val normalizedName = File(packArchiveName).name
     val suffix = ".tar.zst"
@@ -128,6 +136,19 @@ private fun parseImportedModpackArchiveName(packArchiveName: String): Pair<org.b
     val verName = baseName.substring(sepIndex + 1)
     return modpackId to verName
 }
+
+private fun exportPackContentRequest(
+    packdir: ModpackLocalDir,
+    sha1: String,
+): ContentRequest {
+    val modpackId = requireNotNull(packdir.vo).id
+    val archiveName = "${modpackId}_${packdir.verName}.tar.zst"
+    return ModpackService.clientPackContentRequest(modpackId, packdir.verName, sha1)
+        .copy(relativePath = archiveName)
+}
+
+private fun exportModContentRequest(mod: Mod): ContentRequest =
+    mod.toClientContentRequest(targetRelativePath = mod.fileName)
 
 private fun pickRdiModpackSaveFile(defaultName: String): File? {
     val owner = Frame()
@@ -158,34 +179,58 @@ suspend fun exportRdiModpack(
     onProgress: (String) -> Unit
 ): Result<Unit> = withContext(Dispatchers.IO) {
     runCatching {
-        val packArchive = findExportableModpackArchive(packdir)
-            ?: throw IllegalStateException("整合包文件不存在，请先下载")
+        val modpackId = requireNotNull(packdir.vo).id
         val version = server.makeRequest<Modpack.Version>(
-            "modpack/${packdir.vo.id}/version/${packdir.verName}"
+            "modpack/$modpackId/version/${packdir.verName}"
         ).data ?: throw IllegalStateException("无法获取整合包版本信息")
 
-        val safeName = packdir.vo.name.ifBlank { "modpack" }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val safeName = packdir.name.ifBlank { "modpack" }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
         val outputFile = pickRdiModpackSaveFile("${safeName}_${packdir.verName}.rdimodpack")
             ?: return@runCatching
+
+        val clientPackSha1 = server.makeRequest<String>(
+            "modpack/$modpackId/version/${packdir.verName}/client/hash"
+        ).data ?: throw IllegalStateException("客户端包hash为空")
+        val packRequest = exportPackContentRequest(packdir, clientPackSha1)
+        val packArchiveName = packRequest.relativePath
 
         val missingMods = mutableListOf<String>()
         val total = version.mods.size + 1
         var processed = 0
-        TarZstArchiveWriter(outputFile).use { archive ->
-            archive.addFile(packArchive.name, packArchive.readBytes(), packArchive.lastModified())
-            processed += 1
-            onProgress("导出整合包 ${processed}/${total}")
-
-            version.mods.filterNot { it.side== Mod.Side.SERVER }.forEach { mod ->
-                val modFile = mod.candidateFiles.firstOrNull { it.exists() }
-                if (modFile == null) {
-                    missingMods += mod.fileName
-                    return@forEach
-                }
-                archive.addFile("mods/${mod.fileName}", modFile.readBytes(), modFile.lastModified())
+        val packResult = ClientContentStore.shared.use(
+            requests = listOf(packRequest),
+            onProgress = { progress -> onProgress(progress.message) },
+        ) { paths ->
+            val packArchive = paths.getValue(packRequest.id).toFile()
+            TarZstArchiveWriter(outputFile).use { archive ->
+                archive.addFile(packArchiveName, packArchive.readBytes(), packArchive.lastModified())
                 processed += 1
-                onProgress("导出MOD ${processed}/${total}")
+                onProgress("导出整合包 ${processed}/${total}")
+
+                version.mods.filterNot { it.side == Mod.Side.SERVER }.forEach { mod ->
+                    val request = exportModContentRequest(mod)
+                    val modResult = ClientContentStore.shared.use(
+                        requests = listOf(request),
+                        onProgress = { progress -> onProgress(progress.message) },
+                    ) { modPaths ->
+                        val modFile = modPaths.getValue(request.id).toFile()
+                        archive.addFile(
+                            "mods/${mod.fileName}",
+                            modFile.readBytes(),
+                            modFile.lastModified(),
+                        )
+                    }
+                    if (modResult.isFailure) {
+                        missingMods += mod.fileName
+                        return@forEach
+                    }
+                    processed += 1
+                    onProgress("导出MOD ${processed}/${total}")
+                }
             }
+        }
+        packResult.getOrElse { cause ->
+            throw IllegalStateException("整合包文件不存在，请先下载", cause)
         }
 
         if (missingMods.isNotEmpty()) {
@@ -195,57 +240,287 @@ suspend fun exportRdiModpack(
     }
 }
 
+private data class ImportedModEntry(
+    val relativePath: String,
+    val source: File,
+)
+
+private data class ImportedTrustedMod(
+    val mod: Mod,
+    val entry: ImportedModEntry,
+    val digest: ContentDigest,
+)
+
+private val importedSha1Pattern = Regex("^[0-9a-fA-F]{40}$")
+
+private fun trustedImportedDigest(mod: Mod): ContentDigest? {
+    val value = mod.hash.trim()
+    return if (mod.platform.equals("cf", ignoreCase = true)) {
+        value.toULongOrNull()
+            ?.takeIf { it <= UInt.MAX_VALUE.toULong() }
+            ?.let { ContentDigest(ContentDigestAlgorithm.MURMUR2, it.toString()) }
+    } else {
+        value.takeIf { importedSha1Pattern.matches(it) }
+            ?.let { ContentDigest(ContentDigestAlgorithm.SHA1, it.lowercase()) }
+    }
+}
+
+private fun trustedImportedSha1(value: String?): ContentDigest? = value
+    ?.trim()
+    ?.takeIf { importedSha1Pattern.matches(it) }
+    ?.let { ContentDigest(ContentDigestAlgorithm.SHA1, it.lowercase()) }
+
+private fun importedDigestValue(file: File, digest: ContentDigest): String = when (digest.algorithm) {
+    ContentDigestAlgorithm.SHA1 -> file.sha1
+    ContentDigestAlgorithm.MURMUR2 -> file.toPath().murmur2.toULong().toString()
+    ContentDigestAlgorithm.SHA256 -> error("导入整合包不支持SHA-256摘要")
+}
+
+private fun requireImportedDigest(file: File, digest: ContentDigest, displayName: String) {
+    val actual = importedDigestValue(file, digest)
+    check(actual.equals(digest.normalizedValue, ignoreCase = true)) {
+        "${displayName}摘要不匹配：期望${digest.normalizedValue}，实际$actual"
+    }
+}
+
+private fun importedContentRequest(
+    id: String,
+    entry: ImportedModEntry,
+    digest: ContentDigest,
+): ContentRequest = ContentRequest(
+    id = id,
+    relativePath = entry.relativePath,
+    size = entry.source.length(),
+    digests = listOf(digest),
+    sources = listOf(
+        ContentSource(
+            knownSize = entry.source.length(),
+            name = entry.relativePath,
+            localOnly = true,
+            downloader = { target, _ ->
+                runCatching {
+                    Files.copy(
+                        entry.source.toPath(),
+                        target,
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                }
+            },
+        )
+    ),
+    allowNetwork = false,
+    displayName = entry.relativePath,
+)
+
+private fun importedEntryTarget(root: Path, relativePath: String): Path {
+    val normalizedRoot = root.toAbsolutePath().normalize()
+    val target = normalizedRoot.resolve(relativePath).normalize()
+    require(target.startsWith(normalizedRoot)) { "导入整合包路径越界：$relativePath" }
+    return target
+}
+
+private fun writeImportedEntry(root: Path, relativePath: String, bytes: ByteArray): File {
+    val target = importedEntryTarget(root, relativePath)
+    target.parent?.let(Files::createDirectories)
+    Files.newOutputStream(
+        target,
+        StandardOpenOption.CREATE_NEW,
+        StandardOpenOption.WRITE,
+    ).use { output -> output.write(bytes) }
+    return target.toFile()
+}
+
+private fun ImportedModEntry.matches(mod: Mod): Boolean {
+    val fileName = File(relativePath).name
+    return mod.fileNames.any { it == fileName }
+}
+
+private fun buildImportedInstallTask(
+    transactionDir: File,
+    packArchiveName: String,
+    packFile: File,
+    packIsTrusted: Boolean,
+    modpackVo: Modpack.BriefVo,
+    version: Modpack.Version,
+    trustedMods: List<Mod>,
+    untrustedMods: List<ImportedModEntry>,
+): Task2 {
+    val normalInstallTask = if (untrustedMods.isEmpty() && packIsTrusted) {
+        version.startInstallTask2(modpackVo.mcVer, modpackVo.modloader, modpackVo.name)
+    } else {
+        Task2.Leaf("本地安装整合包") { ctx ->
+            ctx.emit(Task2Progress("正在刷新节点...", 0f))
+            NodeRefreshCoordinator.refreshCurrent()
+                .onSuccess { ctx.emit(Task2Progress("节点已刷新: ${it.nodeName}", 1f)) }
+                .onFailure { ctx.emit(Task2Progress("节点刷新失败，继续使用当前节点", 1f)) }
+
+            ModpackService.installBuiltClientZipTask2(
+                mcVersion = modpackVo.mcVer,
+                modLoader = modpackVo.modloader,
+                modpackId = version.modpackId,
+                verName = version.name,
+                mods = trustedMods,
+                clientPackFile = packFile,
+                modpackName = modpackVo.name,
+            ).runInline(ctx)
+
+            if (untrustedMods.isNotEmpty()) {
+                val modsDir = ModpackService.getVersionDir(version.modpackId, version.name)
+                    .resolve("mods")
+                    .also { it.mkdirs() }
+                untrustedMods.forEachIndexed { index, entry ->
+                    val target = importedEntryTarget(modsDir.toPath(), entry.relativePath)
+                    target.parent?.let(Files::createDirectories)
+                    Files.copy(
+                        entry.source.toPath(),
+                        target,
+                        StandardCopyOption.REPLACE_EXISTING,
+                    )
+                    ctx.emit(
+                        Task2Progress(
+                            "安装未校验MOD ${index + 1}/${untrustedMods.size}",
+                            (index + 1).toFloat() / untrustedMods.size,
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    return Task2.Leaf("导入 ${packArchiveName}") { ctx ->
+        try {
+            normalInstallTask.runInline(ctx)
+        } finally {
+            runCatching { transactionDir.deleteRecursivelyNoSymlink() }
+        }
+    }
+}
+
 suspend fun importRdiModpackTask2(
     onProgress: (String) -> Unit
 ): Task2 = withContext(Dispatchers.IO) {
     val file = selectRdiModpackFile() ?: throw IllegalStateException("未选择整合包文件")
-    var packArchiveName = ""
-    val total = (listArchiveEntries(file).count { !it.isDirectory && it.path.startsWith("mods/") } + 1).coerceAtLeast(1)
-    var processed = 0
-    var foundPackArchive = false
-    forEachArchiveEntry(file) { entry ->
-        if (entry.isDirectory || entry.bytes == null) return@forEachArchiveEntry
-        val normalizedPath = entry.path.replace('\\', '/').trimStart('/')
-        when {
-            !normalizedPath.startsWith("mods/") && normalizedPath.endsWith(".tar.zst", ignoreCase = true) -> {
-                packArchiveName = File(normalizedPath).name
-                val packTarget = ClientDirs.dlPacksDir.resolve(packArchiveName)
-                packTarget.parentFile?.mkdirs()
-                Files.newOutputStream(
-                    packTarget.toPath(),
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING
-                ).use { output -> output.write(entry.bytes) }
-                processed += 1
-                foundPackArchive = true
-                onProgress("导入整合包 ${processed}/${total}")
-            }
+    val transactionDir = Files.createTempDirectory(
+        ClientDirs.packProcDir.toPath(),
+        "rdimodpack-import-",
+    ).toFile()
+    try {
+        val packStageDir = transactionDir.resolve("pack").also { it.mkdirs() }
+        val modsStageDir = transactionDir.resolve("mods").also { it.mkdirs() }
+        var packArchiveName = ""
+        var packFile: File? = null
+        val importedMods = mutableListOf<ImportedModEntry>()
+        val total = (listArchiveEntries(file).count { !it.isDirectory && it.path.startsWith("mods/") } + 1)
+            .coerceAtLeast(1)
+        var processed = 0
+        forEachArchiveEntry(file) { entry ->
+            if (entry.isDirectory) return@forEachArchiveEntry
+            val bytes = entry.bytes ?: return@forEachArchiveEntry
+            val normalizedPath = entry.path.replace('\\', '/').trimStart('/')
+            when {
+                !normalizedPath.startsWith("mods/") && normalizedPath.endsWith(".tar.zst", ignoreCase = true) -> {
+                    check(packFile == null) { "整合包内包含多个客户端整合包" }
+                    packArchiveName = File(normalizedPath).name
+                    check(packArchiveName.isNotBlank()) { "客户端整合包文件名为空" }
+                    packFile = writeImportedEntry(packStageDir.toPath(), packArchiveName, bytes)
+                    processed += 1
+                    onProgress("导入整合包 ${processed}/${total}")
+                }
 
-            normalizedPath.startsWith("mods/") -> {
-                val filename = normalizedPath.substringAfter("mods/").trim()
-                if (filename.isBlank()) return@forEachArchiveEntry
-                val target = DL_MOD_DIR.resolve(filename)
-                target.parentFile?.mkdirs()
-                Files.newOutputStream(
-                    target.toPath(),
-                    StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING
-                ).use { output -> output.write(entry.bytes) }
-                processed += 1
-                onProgress("导入MOD ${processed}/${total}")
+                normalizedPath.startsWith("mods/") -> {
+                    val relativePath = normalizedPath.substringAfter("mods/").trim()
+                    if (relativePath.isBlank()) return@forEachArchiveEntry
+                    val source = writeImportedEntry(modsStageDir.toPath(), relativePath, bytes)
+                    importedMods += ImportedModEntry(relativePath, source)
+                    processed += 1
+                    onProgress("导入MOD ${processed}/${total}")
+                }
             }
         }
-    }
-    if (!foundPackArchive || packArchiveName.isBlank()) {
-        throw IllegalStateException("整合包内未找到modpack.tar.zst")
-    }
+        val stagedPack = packFile ?: throw IllegalStateException("整合包内未找到modpack.tar.zst")
+        val (modpackId, verName) = parseImportedModpackArchiveName(packArchiveName)
+        val modpackVo = server.makeRequest<Modpack.BriefVo>("modpack/${modpackId}/brief").data
+            ?: throw IllegalStateException("未找到整合包信息")
+        val version = server.makeRequest<Modpack.Version>("modpack/${modpackId}/version/${verName}").data
+            ?: throw IllegalStateException("未找到整合包版本信息")
+        val clientPackSha1 = server.makeRequest<String>(
+            "modpack/${modpackId}/version/${verName}/client/hash"
+        ).data
+        val trustedPackDigest = trustedImportedSha1(clientPackSha1)
+        trustedPackDigest?.let { requireImportedDigest(stagedPack, it, packArchiveName) }
 
-    val (modpackId, verName) = parseImportedModpackArchiveName(packArchiveName)
-    val modpackVo = server.makeRequest<Modpack.BriefVo>("modpack/${modpackId}/brief").data
-        ?: throw IllegalStateException("未找到整合包信息")
-    val version = server.makeRequest<Modpack.Version>("modpack/${modpackId}/version/${verName}").data
-        ?: throw IllegalStateException("未找到整合包版本信息")
-    version.startInstallTask2(modpackVo.mcVer, modpackVo.modloader, modpackVo.name)
+        val installableMods = version.mods.filter {
+            it.side != Mod.Side.SERVER && it.side != Mod.Side.UNKNOWN
+        }
+        val matchedMods = importedMods.mapNotNull { entry ->
+            installableMods.firstOrNull { entry.matches(it) }?.let { it to entry }
+        }
+        val trustedImportedMods = matchedMods.mapNotNull { (mod, entry) ->
+            trustedImportedDigest(mod)?.let { digest ->
+                requireImportedDigest(entry.source, digest, entry.relativePath)
+                ImportedTrustedMod(mod, entry, digest)
+            }
+        }
+        val untrustedImportedMods = matchedMods
+            .filter { (mod, _) -> trustedImportedDigest(mod) == null }
+            .map { (_, entry) -> entry }
+        val missingUntrustedMods = installableMods
+            .filter { trustedImportedDigest(it) == null }
+            .filterNot { mod -> importedMods.any { it.matches(mod) } }
+        check(missingUntrustedMods.isEmpty()) {
+            "导入整合包缺少未校验MOD：${missingUntrustedMods.take(3).joinToString { it.fileName }}"
+        }
+
+        val materializedPack = if (trustedPackDigest == null) {
+            stagedPack
+        } else {
+            ClientContentStore.shared.materialize(
+                requests = listOf(
+                    importedContentRequest(
+                        id = "rdimodpack-pack:$packArchiveName",
+                        entry = ImportedModEntry(packArchiveName, stagedPack),
+                        digest = trustedPackDigest,
+                    )
+                ),
+                targetRoot = transactionDir.resolve("pack-content").toPath(),
+                onProgress = { progress -> onProgress(progress.message) },
+            ).getOrThrow().single()
+                .toFile()
+        }
+        val materializedTrustedMods = if (trustedImportedMods.isNotEmpty()) {
+            val materializedPaths = ClientContentStore.shared.materialize(
+                requests = trustedImportedMods.map { imported ->
+                    importedContentRequest(
+                        id = "rdimodpack-mod:${imported.mod.platform}:${imported.mod.projectId}:${imported.mod.fileId}",
+                        entry = imported.entry,
+                        digest = imported.digest,
+                    )
+                },
+                targetRoot = transactionDir.resolve("trusted-mods").toPath(),
+                onProgress = { progress -> onProgress(progress.message) },
+            ).getOrThrow()
+            trustedImportedMods.zip(materializedPaths).map { (imported, path) ->
+                imported.copy(entry = imported.entry.copy(source = path.toFile()))
+            }
+        } else {
+            emptyList()
+        }
+
+        val trustedMods = installableMods.filter { trustedImportedDigest(it) != null }
+        buildImportedInstallTask(
+            transactionDir = transactionDir,
+            packArchiveName = packArchiveName,
+            packFile = materializedPack,
+            packIsTrusted = trustedPackDigest != null,
+            modpackVo = modpackVo,
+            version = version,
+            trustedMods = trustedMods,
+            untrustedMods = untrustedImportedMods,
+        )
+    } catch (cause: Throwable) {
+        runCatching { transactionDir.deleteRecursivelyNoSymlink() }
+        throw cause
+    }
 }
 
 suspend fun exportLogsPack(packdir: ModpackLocalDir): Result<Unit> = withContext(Dispatchers.IO) {
@@ -257,7 +532,7 @@ suspend fun exportLogsPack(packdir: ModpackLocalDir): Result<Unit> = withContext
             throw IllegalStateException("没有可导出的日志目录")
         }
 
-        val safeName = packdir.vo.name.ifBlank { "modpack" }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
+        val safeName = packdir.name.ifBlank { "modpack" }.replace(Regex("[\\\\/:*?\"<>|]"), "_")
         val defaultName = "${safeName}_${packdir.verName}_logs.zip"
         val outputFile = pickAwtSaveFile(
             title = "选择日志保存位置",

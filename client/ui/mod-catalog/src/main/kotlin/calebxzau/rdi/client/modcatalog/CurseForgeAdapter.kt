@@ -1,14 +1,13 @@
 package calebxzau.rdi.client.modcatalog
 
 import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.toCurseForgeModSide
 import io.ktor.client.HttpClient
-import io.ktor.http.HttpStatusCode
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
-import java.nio.file.Path
 import java.time.Instant
 
 internal class CurseForgeAdapter(
@@ -31,7 +30,7 @@ internal class CurseForgeAdapter(
         officialBaseUrl = config.baseUrl,
         mirrorBaseUrl = networkPolicy.mirrorBase(platform),
         defaultHeaders = mapOf(API_KEY_HEADER to config.apiKey),
-        preferMirror = networkPolicy.preferMirror,
+        preferMirror = networkPolicy.preferMirrorProvider,
         json = json,
         onWarning = onWarning
     )
@@ -57,9 +56,11 @@ internal class CurseForgeAdapter(
                 put("pageSize", limit.toString())
             }
         )
-        val items = response.data.map { it.toSource() }
+        val items = response.data.filter { it.classId == MOD_CLASS_ID }.map { it.toSource() }
         val total = response.pagination?.totalCount?.toLong()
-        val next = (offset + items.size).takeIf { items.isNotEmpty() && (total == null || it < total) }
+        val next = (offset + response.data.size).takeIf {
+            response.data.isNotEmpty() && (total == null || it < total)
+        }
         return SourcePage(items, next, total)
     }
 
@@ -78,7 +79,9 @@ internal class CurseForgeAdapter(
                     "modLoaderType" to target.loader.curseForgeType().toString(),
                     "pageSize" to "1"
                 )
-            ).data.firstOrNull { normalizeProjectSlug(it.slug) == normalized }?.toSource()
+            ).data.firstOrNull {
+                it.classId == MOD_CLASS_ID && normalizeProjectSlug(it.slug) == normalized
+            }?.toSource()
             if (project == null) missing += normalized else found[normalized] = project
         }
         return SlugResolution(found, missing)
@@ -87,12 +90,10 @@ internal class CurseForgeAdapter(
     override suspend fun getProjects(ids: Set<String>): AdapterResult<CatalogProjectSource> {
         if (ids.isEmpty()) return AdapterResult(emptyMap(), emptySet())
         val numericIds = ids.mapNotNull(String::toIntOrNull)
-        val projects = numericIds.chunked(BATCH_SIZE).flatMap { chunk ->
-            post<CfDataResponse<List<CfProjectDto>>>(
-                "mods",
-                json.encodeToString(CfProjectRequest(chunk))
-            ).data
-        }.filter { it.classId == null || it.classId == MOD_CLASS_ID }
+        val projects = post<CfDataResponse<List<CfProjectDto>>>(
+            "mods",
+            json.encodeToString(CfProjectRequest(numericIds))
+        ).data.filter { it.gameId == null || it.gameId == MINECRAFT_GAME_ID }
             .associate { it.id.toString() to it.toSource() }
         return AdapterResult(projects, ids - projects.keys)
     }
@@ -115,10 +116,9 @@ internal class CurseForgeAdapter(
     override suspend fun listFiles(
         project: CatalogProjectRef,
         target: CatalogTarget,
-        channels: Set<ReleaseChannel>,
         offset: Int,
         limit: Int
-    ): Pair<List<CatalogFile>, Int?> {
+    ): AdapterFileList {
         require(project.platform == platform)
         val response = get<CfFileListResponse>(
             "mods/${project.projectId}/files",
@@ -130,40 +130,39 @@ internal class CurseForgeAdapter(
             )
         )
         val items = response.data.map { it.toFile() }
-            .filter { it.channel in channels }
             .sortedByDescending(CatalogFile::publishedAt)
         val pagination = response.pagination
         val next = pagination?.let {
             (it.index + it.resultCount).takeIf { nextOffset -> it.resultCount > 0 && nextOffset < it.totalCount }
         }
-        return items to next
+        return AdapterFileList.Page(items, next)
     }
 
     override suspend fun getFiles(ids: Set<String>): AdapterResult<CatalogFile> {
         if (ids.isEmpty()) return AdapterResult(emptyMap(), emptySet())
         val numericIds = ids.mapNotNull(String::toIntOrNull)
-        val files = numericIds.chunked(BATCH_SIZE).flatMap { chunk ->
-            post<CfDataResponse<List<CfFileDto>>>(
-                "mods/files",
-                json.encodeToString(CfFileRequest(chunk))
-            ).data
-        }.associate { it.id.toString() to it.toFile() }
+        if (numericIds.isEmpty()) return AdapterResult(emptyMap(), ids)
+        val files = post<CfDataResponse<List<CfFileDto>>>(
+            "mods/files",
+            json.encodeToString(CfFileRequest(numericIds))
+        ).data.associate { it.id.toString() to it.toFile() }
         return AdapterResult(files, ids - files.keys)
     }
 
-    override suspend fun matchLocalFiles(files: List<LocalFileHashes>): Map<Path, CatalogFile> {
-        val byFingerprint = files.groupBy(LocalFileHashes::curseForgeFingerprint)
-        val matches = linkedMapOf<Path, CatalogFile>()
-        byFingerprint.keys.chunked(FINGERPRINT_BATCH_SIZE).forEach { fingerprints ->
-            val response = post<CfDataResponse<CfFingerprintDataDto>>(
-                "fingerprints/$MINECRAFT_GAME_ID",
-                json.encodeToString(CfFingerprintRequest(fingerprints))
-            )
-            response.data.exactMatches.forEach { match ->
-                val fingerprint = match.file.fileFingerprint ?: return@forEach
-                val mapped = match.file.toFile()
-                byFingerprint[fingerprint].orEmpty().forEach { matches[it.path] = mapped }
-            }
+    override suspend fun matchFiles(files: List<CatalogFileHashes>): Map<String, CatalogFile> {
+        if (files.isEmpty()) return emptyMap()
+        val byFingerprint = files.filter { it.curseForgeFingerprint != null }
+            .groupBy { it.curseForgeFingerprint!! }
+        if (byFingerprint.isEmpty()) return emptyMap()
+        val matches = linkedMapOf<String, CatalogFile>()
+        val response = post<CfDataResponse<CfFingerprintDataDto>>(
+            "fingerprints/$MINECRAFT_GAME_ID",
+            json.encodeToString(CfFingerprintRequest(byFingerprint.keys.toList()))
+        )
+        response.data.exactMatches.forEach { match ->
+            val fingerprint = match.file.fileFingerprint ?: return@forEach
+            val mapped = match.file.toFile()
+            byFingerprint[fingerprint].orEmpty().forEach { matches[it.key] = mapped }
         }
         return matches
     }
@@ -177,17 +176,9 @@ internal class CurseForgeAdapter(
 
     override suspend fun resolveDownload(file: CatalogFile): ResolvedDownload {
         require(file.ref.platform == platform)
-        val endpoint = transport.get(
-            "mods/${file.project.projectId}/files/${file.ref.fileId}/download-url",
-            allowedStatuses = setOf(HttpStatusCode.Forbidden, HttpStatusCode.NotFound)
-        ).let { response ->
-            if (response.status.value in 200..299) {
-                response.decode<CfDataResponse<String?>>(platform, json).data?.trim()?.takeIf(String::isNotBlank)
-            } else {
-                null
-            }
-        }
-        val url = (endpoint ?: deriveDownloadUrl(file)).validatedDownloadUrl(platform)
+        val url = file.downloadUrl
+            ?.validatedDownloadUrl(platform)
+            ?: throw CatalogException.DownloadUnavailable(file.ref)
         return ResolvedDownload(url, downloadHeadersFor(url), file.fileName, file.digests)
     }
 
@@ -199,8 +190,16 @@ internal class CurseForgeAdapter(
         iconUrl = logo?.url ?: logo?.thumbnailUrl,
         downloadCount = downloadCount,
         updatedAt = dateModified.toInstant(),
-        environment = EnvironmentCompatibility()
+        environment = EnvironmentCompatibility(),
+        contentType = classId.toContentType()
     )
+
+    private fun Int?.toContentType(): CatalogContentType = when (this) {
+        MOD_CLASS_ID -> CatalogContentType.MOD
+        RESOURCE_PACK_CLASS_ID -> CatalogContentType.RESOURCE_PACK
+        SHADER_PACK_CLASS_ID -> CatalogContentType.SHADER_PACK
+        else -> CatalogContentType.OTHER
+    }
 
     private fun CfFileDto.toFile(): CatalogFile {
         val normalizedName = fileName?.trim()?.takeIf(String::isNotBlank) ?: throw invalidResponse()
@@ -229,9 +228,10 @@ internal class CurseForgeAdapter(
             fileSize = fileLength ?: fileSizeOnDisk ?: 0,
             minecraftVersions = gameVersions.filter { it.firstOrNull()?.isDigit() == true }.toSet(),
             loaders = gameVersions.mapNotNull(String::toModLoader).toSet(),
-            environment = EnvironmentCompatibility(),
+            environment = gameVersions.toCurseForgeEnvironment(),
             digests = digests,
-            dependencies = dependencies.mapNotNull { it.toDomain() }
+            dependencies = dependencies.mapNotNull { it.toDomain() },
+            downloadUrl = realDownloadUrl
         )
     }
 
@@ -250,13 +250,6 @@ internal class CurseForgeAdapter(
             DependencyTarget.Project(CatalogProjectRef(platform, projectId.toString())),
             requirement
         )
-    }
-
-    private fun deriveDownloadUrl(file: CatalogFile): String {
-        val id = file.ref.fileId
-        if (id.length <= 4 || id.any { !it.isDigit() }) throw CatalogException.DownloadUnavailable(file.ref)
-        val encodedName = URLEncoder.encode(file.fileName, StandardCharsets.UTF_8).replace("+", "%20")
-        return "https://mediafilez.forgecdn.net/files/${id.take(4).toInt()}/${id.drop(4).toInt()}/$encodedName"
     }
 
     private fun downloadHeadersFor(url: String): Map<String, String> {
@@ -296,8 +289,8 @@ internal class CurseForgeAdapter(
         private const val API_KEY_HEADER = "x-api-key"
         private const val MINECRAFT_GAME_ID = 432
         private const val MOD_CLASS_ID = 6
-        private const val BATCH_SIZE = 50
-        private const val FINGERPRINT_BATCH_SIZE = 1_000
+        private const val RESOURCE_PACK_CLASS_ID = 12
+        private const val SHADER_PACK_CLASS_ID = 6552
         private const val SHA1_ALGORITHM = 1
     }
 }
@@ -319,6 +312,23 @@ private fun String.toModLoader(): ModLoader? = when (lowercase()) {
     else -> null
 }
 
+private fun List<String>.toCurseForgeEnvironment(): EnvironmentCompatibility = when (toCurseForgeModSide()) {
+    calebxzhou.rdi.common.model.Mod.Side.BOTH -> EnvironmentCompatibility(
+        client = EnvironmentRequirement.REQUIRED,
+        server = EnvironmentRequirement.REQUIRED,
+    )
+    calebxzhou.rdi.common.model.Mod.Side.CLIENT -> EnvironmentCompatibility(
+        client = EnvironmentRequirement.REQUIRED,
+        server = EnvironmentRequirement.UNSUPPORTED,
+    )
+    calebxzhou.rdi.common.model.Mod.Side.SERVER -> EnvironmentCompatibility(
+        client = EnvironmentRequirement.UNSUPPORTED,
+        server = EnvironmentRequirement.REQUIRED,
+    )
+    null -> EnvironmentCompatibility()
+    calebxzhou.rdi.common.model.Mod.Side.UNKNOWN -> EnvironmentCompatibility()
+}
+
 @Serializable
 private data class CfDataResponse<T>(val data: T)
 
@@ -334,6 +344,7 @@ private data class CfFingerprintRequest(val fingerprints: List<Long>)
 @Serializable
 private data class CfProjectDto(
     val id: Int,
+    val gameId: Int? = null,
     val name: String,
     val slug: String,
     val summary: String? = null,
@@ -392,10 +403,21 @@ private data class CfFileDto(
     val fileDate: String? = null,
     val fileLength: Long? = null,
     val fileSizeOnDisk: Long? = null,
+    val downloadUrl: String? = null,
     val gameVersions: List<String> = emptyList(),
     val dependencies: List<CfDependencyDto> = emptyList(),
     val fileFingerprint: Long? = null
-)
+) {
+    val realDownloadUrl: String?
+        get() {
+            downloadUrl?.trim()?.takeIf(String::isNotBlank)?.let { return it }
+            val normalizedName = fileName?.trim()?.takeIf(String::isNotBlank) ?: return null
+            val idText = id.toString()
+            if (idText.length <= 4) return null
+            val encodedName = URLEncoder.encode(normalizedName, StandardCharsets.UTF_8).replace("+", "%20")
+            return "https://mediafilez.forgecdn.net/files/${idText.take(4).toInt()}/${idText.drop(4).toInt()}/$encodedName"
+        }
+}
 
 @Serializable
 private data class CfFileHashDto(val value: String? = null, val algo: Int? = null)

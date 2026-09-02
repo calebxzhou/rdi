@@ -35,12 +35,11 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.common.util.encodeBase64
-import calebxzhou.rdi.client.service.GameService
+import calebxzhou.rdi.client.service.mcInstall
 import calebxzhou.rdi.client.service.EarlyDisplayMount
 import calebxzhou.rdi.client.service.LocalMcProxyService
 import calebxzhou.rdi.client.service.ModpackLaunchOptionsService
 import calebxzhou.rdi.client.service.UpdateService
-import calebxzhou.rdi.client.service.ensureDesktopLaunchLibraries
 import calebxzhou.rdi.client.service.startDesktop
 import calebxzhou.rdi.client.service.syncHostExtraMods
 import calebxzhou.rdi.client.service.syncHostManagedBaseMods
@@ -59,9 +58,11 @@ import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzau.rdi.mclaunch.MinecraftLaunchOverrides
+import calebxzau.rdi.mcinstall.McLaunchPreparationRequest
 import calebxzhou.rdi.common.model.FORGEGUARD_AGENT_FILE_NAME
 import calebxzhou.rdi.common.model.FORGEGUARD_DISABLE
 import calebxzhou.rdi.common.model.Task2Progress
+import calebxzhou.rdi.common.model.compactText
 import calebxzhou.rdi.common.model.supportsForgeguard
 
 
@@ -105,14 +106,20 @@ fun McPlayScreen(
 
         val session = McPlayStore.createSession(args)
         session.appendLog("[RDI] 准备启动 ${args.title}")
+        args.startupWarnings.forEach { warning ->
+            session.appendLog("[RDI] 警告: $warning")
+        }
 
         McPlayStore.launchSessionTask {
             try {
+                val baseModProgress = SyncProgressFilter()
+                val extraModProgress = SyncProgressFilter()
+                val coreProgress = SyncProgressFilter()
                 val launchSnapshot = ModpackLaunchOptionsService.loadSnapshot(args.versionId).getOrThrow()
                 if (args.manageHostBaseMods) {
                     session.appendLog("[RDI] 检查房间基础Mod...")
                     syncHostManagedBaseMods(args.versionId, args.activeBaseMods, args.disabledBaseMods) { progress ->
-                        appendSyncProgress(session, progress)
+                        appendSyncProgress(session, baseModProgress, progress)
                     }
                     session.appendLog("[RDI] 房间基础Mod已同步")
                 }
@@ -121,7 +128,7 @@ fun McPlayScreen(
                 if (args.manageHostExtraMods) {
                     session.appendLog("[RDI] 检查房间附加Mod...")
                     syncHostExtraMods(args.versionId, args.extraMods) { progress ->
-                        appendSyncProgress(session, progress)
+                        appendSyncProgress(session, extraModProgress, progress)
                     }
                     session.appendLog("[RDI] 房间附加Mod已同步")
                 }
@@ -130,54 +137,44 @@ fun McPlayScreen(
                 UpdateService.prepareMcCore(
                     mcVersion = args.mcVer,
                     modLoader = args.modLoader,
-                    modsDir = GameService.versionListDir.resolve(args.versionId).resolve("mods"),
+                    modsDir = mcInstall.versionListDir.resolve(args.versionId).resolve("mods"),
                     onStatus = { session.appendLog("[RDI] $it") },
-                    onDetail = { if (it.isNotBlank()) session.appendLog("[RDI] $it") }
+                    onDetail = { if (it.isNotBlank()) session.appendLog("[RDI] $it") },
+                    onProgress = { progress -> appendSyncProgress(session, coreProgress, progress) },
                 ).getOrThrow()
                 session.appendLog("[RDI] RDI核心Mod已同步")
                 if (session.stopRequested) return@launchSessionTask
 
-                session.appendLog("[RDI] 检查${args.modLoader}安装...")
-                GameService.ensureDesktopLaunchLoader(
-                    args.mcVer,
-                    args.modLoader,
+                session.appendLog("[RDI] 检查游戏安装...")
+                mcInstall.prepareForLaunch(
+                    request = McLaunchPreparationRequest(
+                        mcVersion = args.mcVer,
+                        loader = args.modLoader,
+                        versionId = args.versionId,
+                    ),
                     onProgress = { progress -> session.appendLog("[RDI] $progress") },
-                    isCancelled = { session.stopRequested }
+                    isCancelled = { session.stopRequested },
                 ).getOrThrow()
-                session.appendLog("[RDI] ${args.modLoader}已就绪")
-                if (session.stopRequested) return@launchSessionTask
-
-                session.appendLog("[RDI] 检查游戏核心文件和运行库...")
-                GameService.ensureDesktopLaunchLibraries(args.mcVer, args.versionId) { progress ->
-                    session.appendLog("[RDI] $progress")
-                }.getOrThrow()
-                session.appendLog("[RDI] 游戏核心文件和运行库已就绪")
-                if (session.stopRequested) return@launchSessionTask
-
-                session.appendLog("[RDI] 检查游戏资源...")
-                GameService.ensureDesktopLaunchAssets(args.mcVer) { progress ->
-                    session.appendLog("[RDI] $progress")
-                }.getOrThrow()
-                session.appendLog("[RDI] 游戏资源已就绪")
+                session.appendLog("[RDI] 游戏安装已就绪")
                 if (session.stopRequested) return@launchSessionTask
 
                 EarlyDisplayMount.mount(
                     mcVersion = args.mcVer,
                     modLoader = args.modLoader,
-                    versionDir = GameService.versionListDir.resolve(args.versionId),
+                    versionDir = mcInstall.versionListDir.resolve(args.versionId),
                 ).fold(
                     onSuccess = {
                         EarlyDisplayMount.configureProvider(
                             mcVersion = args.mcVer,
                             modLoader = args.modLoader,
-                            versionDir = GameService.versionListDir.resolve(args.versionId),
+                            versionDir = mcInstall.versionListDir.resolve(args.versionId),
                         ).onFailure { error ->
-                            session.appendLog("[RDI] Early Display Provider配置失败，将使用NeoForge默认窗口: ${error.message ?: error.javaClass.simpleName}")
+                            session.appendLog("[RDI] Early Display Provider配置失败，将使用游戏默认窗口: ${error.message ?: error.javaClass.simpleName}")
                         }
                         Unit
                     },
                     onFailure = { error ->
-                        session.appendLog("[RDI] Early Display未挂载，将使用NeoForge默认窗口: ${error.message ?: error.javaClass.simpleName}")
+                        session.appendLog("[RDI] Early Display未挂载，将使用游戏默认窗口: ${error.message ?: error.javaClass.simpleName}")
                     },
                 )
 
@@ -202,7 +199,7 @@ fun McPlayScreen(
                 }
                 if (session.stopRequested) return@launchSessionTask
 
-                val started = GameService.startDesktop(
+                val started = mcInstall.startDesktop(
                     args.mcVer,
                     args.versionId,
                     MinecraftLaunchOverrides(
@@ -263,8 +260,8 @@ fun McPlayScreen(
                 selectedSession?.let { session ->
                     val modpackDir = session.args.versionDir
                         ?.let { java.io.File(it) }
-                        ?: GameService.versionListDir.resolve(session.args.versionId)
-                    CircleIconButton("\uEAED", "打开目录", enabled = modpackDir.isDirectory) {
+                        ?: mcInstall.versionListDir.resolve(session.args.versionId)
+                    CircleIconButton("\uEAED", "打开目录", enabled = modpackDir.isDirectory, showText = false) {
                         openFolder(modpackDir.absolutePath)
                     }
                     //if(Const.AI_TEST){
@@ -276,7 +273,7 @@ fun McPlayScreen(
                             onOpenAiChat(session.args.mcpPort, session.args.versionDir)
                         }*/
                     //}
-                    CircleIconButton("\uEAD2", "重启MC") {
+                    CircleIconButton("\uEAD2", "重启MC", showText = false) {
                         session.requestStop()
                         startSession(session.args, allowDuplicateVersion = true)
                     }
@@ -284,7 +281,7 @@ fun McPlayScreen(
                         "\uF04D",
                         "终止MC",
                         bgColor = themeNow.error,
-                        iconColor = themeNow.onError
+                        iconColor = themeNow.onError, showText = false
                     ) {
                         stopSession(session,force = true)
                     }
@@ -386,11 +383,69 @@ private fun sessionStatusColor(session: McGameSession) = when {
     else -> themeNow.onSurfaceVariant
 }
 
-private fun appendSyncProgress(session: McGameSession, progress: Task2Progress) {
-    val suffix = progress.fraction
-        ?.let { fraction -> " ${(fraction * 100).toInt()}%" }
-        .orEmpty()
-    session.appendLog("[RDI] ${progress.message}$suffix")
+internal fun formatSyncProgress(progress: Task2Progress): String {
+    val compact = progress.compactText()
+    val percent = progress.fraction
+        ?.coerceIn(0f, 1f)
+        ?.let { (it * 100).toInt() }
+    val compactIsOnlyFraction = percent != null && compact == "$percent%"
+    return when {
+        compact == progress.message -> progress.message
+        percent != null && !compactIsOnlyFraction -> "${progress.message} · $compact · $percent%"
+        else -> "${progress.message} · $compact"
+    }
+}
+
+internal class SyncProgressFilter {
+    private var first = true
+    private var lastFractionPercent: Int? = null
+    private var lastCompletedItems: Int? = null
+    private var lastCompletedBytesBucket: Long? = null
+    private var lastMessage: String? = null
+    private var lastOutput: String? = null
+
+    fun accept(progress: Task2Progress): String? {
+        val formatted = formatSyncProgress(progress)
+        val hasStructuredProgress = progress.fraction != null ||
+            progress.completedBytes != null ||
+            progress.totalBytes != null ||
+            progress.bytesPerSecond != null ||
+            progress.completedItems != null ||
+            progress.totalItems != null
+        val percent = progress.fraction
+            ?.coerceIn(0f, 1f)
+            ?.let { (it * 100).toInt() }
+        val bytesBucket = progress.completedBytes?.div(PROGRESS_BYTE_BUCKET)
+        val shouldEmit = first || when {
+            progress.fraction != null -> percent != lastFractionPercent ||
+                progress.completedItems != lastCompletedItems
+            progress.completedBytes != null -> bytesBucket != lastCompletedBytesBucket ||
+                progress.completedItems != lastCompletedItems
+            !hasStructuredProgress -> progress.message != lastMessage
+            else -> progress.completedItems != lastCompletedItems
+        }
+
+        first = false
+        lastFractionPercent = percent
+        lastCompletedItems = progress.completedItems
+        lastCompletedBytesBucket = bytesBucket
+        lastMessage = progress.message
+        if (!shouldEmit || formatted == lastOutput) return null
+        lastOutput = formatted
+        return formatted
+    }
+
+    companion object {
+        private const val PROGRESS_BYTE_BUCKET = 8L * 1024L * 1024L
+    }
+}
+
+private fun appendSyncProgress(
+    session: McGameSession,
+    filter: SyncProgressFilter,
+    progress: Task2Progress,
+) {
+    filter.accept(progress)?.let { session.appendLog("[RDI] $it") }
 }
 
 private fun String.withGameAddr(gameAddr: String): String {

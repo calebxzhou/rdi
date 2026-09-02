@@ -19,8 +19,8 @@ import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.decodeImageBitmap
-import calebxzhou.rdi.client.service.playermodel.GpuPlayerModelRenderService
-import calebxzhou.rdi.client.service.playermodel.PlayerTexturePixels
+import calebxzau.rdi.playermodel.PlayerModelRenderer
+import calebxzau.rdi.playermodel.PlayerModelTexture
 import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.common.net.httpRequest
 import io.ktor.client.request.*
@@ -50,9 +50,9 @@ fun PlayerModel(
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     var autoRotateEnabled by remember(skin, cape, autoRotate) { mutableStateOf(autoRotate) }
     var walkEnabled by remember(skin, cape, animateWalk) { mutableStateOf(animateWalk) }
-    val skinPixels = remember(skin, isSlim) { skin?.let { PlayerTexturePixels.skin(it, isSlim) } }
-    val capePixels = remember(cape) { cape?.let(PlayerTexturePixels::cape) }
-    val controller = remember { GpuPlayerModelRenderService.register() }
+    val skinPixels = remember(skin, isSlim) { skin?.let { PlayerModelTexture.skin(it, isSlim) } }
+    val capePixels = remember(cape) { cape?.let(PlayerModelTexture::cape) }
+    val controller = remember { PlayerModelRenderer.openSession() }
     val frame by controller.frame.collectAsState()
     val failure by controller.failure.collectAsState()
 

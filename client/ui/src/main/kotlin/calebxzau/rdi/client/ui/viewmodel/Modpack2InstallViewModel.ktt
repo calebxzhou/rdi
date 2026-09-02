@@ -1,0 +1,362 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.LocalModpackCandidate
+import calebxzhou.rdi.client.service.LocalModpackScanner
+import calebxzhou.rdi.client.service.Modpack2LocalService
+import calebxzhou.rdi.client.service.Modpack2WorkspaceSource
+import calebxzhou.rdi.client.service.ModpackArchiveContentResolutionSource
+import calebxzhou.rdi.client.service.ModpackArchiveFile
+import calebxzhou.rdi.client.service.ModpackArchiveMetadata
+import calebxzhou.rdi.client.service.ModpackArchivePreview
+import calebxzhou.rdi.client.service.ModpackArchiveReadProgress
+import calebxzhou.rdi.client.service.ModpackArchiveReadStage
+import calebxzhou.rdi.client.service.ContentResolutionUpdate
+import calebxzhou.rdi.client.service.ResolvedArchiveMod
+import calebxzhou.rdi.client.service.ResolutionStage
+import calebxzhou.rdi.client.service.toLegacyMod
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.Task2
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.net.URI
+import java.nio.file.Path
+
+private val lgr by Loggers
+
+data class Modpack2InstallState(
+    val scanning: Boolean = true,
+    val candidates: List<LocalModpackCandidate> = emptyList(),
+    val scanError: String? = null,
+    val archiveLoading: Boolean = false,
+    val archiveError: String? = null,
+    val editor: Modpack2InstallEditorState? = null,
+)
+
+data class Modpack2InstallEditorState(
+    val source: Modpack2WorkspaceSource?,
+    val mcVersion: McVersion,
+    val modLoader: ModLoader,
+    val name: String,
+    val comment: String = "",
+    val iconUrl: String = "",
+    val submitting: Boolean = false,
+    val error: String? = null,
+    val resolvedMods: Map<String, ResolvedArchiveMod> = emptyMap(),
+    val contentResolving: Boolean = false,
+    val archivePath: Path? = null,
+    val archivePreviewLoading: Boolean = false,
+    val archiveProgress: ModpackArchiveReadProgress? = null,
+) {
+    val canSubmit: Boolean
+        get() = source != null && !archivePreviewLoading && !contentResolving && !submitting
+}
+
+data class Modpack2InstallStarted(val runId: String)
+
+fun interface Modpack2InstallTaskSubmitter {
+    fun submit(task: Task2, dedupeKey: String): String
+}
+
+private object ClientModpack2InstallTaskSubmitter : Modpack2InstallTaskSubmitter {
+    override fun submit(task: Task2, dedupeKey: String): String = ClientTaskManager.submit(task, dedupeKey)
+}
+
+class Modpack2InstallViewModel(
+    private val scanner: LocalModpackScanner,
+    private val service: Modpack2LocalService,
+    private val archiveReader: calebxzhou.rdi.client.service.ModpackArchiveReader,
+    private val contentResolver: ModpackArchiveContentResolutionSource,
+    private val taskSubmitter: Modpack2InstallTaskSubmitter = ClientModpack2InstallTaskSubmitter,
+) : ViewModel() {
+    private val mutableState = MutableStateFlow(Modpack2InstallState())
+    private val eventChannel = Channel<Modpack2InstallStarted>(Channel.BUFFERED)
+    private var archiveLoadJob: Job? = null
+    private var archiveGeneration = 0L
+    private val resolutionCache = mutableMapOf<ArchiveIdentity, ResolutionCache>()
+
+    val state: StateFlow<Modpack2InstallState> = mutableState.asStateFlow()
+    val events = eventChannel.receiveAsFlow()
+
+    private fun removed() {
+        mutableState.update { it.copy(scanning = false, archiveLoading = false, scanError = "入口已移除，请从上传页选择平台安装包", archiveError = "入口已移除，请从上传页选择平台安装包", editor = it.editor?.copy(error = "入口已移除，请从上传页选择平台安装包")) }
+    }
+
+    fun scanCandidates() {
+        removed()
+    }
+
+    fun openInstall(candidate: LocalModpackCandidate) {
+        removed()
+    }
+
+    /**
+     * Opens an explicitly selected directory for import.  Directory imports cannot infer
+     * instance metadata from the folder, so callers must provide the player's chosen name,
+     * Minecraft version, and loader instead of silently fabricating them.
+     */
+    fun openDirectory(
+        directory: Path,
+        name: String,
+        mcVersion: McVersion,
+        modLoader: ModLoader,
+    ) {
+        removed()
+    }
+
+    fun openCreate(mcVersion: McVersion, modLoader: ModLoader) {
+        removed()
+    }
+
+    fun openArchive(path: Path) {
+        removed()
+        /*
+            val metadata = archiveReader.readMetadata(path).getOrElse { cause ->
+                if (cause is CancellationException) throw cause
+                lgr.warn(cause) { "读取整合包元数据失败" }
+                showArchiveError(generation, cause)
+                return@launch
+            }
+            if (!isCurrentArchive(generation)) return@launch
+            showArchiveMetadata(generation, metadata)
+
+            val preview = archiveReader.inspectWithProgress(path) { progress ->
+                updateArchiveProgress(generation, progress)
+            }.getOrElse { cause ->
+                if (cause is CancellationException) throw cause
+                lgr.warn(cause) { "读取整合包内容失败" }
+                finishArchiveLoadWithError(generation, cause)
+                return@launch
+            }
+            if (!isCurrentArchive(generation)) return@launch
+            val identity = ArchiveIdentity(preview.archive, preview.archiveSize, preview.archiveModifiedAt)
+            val cached = resolutionCache[identity] ?: ResolutionCache()
+            mutableState.update { current ->
+                if (!isCurrentArchive(generation)) return@update current
+                current.copy(
+                    archiveLoading = false,
+                    editor = current.editor?.copy(
+                        source = Modpack2WorkspaceSource.Archive(
+                            archive = path,
+                            preview = preview,
+                            selectedOptionalFiles = preview.optionalFiles.mapTo(
+                                linkedSetOf(),
+                                ModpackArchiveFile::key,
+                            ),
+                            resolvedMods = cached.items,
+                        ),
+                        mcVersion = preview.mcVersion,
+                        modLoader = preview.modLoader,
+                        archivePath = path,
+                        archivePreviewLoading = false,
+                        resolvedMods = cached.items,
+                        contentResolving = cached.completedStages.size < ResolutionStage.entries.size,
+                        archiveProgress = cached.completedStages
+                            .takeIf { it.size < ResolutionStage.entries.size }
+                            ?.let {
+                                ModpackArchiveReadProgress(ModpackArchiveReadStage.LOADING_MOD_METADATA)
+                            },
+                    ),
+                )
+            }
+            try {
+                contentResolver.resolve(preview, cached.completedStages).collect { update ->
+                    when (update) {
+                        is ContentResolutionUpdate.Resolved ->
+                            mergeResolution(generation, identity, update.stage, update.items)
+                        is ContentResolutionUpdate.Failed ->
+                            mergeResolution(generation, identity, update.stage, emptyMap())
+                        ContentResolutionUpdate.Complete ->
+                            updateResolutionState(generation, identity, resolving = false)
+                    }
+                }
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (cause: Throwable) {
+                lgr.warn(cause) { "解析整合包内容信息失败" }
+                finishArchiveLoadWithError(generation, cause)
+            }
+        */
+    }
+
+    fun closeEditor() {
+        if (state.value.editor?.submitting == true) return
+        cancelArchiveLoad()
+        mutableState.update { it.copy(archiveLoading = false, editor = null) }
+    }
+
+    fun dismissError() {
+        mutableState.update {
+            it.copy(
+                scanError = null,
+                archiveError = null,
+                editor = it.editor?.copy(error = null),
+            )
+        }
+    }
+
+    fun updateName(value: String) = updateEditor { copy(name = value, error = null) }
+    fun updateComment(value: String) = updateEditor { copy(comment = value, error = null) }
+    fun updateIconUrl(value: String) = updateEditor { copy(iconUrl = value, error = null) }
+
+    fun toggleOptionalFile(key: String) = updateEditor {
+        val archive = source as? Modpack2WorkspaceSource.Archive ?: return@updateEditor this
+        val selected = archive.selectedOptionalFiles.toMutableSet()
+        if (!selected.add(key)) selected.remove(key)
+        copy(source = archive.copy(selectedOptionalFiles = selected), error = null)
+    }
+
+    fun submitInstall() {
+        removed()
+    }
+
+    private fun updateEditor(
+        transform: Modpack2InstallEditorState.() -> Modpack2InstallEditorState,
+    ) {
+        mutableState.update { it.copy(editor = it.editor?.transform()) }
+    }
+
+    private fun mergeResolution(
+        generation: Long,
+        identity: ArchiveIdentity,
+        stage: ResolutionStage,
+        items: Map<String, ResolvedArchiveMod>,
+    ) {
+        if (!isCurrentArchive(generation)) return
+        val cached = resolutionCache[identity] ?: ResolutionCache()
+        val merged = cached.items.toMutableMap()
+        if (stage == ResolutionStage.URL_HINTS) merged.putAll(items)
+        else items.forEach { (key, value) -> merged.putIfAbsent(key, value) }
+        resolutionCache[identity] = ResolutionCache(merged, cached.completedStages + stage)
+        updateResolutionState(
+            generation,
+            identity,
+            resolving = cached.completedStages.size + 1 < ResolutionStage.entries.size,
+        )
+    }
+
+    private fun updateResolutionState(generation: Long, identity: ArchiveIdentity, resolving: Boolean) {
+        if (!isCurrentArchive(generation)) return
+        val cached = resolutionCache[identity] ?: ResolutionCache()
+        mutableState.update { current ->
+            if (!isCurrentArchive(generation)) return@update current
+            val editor = current.editor ?: return@update current
+            val archive = editor.source as? Modpack2WorkspaceSource.Archive ?: return@update current
+            val preview = archive.preview
+            if (ArchiveIdentity(preview.archive, preview.archiveSize, preview.archiveModifiedAt) != identity) {
+                return@update current
+            }
+            current.copy(
+                editor = editor.copy(
+                    resolvedMods = cached.items,
+                    source = archive.copy(
+                        resolvedMods = cached.items,
+                    ),
+                    contentResolving = resolving,
+                    archiveProgress = if (resolving) {
+                        editor.archiveProgress
+                            ?: ModpackArchiveReadProgress(ModpackArchiveReadStage.LOADING_MOD_METADATA)
+                    } else {
+                        null
+                    },
+                ),
+            )
+        }
+    }
+
+    private fun showArchiveMetadata(generation: Long, metadata: ModpackArchiveMetadata) {
+        mutableState.update { current ->
+            if (!isCurrentArchive(generation)) return@update current
+            current.copy(
+                archiveLoading = false,
+                editor = Modpack2InstallEditorState(
+                    source = null,
+                    mcVersion = metadata.mcVersion,
+                    modLoader = metadata.modLoader,
+                    name = metadata.name,
+                    comment = metadata.summary.orEmpty(),
+                    archivePath = metadata.archive,
+                    archivePreviewLoading = true,
+                    contentResolving = true,
+                    archiveProgress = ModpackArchiveReadProgress(ModpackArchiveReadStage.SCANNING_ENTRIES),
+                ),
+            )
+        }
+    }
+
+    private fun updateArchiveProgress(generation: Long, progress: ModpackArchiveReadProgress) {
+        if (!isCurrentArchive(generation)) return
+        mutableState.update { current ->
+            if (!isCurrentArchive(generation)) return@update current
+            current.copy(editor = current.editor?.copy(archiveProgress = progress))
+        }
+    }
+
+    private fun finishArchiveLoadWithError(generation: Long, cause: Throwable) {
+        mutableState.update { current ->
+            if (!isCurrentArchive(generation)) return@update current
+            current.copy(
+                archiveLoading = false,
+                archiveError = cause.message ?: "无法读取整合包安装包",
+                editor = current.editor?.copy(
+                    source = null,
+                    archivePreviewLoading = false,
+                    contentResolving = false,
+                    archiveProgress = null,
+                ),
+            )
+        }
+    }
+
+    private fun showArchiveError(generation: Long, cause: Throwable) {
+        mutableState.update { current ->
+            if (archiveGeneration != generation) return@update current
+            current.copy(
+                archiveLoading = false,
+                archiveError = cause.message ?: "无法读取整合包安装包",
+            )
+        }
+    }
+
+    private fun cancelArchiveLoad() {
+        archiveGeneration++
+        archiveLoadJob?.cancel()
+        archiveLoadJob = null
+    }
+
+    private fun isCurrentArchive(generation: Long): Boolean = archiveGeneration == generation
+
+    private fun workspaceDedupeKey(name: String, mcVersion: McVersion, modLoader: ModLoader): String =
+        "modpack2-workspace:${name.trim().lowercase()}:${mcVersion.mcVer}:${modLoader.name}"
+
+    private fun validateEditor(editor: Modpack2InstallEditorState): String? {
+        if (editor.name.trim().isEmpty()) return "整合包名称不能为空"
+        val iconUrl = editor.iconUrl.trim()
+        if (iconUrl.isEmpty()) return null
+        return runCatching {
+            val uri = runCatching { URI(iconUrl) }
+                .getOrElse { throw IllegalArgumentException("图标链接无效") }
+            require(uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank()) {
+                "图标链接必须是HTTPS网络地址"
+            }
+        }.exceptionOrNull()?.message
+    }
+
+    private data class ArchiveIdentity(val path: Path, val size: Long, val modifiedAt: Long)
+    private data class ResolutionCache(
+        val items: Map<String, ResolvedArchiveMod> = emptyMap(),
+        val completedStages: Set<ResolutionStage> = emptySet(),
+    )
+}

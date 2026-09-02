@@ -1,0 +1,243 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.net.rdiResponse
+import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.common.exception.RequestError
+import calebxzau.rdi.common.model.Modpack2AppendPreflightDto
+import calebxzau.rdi.common.model.Modpack2AppendPreflightVo
+import calebxzau.rdi.common.model.Modpack2ClientManifestVo
+import calebxzau.rdi.common.model.Modpack2CreateDto
+import calebxzau.rdi.common.model.Modpack2CreateResult
+import calebxzau.rdi.common.model.Modpack2VersionCreateFromUploadDto
+import calebxzau.rdi.common.model.Modpack2VersionDetailVo
+import calebxzau.rdi.common.model.Modpack2OwnedVo
+import calebxzau.rdi.common.model.Modpack2Page
+import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
+import calebxzhou.rdi.common.model.ModpackUploadSessionVo
+import calebxzhou.rdi.common.net.json
+import calebxzhou.rdi.common.serdesJson
+import calebxzhou.rdi.common.util.sha1
+import io.ktor.client.request.header
+import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMethod
+import io.ktor.http.contentType
+import kotlinx.coroutines.CancellationException
+import java.nio.file.Path
+import java.util.UUID
+import kotlin.uuid.Uuid
+import kotlin.uuid.toJavaUuid
+
+/** Network surface consumed by install and publish flows. */
+interface Modpack2Gateway {
+    suspend fun owned(offset: Long = 0, limit: Int = 50): Result<Modpack2Page<Modpack2OwnedVo>> = Result.success(
+        Modpack2Page(emptyList(), 0, offset, limit, false),
+    )
+    suspend fun listOwned(offset: Long = 0, limit: Int = 50): Result<Modpack2Page<Modpack2OwnedVo>> = owned(offset, limit)
+
+    suspend fun appendPreflight(
+        modpackId: Uuid,
+        baseVersionId: Uuid,
+    ): Result<Modpack2AppendPreflightVo>
+
+    suspend fun create(request: Modpack2CreateDto): Result<Modpack2CreateResult>
+
+    suspend fun createVersion(
+        modpackId: Uuid,
+        request: Modpack2VersionCreateFromUploadDto,
+    ): Result<Modpack2CreateResult>
+
+    suspend fun listVersions(modpackId: Uuid): Result<List<Modpack2VersionDetailVo>>
+
+    suspend fun retry(modpackId: Uuid, versionId: Uuid): Result<Modpack2CreateResult>
+
+    suspend fun clientPackHash(modpackId: Uuid, versionId: Uuid): Result<String>
+
+    suspend fun clientManifest(modpackId: Uuid, versionId: Uuid): Result<Modpack2ClientManifestVo>
+
+    suspend fun downloadClientPack(
+        modpackId: Uuid,
+        versionId: Uuid,
+        target: Path,
+        expectedSha1: String,
+        onProgress: (completed: Long, total: Long?) -> Unit = { _, _ -> },
+    ): Result<Unit>
+
+    suspend fun createUploadSession(request: ModpackUploadSessionCreateDto): Result<ModpackUploadSessionVo>
+
+    suspend fun uploadSessionStatus(uploadId: UUID): Result<ModpackUploadSessionVo>
+
+    suspend fun uploadPart(
+        uploadId: UUID,
+        index: Int,
+        bytes: ByteArray,
+        sha1: String,
+    ): Result<Unit>
+
+    suspend fun completeUpload(uploadId: UUID): Result<ModpackUploadSessionVo>
+}
+
+/**
+ * RServer implementation. HTTP errors and non-OK RDI responses remain failures; callers do not
+ * have to inspect nullable data or silently continue after a server error.
+ */
+class RServerModpack2Gateway : Modpack2Gateway {
+    override suspend fun owned(offset: Long, limit: Int): Result<Modpack2Page<Modpack2OwnedVo>> = resultOf {
+        require(offset >= 0) { "分页偏移量无效" }
+        require(limit > 0) { "分页大小无效" }
+        requestData("modpack2/owned?offset=$offset&limit=$limit")
+    }
+
+    override suspend fun appendPreflight(
+        modpackId: Uuid,
+        baseVersionId: Uuid,
+    ): Result<Modpack2AppendPreflightVo> = resultOf {
+        requestData(
+            path = "modpack2/${modpackId.toJavaUuid()}/versions/preflight",
+            method = HttpMethod.Post,
+            body = Modpack2AppendPreflightDto(baseVersionId.toJavaUuid()),
+        )
+    }
+
+    override suspend fun create(request: Modpack2CreateDto): Result<Modpack2CreateResult> = resultOf {
+        requestData("modpack2", HttpMethod.Post, request)
+    }
+
+    override suspend fun createVersion(
+        modpackId: Uuid,
+        request: Modpack2VersionCreateFromUploadDto,
+    ): Result<Modpack2CreateResult> = resultOf {
+        requestData("modpack2/${modpackId.toJavaUuid()}/versions", HttpMethod.Post, request)
+    }
+
+    override suspend fun listVersions(modpackId: Uuid): Result<List<Modpack2VersionDetailVo>> = resultOf {
+        requestData("modpack2/${modpackId.toJavaUuid()}/versions")
+    }
+
+    override suspend fun retry(modpackId: Uuid, versionId: Uuid): Result<Modpack2CreateResult> = resultOf {
+        requestData(
+            "modpack2/${modpackId.toJavaUuid()}/versions/${versionId.toJavaUuid()}/retry",
+            HttpMethod.Post,
+        )
+    }
+
+    override suspend fun clientPackHash(modpackId: Uuid, versionId: Uuid): Result<String> = resultOf {
+        val response = server.createRequest(
+            "modpack2/${modpackId.toJavaUuid()}/versions/${versionId.toJavaUuid()}/client-pack/hash",
+            HttpMethod.Get,
+        )
+        if (response.status.value !in 200..299) {
+            throw RequestError("服务器请求失败: ${response.status.value} ${response.status.description}")
+        }
+        response.bodyAsText().trim().also {
+            require(SHA1_PATTERN.matches(it)) { "服务器返回的客户端包SHA-1格式无效" }
+        }
+    }
+
+    override suspend fun clientManifest(
+        modpackId: Uuid,
+        versionId: Uuid,
+    ): Result<Modpack2ClientManifestVo> = resultOf {
+        requestData(
+            "modpack2/${modpackId.toJavaUuid()}/versions/${versionId.toJavaUuid()}/client-manifest",
+        )
+    }
+
+    override suspend fun downloadClientPack(
+        modpackId: Uuid,
+        versionId: Uuid,
+        target: Path,
+        expectedSha1: String,
+        onProgress: (completed: Long, total: Long?) -> Unit,
+    ): Result<Unit> = resultOf {
+        val normalizedHash = expectedSha1.trim().lowercase()
+        require(SHA1_PATTERN.matches(normalizedHash)) { "客户端包SHA-1格式无效" }
+        server.download(
+            path = "modpack2/${modpackId.toJavaUuid()}/versions/${versionId.toJavaUuid()}/client-pack",
+            saveTo = target.toString(),
+            validator = { path ->
+                runCatching {
+                    require(path.sha1.equals(normalizedHash, ignoreCase = true)) {
+                        "客户端下载包SHA-1不匹配"
+                    }
+                }
+            },
+            onProgress = { progress ->
+                onProgress(progress.bytesDownloaded, progress.totalBytes.takeIf { it > 0L })
+            },
+        )
+    }
+
+    override suspend fun createUploadSession(
+        request: ModpackUploadSessionCreateDto,
+    ): Result<ModpackUploadSessionVo> = resultOf {
+        requestData("modpack2/upload-sessions", HttpMethod.Post, request)
+    }
+
+    override suspend fun uploadSessionStatus(uploadId: UUID): Result<ModpackUploadSessionVo> = resultOf {
+        requestData("modpack2/upload-sessions/$uploadId")
+    }
+
+    override suspend fun uploadPart(
+        uploadId: UUID,
+        index: Int,
+        bytes: ByteArray,
+        sha1: String,
+    ): Result<Unit> = resultOf {
+        require(SHA1_PATTERN.matches(sha1.lowercase())) { "分片SHA-1格式无效" }
+        val response = server.createRequest(
+            path = "modpack2/upload-sessions/$uploadId/parts/$index",
+            method = HttpMethod.Put,
+        ) {
+            header("X-Part-SHA1", sha1.lowercase())
+            contentType(ContentType.Application.OctetStream)
+            header(HttpHeaders.ContentLength, bytes.size.toString())
+            setBody(bytes)
+        }.rdiResponse<Unit>()
+        requireResponse(response)
+    }
+
+    override suspend fun completeUpload(uploadId: UUID): Result<ModpackUploadSessionVo> = resultOf {
+        requestData("modpack2/upload-sessions/$uploadId/complete", HttpMethod.Post)
+    }
+
+    private suspend inline fun <reified T> requestData(
+        path: String,
+        method: HttpMethod = HttpMethod.Get,
+    ): T {
+        val response = server.makeRequest<T>(path, method)
+        return requireResponse(response)
+    }
+
+    private suspend inline fun <reified T, reified B> requestData(
+        path: String,
+        method: HttpMethod = HttpMethod.Get,
+        body: B,
+    ): T {
+        val response = server.makeRequest<T>(path, method) {
+            json()
+            setBody(serdesJson.encodeToString(body))
+        }
+        return requireResponse(response)
+    }
+
+    private inline fun <reified T> requireResponse(response: calebxzhou.rdi.common.model.Response<T>): T {
+        if (!response.ok) throw RequestError(response.msg)
+        return response.data ?: if (T::class == Unit::class) Unit as T
+        else throw RequestError("服务器响应缺少数据")
+    }
+
+    private suspend fun <T> resultOf(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+    private companion object {
+        val SHA1_PATTERN = Regex("[0-9a-f]{40}")
+    }
+}

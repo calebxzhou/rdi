@@ -1,0 +1,255 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import calebxzhou.rdi.client.database.LocalModpack2ContentRecord
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.database.LocalModpack2Store
+import calebxzhou.rdi.client.database.LocalModpack2SubmissionRecord
+import calebxzhou.rdi.client.database.MinecraftInstallationRecord
+import calebxzhou.rdi.client.database.MinecraftInstallationStore
+import calebxzhou.rdi.client.service.ContentResolutionUpdate
+import calebxzhou.rdi.client.service.CurseForgeArchiveRef
+import calebxzhou.rdi.client.service.LocalModpackScanner
+import calebxzhou.rdi.client.service.Modpack2LocalService
+import calebxzhou.rdi.client.service.ModpackArchiveCatalog
+import calebxzhou.rdi.client.service.ModpackArchiveContentResolutionSource
+import calebxzhou.rdi.client.service.ModpackArchiveReader
+import calebxzhou.rdi.client.service.ModpackArchiveFile
+import calebxzhou.rdi.client.service.ArchiveCatalogFile
+import calebxzhou.rdi.client.service.ModpackArchiveMetadata
+import calebxzhou.rdi.client.service.RServerModpack2Gateway
+import calebxzhou.rdi.client.service.LocalModpack2Repository
+import calebxzau.rdi.client.packproc.Modpack2ContentResolver
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertIs
+import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
+
+class Modpack2InstallViewModelTest {
+    @Test
+    fun `archive editor keeps metadata and selects optional content`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-install-vm")
+        val viewModel = createViewModel(root)
+
+        viewModel.openArchive(root.resolve("pack.mrpack"))
+        assertTrue(viewModel.state.value.archiveError!!.contains("入口已移除"))
+    }
+
+    @Test
+    fun `submission opens the Modpack2 task`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-install-vm")
+        val submitter = RecordingTaskSubmitter()
+        val viewModel = createViewModel(root, submitter)
+        viewModel.openCreate(McVersion.V211, ModLoader.neoforge)
+        viewModel.submitInstall()
+
+        assertTrue(viewModel.state.value.archiveError!!.contains("入口已移除"))
+        assertEquals(0, submitter.submissions)
+    }
+
+    @Test
+    fun `blank name stays in editor and does not submit a task`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-install-vm")
+        val submitter = RecordingTaskSubmitter()
+        val viewModel = createViewModel(root, submitter)
+        viewModel.openCreate(McVersion.V211, ModLoader.neoforge)
+        viewModel.submitInstall()
+
+        assertTrue(viewModel.state.value.archiveError!!.contains("入口已移除"))
+        assertEquals(0, submitter.submissions)
+    }
+
+    @Test
+    fun `non empty icon must be an https url before submitting`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-install-vm")
+        val submitter = RecordingTaskSubmitter()
+        val viewModel = createViewModel(root, submitter)
+        viewModel.openCreate(McVersion.V211, ModLoader.neoforge)
+        viewModel.submitInstall()
+
+        assertTrue(viewModel.state.value.archiveError!!.contains("入口已移除"))
+        assertEquals(0, submitter.submissions)
+    }
+
+    @Test
+    fun `removed entrances are inert and report that the entry was removed`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-install-vm-removed")
+        try {
+            val installationStore = RecordingInstallationStore()
+            val archiveCatalog = RecordingArchiveCatalog()
+            val archiveReader = RecordingArchiveReader(archiveCatalog)
+            var resolutionCalls = 0
+            val contentResolver = ModpackArchiveContentResolutionSource { _, _ ->
+                resolutionCalls++
+                flowOf(ContentResolutionUpdate.Complete)
+            }
+            val submitter = RecordingTaskSubmitter()
+            val viewModel = createViewModel(
+                root = root,
+                taskSubmitter = submitter,
+                scanner = LocalModpackScanner(installationStore, root.resolve("managed")),
+                archiveReader = archiveReader,
+                contentResolver = contentResolver,
+            )
+
+            assertEquals(0, installationStore.listCalls)
+            assertEquals(0, archiveReader.metadataCalls)
+            assertEquals(0, archiveCatalog.resolveCalls)
+            assertEquals(0, resolutionCalls)
+            assertEquals(0, submitter.submissions)
+
+            viewModel.openArchive(root.resolve("pack.mrpack"))
+            viewModel.openDirectory(root, "pack", McVersion.V211, ModLoader.neoforge)
+            viewModel.openCreate(McVersion.V211, ModLoader.neoforge)
+            viewModel.submitInstall()
+
+            assertTrue(viewModel.state.value.scanError!!.contains("入口已移除"))
+            assertTrue(viewModel.state.value.archiveError!!.contains("入口已移除"))
+            assertEquals(0, installationStore.listCalls)
+            assertEquals(0, archiveReader.metadataCalls)
+            assertEquals(0, archiveCatalog.resolveCalls)
+            assertEquals(0, resolutionCalls)
+            assertEquals(0, submitter.submissions)
+        } finally {
+            root.toFile().deleteRecursivelyNoSymlink()
+        }
+    }
+
+    private fun createViewModel(
+        root: Path,
+        taskSubmitter: Modpack2InstallTaskSubmitter = RecordingTaskSubmitter(),
+        scanner: LocalModpackScanner = LocalModpackScanner(EmptyInstallationStore, root.resolve("managed")),
+        archiveReader: ModpackArchiveReader = ModpackArchiveReader(EmptyArchiveCatalog),
+        contentResolver: ModpackArchiveContentResolutionSource = ModpackArchiveContentResolutionSource { _, _ ->
+            flowOf(ContentResolutionUpdate.Complete)
+        },
+    ): Modpack2InstallViewModel {
+        val repository = LocalModpack2Repository(EmptyLocalModpack2Store)
+        val service = Modpack2LocalService(
+            repository = repository,
+            gateway = RServerModpack2Gateway(),
+            versionsDirectory = root.resolve("versions"),
+            contentResolver = object : Modpack2ContentResolver {},
+            packProcessingDirectory = root.resolve("pack-proc"),
+        )
+        return Modpack2InstallViewModel(
+            scanner = scanner,
+            service = service,
+            archiveReader = archiveReader,
+            contentResolver = contentResolver,
+            taskSubmitter = taskSubmitter,
+        )
+    }
+
+    private fun createArchive(path: Path): Path {
+        ZipOutputStream(Files.newOutputStream(path)).use { output ->
+            output.putNextEntry(ZipEntry("modrinth.index.json"))
+            output.write(
+                """
+                {
+                  "formatVersion": 1,
+                  "game": "minecraft",
+                  "name": "测试包",
+                  "summary": "测试备注",
+                  "dependencies": {"minecraft": "1.21.1", "neoforge": "21.1.100"},
+                  "files": [
+                    {"path":"mods/required.jar","hashes":{"sha1":"1111111111111111111111111111111111111111"},"downloads":["https://cdn.modrinth.com/data/a/versions/b/required.jar"],"fileSize":1,"env":{"client":"required"}},
+                    {"path":"mods/optional.jar","hashes":{"sha1":"2222222222222222222222222222222222222222"},"downloads":["https://cdn.modrinth.com/data/a/versions/c/optional.jar"],"fileSize":1,"env":{"client":"optional"}}
+                  ]
+                }
+                """.trimIndent().toByteArray()
+            )
+            output.closeEntry()
+        }
+        return path
+    }
+}
+
+private class RecordingTaskSubmitter : Modpack2InstallTaskSubmitter {
+    var dedupeKey = ""
+    var submissions = 0
+
+    override fun submit(task: calebxzhou.rdi.common.model.Task2, dedupeKey: String): String {
+        submissions++
+        this.dedupeKey = dedupeKey
+        return "workspace-task"
+    }
+}
+
+private object EmptyInstallationStore : MinecraftInstallationStore {
+    override suspend fun list(): Result<List<MinecraftInstallationRecord>> = Result.success(emptyList())
+    override suspend fun upsert(path: Path, seenAt: Long): Result<Unit> = Result.success(Unit)
+    override suspend fun delete(path: Path): Result<Unit> = Result.success(Unit)
+    override suspend fun lastFullScanAt(): Result<Long?> = Result.success(null)
+    override suspend fun setLastFullScanAt(scannedAt: Long): Result<Unit> = Result.success(Unit)
+    override fun close() = Unit
+}
+
+private object EmptyLocalModpack2Store : LocalModpack2Store {
+    override suspend fun list(): Result<List<LocalModpack2InstanceRecord>> = Result.success(emptyList())
+    override suspend fun find(versionId: Uuid): Result<LocalModpack2InstanceRecord?> = Result.success(null)
+    override suspend fun upsert(record: LocalModpack2InstanceRecord): Result<Unit> = Result.success(Unit)
+    override suspend fun delete(versionId: Uuid): Result<Unit> = Result.success(Unit)
+    override suspend fun listByVersion(versionId: Uuid): Result<List<LocalModpack2ContentRecord>> = Result.success(emptyList())
+    override suspend fun findContent(contentId: Uuid): Result<LocalModpack2ContentRecord?> = Result.success(null)
+    override suspend fun upsertContent(record: LocalModpack2ContentRecord): Result<Unit> = Result.success(Unit)
+    override suspend fun deleteContent(contentId: Uuid): Result<Unit> = Result.success(Unit)
+    override suspend fun listSubmissions(): Result<List<LocalModpack2SubmissionRecord>> = Result.success(emptyList())
+    override suspend fun findSubmission(versionId: Uuid): Result<LocalModpack2SubmissionRecord?> = Result.success(null)
+    override suspend fun writeSubmission(record: LocalModpack2SubmissionRecord): Result<Unit> = Result.success(Unit)
+    override suspend fun clearSubmission(versionId: Uuid): Result<Unit> = Result.success(Unit)
+    override suspend fun remapVersionId(oldVersionId: Uuid, newVersionId: Uuid): Result<Unit> = Result.success(Unit)
+}
+
+private object EmptyArchiveCatalog : ModpackArchiveCatalog {
+    override suspend fun resolveCurseForgeFiles(
+        refs: List<CurseForgeArchiveRef>,
+    ): Result<Map<Int, ArchiveCatalogFile>> = Result.success(emptyMap())
+}
+
+private class RecordingInstallationStore : MinecraftInstallationStore {
+    var listCalls = 0
+
+    override suspend fun list(): Result<List<MinecraftInstallationRecord>> {
+        listCalls++
+        return Result.failure(IllegalStateException("scanner deliberately failed"))
+    }
+
+    override suspend fun upsert(path: Path, seenAt: Long): Result<Unit> = Result.success(Unit)
+    override suspend fun delete(path: Path): Result<Unit> = Result.success(Unit)
+    override suspend fun lastFullScanAt(): Result<Long?> = Result.success(null)
+    override suspend fun setLastFullScanAt(scannedAt: Long): Result<Unit> = Result.success(Unit)
+    override fun close() = Unit
+}
+
+private class RecordingArchiveCatalog : ModpackArchiveCatalog {
+    var resolveCalls = 0
+
+    override suspend fun resolveCurseForgeFiles(
+        refs: List<CurseForgeArchiveRef>,
+    ): Result<Map<Int, ArchiveCatalogFile>> {
+        resolveCalls++
+        return Result.failure(IllegalStateException("archive catalog deliberately failed"))
+    }
+}
+
+private class RecordingArchiveReader(catalog: ModpackArchiveCatalog) : ModpackArchiveReader(catalog) {
+    var metadataCalls = 0
+
+    override suspend fun readMetadata(archive: Path): Result<ModpackArchiveMetadata> {
+        metadataCalls++
+        return Result.failure(IllegalStateException("archive reader deliberately failed"))
+    }
+}

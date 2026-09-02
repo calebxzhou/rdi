@@ -27,6 +27,77 @@ class IconMarqueeCardTest {
     }
 
     @Test
+    fun `uses one centered lane in a narrow viewport while preserving every icon`() {
+        val icons = List(5) { index -> MarqueeIcon.Resource("icon-$index") }
+
+        val lanes = selectMarqueeLanes(
+            icons = icons,
+            viewportHeightDp = 80f,
+            iconSizeDp = 51.2f,
+            itemGapDp = 12f
+        )
+
+        assertEquals(listOf(icons), lanes)
+    }
+
+    @Test
+    fun `splits five icons into two lanes at half icon size`() {
+        val icons = List(5) { index -> MarqueeIcon.Resource("icon-$index") }
+
+        val lanes = selectMarqueeLanes(
+            icons = icons,
+            viewportHeightDp = 80f,
+            iconSizeDp = 25.6f,
+            itemGapDp = 12f
+        )
+
+        assertEquals(
+            listOf(
+                listOf("icon-0", "icon-2", "icon-4"),
+                listOf("icon-1", "icon-3")
+            ),
+            lanes.map { lane -> lane.map { (it as MarqueeIcon.Resource).path } }
+        )
+    }
+
+    @Test
+    fun `keeps split lanes when the viewport can contain both lanes`() {
+        val icons = List(5) { index -> MarqueeIcon.Resource("icon-$index") }
+
+        val lanes = selectMarqueeLanes(
+            icons = icons,
+            viewportHeightDp = 120f,
+            iconSizeDp = 51.2f,
+            itemGapDp = 12f
+        )
+
+        assertEquals(
+            listOf(
+                listOf("icon-0", "icon-2", "icon-4"),
+                listOf("icon-1", "icon-3")
+            ),
+            lanes.map { lane -> lane.map { (it as MarqueeIcon.Resource).path } }
+        )
+    }
+
+    @Test
+    fun `uses split lanes at the exact required height`() {
+        val icons = listOf(
+            MarqueeIcon.Resource("a"),
+            MarqueeIcon.Resource("b")
+        )
+
+        val lanes = selectMarqueeLanes(
+            icons = icons,
+            viewportHeightDp = 114.4f,
+            iconSizeDp = 51.2f,
+            itemGapDp = 12f
+        )
+
+        assertEquals(2, lanes.size)
+    }
+
+    @Test
     fun `cycles a lane to the requested track size`() {
         val icons = listOf(
             MarqueeIcon.Resource("a"),
@@ -89,5 +160,14 @@ class IconMarqueeCardTest {
     fun `handles empty icon input`() {
         assertEquals(emptyList(), splitMarqueeIcons(emptyList()))
         assertEquals(emptyList(), cycleMarqueeIcons(emptyList(), count = 5))
+        assertEquals(
+            emptyList(),
+            selectMarqueeLanes(
+                icons = emptyList(),
+                viewportHeightDp = 80f,
+                iconSizeDp = 51.2f,
+                itemGapDp = 12f
+            )
+        )
     }
 }

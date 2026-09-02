@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -39,12 +38,12 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import calebxzau.rdi.client.lgr
 import calebxzhou.rdi.client.service.HttpImageState
 import calebxzhou.rdi.client.ui.comp.PlayerHead
@@ -53,7 +52,6 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.isActive
 
 private const val MARQUEE_SPEED_DP_PER_SECOND = 24f
-private const val MARQUEE_CARD_ASPECT_RATIO = 1.5f
 
 sealed interface MarqueeIcon {
     val contentDescription: String?
@@ -90,7 +88,6 @@ fun IconMarqueeCard(
 
     Surface(
         modifier = modifier
-            .aspectRatio(MARQUEE_CARD_ASPECT_RATIO)
             .clip(baseRoundCornerShape),
         shape = baseRoundCornerShape,
         color = Color.Transparent
@@ -100,41 +97,26 @@ fun IconMarqueeCard(
                 .fillMaxSize()
                 .background(backgroundBrush)
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                IconMarqueeTracks(
-                    icons = icons,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
+            IconMarqueeTracks(
+                icons = icons,
+                modifier = Modifier.fillMaxSize()
+            )
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                shape = RoundedCornerShape(percent = 50),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.88f),
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ) {
+                Text(
+                    text = title,
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    horizontalAlignment = Alignment.End,
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = subtitle,
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Normal,
-                        maxLines = 1,
-                        textAlign = TextAlign.End,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = title,
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Color.White,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        textAlign = TextAlign.End,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
             }
         }
     }
@@ -145,19 +127,37 @@ private fun IconMarqueeTracks(
     icons: List<MarqueeIcon>,
     modifier: Modifier
 ) {
-    val lanes = remember(icons) { splitMarqueeIcons(icons) }
     val density = LocalDensity.current
     var viewportWidthPx by remember { mutableStateOf(0) }
+    var viewportHeightPx by remember { mutableStateOf(0) }
 
     Box(
         modifier = modifier
-            .onSizeChanged { size -> viewportWidthPx = size.width }
+            .onSizeChanged { size ->
+                viewportWidthPx = size.width
+                viewportHeightPx = size.height
+            }
             .clipToBounds()
     ) {
-        if (lanes.isNotEmpty() && viewportWidthPx > 0) {
+        if (icons.isNotEmpty() && viewportWidthPx > 0 && viewportHeightPx > 0) {
             val viewportWidthDp = with(density) { viewportWidthPx.toDp() }
+            val viewportHeightDp = with(density) { viewportHeightPx.toDp() }
             val iconSize = marqueeIconSize(viewportWidthDp)
-            val itemGap = (iconSize.value * 0.16f).coerceIn(12f, 32f).dp
+            val itemGap = (iconSize.value * 0.32f).coerceIn(6f, 12f).dp
+            val visibleLanes = remember(
+                icons,
+                viewportWidthDp,
+                viewportHeightDp,
+                iconSize,
+                itemGap
+            ) {
+                selectMarqueeLanes(
+                    icons = icons,
+                    viewportHeightDp = viewportHeightDp.value,
+                    iconSizeDp = iconSize.value,
+                    itemGapDp = itemGap.value
+                )
+            }
             val visibleItemCount = calculateMarqueeItemCount(
                 viewportWidthDp = viewportWidthDp.value,
                 iconSizeDp = iconSize.value,
@@ -165,10 +165,10 @@ private fun IconMarqueeTracks(
             )
             val trackItemCount = calculateMarqueeTrackItemCount(
                 visibleItemCount = visibleItemCount,
-                lanes = lanes
+                lanes = visibleLanes
             )
-            val laneItems = remember(lanes, trackItemCount) {
-                lanes.map { cycleMarqueeIcons(it, trackItemCount) }
+            val laneItems = remember(visibleLanes, trackItemCount) {
+                visibleLanes.map { cycleMarqueeIcons(it, trackItemCount) }
             }
             val laneTracks = remember(laneItems, trackItemCount) {
                 laneItems.map { buildMarqueeTrackIcons(it, trackItemCount) }
@@ -194,9 +194,11 @@ private fun IconMarqueeTracks(
 
             Column(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = marqueeTopPadding(iconSize)),
-                verticalArrangement = Arrangement.spacedBy(itemGap)
+                    .fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(
+                    space = itemGap,
+                    alignment = Alignment.CenterVertically
+                )
             ) {
                 laneTracks.forEach { lane ->
                     MarqueeLane(
@@ -363,6 +365,23 @@ internal fun splitMarqueeIcons(icons: List<MarqueeIcon>): List<List<MarqueeIcon>
     return listOf(firstLane, secondLane).filter(List<MarqueeIcon>::isNotEmpty)
 }
 
+internal fun selectMarqueeLanes(
+    icons: List<MarqueeIcon>,
+    viewportHeightDp: Float,
+    iconSizeDp: Float,
+    itemGapDp: Float
+): List<List<MarqueeIcon>> {
+    val splitLanes = splitMarqueeIcons(icons)
+    val requiredHeightDp = splitLanes.size * iconSizeDp +
+        (splitLanes.size - 1).coerceAtLeast(0) * itemGapDp
+
+    return if (splitLanes.size > 1 && viewportHeightDp < requiredHeightDp) {
+        listOf(icons)
+    } else {
+        splitLanes
+    }
+}
+
 internal fun cycleMarqueeIcons(
     icons: List<MarqueeIcon>,
     count: Int
@@ -402,10 +421,6 @@ internal fun marqueeDurationMillis(trackWidthDp: Float): Int {
 }
 
 private fun marqueeIconSize(maxWidth: Dp): Dp {
-    if (!maxWidth.value.isFinite()) return 48.dp
-    return (maxWidth.value / 6.25f).coerceIn(32f, 208f).dp
-}
-
-private fun marqueeTopPadding(iconSize: Dp): Dp {
-    return (iconSize.value * 0.28f).coerceIn(24f, 56f).dp
+    if (!maxWidth.value.isFinite()) return 24.dp
+    return (maxWidth.value / 12.5f).coerceIn(16f, 104f).dp
 }

@@ -22,6 +22,10 @@ interface ModCatalog : AutoCloseable {
         refs: Set<CatalogProjectRef>
     ): Result<CatalogOutcome<Map<CatalogProjectRef, CatalogMod>>>
 
+    suspend fun getFiles(
+        refs: Set<CatalogFileRef>
+    ): Result<CatalogOutcome<Map<CatalogFileRef, CatalogFile>>>
+
     suspend fun getDetails(
         request: CatalogDetailsRequest
     ): Result<CatalogOutcome<CatalogModDetails>>
@@ -29,6 +33,10 @@ interface ModCatalog : AutoCloseable {
     suspend fun listFiles(
         request: CatalogFileRequest
     ): Result<CatalogOutcome<CatalogFilePage>>
+
+    suspend fun matchFiles(
+        hashes: List<CatalogFileHashes>
+    ): Result<Map<String, CatalogFile>>
 
     suspend fun matchLocalFiles(
         paths: List<Path>
@@ -59,7 +67,8 @@ data class ModrinthConfig(
 
 data class CatalogNetworkPolicy(
     val preferMirror: Boolean = true,
-    val mirrorBaseUrl: String = "https://mod.mcimirror.top"
+    val mirrorBaseUrl: String = "https://mod.mcimirror.top",
+    val preferMirrorProvider: () -> Boolean = { preferMirror }
 ) {
     internal fun mirrorBase(platform: ModPlatform): String = when (platform) {
         ModPlatform.CURSEFORGE -> "${mirrorBaseUrl.trimEnd('/')}/curseforge/v1"

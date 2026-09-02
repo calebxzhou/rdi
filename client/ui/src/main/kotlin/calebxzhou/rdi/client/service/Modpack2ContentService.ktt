@@ -1,0 +1,349 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2ContentCacheRecord
+import calebxzhou.rdi.client.database.LocalModpack2ContentDependencyRecord
+import calebxzhou.rdi.client.database.LocalModpack2ContentOrigin
+import calebxzhou.rdi.client.database.LocalModpack2ContentRecord
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.ContentRequest
+import calebxzhou.rdi.client.ui.McPlayStore
+import calebxzau.rdi.client.ui.moveToOsTrash
+import calebxzhou.rdi.common.model.Task2
+import calebxzhou.rdi.common.model.Task2Progress
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzhou.rdi.common.model.Mod
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
+import kotlin.io.path.name
+import kotlin.uuid.Uuid
+
+data class Modpack2ContentRequest(
+    val request: ContentRequest,
+    val record: LocalModpack2ContentRecord,
+    val dependencies: List<LocalModpack2ContentDependencyRecord> = emptyList(),
+)
+
+data class Modpack2ContentState(
+    val instance: calebxzhou.rdi.client.database.LocalModpack2InstanceRecord,
+    val contents: List<LocalModpack2ContentRecord>,
+    val snapshot: Modpack2DiskSnapshot? = null,
+    val cacheError: Throwable? = null,
+    val duplicateModIds: Set<String> = emptySet(),
+)
+
+data class Modpack2ContentCardKey(
+    val physicalRelativePath: String,
+    val hash: String,
+)
+
+data class Modpack2ContentScanProgress(val completed: Int, val total: Int, val phase: String) {
+    val fraction: Float get() = if (total <= 0) 1f else (completed.toFloat() / total).coerceIn(0f, 1f)
+}
+
+/** Mutations are rejected while the pack is running; they are never queued for later. */
+class Modpack2ContentTaskScheduler(
+    private val submit: (Task2, String?, Boolean) -> String = ClientTaskManager::submit,
+    private val running: (Uuid) -> Boolean = { McPlayStore.aliveCount(it.toString()) > 0 },
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+) : AutoCloseable {
+    fun submit(versionId: Uuid, dedupeKey: String, task: Task2): String {
+        check(!running(versionId)) { "整合包正在运行，暂时不能修改内容" }
+        return submit(task, dedupeKey, true)
+    }
+
+    override fun close() = scope.cancel()
+}
+
+/** Disk is the authority. SQLite rows are used only as disposable path+hash enrichment. */
+class Modpack2ContentService(
+    private val repository: LocalModpack2Repository,
+    private val versionsDirectory: Path = ClientDirs.versionsDir.toPath(),
+    private val contentStore: ClientContentStore = ClientContentStore.shared,
+    private val newId: () -> Uuid = Uuid::generateV7,
+    private val scheduler: Modpack2ContentTaskScheduler = Modpack2ContentTaskScheduler(),
+    private val versionCoordinator: Modpack2VersionCoordinator = Modpack2VersionCoordinator(),
+    private val recognizer: (suspend (List<Path>, Map<Path, LocalModpack2ContentRecord>, Uuid) -> Result<Modpack2CatalogEnrichment>)? = null,
+    private val isRunning: (Uuid) -> Boolean = { McPlayStore.aliveCount(it.toString()) > 0 },
+    private val moveToTrash: (Path) -> Result<Unit> = ::moveToOsTrash,
+    private val scannerFactory: (Path, Uuid, (Int, Int, String) -> Unit, () -> Boolean) -> Modpack2DiskScanner =
+        { path, id, progress, cancelled -> Modpack2DiskScanner(path, id, progress, cancelled) },
+    private val indexer: Modpack2ContentIndexer = Modpack2ContentIndexer(repository),
+) : AutoCloseable {
+    suspend fun load(versionId: Uuid): Result<Modpack2ContentState> = scan(versionId)
+
+    suspend fun scan(versionId: Uuid, progress: (Modpack2ContentScanProgress) -> Unit = {}): Result<Modpack2ContentState> = resultOf {
+        val instance = repository.find(versionId).getOrThrow() ?: error("找不到本地整合包")
+        val context = currentCoroutineContext()
+        progress(Modpack2ContentScanProgress(0, 1, "正在扫描整合包内容"))
+        val snapshot = withContext(Dispatchers.IO) {
+            scannerFactory(packRoot(versionId), versionId,
+                { completed, total, path -> progress(Modpack2ContentScanProgress(completed, total, "正在扫描${path.substringAfterLast('/', path)}")) },
+                { !context.isActive }).scan()
+        }
+        progress(Modpack2ContentScanProgress(1, 1, "正在更新内容索引"))
+        val indexed = indexer.index(snapshot, versionId)
+        val contents = indexed.entries.mapNotNull { it.toContentRecord(snapshot) }
+        val duplicates = snapshot.items.asSequence().filter { it.enabled && it.type == ContentType.Mod }
+            .flatMap { it.modIds.asSequence() }.map(String::lowercase).groupingBy { it }
+            .eachCount().filterValues { it > 1 }.keys
+        Modpack2ContentState(instance, contents, snapshot, indexed.cacheError, duplicates)
+    }
+
+    suspend fun enrich(versionId: Uuid, progress: (Modpack2ContentScanProgress) -> Unit = {}): Result<Map<Modpack2ContentCardKey, Mod.CardVo>> = withVersionLock(versionId) { resultOf {
+        val snapshot = scanSnapshot(versionId)
+        val files = snapshot.items.map { it.physicalPath }
+        if (files.isEmpty() || recognizer == null) return@resultOf emptyMap()
+        val indexed = indexer.index(snapshot, versionId, persist = false)
+        val indexedEntries = indexed.entries.associateBy { it.physicalPath }
+        val snapshotItemsByRelativePath = snapshot.items.associateBy { it.physicalRelativePath }
+        val cachedRecords = indexed.entries.mapNotNull { entry ->
+            entry.toContentRecord(snapshot)?.let { record ->
+                snapshotItemsByRelativePath[entry.physicalPath]?.physicalPath?.let { it to record }
+            }
+        }.toMap()
+        progress(Modpack2ContentScanProgress(0, 1, "正在识别内容"))
+        val enrichment = recognizer.invoke(files, cachedRecords, versionId).getOrThrow()
+        require(scanSnapshot(versionId).fingerprint == snapshot.fingerprint) { "识别期间内容发生变化，请重新扫描" }
+        val records = snapshot.items.map { item ->
+            val base = indexedEntries[item.physicalRelativePath] ?: item.toCacheRecord(versionId)
+            enrichment.newlyRecognized[item.physicalPath]?.record?.let { record -> base.copy(
+                targetPath = item.targetPath, enabled = item.enabled, hash = item.hash, fileSize = item.fileSize,
+                platform = record.platform, projectId = record.projectId, fileId = record.fileId, slug = record.slug,
+                side = record.side, required = record.required,
+            ) } ?: base
+        }
+        repository.replaceContentCache(versionId, records).getOrThrow()
+        progress(Modpack2ContentScanProgress(1, 1, "识别完成"))
+        snapshot.items.mapNotNull { item ->
+            enrichment.cards[item.physicalPath]?.let { card ->
+                Modpack2ContentCardKey(item.physicalRelativePath, item.hash) to card
+            }
+        }.toMap()
+    } }
+
+    fun addTask(item: Modpack2ContentRequest, confirmReplace: Boolean = false): Task2 = Task2.Leaf("添加内容") { context -> add(item, context::emit, confirmReplace).getOrThrow() }
+
+    fun submitAdd(item: Modpack2ContentRequest, confirmReplace: Boolean = false): String {
+        checkMutationAllowed(item.record.versionId)
+        return scheduler.submit(item.record.versionId, dedupeKey(item.record), addTask(item, confirmReplace))
+    }
+
+    fun submitReplace(previous: LocalModpack2ContentRecord, replacement: Modpack2ContentRequest, confirmReplace: Boolean = false): String {
+        checkMutationAllowed(replacement.record.versionId)
+        return scheduler.submit(replacement.record.versionId, dedupeKey(previous), Task2.Leaf("更换内容版本") { context ->
+            replace(previous, replacement, context::emit, confirmReplace).getOrThrow()
+        })
+    }
+
+    fun submitDelete(item: Modpack2DiskContentUnit): String {
+        checkMutationAllowed(item.versionId())
+        return scheduler.submit(item.versionId(), "modpack2-content:${item.versionId()}:delete:${item.physicalRelativePath}", Task2.Leaf("删除内容") { delete(item).getOrThrow() })
+    }
+
+    fun submitEnable(item: Modpack2DiskContentUnit): String = submitMove(item, true)
+    fun submitDisable(item: Modpack2DiskContentUnit): String = submitMove(item, false)
+    private fun submitMove(item: Modpack2DiskContentUnit, enabled: Boolean): String {
+        checkMutationAllowed(item.versionId())
+        val action = if (enabled) "启用内容" else "禁用内容"
+        return scheduler.submit(item.versionId(), "modpack2-content:${item.versionId()}:$action:${item.physicalRelativePath}", Task2.Leaf(action) {
+            if (enabled) enable(item).getOrThrow() else disable(item).getOrThrow()
+        })
+    }
+
+    fun submitPlan(items: List<Modpack2ContentRequest>, confirmReplace: Boolean = false): String {
+        require(items.isNotEmpty()) { "内容安装计划不能为空" }
+        val versionId = items.first().record.versionId
+        require(items.all { it.record.versionId == versionId }) { "一个内容计划只能属于同一整合包" }
+        checkMutationAllowed(versionId)
+        return scheduler.submit(versionId, "modpack2-content:${versionId}:plan", Task2.Leaf("安装内容") { context ->
+            val pending = items.distinctBy { planTarget(it) }.toMutableList()
+            while (pending.isNotEmpty()) {
+                val next = pending.firstOrNull { request -> pending.none { other -> request.dependencies.any { it.dependencyContentId == other.record.contentId } } }
+                    ?: error("内容依赖存在循环")
+                add(next.copy(dependencies = emptyList()), context::emit, confirmReplace).getOrThrow()
+                pending.remove(next)
+            }
+        })
+    }
+
+    suspend fun add(item: Modpack2ContentRequest, progress: (Task2Progress) -> Unit = {}, confirmReplace: Boolean = false): Result<LocalModpack2ContentRecord> = withVersionLock(item.record.versionId) { resultOf {
+        checkMutationAllowed(item.record.versionId)
+        val state = load(item.record.versionId).getOrThrow()
+        val target = target(item.record, item.request.relativePath)
+        val existing = state.snapshot?.items?.firstOrNull { it.targetPath == target }
+        if (existing != null && existing.hash.equals(item.record.hash, true) && matchesRequest(existing.physicalPath, item.request)) return@resultOf item.record.copy(targetPath = target)
+        require(existing == null || confirmReplace) { "目标位置已有不同内容，替换需要确认" }
+        replaceOnDisk(item.request.copy(relativePath = target), item.record.versionId, progress, existing?.hash)
+        refreshCache(item.record.versionId)
+        item.record.copy(contentId = newId(), targetPath = target, origin = LocalModpack2ContentOrigin.Local)
+    } }
+
+    suspend fun replace(previous: LocalModpack2ContentRecord, replacement: Modpack2ContentRequest, progress: (Task2Progress) -> Unit = {}, confirmReplace: Boolean = false): Result<LocalModpack2ContentRecord> =
+        add(replacement.copy(record = replacement.record.copy(targetPath = target(previous, replacement.request.relativePath))), progress, confirmReplace)
+
+    suspend fun enable(item: Modpack2DiskContentUnit): Result<Unit> = move(item, true)
+    suspend fun disable(item: Modpack2DiskContentUnit): Result<Unit> = move(item, false)
+    private suspend fun move(item: Modpack2DiskContentUnit, enabled: Boolean): Result<Unit> = withVersionLock(item.versionId()) { resultOf {
+        checkMutationAllowed(item.versionId())
+        val current = scanSnapshot(item.versionId()).items.firstOrNull { it.physicalRelativePath == item.physicalRelativePath } ?: error("内容已经变化，请重新扫描")
+        require(current.hash.equals(item.hash, true) && current.enabled == item.enabled) { "内容已经变化，请重新扫描" }
+        val source = safeResolve(packRoot(item.versionId()), item.physicalRelativePath)
+        val destination = safeResolve(packRoot(item.versionId()), if (enabled) item.targetPath else ".rdi/disabled/${item.targetPath}")
+        require(!Files.exists(destination, LinkOption.NOFOLLOW_LINKS)) { "目标位置已有内容，无法${if (enabled) "启用" else "禁用"}" }
+        withContext(Dispatchers.IO) { Files.createDirectories(destination.parent); Files.move(source, destination, StandardCopyOption.ATOMIC_MOVE) }
+        refreshCache(item.versionId())
+        Unit
+    } }
+
+    suspend fun delete(item: Modpack2DiskContentUnit): Result<Unit> = withVersionLock(item.versionId()) { resultOf {
+        checkMutationAllowed(item.versionId())
+        val current = scanSnapshot(item.versionId()).items.firstOrNull { it.physicalRelativePath == item.physicalRelativePath } ?: error("内容已经变化，请重新扫描")
+        require(current.hash.equals(item.hash, true)) { "内容已经变化，请重新扫描" }
+        moveToTrash(current.physicalPath).getOrThrow()
+        refreshCache(item.versionId())
+        Unit
+    } }
+
+    /** Compatibility entry point for install flows; recognition remains cache enrichment only. */
+    suspend fun reidentify(versionId: Uuid): Result<Unit> = resultOf {
+        val snapshot = scanSnapshot(versionId)
+        indexer.index(snapshot, versionId)
+        enrich(versionId).getOrThrow()
+        Unit
+    }
+
+    override fun close() = scheduler.close()
+    private suspend fun <T> withVersionLock(versionId: Uuid, block: suspend () -> Result<T>): Result<T> =
+        versionCoordinator.withLock(versionId) { block() }
+    private suspend fun scanSnapshot(versionId: Uuid): Modpack2DiskSnapshot {
+        val context = currentCoroutineContext()
+        return withContext(Dispatchers.IO) { scannerFactory(packRoot(versionId), versionId, { _, _, _ -> }, { !context.isActive }).scan() }
+    }
+    private suspend fun refreshCache(versionId: Uuid) {
+        val snapshot = scanSnapshot(versionId)
+        indexer.index(snapshot, versionId)
+    }
+    private fun checkMutationAllowed(versionId: Uuid) = check(!isRunning(versionId)) { "整合包正在运行，暂时不能修改内容" }
+    private fun Modpack2DiskContentUnit.versionId(): Uuid = requireNotNull(versionId) { "内容快照缺少整合包版本" }
+    private fun dedupeKey(record: LocalModpack2ContentRecord) = "modpack2-content:${record.versionId}:${record.type}:${record.logicalId}"
+    private fun packRoot(versionId: Uuid) = versionsDirectory.resolve(versionId.toString()).normalize()
+    private fun target(record: LocalModpack2ContentRecord, fallback: String?): String = (record.targetPath ?: fallback ?: error("内容缺少目标路径")).replace('\\', '/').trimStart('/')
+    private fun planTarget(item: Modpack2ContentRequest): String {
+        val relative = target(item.record, item.request.relativePath)
+        val root = when (item.record.type) { ContentType.Mod -> "mods/"; ContentType.ResPack -> "resourcepacks/"; ContentType.ShaderPack -> "shaderpacks/"; else -> error("内容计划不支持${item.record.type}") }
+        require(relative.startsWith(root)) { "内容计划目标不在允许目录: $relative" }
+        return relative
+    }
+
+    private suspend fun replaceOnDisk(request: ContentRequest, versionId: Uuid, progress: (Task2Progress) -> Unit, expectedExistingHash: String? = null) {
+        val root = packRoot(versionId)
+        val target = safeResolve(root, request.relativePath)
+        val staging = safeResolve(root, ".rdi/installing/${newId()}")
+        var backup: Path? = null
+        var replaced = false
+        try {
+            contentStore.materialize(listOf(request), staging, progress).getOrThrow()
+            val staged = safeResolve(staging, request.relativePath)
+            withContext(Dispatchers.IO) {
+                if (expectedExistingHash != null) require(Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS) && localSha1(target).equals(expectedExistingHash, true)) { "内容已经变化，请重新扫描" }
+                Files.createDirectories(target.parent)
+                backup = moveToBackup(target, versionId)
+                Files.move(staged, target, StandardCopyOption.ATOMIC_MOVE)
+                replaced = true
+            }
+            backup?.let { moveToTrash(it).getOrThrow() }
+        } catch (error: Throwable) {
+            withContext(Dispatchers.IO) { restoreBackup(backup, target, replaced) }
+            throw error
+        } finally {
+            withContext(Dispatchers.IO) { deleteTree(staging) }
+        }
+    }
+    private fun moveToBackup(target: Path, versionId: Uuid): Path? {
+        if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) return null
+        val backup = safeResolve(packRoot(versionId), ".rdi/backup/${newId()}-${target.name}")
+        Files.createDirectories(backup.parent)
+        Files.move(target, backup, StandardCopyOption.REPLACE_EXISTING)
+        return backup
+    }
+    private fun restoreBackup(backup: Path?, target: Path, replaced: Boolean) {
+        if (backup != null && Files.exists(backup, LinkOption.NOFOLLOW_LINKS)) { Files.deleteIfExists(target); Files.createDirectories(target.parent); Files.move(backup, target, StandardCopyOption.REPLACE_EXISTING) }
+        else if (replaced) Files.deleteIfExists(target)
+    }
+    private fun safeResolve(root: Path, relative: String): Path {
+        val normalized = root.toAbsolutePath().normalize()
+        val raw = relative.replace('\\', '/')
+        require(raw.isNotBlank() && !raw.startsWith('/') && !raw.matches(Regex("^[A-Za-z]:/.*"))) { "内容路径必须是相对路径: $relative" }
+        val result = normalized.resolve(raw).normalize()
+        require(result.startsWith(normalized) && result != normalized) { "内容路径越界: $relative" }
+        var current = normalized
+        normalized.relativize(result).forEach { segment -> require(!Files.isSymbolicLink(current)) { "内容路径不能穿过符号链接: $current" }; current = current.resolve(segment) }
+        require(!Files.isSymbolicLink(result)) { "内容目标不能是符号链接: $result" }
+        return result
+    }
+    private suspend fun matchesRequest(path: Path, request: ContentRequest): Boolean = withContext(Dispatchers.IO) {
+        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) return@withContext false
+        if (request.size != null && Files.size(path) != request.size) return@withContext false
+        request.digests.all { digest ->
+            val algorithm = when (digest.algorithm.name) { "SHA1" -> "SHA-1"; "SHA256" -> "SHA-256"; else -> return@all false }
+            MessageDigest.getInstance(algorithm).digest(Files.readAllBytes(path)).joinToString("") { "%02x".format(it) }.equals(digest.normalizedValue, true)
+        }
+    }
+    private fun deleteTree(path: Path) { if (!Files.exists(path, LinkOption.NOFOLLOW_LINKS)) return; Files.walk(path).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) } } }
+}
+
+private fun LocalModpack2ContentCacheRecord.toContentRecord(snapshot: Modpack2DiskSnapshot): LocalModpack2ContentRecord? {
+    val item = snapshot.items.firstOrNull { it.type == contentType && it.physicalRelativePath == physicalPath && it.hash.equals(hash, true) } ?: return null
+    val platform = platform ?: return null
+    val projectId = projectId ?: return null
+    val fileId = fileId ?: return null
+    val slug = slug ?: return null
+    return LocalModpack2ContentRecord(
+        contentId = Uuid.generateV7(),
+        versionId = versionId,
+        platform = platform,
+        type = contentType,
+        projectId = projectId,
+        fileId = fileId,
+        slug = slug,
+        hash = item.hash,
+        targetPath = item.targetPath,
+        side = side ?: ContentSide.Both,
+        required = required ?: false,
+        fileSize = item.fileSize,
+        logicalId = "${platform.name}:$projectId",
+        origin = LocalModpack2ContentOrigin.Local,
+        enabled = item.enabled,
+    )
+}
+private fun Modpack2DiskContentUnit.toCacheRecord(versionId: Uuid) = LocalModpack2ContentCacheRecord(
+    versionId = versionId,
+    contentType = type,
+    physicalPath = physicalRelativePath,
+    targetPath = targetPath,
+    enabled = enabled,
+    hash = hash,
+    fileSize = fileSize,
+    modIds = modIds,
+    sideHints = sideHints,
+    name = displayName,
+    updatedAt = System.currentTimeMillis(),
+)
+private fun localSha1(path: Path): String {
+    val digest = MessageDigest.getInstance("SHA-1")
+    Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS).use { input -> val buffer = ByteArray(DEFAULT_BUFFER_SIZE); while (true) { val count = input.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) } }
+    return digest.digest().joinToString("") { "%02x".format(it) }
+}
+private suspend fun <T> resultOf(block: suspend () -> T): Result<T> = try { Result.success(block()) } catch (cancel: CancellationException) { throw cancel } catch (error: Throwable) { Result.failure(error) }

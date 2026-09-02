@@ -24,6 +24,9 @@ import calebxzhou.rdi.master.service.PlayerService.bindMSAccount
 import calebxzhou.rdi.master.service.PlayerService.changeCloth
 import calebxzhou.rdi.master.service.PlayerService.changeProfile
 import calebxzhou.rdi.master.service.PlayerService.clearCloth
+import calebxzau.rdi.server.account.AccountMirrorService
+import calebxzau.rdi.server.account.InsertIfMissingResult
+import calebxzhou.rdi.common.util.toUUID
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.Filters.`in`
 import com.mongodb.client.model.Filters.ne
@@ -145,6 +148,11 @@ object PlayerService {
     val accountCol = DB.getCollection<RAccount>("account")
     val authLogCol = DB.getCollection<AuthLog>("auth_log")
     private val lgr by Loggers
+    private lateinit var accountMirrorService: AccountMirrorService
+
+    fun configureAccountMirror(service: AccountMirrorService) {
+        accountMirrorService = service
+    }
 
     data class LoginResult(val account: RAccount, val token: String)
 
@@ -169,6 +177,39 @@ object PlayerService {
 
     suspend fun getById(id: ObjectId): RAccount? = accountCol.find(equalById(id)).firstOrNull()
 
+    private suspend fun mirrorAfterMongoWrite(source: String, accountId: ObjectId) {
+        val mirror = accountMirrorService
+        val account = getById(accountId)
+        if (account == null) {
+            lgr.warn { "account mirror source=$source missing-after-write objectId=$accountId uuid=${accountId.toUUID()}" }
+            return
+        }
+        mirror.upsert(account).onFailure { error ->
+            lgr.error(error) {
+                "account mirror failed source=$source objectId=$accountId uuid=${accountId.toUUID()}"
+            }
+        }
+    }
+
+    private suspend fun mirrorAfterAuthentication(source: String, account: RAccount) {
+        val mirror = accountMirrorService
+        mirror.insertIfMissing(account).fold(
+            onSuccess = { outcome ->
+                if (outcome is InsertIfMissingResult.CONFLICT) {
+                    lgr.warn {
+                        "account mirror conflict source=$source objectId=${account._id} uuid=${account._id.toUUID()} " +
+                            "conflictField=${outcome.field} conflictingAccountId=${outcome.conflictingAccountId}"
+                    }
+                }
+            },
+            onFailure = { error ->
+                lgr.error(error) {
+                    "account mirror failed source=$source objectId=${account._id} uuid=${account._id.toUUID()}"
+                }
+            }
+        )
+    }
+
     suspend fun uniqueSkinList(): List<String> = accountCol
         .find(ne("cloth.skin", DEFAULT_SKIN_URL))
         .toList()
@@ -190,16 +231,20 @@ object PlayerService {
 
     suspend fun validate(usr: String, pwd: String): RAccount? {
         val account = get(usr)
-        return if (account == null || account.pwd != pwd) null else account
+        if (account == null || account.pwd != pwd) return null
+        mirrorAfterAuthentication("validate", account)
+        return account
     }
     suspend fun RAccount.clearCloth() {
         accountCol.updateOne(uidFilter, Updates.unset(RAccount::cloth.name))
+        mirrorAfterMongoWrite("clear-cloth", _id)
     }
 
     suspend fun RAccount.changeCloth(isSlim: Boolean, skin: String, cape: String?) {
         if (!skin.isValidHttpUrl()) throw ParamError("皮肤链接格式错误")
         if (cape != null && !cape.isValidHttpUrl()) throw ParamError("披风链接格式错误")
         accountCol.updateOne(uidFilter, Updates.set(RAccount::cloth.name, RAccount.Cloth(isSlim, skin, cape)))
+        mirrorAfterMongoWrite("change-cloth", _id)
     }
 
     suspend fun getSkin(uid: ObjectId): RAccount.Cloth {
@@ -264,6 +309,7 @@ object PlayerService {
             cloth = cloth
         )
         accountCol.insertOne(account)
+        mirrorAfterMongoWrite("add-account", account._id)
         return ok(account)
     }
     private fun MojangPlayerProfile.extractMSACloth(): RAccount.Cloth {
@@ -295,6 +341,7 @@ object PlayerService {
                 Updates.set("msid", msa.uuid)
             )
         )
+        mirrorAfterMongoWrite("bind-ms", _id)
     }
 
     suspend fun resetPasswordByMsa(dto: RAccount.ResetPasswordByMsaDto) {
@@ -305,6 +352,7 @@ object PlayerService {
         val account = getByMsid(dto.msa.uuid)
             ?: throw RequestError("未找到绑定此微软账号的账号")
         accountCol.updateOne(account.uidFilter, Updates.set(RAccount::pwd.name, dto.newPwd))
+        mirrorAfterMongoWrite("reset-password-msa", account._id)
     }
 
     suspend fun resetPasswordByQqMail(dto: RAccount.ResetPasswordByQqMailDto, senderQq: String) {
@@ -317,6 +365,7 @@ object PlayerService {
         }
         val account = getByQQ(dto.qq) ?: throw RequestError("无此账号")
         accountCol.updateOne(account.uidFilter, Updates.set(RAccount::pwd.name, dto.newPwd))
+        mirrorAfterMongoWrite("reset-password-qq", account._id)
     }
 
     suspend fun login(usr: String, pwd: String, specJson: String?, clientIp: String): RAccount {
@@ -361,6 +410,7 @@ object PlayerService {
         }
         if (updates.isNotEmpty()) {
             accountCol.updateOne(uidFilter, combine(updates))
+            mirrorAfterMongoWrite("change-profile", _id)
         }
     }
 
@@ -378,6 +428,12 @@ object PlayerService {
         }
 
         return names
+    }
+
+    /** Batch account read for services that render several player profiles. */
+    suspend fun getByIds(uids: Collection<ObjectId>): List<RAccount> {
+        if (uids.isEmpty()) return emptyList()
+        return accountCol.find(`in`("_id", LinkedHashSet(uids).toList())).toList()
     }
 
     suspend fun getInfo(uid: ObjectId): RAccount.Dto = getById(uid)?.dto ?: RAccount.DEFAULT.dto

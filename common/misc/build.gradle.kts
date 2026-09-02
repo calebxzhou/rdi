@@ -11,7 +11,11 @@ repositories {
     mavenLocal()
     mavenCentral()
 }
-
+kotlin{
+    compilerOptions {
+        optIn.add("kotlin.uuid.ExperimentalUuidApi")
+    }
+}
 dependencies {
     api(libs.kotlinx.serialization.json)
     api(libs.mongodb.bson)
@@ -20,7 +24,13 @@ dependencies {
     api(libs.kotlin.logging.jvm)
     implementation(libs.slf4j.api)
     implementation(libs.kotlinx.coroutines.core)
+    testImplementation(kotlin("test"))
 }
+
+tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
+
 base {
     archivesName.set("rdi-misc")
 }

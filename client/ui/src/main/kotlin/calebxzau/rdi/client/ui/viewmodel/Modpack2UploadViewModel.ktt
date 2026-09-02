@@ -1,0 +1,708 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.ContentResolutionUpdate
+import calebxzhou.rdi.client.service.Modpack2DirectUploadRequest
+import calebxzhou.rdi.client.service.Modpack2UploadGateway
+import calebxzhou.rdi.client.service.Modpack2UploadTarget
+import calebxzhou.rdi.client.service.Modpack2UploadWorkflowEvent
+import calebxzhou.rdi.client.service.Modpack2UploadArchive
+import calebxzhou.rdi.client.service.ModpackArchiveMaterializer
+import calebxzhou.rdi.client.service.Modpack2SelectedServerPack
+import calebxzhou.rdi.client.service.ModpackArchiveContentResolutionSource
+import calebxzhou.rdi.client.service.ModpackArchiveFile
+import calebxzhou.rdi.client.service.ModpackArchiveMetadata
+import calebxzhou.rdi.client.service.ModpackArchivePreview
+import calebxzhou.rdi.client.service.ModpackArchiveReadProgress
+import calebxzhou.rdi.client.service.ModpackArchiveReader
+import calebxzhou.rdi.client.service.ResolvedArchiveMod
+import calebxzhou.rdi.client.service.toLegacyMod
+import calebxzhou.rdi.client.service.ClientDirs
+import calebxzau.rdi.client.packproc.LoadedLocalModpack
+import calebxzau.rdi.client.packproc.LocalModpackSourceType
+import calebxzau.rdi.modpacktest.ModpackTestSession
+import calebxzau.rdi.modpacktest.ModpackTestStatus
+import calebxzau.rdi.modpacktest.ModpackTestTarget
+import calebxzhou.rdi.client.service.modpackTestEnvironment
+import calebxzhou.rdi.client.service.modpackTestModSourceResolver
+import calebxzhou.rdi.client.ui.comp.ConsoleState
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzau.rdi.common.model.ContentSide
+import calebxzhou.rdi.common.model.Modpack
+import calebxzau.rdi.common.model.ModpackCategory
+import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.client.model.UiMod
+import calebxzau.rdi.client.ui.viewmodel.validateModpack2CreateMetadata
+import calebxzhou.rdi.common.model.Task2
+import calebxzhou.rdi.common.model.supportsModpackUpload
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzau.rdi.common.model.Modpack2OwnedVo
+import calebxzau.rdi.common.model.Modpack2VersionStatus
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.net.URI
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
+
+enum class Modpack2UploadTestStatus { NOT_RUN, RUNNING, PASSED, FAILED }
+enum class Modpack2UploadMode { Create, Update }
+enum class Modpack2InstallStatus { NOT_RUN, RUNNING, INSTALLED, FAILED }
+
+data class Modpack2UploadUiState(
+    val loading: Boolean = false,
+    val progress: ModpackArchiveReadProgress? = null,
+    val errorMessage: String? = null,
+    val archive: Modpack2UploadArchive? = null,
+    val metadata: ModpackArchiveMetadata? = null,
+    val name: String = "",
+    val version: String = "",
+    val intro: String = "",
+    val iconUrl: String = "",
+    val sourceUrl: String = "",
+    val categories: List<ModpackCategory> = listOf(ModpackCategory.Other),
+    val resolvedMods: Map<String, ResolvedArchiveMod> = emptyMap(),
+    val contentResolving: Boolean = false,
+    val manualSideOverrides: Map<String, ContentSide> = emptyMap(),
+    val serverPack: Modpack2SelectedServerPack? = null,
+    val compatibilityError: String? = null,
+    val clientTestStatus: Modpack2UploadTestStatus = Modpack2UploadTestStatus.NOT_RUN,
+    val serverTestStatus: Modpack2UploadTestStatus = Modpack2UploadTestStatus.NOT_RUN,
+    val ignoreModpackTest: Boolean = false,
+    val submitting: Boolean = false,
+    val submittedRunId: String? = null,
+    val mode: Modpack2UploadMode = Modpack2UploadMode.Create,
+    val ownedLoading: Boolean = false,
+    val owned: List<Modpack2OwnedVo> = emptyList(),
+    val ownedError: String? = null,
+    val selectedOwnedId: UUID? = null,
+    val changelog: String = "",
+    val remoteResult: calebxzau.rdi.common.model.Modpack2CreateResult? = null,
+    val installStatus: Modpack2InstallStatus = Modpack2InstallStatus.NOT_RUN,
+    val installError: String? = null,
+) {
+    val selectedOwned: Modpack2OwnedVo? get() = owned.firstOrNull { it.id == selectedOwnedId }
+    val serverMode get() = if (serverPack == null) calebxzau.rdi.common.model.Modpack2ServerMode.Generated
+    else calebxzau.rdi.common.model.Modpack2ServerMode.Provided
+
+    val draftErrors: List<String>
+        get() = buildList {
+            if (archive == null) add("请选择客户端安装包")
+            compatibilityError?.let(::add)
+            when (mode) {
+                Modpack2UploadMode.Create -> {
+                    if (name.trim().isEmpty()) add("整合包名称不能为空")
+                    if (version.trim().isEmpty()) add("版本名称不能为空")
+                    if (intro.trim().isEmpty()) add("整合包简介不能为空")
+                    if (iconUrl.trim().isEmpty()) add("图标链接不能为空")
+                    if (categories.isEmpty()) add("至少选择1个分类")
+                    if (intro.trim().isNotEmpty() && iconUrl.trim().isNotEmpty() && categories.isNotEmpty()) {
+                        validateModpack2CreateMetadata(intro, iconUrl, categories, name, version).exceptionOrNull()?.message?.let(::add)
+                    }
+                    if (sourceUrl.trim().isNotEmpty()) {
+                        val uri = runCatching { URI(sourceUrl.trim()) }.getOrNull()
+                        if (uri?.scheme?.equals("https", true) != true || uri.host.isNullOrBlank()) add("原帖链接必须是HTTPS网络地址")
+                    }
+                }
+                Modpack2UploadMode.Update -> {
+                    val selected = selectedOwned
+                    if (ownedLoading) add("正在读取可更新的整合包")
+                    ownedError?.let(::add)
+                    if (selected == null && !ownedLoading && ownedError == null) add(if (owned.isEmpty()) "没有可更新的整合包" else "请选择要更新的整合包")
+                    if (selected != null) {
+                        if (selected.currentVersionId == null || selected.currentVersionStatus != Modpack2VersionStatus.Ok) add("只能更新已完成的整合包版本")
+                        if (version.trim().isEmpty() || version.trim().length > 100) add("版本名称长度不正确")
+                        if (changelog.length > 20_000) add("更新说明过长")
+                    }
+                }
+            }
+        }
+
+    val canSubmit: Boolean
+        get() = !loading && !submitting && draftErrors.isEmpty() &&
+            (ignoreModpackTest || serverPack != null || (clientTestStatus == Modpack2UploadTestStatus.PASSED && serverTestStatus == Modpack2UploadTestStatus.PASSED))
+
+    val disabledReason: String?
+        get() = when {
+            submitting -> "正在上传"
+            loading -> "正在读取安装包"
+            draftErrors.isNotEmpty() -> draftErrors.first()
+            ignoreModpackTest -> null
+            serverPack == null && clientTestStatus != Modpack2UploadTestStatus.PASSED -> "请先完成客户端测试"
+            serverPack == null && serverTestStatus != Modpack2UploadTestStatus.PASSED -> "请先完成服务端测试"
+            else -> null
+        }
+
+    val uiMods: List<UiMod>
+        get() = resolvedMods.values.mapNotNull { resolved ->
+            val file = archive?.preview?.files?.firstOrNull { it.key == resolved.archiveKey } ?: return@mapNotNull null
+            val original = resolved.toLegacyMod(file.urls) ?: return@mapNotNull null
+            val override = manualSideOverrides["path:${normalizeModpack2UploadPath(file.targetPath)}"]
+            val side = when (override) {
+                ContentSide.Client -> Mod.Side.CLIENT
+                ContentSide.Server -> Mod.Side.SERVER
+                ContentSide.Both -> Mod.Side.BOTH
+                null -> original.side
+            }
+            val mod = original.copy(side = side)
+            UiMod(mod = mod, card = Mod.CardVo(name = resolved.mod.name, nameCn = resolved.mod.nameCn, intro = resolved.mod.summary, iconUrls = resolved.mod.iconUrls, side = mod.side))
+        }
+}
+
+data class Modpack2UploadStarted(val runId: String)
+
+internal fun reduceModpack2UploadWorkflowState(
+    state: Modpack2UploadUiState,
+    event: Modpack2UploadWorkflowEvent,
+): Modpack2UploadUiState = when (event) {
+    is Modpack2UploadWorkflowEvent.UploadFailed -> state.copy(submitting = false, errorMessage = event.message)
+    is Modpack2UploadWorkflowEvent.RemoteReady -> state.copy(remoteResult = event.result, installStatus = Modpack2InstallStatus.RUNNING, installError = null)
+    is Modpack2UploadWorkflowEvent.InstallStarted -> state.copy(remoteResult = event.result, installStatus = Modpack2InstallStatus.RUNNING)
+    is Modpack2UploadWorkflowEvent.InstallSucceeded -> state.copy(submitting = false, remoteResult = event.result, installStatus = Modpack2InstallStatus.INSTALLED, installError = null, errorMessage = null)
+    is Modpack2UploadWorkflowEvent.InstallFailed -> state.copy(submitting = false, remoteResult = event.result, installStatus = Modpack2InstallStatus.FAILED, installError = event.message, errorMessage = "远端版本已创建，本地安装失败")
+}
+
+fun interface Modpack2UploadTaskSubmitter {
+    fun submit(task: Task2, dedupeKey: String): String
+}
+
+data class Modpack2UploadTestRequest(
+    val target: ModpackTestTarget,
+    val source: Modpack2UploadArchive,
+    val name: String,
+    val version: String,
+    val mods: List<Mod>,
+)
+
+internal fun normalizeModpack2UploadPath(path: String): String =
+    path.replace('\\', '/').trimStart('/').split('/').filter(String::isNotBlank).joinToString("/").lowercase()
+
+internal fun currentArchiveModSide(
+    state: Modpack2UploadUiState,
+    path: String,
+): ContentSide? {
+    val normalized = normalizeModpack2UploadPath(path)
+    val override = state.manualSideOverrides["path:$normalized"]
+    if (override != null) return override
+    val archive = state.archive ?: return null
+    val original = archive.preview.files
+        .firstOrNull { normalizeModpack2UploadPath(it.targetPath) == normalized }
+        ?.let { file -> state.resolvedMods[file.key]?.toLegacyMod(file.urls)?.side }
+        ?: archive.preview.embeddedMods
+            .firstOrNull { normalizeModpack2UploadPath(it.targetPath) == normalized }
+            ?.let { embedded -> state.resolvedMods[embedded.key]?.toLegacyMod(emptyList())?.side }
+    return original?.let {
+        when (it) {
+            Mod.Side.CLIENT -> ContentSide.Client
+            Mod.Side.SERVER -> ContentSide.Server
+            Mod.Side.BOTH, Mod.Side.UNKNOWN -> ContentSide.Both
+        }
+    }
+}
+
+internal fun Modpack2UploadUiState.resolvedModsForTest(): List<Mod> {
+    val currentArchive = archive ?: return emptyList()
+    return buildList {
+        currentArchive.preview.files.forEach { file ->
+            val mod = resolvedMods[file.key]
+                ?.takeIf { it.archiveKey == file.key }
+                ?.toLegacyMod(file.urls)
+                ?: return@forEach
+            add(mod.copy(side = currentArchiveModSide(this@resolvedModsForTest, file.targetPath)?.toModSide() ?: mod.side))
+        }
+        currentArchive.preview.embeddedMods.forEach { embedded ->
+            val mod = resolvedMods[embedded.key]
+                ?.takeIf { it.archiveKey == embedded.key }
+                ?.toLegacyMod(emptyList())
+                ?: return@forEach
+            add(mod.copy(side = currentArchiveModSide(this@resolvedModsForTest, embedded.targetPath)?.toModSide() ?: mod.side))
+        }
+    }
+}
+
+private fun ContentSide.toModSide(): Mod.Side = when (this) {
+    ContentSide.Client -> Mod.Side.CLIENT
+    ContentSide.Server -> Mod.Side.SERVER
+    ContentSide.Both -> Mod.Side.BOTH
+}
+
+/** Test-only seam: owns the materialized test input and real ModpackTestSession lifecycle. */
+interface Modpack2UploadTestGateway : AutoCloseable {
+    suspend fun start(
+        request: Modpack2UploadTestRequest,
+        onStatus: (Modpack2UploadTestStatus, String?) -> Unit,
+        onLog: (String) -> Unit,
+    ): Result<Unit>
+    fun stop(target: ModpackTestTarget): Result<Unit>
+}
+
+private class DefaultModpack2UploadTestGateway(
+    private val materializer: ModpackArchiveMaterializer,
+) : Modpack2UploadTestGateway {
+    private val sessions = mutableMapOf<ModpackTestTarget, ModpackTestSession>()
+    private val roots = mutableMapOf<ModpackTestTarget, Path>()
+    private val observerJobs = mutableMapOf<ModpackTestTarget, MutableList<Job>>()
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+
+    override suspend fun start(
+        request: Modpack2UploadTestRequest,
+        onStatus: (Modpack2UploadTestStatus, String?) -> Unit,
+        onLog: (String) -> Unit,
+    ): Result<Unit> {
+        var root: Path? = null
+        var session: ModpackTestSession? = null
+        return try {
+        stop(request.target)
+        root = Files.createTempDirectory(ClientDirs.packProcDir.toPath(), "modpack2-test-")
+        roots[request.target] = root
+        val clientDir = root.resolve("client")
+        materializer.materialize(request.source, clientDir).getOrThrow()
+        val loaded = LoadedLocalModpack(
+            sourceType = if (request.source.preview.format.name == "CURSEFORGE") LocalModpackSourceType.CURSEFORGE else LocalModpackSourceType.MODRINTH,
+            sourceDir = clientDir.toFile(), packName = request.name, packVersion = request.version,
+            mcVersion = request.source.preview.mcVersion, modloader = request.source.preview.modLoader, mods = request.mods,
+        )
+        val createdSession = ModpackTestSession(loaded, request.target, modpackTestEnvironment, modpackTestModSourceResolver)
+        session = createdSession
+        sessions[request.target] = createdSession
+        val jobs = observerJobs.getOrPut(request.target) { mutableListOf() }
+        jobs += scope.launch { createdSession.logs.collect(onLog) }
+        jobs += scope.launch {
+            createdSession.state.collect { state ->
+                val mapped = when (state.status) {
+                    ModpackTestStatus.RUNNING -> Modpack2UploadTestStatus.RUNNING
+                    ModpackTestStatus.PASSED -> Modpack2UploadTestStatus.PASSED
+                    ModpackTestStatus.FAILED -> Modpack2UploadTestStatus.FAILED
+                    else -> Modpack2UploadTestStatus.NOT_RUN
+                }
+                onStatus(mapped, state.errorMessage)
+            }
+        }
+        createdSession.start(request.mods).getOrThrow()
+        Result.success(Unit)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        session?.close()
+        sessions.remove(request.target)
+        observerJobs.remove(request.target)?.forEach(Job::cancel)
+        root?.toFile()?.deleteRecursivelyNoSymlink()
+        Result.failure(error)
+    }
+    }
+
+    override fun stop(target: ModpackTestTarget): Result<Unit> = runCatching {
+        observerJobs.remove(target)?.forEach(Job::cancel)
+        sessions.remove(target)?.close()
+        roots.remove(target)?.toFile()?.deleteRecursivelyNoSymlink()
+    }
+
+    override fun close() {
+        ModpackTestTarget.entries.forEach { stop(it) }
+        scope.cancel()
+    }
+}
+
+private object DefaultModpack2UploadTaskSubmitter : Modpack2UploadTaskSubmitter {
+    override fun submit(task: Task2, dedupeKey: String): String = ClientTaskManager.submit(task, dedupeKey)
+}
+
+class Modpack2UploadViewModel(
+    private val archiveReader: ModpackArchiveReader,
+    private val contentResolver: ModpackArchiveContentResolutionSource,
+    private val service: Modpack2UploadGateway,
+    private val taskSubmitter: Modpack2UploadTaskSubmitter = DefaultModpack2UploadTaskSubmitter,
+    private val materializer: ModpackArchiveMaterializer = ModpackArchiveMaterializer(),
+    private val testGateway: Modpack2UploadTestGateway = DefaultModpack2UploadTestGateway(materializer),
+) : ViewModel() {
+    private val _uiState = MutableStateFlow(Modpack2UploadUiState())
+    val uiState: StateFlow<Modpack2UploadUiState> = _uiState.asStateFlow()
+    private val eventChannel = Channel<Modpack2UploadStarted>(Channel.BUFFERED)
+    val events = eventChannel.receiveAsFlow()
+    private var loadJob: Job? = null
+    private var ownedLoadJob: Job? = null
+    private var ownedGeneration = 0L
+    private var generation = 0L
+    private val testTokens = ModpackTestTarget.entries.associateWith { AtomicLong(0L) }
+    val clientTestConsoleState = ConsoleState()
+    val serverTestConsoleState = ConsoleState()
+
+    init {
+        loadOwned()
+    }
+
+    fun loadOwned() {
+        val current = ++ownedGeneration
+        ownedLoadJob?.cancel()
+        _uiState.update { it.copy(ownedLoading = true, ownedError = null) }
+        ownedLoadJob = viewModelScope.launch {
+            service.loadOwned().onSuccess { packs ->
+                if (ownedGeneration == current) _uiState.update { state ->
+                    val selected = state.selectedOwnedId?.takeIf { id -> packs.any { it.id == id } }
+                    state.copy(ownedLoading = false, owned = packs, selectedOwnedId = selected, ownedError = null)
+                        .withCompatibility()
+                }
+            }.onFailure { cause ->
+                if (ownedGeneration == current) _uiState.update { it.copy(ownedLoading = false, ownedError = cause.message ?: "无法读取可更新的整合包") }
+            }
+        }
+    }
+
+    fun setUploadMode(mode: Modpack2UploadMode) {
+        if (_uiState.value.submitting) return
+        _uiState.update { state ->
+            if (state.mode == mode) state else state.copy(
+                mode = mode,
+                selectedOwnedId = if (mode == Modpack2UploadMode.Create) null else state.selectedOwnedId,
+                installError = null,
+            ).withCompatibility()
+        }
+    }
+
+    fun setMode(mode: Modpack2UploadMode) = setUploadMode(mode)
+
+    fun selectOwnedPack(id: UUID?) {
+        if (_uiState.value.submitting) return
+        _uiState.update { state ->
+            val selected = state.owned.firstOrNull { it.id == id }
+            state.copy(
+                selectedOwnedId = id,
+                name = selected?.name ?: state.name,
+                intro = selected?.intro ?: state.intro,
+                iconUrl = selected?.iconUrl ?: state.iconUrl,
+                categories = selected?.categories ?: state.categories,
+                installError = null,
+            ).withCompatibility()
+        }
+    }
+
+    fun selectOwned(id: UUID?) = selectOwnedPack(id)
+
+    fun loadInstaller(path: Path) {
+        require(path.fileName.toString().endsWith(".zip", true) || path.fileName.toString().endsWith(".mrpack", true)) {
+            "客户端安装包必须是ZIP或MRPACK文件"
+        }
+        require(Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS)) { "找不到客户端安装包" }
+        loadJob?.cancel()
+        stopTestTarget(ModpackTestTarget.CLIENT)
+        stopTestTarget(ModpackTestTarget.SERVER)
+        clientTestConsoleState.clear()
+        serverTestConsoleState.clear()
+        val current = ++generation
+        val retained = _uiState.value
+        _uiState.value = Modpack2UploadUiState(
+            loading = true,
+            mode = retained.mode,
+            ownedLoading = retained.ownedLoading,
+            owned = retained.owned,
+            ownedError = retained.ownedError,
+            selectedOwnedId = retained.selectedOwnedId,
+        )
+        loadJob = viewModelScope.launch {
+            val metadata = archiveReader.readMetadata(path).getOrElse { cause ->
+                if (cause is CancellationException) throw cause
+                fail(current, cause); return@launch
+            }
+            if (!isCurrent(current)) return@launch
+            _uiState.update { it.copy(metadata = metadata, name = metadata.name, version = "1.0.0", intro = metadata.summary.orEmpty()) }
+            val preview = archiveReader.inspectWithProgress(path) { progress ->
+                if (isCurrent(current)) _uiState.update { it.copy(progress = progress) }
+            }.getOrElse { cause ->
+                if (cause is CancellationException) throw cause
+                fail(current, cause); return@launch
+            }
+            if (!isCurrent(current)) return@launch
+            val source = Modpack2UploadArchive(
+                archive = path,
+                preview = preview,
+                selectedOptionalFiles = preview.optionalFiles.mapTo(linkedSetOf(), ModpackArchiveFile::key),
+            )
+            _uiState.update {
+                it.copy(
+                    loading = false,
+                    progress = null,
+                    archive = source,
+                    compatibilityError = it.compatibilityFor(preview),
+                    contentResolving = true,
+                )
+            }
+            try {
+                contentResolver.resolve(preview, emptySet()).collect { update ->
+                    if (!isCurrent(current)) return@collect
+                    when (update) {
+                        is ContentResolutionUpdate.Resolved -> _uiState.update {
+                            it.copy(resolvedMods = it.resolvedMods + update.items,
+                                archive = it.archive?.copy(resolvedMods = it.resolvedMods + update.items))
+                        }
+                        is ContentResolutionUpdate.Failed -> _uiState.update {
+                            it.copy(errorMessage = update.cause.message ?: "内容识别失败")
+                        }
+                        ContentResolutionUpdate.Complete -> _uiState.update { it.copy(contentResolving = false) }
+                    }
+                }
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (cause: Throwable) {
+                if (isCurrent(current)) _uiState.update { it.copy(contentResolving = false) }
+                fail(current, cause)
+            }
+        }
+    }
+
+    fun setServerPack(path: Path) {
+        if (!Files.isRegularFile(path, LinkOption.NOFOLLOW_LINKS) || !path.fileName.toString().endsWith(".zip", true)) {
+            _uiState.update { it.copy(errorMessage = "服务端整合包必须是ZIP文件") }
+            return
+        }
+        val selected = Modpack2SelectedServerPack(path, Files.size(path), Files.getLastModifiedTime(path).toMillis())
+        _uiState.update { it.copy(serverPack = selected, errorMessage = null) }
+        stopTestTarget(ModpackTestTarget.CLIENT)
+        stopTestTarget(ModpackTestTarget.SERVER)
+        _uiState.update { it.copy(clientTestStatus = Modpack2UploadTestStatus.NOT_RUN, serverTestStatus = Modpack2UploadTestStatus.NOT_RUN) }
+    }
+    fun clearServerPack() {
+        stopTestTarget(ModpackTestTarget.CLIENT)
+        stopTestTarget(ModpackTestTarget.SERVER)
+        _uiState.update { it.copy(serverPack = null, clientTestStatus = Modpack2UploadTestStatus.NOT_RUN, serverTestStatus = Modpack2UploadTestStatus.NOT_RUN, errorMessage = null) }
+    }
+    fun updateName(value: String) = _uiState.update { it.copy(name = value, errorMessage = null) }
+    fun updateVersion(value: String) = _uiState.update { it.copy(version = value, errorMessage = null) }
+    fun updateIntro(value: String) = _uiState.update { it.copy(intro = value, errorMessage = null) }
+    fun updateIconUrl(value: String) = _uiState.update { it.copy(iconUrl = value, errorMessage = null) }
+    fun updateSourceUrl(value: String) = _uiState.update { it.copy(sourceUrl = value, errorMessage = null) }
+    fun updateChangelog(value: String) = _uiState.update { it.copy(changelog = value, errorMessage = null) }
+
+    fun toggleCategory(category: ModpackCategory) = _uiState.update { state ->
+        if (category in state.categories) {
+            if (state.categories.size == 1) state else state.copy(categories = state.categories - category)
+        } else if (state.categories.size >= Modpack.MAX_CATEGORY_COUNT) state
+        else state.copy(categories = state.categories + category)
+    }
+
+    fun toggleOptionalFile(key: String) {
+        val state = _uiState.value
+        val archive = state.archive ?: return
+        if (state.submitting || archive.preview.optionalFiles.none { it.key == key }) return
+        stopTestTarget(ModpackTestTarget.CLIENT)
+        stopTestTarget(ModpackTestTarget.SERVER)
+        _uiState.update {
+            val currentArchive = it.archive ?: return@update it
+            val selected = currentArchive.selectedOptionalFiles.toMutableSet()
+            if (!selected.add(key)) selected.remove(key)
+            it.copy(
+                archive = currentArchive.copy(selectedOptionalFiles = selected),
+                clientTestStatus = Modpack2UploadTestStatus.NOT_RUN,
+                serverTestStatus = Modpack2UploadTestStatus.NOT_RUN,
+            )
+        }
+    }
+
+    fun setModSide(path: String, side: ContentSide) {
+        val normalized = normalizeModpack2UploadPath(path)
+        val key = "path:$normalized"
+        val state = _uiState.value
+        if (state.submitting) return
+        val currentSide = currentArchiveModSide(state, path)
+        if (currentSide == side) return
+        stopTestTarget(ModpackTestTarget.CLIENT)
+        stopTestTarget(ModpackTestTarget.SERVER)
+        _uiState.update {
+            it.copy(
+                manualSideOverrides = it.manualSideOverrides + (key to side),
+                clientTestStatus = Modpack2UploadTestStatus.NOT_RUN,
+                serverTestStatus = Modpack2UploadTestStatus.NOT_RUN,
+            )
+        }
+    }
+
+    fun markClientTest(status: Modpack2UploadTestStatus, message: String? = null) = _uiState.update {
+        it.copy(clientTestStatus = status, errorMessage = message ?: it.errorMessage)
+    }
+    fun markServerTest(status: Modpack2UploadTestStatus, message: String? = null) = _uiState.update {
+        it.copy(serverTestStatus = status, errorMessage = message ?: it.errorMessage)
+    }
+
+    fun startClientTest() = startTest(ModpackTestTarget.CLIENT)
+    fun startServerTest() = startTest(ModpackTestTarget.SERVER)
+    fun stopClientTest() {
+        invalidateTest(ModpackTestTarget.CLIENT)
+        testGateway.stop(ModpackTestTarget.CLIENT)
+        _uiState.update { it.copy(clientTestStatus = Modpack2UploadTestStatus.NOT_RUN) }
+    }
+    fun stopServerTest() {
+        invalidateTest(ModpackTestTarget.SERVER)
+        testGateway.stop(ModpackTestTarget.SERVER)
+        _uiState.update { it.copy(serverTestStatus = Modpack2UploadTestStatus.NOT_RUN) }
+    }
+
+    private fun startTest(target: ModpackTestTarget) {
+        val state = _uiState.value
+        val source = state.archive ?: return
+        if (state.serverPack != null) {
+            _uiState.update { it.copy(errorMessage = "已选择服务端整合包，无需运行${if (target == ModpackTestTarget.CLIENT) "客户端" else "服务端"}测试") }
+            return
+        }
+        val token = invalidateTest(target)
+        val archiveIdentity = archiveIdentity(source)
+        val status = if (target == ModpackTestTarget.CLIENT) {
+            { value: Modpack2UploadTestStatus -> _uiState.update { it.copy(clientTestStatus = value) } }
+        } else {
+            { value: Modpack2UploadTestStatus -> _uiState.update { it.copy(serverTestStatus = value) } }
+        }
+        if (target == ModpackTestTarget.CLIENT) clientTestConsoleState.clear() else serverTestConsoleState.clear()
+        status(Modpack2UploadTestStatus.RUNNING)
+        viewModelScope.launch {
+            val modsForTest = state.resolvedModsForTest()
+            testGateway.start(
+                Modpack2UploadTestRequest(target, source, state.name, state.version, modsForTest),
+                onStatus = { next, message ->
+                    if (isCurrentTest(target, token, archiveIdentity)) {
+                        status(next)
+                        message?.let { _uiState.update { it.copy(errorMessage = message) } }
+                    }
+                },
+                onLog = { line ->
+                    if (isCurrentTest(target, token, archiveIdentity)) {
+                        if (target == ModpackTestTarget.CLIENT) clientTestConsoleState.append(line)
+                        else serverTestConsoleState.append(line)
+                    }
+                },
+            ).onFailure { error ->
+                if (isCurrentTest(target, token, archiveIdentity)) {
+                    status(Modpack2UploadTestStatus.FAILED)
+                    _uiState.update { it.copy(errorMessage = error.message ?: "测试失败") }
+                }
+            }
+        }
+    }
+
+    fun submit(): String? {
+        val state = _uiState.value
+        if (!state.canSubmit) {
+            _uiState.update { it.copy(errorMessage = state.disabledReason) }
+            return null
+        }
+        val source = state.archive ?: return null
+        val request = Modpack2DirectUploadRequest(
+            source = source.copy(resolvedMods = state.resolvedMods),
+            target = if (state.mode == Modpack2UploadMode.Create) Modpack2UploadTarget.Create
+            else Modpack2UploadTarget.Update(requireNotNull(state.selectedOwned)),
+            name = state.name,
+            version = state.version,
+            changelog = state.changelog,
+            intro = state.intro,
+            iconUrl = state.iconUrl,
+            sourceUrl = state.sourceUrl,
+            categories = state.categories,
+            serverPack = state.serverPack,
+            manualSideOverrides = state.manualSideOverrides,
+        )
+        _uiState.update { it.copy(submitting = true, errorMessage = null) }
+        return runCatching {
+            val targetKey = when (val target = request.target) {
+                Modpack2UploadTarget.Create -> "create"
+                is Modpack2UploadTarget.Update -> "update:${target.owned.id}:${target.owned.currentVersionId}"
+            }
+            taskSubmitter.submit(
+                service.uploadTask(request, ::handleWorkflowEvent),
+                "modpack2-upload:$targetKey:${source.archive.toAbsolutePath()}",
+            )
+        }.onSuccess { runId ->
+            _uiState.update { it.copy(submittedRunId = runId) }
+            viewModelScope.launch { eventChannel.send(Modpack2UploadStarted(runId)) }
+        }.onFailure { cause ->
+            _uiState.update { it.copy(submitting = false, errorMessage = cause.message ?: "无法开始上传") }
+        }.getOrNull()
+    }
+
+    fun retryInstall(): String? {
+        val state = _uiState.value
+        val remote = state.remoteResult ?: return null
+        if (state.submitting) return null
+        _uiState.update { it.copy(submitting = true, installStatus = Modpack2InstallStatus.RUNNING, installError = null, errorMessage = null) }
+        return runCatching {
+            taskSubmitter.submit(
+                service.retryInstallTask(remote, ::handleWorkflowEvent),
+                "modpack2-install:${remote.modpackId}:${remote.versionId}",
+            )
+        }.onSuccess { runId ->
+            _uiState.update { it.copy(submittedRunId = runId) }
+            viewModelScope.launch { eventChannel.send(Modpack2UploadStarted(runId)) }
+        }.onFailure { cause ->
+            _uiState.update { it.copy(submitting = false, installStatus = Modpack2InstallStatus.FAILED, installError = cause.message ?: "无法开始安装") }
+        }.getOrNull()
+    }
+
+    fun handleWorkflowEvent(event: Modpack2UploadWorkflowEvent) {
+        _uiState.update { reduceModpack2UploadWorkflowState(it, event) }
+    }
+
+    fun dismissError() = _uiState.update { it.copy(errorMessage = null) }
+    fun handleKey(type: androidx.compose.ui.input.key.KeyEventType, key: androidx.compose.ui.input.key.Key): Boolean {
+        if (type != androidx.compose.ui.input.key.KeyEventType.KeyDown || key != androidx.compose.ui.input.key.Key.MoveHome) return false
+        _uiState.update { it.copy(ignoreModpackTest = true) }
+        return true
+    }
+
+    override fun onCleared() {
+        generation++
+        loadJob?.cancel()
+        ownedLoadJob?.cancel()
+        invalidateTest(ModpackTestTarget.CLIENT)
+        invalidateTest(ModpackTestTarget.SERVER)
+        testGateway.close()
+        super.onCleared()
+    }
+
+    private fun isCurrent(value: Long) = generation == value
+    private fun stopTestTarget(target: ModpackTestTarget) {
+        invalidateTest(target)
+        testGateway.stop(target)
+    }
+    private fun invalidateTest(target: ModpackTestTarget): Long {
+        return testTokens.getValue(target).incrementAndGet()
+    }
+    private fun isCurrentTest(target: ModpackTestTarget, token: Long, identity: ArchiveIdentity): Boolean =
+        testTokens.getValue(target).get() == token && _uiState.value.archive?.let(::archiveIdentity) == identity
+    private fun archiveIdentity(source: Modpack2UploadArchive) = ArchiveIdentity(
+        source.preview.archive.toAbsolutePath().normalize(), source.preview.archiveSize, source.preview.archiveModifiedAt,
+    )
+    private fun fail(value: Long, cause: Throwable) {
+        if (isCurrent(value)) _uiState.update { it.copy(loading = false, progress = null, errorMessage = cause.message ?: "无法读取整合包") }
+    }
+    private fun Modpack2UploadUiState.compatibilityFor(preview: ModpackArchivePreview): String? {
+        if (!preview.mcVersion.supportsModpackUpload()) return "目前只支持上传MC1.20.1和MC1.21.1整合包"
+        if ((preview.mcVersion == McVersion.V201 && preview.modLoader != ModLoader.forge) ||
+            (preview.mcVersion == McVersion.V211 && preview.modLoader != ModLoader.neoforge)
+        ) return "整合包的Minecraft版本与加载器不兼容"
+        if (mode == Modpack2UploadMode.Update) {
+            val selected = selectedOwned ?: return if (ownedLoading) null else "请选择要更新的整合包"
+            if (selected.mc != preview.mcVersion.vMinor.toInt()) return "安装包Minecraft版本与整合包不兼容"
+            val loader = when (preview.modLoader) {
+                ModLoader.forge -> calebxzau.rdi.common.model.Modpack2Loader.Forge
+                ModLoader.neoforge -> calebxzau.rdi.common.model.Modpack2Loader.NeoForge
+                ModLoader.cleanroom -> null
+            }
+            if (loader == null || selected.loader != loader) return "安装包加载器与整合包不兼容"
+            if (selected.currentVersionId == null || selected.currentVersionStatus != Modpack2VersionStatus.Ok) return "只能更新已完成的整合包版本"
+        }
+        return null
+    }
+    private fun Modpack2UploadUiState.withCompatibility(): Modpack2UploadUiState = archive?.let { copy(compatibilityError = compatibilityFor(it.preview)) } ?: this
+    private data class ArchiveIdentity(val path: Path, val size: Long, val modifiedAt: Long)
+}

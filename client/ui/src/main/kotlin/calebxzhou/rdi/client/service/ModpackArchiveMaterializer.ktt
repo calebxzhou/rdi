@@ -1,0 +1,165 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.service.content.ContentDigest
+import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
+import calebxzhou.rdi.client.service.content.ContentRequest
+import calebxzhou.rdi.client.service.content.ContentSource
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.toClientContentRequest
+import calebxzhou.rdi.common.model.Task2Context
+import calebxzhou.rdi.common.model.Task2Progress
+import calebxzhou.rdi.common.util.openChineseZip
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
+
+/** Materializes an installer preview into a normal Modpack2 client directory.
+ *
+ * This is deliberately independent of the local repository.  Both workspace imports and direct
+ * uploads use the same validation and extraction path, so an installer cannot acquire different
+ * semantics merely because it was uploaded instead of installed.
+ */
+class ModpackArchiveMaterializer(
+    private val contentStore: ClientContentStore = ClientContentStore.shared,
+) {
+    /** Extracts only override layers for direct upload.
+     *
+     * Manifest platform files intentionally never reach [contentStore]; the upload processor
+     * receives the original manifest and catalog declarations separately.
+     */
+    suspend fun materializeUploadRaw(
+        source: Modpack2UploadArchive,
+        target: Path,
+        context: Task2Context? = null,
+    ): Result<Unit> = try {
+        val preview = source.preview
+        requireArchiveUnchanged(preview)
+        val optionalKeys = preview.optionalFiles.mapTo(linkedSetOf(), ModpackArchiveFile::key)
+        require(source.selectedOptionalFiles.all { it in optionalKeys }) { "选择了未知的可选文件" }
+        Files.createDirectories(target)
+        applyArchiveOverrides(preview, target, context)
+        Result.success(Unit)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+    suspend fun materialize(
+        source: Modpack2UploadArchive,
+        target: Path,
+        context: Task2Context? = null,
+    ): Result<Unit> = try {
+        val preview = source.preview
+        requireArchiveUnchanged(preview)
+        val optionalKeys = preview.optionalFiles.mapTo(linkedSetOf(), ModpackArchiveFile::key)
+        require(source.selectedOptionalFiles.all { it in optionalKeys }) { "选择了未知的可选文件" }
+        val files = preview.requiredFiles + preview.optionalFiles.filter { it.key in source.selectedOptionalFiles }
+        val requests = files.map { file ->
+            source.resolvedMods[file.key]
+                ?.toLegacyMod(file.urls)
+                ?.toClientContentRequest(file.targetPath, file.size)
+                ?: file.toContentRequest()
+        }
+        Files.createDirectories(target)
+        if (requests.isNotEmpty()) {
+            contentStore.materialize(
+                requests = requests,
+                targetRoot = target,
+                onProgress = context?.let { it::emit } ?: {},
+            ).getOrThrow()
+        }
+        applyArchiveOverrides(preview, target, context)
+        Files.createDirectories(target.resolve("mods"))
+        Result.success(Unit)
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+    private fun ModpackArchiveFile.toContentRequest() = ContentRequest(
+        id = key,
+        relativePath = targetPath,
+        size = size,
+        digests = listOf(ContentDigest(ContentDigestAlgorithm.SHA1, sha1)),
+        sources = urls.map { url ->
+            ContentSource(url = url, headers = headers, knownSize = size, name = displayName)
+        },
+        displayName = displayName,
+    )
+
+    private fun applyArchiveOverrides(
+        preview: ModpackArchivePreview,
+        target: Path,
+        context: Task2Context?,
+    ) {
+        var extractedBytes = 0L
+        preview.archive.toFile().openChineseZip().use { zip ->
+            preview.overrides.forEachIndexed { index, override ->
+                context?.ensureActive()
+                val entry = requireNotNull(zip.getEntry(override.entryName)) {
+                    "覆盖文件已不存在：${override.entryName}"
+                }
+                val output = checkedTarget(target, override.targetPath)
+                output.parent?.let(Files::createDirectories)
+                zip.getInputStream(entry).use { input ->
+                    val temporary = output.resolveSibling(".${output.fileName}.tmp")
+                    Files.deleteIfExists(temporary)
+                    Files.newOutputStream(
+                        temporary,
+                        StandardOpenOption.CREATE_NEW,
+                        StandardOpenOption.WRITE,
+                    ).use { stream ->
+                        val buffer = ByteArray(COPY_BUFFER_SIZE)
+                        while (true) {
+                            context?.ensureActive()
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            extractedBytes += read
+                            require(extractedBytes <= MAX_ARCHIVE_EXTRACTED_BYTES) { "归档解压后超过20GB" }
+                            stream.write(buffer, 0, read)
+                        }
+                    }
+                    moveAtomicallyOrReplace(temporary, output)
+                }
+                context?.emit(
+                    Task2Progress(
+                        "正在应用覆盖文件${index + 1}/${preview.overrides.size}",
+                        (index + 1).toFloat() / preview.overrides.size.coerceAtLeast(1),
+                    )
+                )
+            }
+        }
+    }
+
+    private fun requireArchiveUnchanged(preview: ModpackArchivePreview) {
+        require(
+            Files.isRegularFile(preview.archive, LinkOption.NOFOLLOW_LINKS) &&
+                Files.size(preview.archive) == preview.archiveSize &&
+                Files.getLastModifiedTime(preview.archive, LinkOption.NOFOLLOW_LINKS).toMillis() == preview.archiveModifiedAt
+        ) { "整合包安装包在确认后发生了变化，请重新选择" }
+    }
+
+    private fun checkedTarget(root: Path, relative: String): Path {
+        val normalizedRoot = root.toAbsolutePath().normalize()
+        val target = normalizedRoot.resolve(relative).normalize()
+        require(target.startsWith(normalizedRoot)) { "整合包路径越界：$relative" }
+        return target
+    }
+
+    private fun moveAtomicallyOrReplace(source: Path, target: Path) {
+        try {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        } catch (_: java.nio.file.AtomicMoveNotSupportedException) {
+            Files.move(source, target, StandardCopyOption.REPLACE_EXISTING)
+        }
+    }
+
+    companion object {
+        private const val COPY_BUFFER_SIZE = 64 * 1024
+        private const val MAX_ARCHIVE_EXTRACTED_BYTES = 20L * 1024 * 1024 * 1024
+    }
+}

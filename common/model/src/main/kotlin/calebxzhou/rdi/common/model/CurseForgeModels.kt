@@ -237,6 +237,17 @@ data class CurseForgeFile(
         get() = downloadUrl?:"https://mediafilez.forgecdn.net/files/${id.toString().substring(0..3).toInt()}/${id.toString().substring(4).toInt()}/${fileName?.urlEncoded}"
 }
 
+fun List<String>.toCurseForgeModSide(): Mod.Side? {
+    val supportsClient = any { it.trim().equals("Client", ignoreCase = true) }
+    val supportsServer = any { it.trim().equals("Server", ignoreCase = true) }
+    return when {
+        supportsClient && supportsServer -> Mod.Side.BOTH
+        supportsClient -> Mod.Side.CLIENT
+        supportsServer -> Mod.Side.SERVER
+        else -> null
+    }
+}
+
 @Serializable
 data class CurseForgeFileHash(
     val value: String? = null,

@@ -23,6 +23,10 @@ object ServerTaskManager {
         manager.cancel(runId, message)
     }
 
+    suspend fun cancelAndJoin(runId: String, message: String = "任务已取消") {
+        manager.cancelAndJoin(runId, message)
+    }
+
     fun remove(runId: String) {
         manager.remove(runId)
     }

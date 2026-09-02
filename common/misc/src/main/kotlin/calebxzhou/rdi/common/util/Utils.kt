@@ -1,8 +1,5 @@
 package calebxzhou.rdi.common.util
 
-import calebxzhou.rdi.common.util.DEFAULT_DATE_TIME_PATTERN
-import calebxzhou.rdi.common.util.digest
-import calebxzhou.rdi.common.util.displayLength
 import calebxzhou.rdi.common.VALID_NAME_REGEX
 import calebxzhou.rdi.common.VALID_PLAYER_NAME_REGEX
 import calebxzhou.rdi.common.exception.RequestError
@@ -49,13 +46,16 @@ fun UUID.toBytes(): ByteArray {
     return bb.array()
 }
 
-val UUID.objectId: ObjectId
-    get() {
-        val uuidBytes = this.toBytes()
-        val objectIdBytes = uuidBytes.sliceArray(0..11)
-        return ObjectId(objectIdBytes)
-
+fun UUID.toObjectId(): Result<ObjectId> = runCatching {
+    val uuidBytes = toBytes()
+    require(uuidBytes.sliceArray(12..15).all { it == 0.toByte() }) {
+        "UUID $this is not an ObjectId-derived UUID: trailing bytes must be zero"
     }
+    ObjectId(uuidBytes.sliceArray(0..11))
+}
+
+val UUID.objectId: ObjectId
+    get() = toObjectId().getOrThrow()
 val ioScope: CoroutineScope
     get() = CoroutineScope(Dispatchers.IO + CoroutineExceptionHandler { _, throwable ->
         throwable.printStackTrace()
@@ -120,6 +120,12 @@ val periodOfDay: String
 fun Long.toFriendlyDateTime(
     nowMillis: Long = System.currentTimeMillis(),
     zoneId: ZoneId = ZoneId.systemDefault()
+): String = toFriendlyDateTime(nowMillis, zoneId, dateOnly = false)
+
+fun Long.toFriendlyDateTime(
+    nowMillis: Long,
+    zoneId: ZoneId,
+    dateOnly: Boolean,
 ): String {
     if (this <= 0L) return "--"
     val target = Instant.ofEpochMilli(this).atZone(zoneId)
@@ -127,7 +133,7 @@ fun Long.toFriendlyDateTime(
     val targetDate = target.toLocalDate()
     val nowDate = now.toLocalDate()
     val dayDiff = ChronoUnit.DAYS.between(targetDate, nowDate)
-    val timeText = target.toFriendlyClockText()
+    val timeText = if (dateOnly) "" else target.toFriendlyClockText()
     return when {
         dayDiff == 0L -> "今天$timeText"
         dayDiff == 1L -> "昨天$timeText"

@@ -74,11 +74,10 @@ suspend fun pickLocalModpackFile(): File? =
             val name = dialog.file ?: return@withContext null
             val selected = File(dir, name)
             selected.takeIf {
-                it.exists() && (
-                    it.isDirectory ||
-                        it.name.endsWith(".zip", ignoreCase = true) ||
+                it.isFile && (
+                    it.name.endsWith(".zip", ignoreCase = true) ||
                         it.name.endsWith(".mrpack", ignoreCase = true)
-                    )
+                )
             }
         } finally {
             owner.dispose()

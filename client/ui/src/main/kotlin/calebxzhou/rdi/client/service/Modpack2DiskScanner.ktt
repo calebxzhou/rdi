@@ -1,0 +1,425 @@
+package calebxzhou.rdi.client.service
+
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzhou.rdi.common.service.ModService
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
+import java.io.IOException
+import java.nio.charset.StandardCharsets
+import java.nio.file.FileVisitResult
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.security.MessageDigest
+import java.util.Locale
+import java.util.jar.JarFile
+import kotlin.io.path.name
+import kotlin.uuid.Uuid
+import kotlinx.coroutines.CancellationException
+
+enum class Modpack2ScanErrorKind {
+    UnsafePath,
+    Unreadable,
+    ChangedDuringHash,
+}
+
+data class Modpack2ScanError(
+    val kind: Modpack2ScanErrorKind,
+    val path: String,
+    val message: String,
+    val cause: Throwable? = null,
+)
+
+data class Modpack2JarMetadata(
+    val modIds: List<String> = emptyList(),
+    val sideHints: Set<ContentSide> = emptySet(),
+)
+
+/** One top-level physical item in a Modpack2 content root. */
+data class Modpack2DiskContentUnit(
+    val type: ContentType,
+    val physicalPath: Path,
+    val physicalRelativePath: String,
+    val targetPath: String,
+    val enabled: Boolean,
+    val fileSize: Long,
+    val hash: String,
+    val modIds: List<String> = emptyList(),
+    val sideHints: Set<ContentSide> = emptySet(),
+    val recognized: Boolean = true,
+    val displayName: String = physicalPath.fileName.toString(),
+    val versionId: Uuid? = null,
+) {
+    /** Alias used by consumers that do not need to know the filesystem terminology. */
+    val relativePath: String get() = physicalRelativePath
+}
+
+data class Modpack2DiskSnapshot(
+    val versionDirectory: Path,
+    val items: List<Modpack2DiskContentUnit>,
+    val errors: List<Modpack2ScanError>,
+    val fingerprint: String,
+    val versionId: Uuid? = null,
+) {
+    val contentUnits: List<Modpack2DiskContentUnit> get() = items
+    val isComplete: Boolean get() = errors.isEmpty()
+    val complete: Boolean get() = isComplete
+}
+
+/**
+ * Synchronously reads the three player-facing content roots. The directory is the authority:
+ * this scanner never consults SQLite and never follows a symbolic link.
+ */
+class Modpack2DiskScanner(
+    versionDirectory: Path,
+    private val versionId: Uuid? = null,
+    private val onProgress: (completed: Int, total: Int, path: String) -> Unit = { _, _, _ -> },
+    private val isCancelled: () -> Boolean = { false },
+) {
+    private val versionDirectory = versionDirectory.toAbsolutePath().normalize()
+
+    fun scan(): Modpack2DiskSnapshot {
+        checkCancelled()
+        val items = mutableListOf<Modpack2DiskContentUnit>()
+        val errors = mutableListOf<Modpack2ScanError>()
+
+        if (!isSafeDirectory(versionDirectory, errors)) {
+            return snapshot(items, errors)
+        }
+
+        val total = MODPACK2_CONTENT_ROOTS.sumOf { root -> countChildren(root, enabled = true) + countChildren(root, enabled = false) }
+        MODPACK2_CONTENT_ROOTS.forEach { root ->
+            checkCancelled()
+            scanRoot(root, enabled = true, items, errors, total)
+            scanRoot(root, enabled = false, items, errors, total)
+        }
+        return snapshot(items, errors)
+    }
+
+    /** Convenience form for callers which treat a missing/invalid root as an operation failure. */
+    fun scanResult(): Result<Modpack2DiskSnapshot> {
+        val snapshot = scan()
+        return if (snapshot.isComplete) Result.success(snapshot)
+        else Result.failure(Modpack2ScanException(snapshot.errors))
+    }
+
+    private fun scanRoot(
+        root: String,
+        enabled: Boolean,
+        items: MutableList<Modpack2DiskContentUnit>,
+        errors: MutableList<Modpack2ScanError>,
+        total: Int,
+    ) {
+        val rootPath = if (enabled) versionDirectory.resolve(root)
+        else versionDirectory.resolve(".rdi").resolve("disabled").resolve(root)
+        findSymlinkAlongPath(rootPath)?.let { symlink ->
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, symlink, "不允许扫描符号链接")
+            return
+        }
+        val rootAttributes = readAttributes(rootPath)
+        if (rootAttributes == null) {
+            if (Files.exists(rootPath, LinkOption.NOFOLLOW_LINKS)) {
+                errors += issue(Modpack2ScanErrorKind.Unreadable, rootPath, "无法读取整合包目录")
+            }
+            return
+        }
+        if (rootAttributes.isSymbolicLink) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, rootPath, "不允许扫描符号链接")
+            return
+        }
+        if (!rootAttributes.isDirectory) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, rootPath, "内容根必须是目录")
+            return
+        }
+
+        val children = runCatching {
+            Files.newDirectoryStream(rootPath).use { stream -> stream.toList().sortedBy { it.fileName.toString().lowercase(Locale.ROOT) } }
+        }.getOrElse { cause ->
+            errors += issue(Modpack2ScanErrorKind.Unreadable, rootPath, "无法读取整合包目录", cause)
+            return
+        }
+        children.forEach { child ->
+            val childName = child.fileName.toString()
+            val physicalRelativePath = if (enabled) "$root/$childName" else ".rdi/disabled/$root/$childName"
+            val targetPath = "$root/$childName"
+            checkCancelled()
+            runCatching {
+                scanChild(child, root, enabled, physicalRelativePath, targetPath)
+            }.onSuccess { unit ->
+                unit?.let {
+                    items += it
+                    onProgress(items.size, total, it.physicalRelativePath)
+                }
+            }
+                .onFailure { cause ->
+                    if (cause is CancellationException) throw cause
+                    val issue = (cause as? Modpack2ScanException)?.issues?.firstOrNull()
+                        ?: issueForFailure(cause, child)
+                    errors += issue
+                }
+        }
+    }
+
+    private fun countChildren(root: String, enabled: Boolean): Int {
+        checkCancelled()
+        val rootPath = if (enabled) versionDirectory.resolve(root)
+        else versionDirectory.resolve(".rdi").resolve("disabled").resolve(root)
+        if (!Files.isDirectory(rootPath, LinkOption.NOFOLLOW_LINKS)) return 0
+        return runCatching { Files.newDirectoryStream(rootPath).use { stream -> stream.count() } }.getOrDefault(0)
+    }
+
+    private fun scanChild(
+        child: Path,
+        root: String,
+        enabled: Boolean,
+        physicalRelativePath: String,
+        targetPath: String,
+    ): Modpack2DiskContentUnit? {
+        findSymlinkAlongPath(child)?.let { symlink ->
+            throw scanFailure(Modpack2ScanErrorKind.UnsafePath, symlink, "不允许扫描符号链接")
+        }
+        val attributes = readAttributes(child)
+            ?: throw scanFailure(Modpack2ScanErrorKind.Unreadable, child, "无法读取内容")
+        if (attributes.isSymbolicLink) {
+            throw scanFailure(Modpack2ScanErrorKind.UnsafePath, child, "不允许扫描符号链接")
+        }
+        val type = requireNotNull(modpack2ContentType(root))
+        val isDirectory = attributes.isDirectory
+        val isJar = !isDirectory && root == "mods" && child.name.endsWith(".jar", ignoreCase = true)
+        val isZip = !isDirectory && root != "mods" && child.name.endsWith(".zip", ignoreCase = true)
+        val isPackDirectory = isDirectory && hasPackMetadata(child)
+        if (!isJar && !isZip && !isPackDirectory) return null
+
+        val (hash, fileSize) = if (isDirectory) hashDirectory(child) else hashFile(child)
+        val metadata = if (isJar) readJarMetadata(child) else Modpack2JarMetadata()
+        verifyUnchanged(child, isDirectory, fileSize, hash)
+        return Modpack2DiskContentUnit(
+            type = type,
+            physicalPath = child.toAbsolutePath().normalize(),
+            physicalRelativePath = normalizeModpack2Path(physicalRelativePath),
+            targetPath = normalizeModpack2Path(targetPath),
+            enabled = enabled,
+            fileSize = fileSize,
+            hash = hash,
+            modIds = metadata.modIds,
+            sideHints = metadata.sideHints,
+            recognized = type != ContentType.Mod || metadata.modIds.isNotEmpty(),
+            versionId = versionId,
+        )
+    }
+
+    private fun hasPackMetadata(directory: Path): Boolean {
+        val marker = directory.resolve("pack.mcmeta")
+        findSymlinkAlongPath(marker)?.let { symlink ->
+            throw scanFailure(Modpack2ScanErrorKind.UnsafePath, symlink, "不允许扫描符号链接")
+        }
+        val attrs = readAttributes(marker) ?: run {
+            if (Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) {
+                throw scanFailure(Modpack2ScanErrorKind.Unreadable, marker, "无法读取资源包元数据")
+            }
+            return false
+        }
+        if (attrs.isSymbolicLink) throw scanFailure(Modpack2ScanErrorKind.UnsafePath, marker, "不允许扫描符号链接")
+        return attrs.isRegularFile
+    }
+
+    private fun hashFile(path: Path): Pair<String, Long> {
+        val before = readAttributes(path)
+            ?: throw scanFailure(Modpack2ScanErrorKind.Unreadable, path, "无法读取内容")
+        if (before.isSymbolicLink || !before.isRegularFile) {
+            throw scanFailure(Modpack2ScanErrorKind.UnsafePath, path, "内容必须是普通文件")
+        }
+        val digest = MessageDigest.getInstance("SHA-1")
+        try {
+            Files.newInputStream(path).buffered().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    if (read > 0) digest.update(buffer, 0, read)
+                    checkCancelled()
+                }
+            }
+        } catch (cause: IOException) {
+            throw scanFailure(Modpack2ScanErrorKind.Unreadable, path, "无法读取内容", cause)
+        }
+        val after = readAttributes(path)
+            ?: throw scanFailure(Modpack2ScanErrorKind.ChangedDuringHash, path, "内容在校验期间消失")
+        if (after.isSymbolicLink || !after.isRegularFile ||
+            before.size() != after.size() || before.lastModifiedTime() != after.lastModifiedTime()
+        ) {
+            throw scanFailure(Modpack2ScanErrorKind.ChangedDuringHash, path, "内容在校验期间发生变化")
+        }
+        return digest.digest().toHex() to after.size()
+    }
+
+    private fun hashDirectory(directory: Path): Pair<String, Long> {
+        val entries = mutableListOf<DirectoryEntry>()
+        var totalSize = 0L
+        try {
+            Files.walkFileTree(directory, setOf(), Int.MAX_VALUE, object : SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(path: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (attrs.isSymbolicLink) throw scanFailure(Modpack2ScanErrorKind.UnsafePath, path, "不允许扫描符号链接")
+                    if (path != directory) entries += DirectoryEntry(directory.relativize(path).toString().replace('\\', '/'), true, "")
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFile(path: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    checkCancelled()
+                    if (attrs.isSymbolicLink) throw scanFailure(Modpack2ScanErrorKind.UnsafePath, path, "不允许扫描符号链接")
+                    if (!attrs.isRegularFile) throw scanFailure(Modpack2ScanErrorKind.UnsafePath, path, "不支持的文件类型")
+                    val (hash, size) = hashFile(path)
+                    totalSize += size
+                    entries += DirectoryEntry(directory.relativize(path).toString().replace('\\', '/'), false, hash)
+                    onProgress(entries.size, entries.size, path.toString())
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFileFailed(path: Path, exc: IOException): FileVisitResult {
+                    throw scanFailure(Modpack2ScanErrorKind.Unreadable, path, "无法读取内容", exc)
+                }
+            })
+        } catch (cause: Modpack2ScanException) {
+            throw cause
+        } catch (cause: IOException) {
+            throw scanFailure(Modpack2ScanErrorKind.Unreadable, directory, "无法读取目录", cause)
+        }
+        val digest = MessageDigest.getInstance("SHA-1")
+        entries.sortedBy { it.path }.forEach { entry ->
+            digest.update(if (entry.directory) 'D'.code.toByte() else 'F'.code.toByte())
+            digest.update(0.toByte())
+            digest.update(entry.path.toByteArray(StandardCharsets.UTF_8))
+            digest.update(0.toByte())
+            digest.update(entry.hash.toByteArray(StandardCharsets.UTF_8))
+            digest.update('\n'.code.toByte())
+        }
+        return digest.digest().toHex() to totalSize
+    }
+
+    private fun verifyUnchanged(path: Path, directory: Boolean, size: Long, hash: String) {
+        if (directory) {
+            val (afterHash, afterSize) = hashDirectory(path)
+            if (afterHash != hash || afterSize != size) {
+                throw scanFailure(Modpack2ScanErrorKind.ChangedDuringHash, path, "目录在校验期间发生变化")
+            }
+        } else {
+            val (afterHash, afterSize) = hashFile(path)
+            if (afterHash != hash || afterSize != size) {
+                throw scanFailure(Modpack2ScanErrorKind.ChangedDuringHash, path, "内容在校验期间发生变化")
+            }
+        }
+    }
+
+    private fun readJarMetadata(path: Path): Modpack2JarMetadata {
+        return runCatching {
+            JarFile(path.toFile(), false).use { jar ->
+                // Reuse common Forge/NeoForge/legacy parsing so scanner and existing Host checks
+                // agree on the IDs. Fabric metadata is intentionally parsed locally here because
+                // its environment field is not represented by JarModMeta.
+                val commonMeta = runCatching { ModService.run { jar.readModMeta() } }.getOrNull()
+                val fabric = runCatching { jar.getJarEntry(ModService.FABRIC_CONFIG_PATH)?.let { entry ->
+                    jar.getInputStream(entry).bufferedReader().use { reader ->
+                        Json.parseToJsonElement(reader.readText()).jsonObject
+                    }
+                } }.getOrNull()
+                val ids = buildList {
+                    commonMeta?.modIds.orEmpty().forEach { add(it.lowercase(Locale.ROOT)) }
+                    fabric?.get("id")?.let { it.jsonPrimitive.contentOrNull }?.lowercase(Locale.ROOT)?.let(::add)
+                }.filter(String::isNotBlank).distinct()
+                val sideHints = buildSet {
+                    val environment = fabric?.get("environment")?.let { it.jsonPrimitive.contentOrNull }?.lowercase(Locale.ROOT)
+                    when (environment) {
+                        "client" -> add(ContentSide.Client)
+                        "server" -> add(ContentSide.Server)
+                        "*" -> add(ContentSide.Both)
+                    }
+                }
+                Modpack2JarMetadata(ids, sideHints)
+            }
+        }.getOrDefault(Modpack2JarMetadata())
+    }
+
+    private fun isSafeDirectory(path: Path, errors: MutableList<Modpack2ScanError>): Boolean {
+        val attrs = readAttributes(path)
+        if (attrs == null) {
+            errors += issue(Modpack2ScanErrorKind.Unreadable, path, "无法读取整合包目录")
+            return false
+        }
+        if (attrs.isSymbolicLink) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, path, "不允许扫描符号链接")
+            return false
+        }
+        if (!attrs.isDirectory) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, path, "整合包路径必须是目录")
+            return false
+        }
+        return true
+    }
+
+    private fun snapshot(items: List<Modpack2DiskContentUnit>, errors: List<Modpack2ScanError>): Modpack2DiskSnapshot {
+        val digest = MessageDigest.getInstance("SHA-1")
+        items.sortedWith(compareBy({ it.physicalRelativePath }, { it.type.name })).forEach { item ->
+            listOf(item.type.name, item.physicalRelativePath, item.targetPath, item.enabled.toString(), item.fileSize.toString(), item.hash)
+                .forEach { field -> digest.update(field.toByteArray(StandardCharsets.UTF_8)); digest.update(0.toByte()) }
+        }
+        errors.sortedWith(compareBy({ it.path }, { it.kind.name })).forEach { error ->
+            digest.update(error.kind.name.toByteArray(StandardCharsets.UTF_8)); digest.update(0.toByte())
+            digest.update(error.path.toByteArray(StandardCharsets.UTF_8)); digest.update(0.toByte())
+        }
+        return Modpack2DiskSnapshot(
+            versionDirectory,
+            items.sortedBy { it.physicalRelativePath },
+            errors.toList(),
+            digest.digest().toHex(),
+            versionId,
+        )
+    }
+
+    private fun readAttributes(path: Path): BasicFileAttributes? = runCatching {
+        Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+    }.getOrNull()
+
+    private fun checkCancelled() {
+        if (isCancelled()) throw CancellationException("内容扫描已取消")
+    }
+
+    /** Checks every existing component so a symlink in `.rdi` or another parent is never followed. */
+    private fun findSymlinkAlongPath(path: Path): Path? {
+        val normalized = path.toAbsolutePath().normalize()
+        val relative = runCatching { versionDirectory.relativize(normalized) }.getOrNull() ?: return normalized
+        var current = versionDirectory
+        for (component in relative) {
+            current = current.resolve(component)
+            val attrs = readAttributes(current) ?: break
+            if (attrs.isSymbolicLink) return current
+        }
+        return null
+    }
+
+    private fun issueForFailure(cause: Throwable, path: Path): Modpack2ScanError = when (cause) {
+        is SecurityException -> issue(Modpack2ScanErrorKind.UnsafePath, path, cause.message ?: "不安全的路径", cause)
+        is IOException -> issue(Modpack2ScanErrorKind.Unreadable, path, cause.message ?: "无法读取内容", cause)
+        else -> issue(Modpack2ScanErrorKind.Unreadable, path, cause.message ?: "扫描内容失败", cause)
+    }
+
+    private fun issue(kind: Modpack2ScanErrorKind, path: Path, message: String, cause: Throwable? = null) =
+        Modpack2ScanError(kind, versionDirectory.relativize(path.toAbsolutePath().normalize()).toString().replace('\\', '/'), message, cause)
+
+    private fun scanFailure(kind: Modpack2ScanErrorKind, path: Path, message: String, cause: Throwable? = null) =
+        Modpack2ScanException(listOf(issue(kind, path, message, cause)))
+
+    private data class DirectoryEntry(val path: String, val directory: Boolean, val hash: String)
+
+    private companion object {
+        fun ByteArray.toHex(): String = joinToString("") { byte -> "%02x".format(byte) }
+    }
+}
+
+class Modpack2ScanException(
+    val issues: List<Modpack2ScanError>,
+) : IOException(issues.joinToString("; ") { "${it.kind}: ${it.path}" })

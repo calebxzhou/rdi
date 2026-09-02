@@ -1,0 +1,348 @@
+package calebxzhou.rdi.client.service
+
+import calebxzau.rdi.client.modcatalog.CatalogContentType
+import calebxzau.rdi.client.modcatalog.CatalogDetailsRequest
+import calebxzau.rdi.client.modcatalog.CatalogDigest
+import calebxzau.rdi.client.modcatalog.CatalogDigestAlgorithm
+import calebxzau.rdi.client.modcatalog.CatalogFile
+import calebxzau.rdi.client.modcatalog.CatalogFileHashes
+import calebxzau.rdi.client.modcatalog.CatalogFilePage
+import calebxzau.rdi.client.modcatalog.CatalogFileRef
+import calebxzau.rdi.client.modcatalog.CatalogFileRequest
+import calebxzau.rdi.client.modcatalog.CatalogIdentity
+import calebxzau.rdi.client.modcatalog.CatalogMod
+import calebxzau.rdi.client.modcatalog.CatalogModDetails
+import calebxzau.rdi.client.modcatalog.CatalogModMetadata
+import calebxzau.rdi.client.modcatalog.CatalogOutcome
+import calebxzau.rdi.client.modcatalog.CatalogProjectRef
+import calebxzau.rdi.client.modcatalog.CatalogProjectSource
+import calebxzau.rdi.client.modcatalog.CatalogSearchPage
+import calebxzau.rdi.client.modcatalog.CatalogSearchRequest
+import calebxzau.rdi.client.modcatalog.CatalogSlugRef
+import calebxzau.rdi.client.modcatalog.DependencyGraph
+import calebxzau.rdi.client.modcatalog.DependencyRequest
+import calebxzau.rdi.client.modcatalog.EnvironmentCompatibility
+import calebxzau.rdi.client.modcatalog.LocalFileMatch
+import calebxzau.rdi.client.modcatalog.LocalFileMatchReport
+import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.ReleaseChannel
+import calebxzau.rdi.client.modcatalog.ResolvedDownload
+import calebxzau.rdi.client.modcatalog.UpdateReport
+import calebxzau.rdi.client.modcatalog.UpdateRequest
+import calebxzau.rdi.client.packproc.Modpack2ContentCandidate
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzhou.rdi.client.database.LocalModpack2ContentOrigin
+import calebxzhou.rdi.client.database.LocalModpack2ContentRecord
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.Path
+import java.time.Instant
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNotEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
+
+class Modpack2CatalogContentResolverTest {
+    @Test
+    fun `batch resolution matches all files and loads projects once`() = runBlocking {
+        val first = Files.createTempFile("modpack2-resolver-batch-a", ".jar")
+        val second = Files.createTempFile("modpack2-resolver-batch-b", ".jar")
+        try {
+            Files.write(first, byteArrayOf(1, 2, 3))
+            Files.write(second, byteArrayOf(4, 5, 6))
+            val firstFile = catalogFile(ModPlatform.CURSEFORGE, "cf-file-a", "cf-project-a", "ignored", "987654321")
+            val secondFile = catalogFile(ModPlatform.CURSEFORGE, "cf-file-b", "cf-project-b", "ignored", "123456789")
+            val catalog = ResolverCatalog(mapOf(first to listOf(firstFile), second to listOf(secondFile)))
+            val resolver = Modpack2CatalogContentResolver(catalog)
+
+            resolver.resolveBatch(listOf(
+                Modpack2ContentCandidate(first.toFile(), "mods/a.jar", "a".repeat(40)),
+                Modpack2ContentCandidate(second.toFile(), "mods/b.jar", "b".repeat(40)),
+            ))
+
+            assertEquals(1, catalog.matchLocalFilesCalls)
+            assertEquals(1, catalog.getModsCalls)
+            assertEquals(2, catalog.lastMatchedPathCount)
+            assertEquals(setOf(firstFile.project, secondFile.project), catalog.lastRequestedProjects)
+        } finally {
+            Files.deleteIfExists(first)
+            Files.deleteIfExists(second)
+        }
+    }
+
+    @Test
+    fun `batch reidentification submits every local file together`() = runBlocking {
+        val first = Files.createTempFile("modpack2-recognize-batch-a", ".jar")
+        val second = Files.createTempFile("modpack2-recognize-batch-b", ".jar")
+        try {
+            val firstFile = catalogFile(ModPlatform.MODRINTH, "mr-file-a", "mr-project-a", "a".repeat(40), null)
+            val secondFile = catalogFile(ModPlatform.CURSEFORGE, "cf-file-b", "cf-project-b", "ignored", "123456789").copy(
+                digests = setOf(
+                    CatalogDigest(CatalogDigestAlgorithm.SHA1, "b".repeat(40)),
+                    CatalogDigest(CatalogDigestAlgorithm.CURSEFORGE_MURMUR2, "123456789"),
+                ),
+            )
+            val catalog = ResolverCatalog(mapOf(first to listOf(firstFile), second to listOf(secondFile)))
+
+            val resolved = Modpack2CatalogContentResolver(catalog).recognizeBatch(listOf(first, second), Uuid.generateV7()).getOrThrow()
+
+            assertEquals(setOf(first, second), resolved.filterValues { it != null }.keys)
+            assertEquals("a".repeat(40), resolved[first]?.record?.hash)
+            assertEquals("123456789", resolved[second]?.record?.hash)
+            assertEquals("mr-project-a Catalog", resolved[first]?.card?.name)
+            assertEquals("中文mr-project-a", resolved[first]?.card?.nameCn)
+            assertEquals("Catalog summary mr-project-a", resolved[first]?.card?.intro)
+            assertEquals(listOf("https://example/mr-project-a-source.png", "https://example/mr-project-a-mcmod.png"), resolved[first]?.card?.iconUrls)
+            assertEquals("cf-project-b Catalog", resolved[second]?.card?.name)
+            assertEquals(1, catalog.matchLocalFilesCalls)
+            assertEquals(1, catalog.getModsCalls)
+            assertEquals(setOf(firstFile.project, secondFile.project), catalog.lastRequestedProjects)
+        } finally {
+            Files.deleteIfExists(first)
+            Files.deleteIfExists(second)
+        }
+    }
+
+    @Test
+    fun `cached files skip matching and hydrate their cards`() = runBlocking {
+        val file = Files.createTempFile("modpack2-resolver-cached", ".jar")
+        try {
+            val catalogFile = catalogFile(ModPlatform.MODRINTH, "mr-file", "mr-project", "a".repeat(40), null)
+            val catalog = ResolverCatalog(mapOf(file to listOf(catalogFile)))
+            val resolver = Modpack2CatalogContentResolver(catalog)
+            val versionId = Uuid.generateV7()
+            val cached = cachedRecord(versionId, "mr-project", "mr-file")
+
+            val enrichment = resolver.enrichBatch(listOf(file), mapOf(file to cached), versionId).getOrThrow()
+
+            assertEquals(0, catalog.matchLocalFilesCalls)
+            assertEquals(1, catalog.getModsCalls)
+            assertEquals("mr-project Catalog", enrichment.cards.getValue(file).name)
+            assertTrue(enrichment.newlyRecognized.isEmpty())
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+
+    @Test
+    fun `cached and new files match only the new file and hydrate both`() = runBlocking {
+        val cachedFile = Files.createTempFile("modpack2-resolver-cached", ".jar")
+        val newFile = Files.createTempFile("modpack2-resolver-new", ".jar")
+        try {
+            val cachedCatalogFile = catalogFile(ModPlatform.MODRINTH, "mr-file", "mr-project", "a".repeat(40), null)
+            val newCatalogFile = catalogFile(ModPlatform.CURSEFORGE, "cf-file", "cf-project", "ignored", "123456789")
+            val catalog = ResolverCatalog(mapOf(cachedFile to listOf(cachedCatalogFile), newFile to listOf(newCatalogFile)))
+            val resolver = Modpack2CatalogContentResolver(catalog)
+            val versionId = Uuid.generateV7()
+            val cached = cachedRecord(versionId, "mr-project", "mr-file")
+
+            val enrichment = resolver.enrichBatch(
+                listOf(cachedFile, newFile), mapOf(cachedFile to cached), versionId,
+            ).getOrThrow()
+
+            assertEquals(1, catalog.matchLocalFilesCalls)
+            assertEquals(1, catalog.lastMatchedPathCount)
+            assertEquals(setOf(newFile), catalog.lastMatchedPaths)
+            assertEquals(1, catalog.getModsCalls)
+            assertEquals(setOf(cachedFile, newFile), enrichment.cards.keys)
+            assertEquals(setOf(newFile), enrichment.newlyRecognized.keys)
+        } finally {
+            Files.deleteIfExists(cachedFile)
+            Files.deleteIfExists(newFile)
+        }
+    }
+
+    @Test
+    fun `cached project missing from catalog does not erase its identity`() = runBlocking {
+        val file = Files.createTempFile("modpack2-resolver-missing-project", ".jar")
+        try {
+            val catalog = ResolverCatalog(emptyMap())
+            val resolver = Modpack2CatalogContentResolver(catalog)
+            val cached = cachedRecord(Uuid.generateV7(), "missing-project", "missing-file")
+
+            val enrichment = resolver.enrichBatch(listOf(file), mapOf(file to cached), Uuid.generateV7()).getOrThrow()
+
+            assertEquals(0, catalog.matchLocalFilesCalls)
+            assertEquals(1, catalog.getModsCalls)
+            assertTrue(enrichment.cards.isEmpty())
+            assertTrue(enrichment.newlyRecognized.isEmpty())
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+
+    @Test
+    fun `uses platform digest contracts for Modrinth and CurseForge`() = runBlocking {
+        val file = Files.createTempFile("modpack2-resolver", ".jar")
+        try {
+            Files.write(file, byteArrayOf(1, 2, 3))
+            val sha1 = "a".repeat(40)
+            val modrinth = catalogFile(ModPlatform.MODRINTH, "mr-file", "mr-project", sha1, null)
+            val curseForge = catalogFile(ModPlatform.CURSEFORGE, "cf-file", "cf-project", "ignored", "987654321")
+            val catalog = ResolverCatalog(mapOf(file to listOf(modrinth, curseForge)))
+            val resolver = Modpack2CatalogContentResolver(catalog)
+
+            val resolved = resolver.resolveBatch(listOf(
+                Modpack2ContentCandidate(file.toFile(), "mods/modrinth.jar", sha1),
+                Modpack2ContentCandidate(file.toFile(), "mods/curseforge.jar", "b".repeat(40)),
+            ))
+            val mr = resolved["mods/modrinth.jar"]
+            val cf = resolved["mods/curseforge.jar"]
+
+            assertEquals(ContentPlatform.Modrinth, mr?.platform)
+            assertEquals(sha1, mr?.hash)
+            assertEquals(ContentPlatform.CurseForge, cf?.platform)
+            assertEquals("987654321", cf?.hash)
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+
+    @Test
+    fun `same project on different physical paths keeps separate recognized entries`() = runBlocking {
+        val first = Files.createTempFile("modpack2-resolver-duplicate-a", ".jar")
+        val second = Files.createTempFile("modpack2-resolver-duplicate-b", ".jar")
+        try {
+            val file = catalogFile(ModPlatform.MODRINTH, "mr-file", "shared-project", "a".repeat(40), null)
+            val resolved = Modpack2CatalogContentResolver(
+                ResolverCatalog(mapOf(first to listOf(file), second to listOf(file)))
+            ).recognizeBatch(listOf(first, second), Uuid.generateV7()).getOrThrow()
+
+            assertEquals(2, resolved.filterValues { it != null }.size)
+            assertNotEquals(resolved[first]?.record?.contentId, resolved[second]?.record?.contentId)
+            assertEquals(resolved[first]?.card, resolved[second]?.card)
+        } finally {
+            Files.deleteIfExists(first)
+            Files.deleteIfExists(second)
+        }
+    }
+
+    @Test
+    fun `missing platform digest is not emitted as recognized content`() = runBlocking {
+        val file = Files.createTempFile("modpack2-resolver-missing", ".jar")
+        try {
+            Files.write(file, byteArrayOf(4, 5, 6))
+            val curseForge = catalogFile(ModPlatform.CURSEFORGE, "cf-file", "cf-project", "ignored", null)
+            val resolver = Modpack2CatalogContentResolver(ResolverCatalog(mapOf(file to listOf(curseForge))))
+
+            val resolved = resolver.resolveBatch(listOf(
+                Modpack2ContentCandidate(file.toFile(), "mods/example.jar", "b".repeat(40)),
+            ))
+            assertNull(resolved["mods/example.jar"])
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+
+    private fun catalogFile(
+        platform: ModPlatform,
+        fileId: String,
+        projectId: String,
+        sha1: String,
+        curseForgeHash: String?,
+    ): CatalogFile = CatalogFile(
+        ref = CatalogFileRef(platform, fileId),
+        project = CatalogProjectRef(platform, projectId),
+        displayName = fileId,
+        versionNumber = "1.0",
+        fileName = "example.jar",
+        channel = ReleaseChannel.RELEASE,
+        publishedAt = Instant.EPOCH,
+        fileSize = 3,
+        minecraftVersions = setOf("1.21.1"),
+        loaders = emptySet(),
+        environment = EnvironmentCompatibility(),
+        digests = buildSet {
+            if (platform == ModPlatform.MODRINTH) add(CatalogDigest(CatalogDigestAlgorithm.SHA1, sha1))
+            curseForgeHash?.let { add(CatalogDigest(CatalogDigestAlgorithm.CURSEFORGE_MURMUR2, it)) }
+        },
+        dependencies = emptyList(),
+    )
+
+    private fun cachedRecord(versionId: Uuid, projectId: String, fileId: String) = LocalModpack2ContentRecord(
+        contentId = Uuid.generateV7(), versionId = versionId, platform = ContentPlatform.Modrinth,
+        type = ContentType.Mod, projectId = projectId, fileId = fileId, slug = projectId,
+        hash = "a".repeat(40), targetPath = "mods/$fileId.jar", side = ContentSide.Both,
+        required = true, fileSize = 3, logicalId = "Modrinth:$projectId",
+        origin = LocalModpack2ContentOrigin.Local,
+    )
+}
+
+private class ResolverCatalog(
+    private val filesByPath: Map<Path, List<CatalogFile>>,
+) : ModCatalog {
+    var matchLocalFilesCalls = 0
+        private set
+    var getModsCalls = 0
+        private set
+    var lastMatchedPathCount = 0
+        private set
+    var lastMatchedPaths: Set<Path> = emptySet()
+        private set
+    var lastRequestedProjects: Set<CatalogProjectRef> = emptySet()
+        private set
+    private val files = filesByPath.values.flatten()
+    private val mods = files.associate { file ->
+        val source = CatalogProjectSource(
+            ref = file.project,
+            slug = file.project.projectId,
+            name = "${file.project.projectId} Source",
+            summary = "Source summary ${file.project.projectId}",
+            iconUrl = "https://example/${file.project.projectId}-source.png",
+            downloadCount = 0,
+            updatedAt = Instant.EPOCH,
+            environment = EnvironmentCompatibility(),
+            contentType = CatalogContentType.MOD,
+        )
+        file.project to CatalogMod(
+            identity = CatalogIdentity.Unmapped(file.project),
+            primaryRef = file.project,
+            sources = listOf(source),
+            name = "${file.project.projectId} Catalog",
+            nameCn = "中文${file.project.projectId}",
+            summary = "Catalog summary ${file.project.projectId}",
+            mcmodIconUrl = "https://example/${file.project.projectId}-mcmod.png",
+            downloadCount = 0,
+            updatedAt = Instant.EPOCH,
+            environment = EnvironmentCompatibility(),
+        )
+    }
+
+    override suspend fun getMetadata(refs: Set<CatalogSlugRef>): Result<Map<CatalogSlugRef, CatalogModMetadata>> = unused()
+    override suspend fun searchMetadata(query: String, limit: Int): Result<List<CatalogModMetadata>> = unused()
+    override suspend fun search(request: CatalogSearchRequest): Result<CatalogOutcome<CatalogSearchPage>> = unused()
+    override suspend fun getMods(refs: Set<CatalogProjectRef>): Result<CatalogOutcome<Map<CatalogProjectRef, CatalogMod>>> {
+        getModsCalls++
+        lastRequestedProjects = refs
+        return Result.success(CatalogOutcome(refs.mapNotNull { ref -> mods[ref]?.let { ref to it } }.toMap()))
+    }
+    override suspend fun getFiles(refs: Set<CatalogFileRef>): Result<CatalogOutcome<Map<CatalogFileRef, CatalogFile>>> = unused()
+    override suspend fun getDetails(request: CatalogDetailsRequest): Result<CatalogOutcome<CatalogModDetails>> = unused()
+    override suspend fun listFiles(request: CatalogFileRequest): Result<CatalogOutcome<CatalogFilePage>> = unused()
+    override suspend fun matchFiles(hashes: List<CatalogFileHashes>): Result<Map<String, CatalogFile>> = unused()
+    override suspend fun matchLocalFiles(paths: List<Path>): Result<CatalogOutcome<LocalFileMatchReport>> {
+        matchLocalFilesCalls++
+        lastMatchedPathCount = paths.size
+        lastMatchedPaths = paths.toSet()
+        return Result.success(CatalogOutcome(LocalFileMatchReport(
+            matched = paths.mapNotNull { path ->
+                val files = filesByPath[path] ?: return@mapNotNull null
+                LocalFileMatch(path, files, CatalogIdentity.Unmapped(files.first().project))
+            },
+            unmatched = paths.toSet() - filesByPath.keys,
+            unreadable = emptyMap(),
+        )))
+    }
+    override suspend fun findUpdates(request: UpdateRequest): Result<CatalogOutcome<UpdateReport>> = unused()
+    override suspend fun resolveDependencies(request: DependencyRequest): Result<CatalogOutcome<DependencyGraph>> = unused()
+    override suspend fun getChangelog(file: CatalogFileRef): Result<String> = unused()
+    override suspend fun resolveDownload(file: CatalogFile): Result<ResolvedDownload> = unused()
+    override fun close() = Unit
+
+    private fun <T> unused(): Result<T> = error("unused catalog operation")
+}

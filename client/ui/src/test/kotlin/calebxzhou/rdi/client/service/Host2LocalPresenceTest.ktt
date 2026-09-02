@@ -1,0 +1,116 @@
+package calebxzhou.rdi.client.service
+
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import org.junit.jupiter.api.Assumptions.assumeTrue
+
+class Host2LocalPresenceTest {
+    @Test
+    fun `scans enabled and disabled supported items and ignores unsupported files`() {
+        val version = Files.createTempDirectory("host2-presence")
+        try {
+            val mods = Files.createDirectories(version.resolve("mods"))
+            val resourcepacks = Files.createDirectories(version.resolve("resourcepacks"))
+            val disabledMods = Files.createDirectories(version.resolve(".rdi/disabled/mods"))
+            Files.write(mods.resolve("a.jar"), byteArrayOf(1, 2))
+            Files.write(mods.resolve("ignored.txt"), byteArrayOf(1))
+            Files.write(resourcepacks.resolve("pack.zip"), byteArrayOf(1))
+            Files.createDirectory(resourcepacks.resolve("directory"))
+            Files.write(resourcepacks.resolve("directory/pack.mcmeta"), byteArrayOf('{'.code.toByte(), '}'.code.toByte()))
+            Files.write(disabledMods.resolve("disabled.jar"), byteArrayOf(1, 2, 3))
+
+            val snapshot = Host2LocalPresenceScanner(version).scan()
+
+            assertTrue(snapshot.isComplete)
+            assertEquals(
+                setOf("mods/a.jar", "resourcepacks/pack.zip", "resourcepacks/directory", ".rdi/disabled/mods/disabled.jar"),
+                snapshot.items.map { it.physicalRelativePath }.toSet(),
+            )
+            assertEquals("mods/disabled.jar", snapshot.items.single { !it.enabled }.targetPath)
+            assertEquals(Host2LocalPresenceKind.Directory, snapshot.items.single { it.physicalRelativePath == "resourcepacks/directory" }.kind)
+            assertEquals(Host2LocalPresenceRootKind.Directory, snapshot.rootStates["mods"])
+            assertEquals(Host2LocalPresenceRootKind.Missing, snapshot.rootStates["shaderpacks"])
+        } finally {
+            version.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `fingerprint uses metadata instead of file bytes`() {
+        val version = Files.createTempDirectory("host2-presence-fingerprint")
+        try {
+            val file = Files.createDirectories(version.resolve("mods")).resolve("a.jar")
+            Files.write(file, byteArrayOf(1, 2, 3))
+            val originalTime = Files.getLastModifiedTime(file, LinkOption.NOFOLLOW_LINKS)
+            val first = Host2LocalPresenceScanner(version).scan().fingerprint
+
+            Files.write(file, byteArrayOf(4, 5, 6))
+            Files.setLastModifiedTime(file, originalTime)
+            val second = Host2LocalPresenceScanner(version).scan().fingerprint
+            assertEquals(first, second)
+
+            Files.write(file, byteArrayOf(4, 5, 6, 7))
+            assertFalse(Host2LocalPresenceScanner(version).scan().fingerprint == second)
+        } finally {
+            version.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `symlink roots and children are reported as unsafe`() {
+        val version = Files.createTempDirectory("host2-presence-symlink")
+        try {
+            val outside = Files.createTempDirectory("host2-presence-outside")
+            try {
+                try {
+                    Files.createSymbolicLink(version.resolve("mods"), outside)
+                } catch (_: UnsupportedOperationException) {
+                    assumeTrue(false, "symbolic links are not supported")
+                } catch (_: SecurityException) {
+                    assumeTrue(false, "symbolic links are not available")
+                }
+                val rootError = Host2LocalPresenceScanner(version).scan()
+                assertTrue(rootError.errors.any { it.path == "mods" && it.kind == Modpack2ScanErrorKind.UnsafePath })
+            } finally {
+                outside.toFile().deleteRecursively()
+            }
+        } finally {
+            version.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `resourcepack nested symlink is unsafe while nested regular files are allowed`() {
+        val version = Files.createTempDirectory("host2-presence-nested")
+        try {
+            val pack = Files.createDirectories(version.resolve("resourcepacks/pack/nested"))
+            Files.write(pack.parent.resolve("pack.mcmeta"), byteArrayOf('{'.code.toByte(), '}'.code.toByte()))
+            Files.write(pack.resolve("file.txt"), byteArrayOf(1))
+            val complete = Host2LocalPresenceScanner(version).scan()
+            assertTrue(complete.isComplete)
+            assertTrue(complete.items.any { it.physicalRelativePath == "resourcepacks/pack" })
+
+            val outside = Files.createTempFile("host2-presence-nested-outside", ".txt")
+            try {
+                try {
+                    Files.createSymbolicLink(pack.resolve("link.txt"), outside)
+                } catch (_: UnsupportedOperationException) {
+                    assumeTrue(false, "symbolic links are not supported")
+                } catch (_: SecurityException) {
+                    assumeTrue(false, "symbolic links are not available")
+                }
+                val unsafe = Host2LocalPresenceScanner(version).scan()
+                assertTrue(unsafe.errors.any { it.path == "resourcepacks/pack/nested/link.txt" })
+                assertFalse(unsafe.isComplete)
+            } finally {
+                Files.deleteIfExists(outside)
+            }
+        } finally {
+            version.toFile().deleteRecursively()
+        }
+    }
+}

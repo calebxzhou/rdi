@@ -41,7 +41,6 @@ import calebxzhou.rdi.client.ui.comp.UiModIcon
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.Mod
-import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.ModService
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.CancellationException
@@ -74,7 +73,7 @@ internal fun HostModsPane(
     canManage: Boolean,
     addExtraModLoading: Boolean,
     addExtraModLoadingText: String,
-    onDisabledModsChanged: (List<Mod>) -> Unit,
+    onChangeDisabledMods: (List<Mod>, Boolean, () -> Unit) -> Unit,
     onRemoveExtraMods: (List<Mod>) -> Unit,
     onOpenResourceMods: () -> Unit,
     onAddExtraModAdvanced: () -> Unit,
@@ -95,8 +94,6 @@ internal fun HostModsPane(
     var enabledAreaBounds by remember(hostId) { mutableStateOf<Rect?>(null) }
     var disabledAreaBounds by remember(hostId) { mutableStateOf<Rect?>(null) }
     var pendingMutationKeys by remember(hostId) { mutableStateOf(emptySet<String>()) }
-    val scope = rememberCoroutineScope()
-
     fun changeDisabledMods(mods: List<Mod>, disabled: Boolean) {
         if (!canManage) return
         val targets = mods.distinctBy(::extraModKey)
@@ -104,24 +101,9 @@ internal fun HostModsPane(
         if (targets.isEmpty()) return
         val targetKeys = targets.map(::extraModKey).toSet()
         pendingMutationKeys += targetKeys
-        scope.rdiRequest<List<Mod>>(
-            path = "host/$hostId/mods/disabled",
-            method = if (disabled) HttpMethod.Post else HttpMethod.Delete,
-            body = serdesJson.encodeToString(targets),
-            onOk = {
-                pendingMutationKeys -= targetKeys
-                onDisabledModsChanged(it.data.orEmpty())
-                if (disabled) {
-                    onOk("已停用Mod，重启房间后生效")
-                } else {
-                    onOk("已恢复Mod，重启房间后生效")
-                }
-            },
-            onErr = {
-                pendingMutationKeys -= targetKeys
-                onError(it.message ?: if (disabled) "停用Mod失败" else "启用Mod失败")
-            }
-        )
+        onChangeDisabledMods(targets, disabled) {
+            pendingMutationKeys -= targetKeys
+        }
     }
 
     fun handleDragEvent(source: HostModAreaType, event: ModGridDragEvent) {

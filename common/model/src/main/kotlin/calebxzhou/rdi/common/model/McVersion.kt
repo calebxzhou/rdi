@@ -44,20 +44,6 @@ enum class McVersion(
             )
         )
     ),
-    /*V192(
-        "1.19.2",
-        "frog", 25,
-        760,
-        mapOf(
-            ModLoader.forge to ModLoader.Version(
-                ModLoader.forge,
-                "1.19.2-forge-43.5.2",
-                "https://maven.minecraftforge.net/net/minecraftforge/forge/1.19.2-43.5.2/forge-1.19.2-43.5.2-installer.jar",
-                "d242b6786039d4acb9ea7579624772b6809bda91"
-            )
-        )
-
-    ),*/
 
     V122(
         "1.12.2",
@@ -105,16 +91,18 @@ enum class McVersion(
     val vMinor get() = mcVer.split(".")[1]
     val vPatch get() = mcVer.split(".")[2]
     val simpleVer get() = "MC$vMinor"
+    val isModern get() = protocolVer>=762
     fun supportsConfiguredJava(major: Int): Boolean = major in supportedJreVers
 
     fun supportsCurrentJava(major: Int): Boolean = supportsConfiguredJava(major)
 
     companion object {
         fun from(mcVer: String): McVersion? = entries.firstOrNull { it.mcVer == mcVer }
+        fun fromMinor(minor: String): McVersion? = entries.firstOrNull { it.vMinor == minor }
         fun fromProtocolVer(protocolVer: Int): McVersion? = entries.firstOrNull { it.protocolVer == protocolVer }
     }
 }
-
+fun McVersion.supportLoader(loader: ModLoader): Boolean = this.loaderVersions.containsKey(loader)
 fun McVersion.supportsForgeguard(modLoader: ModLoader): Boolean =
     this == McVersion.V201 && modLoader == ModLoader.forge
 

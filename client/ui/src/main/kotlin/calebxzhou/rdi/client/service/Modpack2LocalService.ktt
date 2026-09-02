@@ -1,0 +1,424 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzau.rdi.common.logging.Loggers
+import calebxzau.rdi.client.packproc.Modpack2ContentResolver
+import calebxzau.rdi.client.packproc.Modpack2PackPreview
+import calebxzau.rdi.client.packproc.Modpack2ProcessingResult
+import calebxzau.rdi.client.packproc.Modpack2ExplicitGithubSource
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.ui.moveToOsTrash
+import calebxzhou.rdi.client.ui.McPlayStore
+import calebxzhou.rdi.client.service.content.toClientContentRequest
+import calebxzau.rdi.common.model.Modpack2ClientManifestVo
+import calebxzau.rdi.common.model.Modpack2Loader
+import calebxzau.rdi.common.model.Modpack2VersionDetailVo
+import calebxzau.rdi.common.model.Modpack2VersionStatus
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.Task2
+import calebxzhou.rdi.common.model.Task2Context
+import calebxzhou.rdi.common.model.Task2Progress
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzau.rdi.common.model.Modpack2Content
+import calebxzau.rdi.common.model.Modpack2ServerMode
+import calebxzau.rdi.common.model.Modpack2CreateModpackDto
+import calebxzau.rdi.common.model.Modpack2VersionManifestDto
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import java.nio.file.Files
+import java.io.File
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.nio.file.attribute.BasicFileAttributes
+import kotlin.io.path.name
+import kotlin.uuid.Uuid
+
+data class Modpack2InstallRequest(
+    val modpackId: Uuid,
+    val versionId: Uuid,
+    val reinstall: Boolean = false,
+    val confirmReinstall: Boolean = false,
+)
+
+/** Remote Modpack2 installation with staging, atomic replacement, and SQLite commit. */
+class Modpack2LocalService(
+    private val repository: LocalModpack2Repository,
+    private val gateway: Modpack2Gateway,
+    private val versionsDirectory: Path = ClientDirs.versionsDir.toPath(),
+    private val contentStore: ClientContentStore = ClientContentStore.shared,
+    private val isRunning: (Uuid) -> Boolean = { versionId -> McPlayStore.aliveCount(versionId.toString()) > 0 },
+    private val versionCoordinator: Modpack2VersionCoordinator = Modpack2VersionCoordinator(),
+    private val contentService: Modpack2ContentService? = null,
+    private val moveToTrash: (Path) -> Result<Unit> = ::moveToOsTrash,
+    @Deprecated("Removed local publish compatibility seam") private val packProcessingDirectory: Path? = null,
+    @Deprecated("Removed local publish compatibility seam") private val pollDelayMillis: Long = 1_000L,
+    @Deprecated("Removed local publish compatibility seam") private val maxBuildPolls: Int = 600,
+    @Deprecated("Removed local publish compatibility seam")
+    private val contentResolver: Modpack2ContentResolver? = null,
+    @Deprecated("Removed local publish compatibility seam")
+    private val serverTestRunner: Modpack2ServerTestRunner? = null,
+) {
+    private val lgr by Loggers
+    fun installTask(request: Modpack2InstallRequest): Task2 = Task2.Leaf("安装整合包") { context ->
+        install(request, context).getOrThrow()
+    }
+
+    suspend fun install(request: Modpack2InstallRequest): Result<Uuid> = install(request, null)
+
+    internal suspend fun install(request: Modpack2InstallRequest, context: Task2Context?): Result<Uuid> =
+        versionCoordinator.withLock(request.versionId) { resultOf {
+            val previousRecord = repository.find(request.versionId).getOrThrow()
+            if (request.reinstall) {
+                require(request.confirmReinstall) { "重新安装需要确认" }
+                require(previousRecord != null) { "只有已安装的整合包可以重新安装" }
+                require(previousRecord.remoteModpackId == request.modpackId && previousRecord.remoteVersionId == request.versionId) {
+                    "重新安装的整合包版本与本地记录不一致"
+                }
+            }
+            require(!isRunning(request.versionId)) { "整合包正在运行或准备中，不能安装或重新安装" }
+            val detail = gateway.listVersions(request.modpackId).getOrThrow()
+                .firstOrNull { it.id.toString() == request.versionId.toString() }
+                ?: error("找不到整合包版本")
+            require(detail.modpackId.toString() == request.modpackId.toString()) { "远程整合包版本身份不一致" }
+            require(detail.status == Modpack2VersionStatus.Ok) { "只能安装已完成的整合包版本" }
+            val manifest = gateway.clientManifest(request.modpackId, request.versionId).getOrThrow()
+            val expectedHash = gateway.clientPackHash(request.modpackId, request.versionId).getOrThrow()
+            require(manifest.versionId.toString() == request.versionId.toString()) { "客户端清单版本不一致" }
+
+            val staging = versionsDirectory.resolve("${request.versionId}.installing")
+            val target = versionsDirectory.resolve(request.versionId.toString())
+            var backup: Path? = null
+            var targetPlaced = false
+            try {
+                withContext(Dispatchers.IO) {
+                    Files.createDirectories(versionsDirectory)
+                    deleteTree(staging)
+                    Files.createDirectories(staging)
+                    if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
+                        require(request.reinstall) { "整合包已安装，重新安装需要确认" }
+                        backup = moveToBackup(target)
+                    } else if (request.reinstall) {
+                        error("找不到要重新安装的本地整合包目录")
+                    }
+                }
+                context?.emit(Task2Progress("下载客户端整合包", 0f))
+                val archive = staging.resolve(".client.tar.zst")
+                gateway.downloadClientPack(request.modpackId, request.versionId, archive, expectedHash) { completed, total ->
+                    context?.emit(Task2Progress("下载客户端整合包", total?.takeIf { it > 0L }?.let { completed.toFloat() / it }, completed, total))
+                }.getOrThrow()
+                context?.ensureActive()
+                calebxzhou.rdi.common.archive.extractArchiveToDir(archive.toFile(), staging.toFile()) { done, total, path ->
+                    context?.emit(Task2Progress("解压${path.substringAfterLast('/')}", done.toFloat() / total))
+                }
+                Files.deleteIfExists(archive)
+                materializeManifest(manifest, staging, context)
+                context?.emit(Task2Progress("验证整合包文件", null))
+                Modpack2DiskScanner(staging, request.versionId).scanResult().getOrThrow()
+                withContext(NonCancellable + Dispatchers.IO) {
+                    moveAtomically(staging, target)
+                    targetPlaced = true
+                    try {
+                        repository.delete(request.versionId).getOrThrow()
+                        commitInstalled(request.versionId, request.modpackId, detail, manifest)
+                        contentService?.let { service ->
+                            service.scan(request.versionId).getOrThrow().cacheError?.let { error ->
+                                throw IllegalStateException("重建整合包内容索引失败", error)
+                            }
+                        }
+                    } catch (error: Throwable) {
+                        deleteTree(target)
+                        throw error
+                    }
+                }
+                withContext(NonCancellable + Dispatchers.IO) {
+                    backup?.let { old ->
+                        moveToTrash(old).getOrThrow()
+                        check(!Files.exists(old, LinkOption.NOFOLLOW_LINKS)) { "无法确认旧整合包已移入回收站: $old" }
+                    }
+                }
+                context?.emit(Task2Progress("安装完成", 1f))
+                request.versionId
+            } catch (error: Throwable) {
+                val restoredBackup = withContext(NonCancellable + Dispatchers.IO) {
+                    val old = backup
+                    if (old != null && Files.exists(old, LinkOption.NOFOLLOW_LINKS)) {
+                        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) deleteTree(target)
+                        runCatching {
+                            moveAtomically(old, target)
+                            restoreLocalRecord(request.versionId, previousRecord)
+                            rebuildRestoredContentCache(request.versionId)
+                            null
+                        }.getOrElse { old }
+                    } else {
+                        if (previousRecord == null) {
+                            if (targetPlaced && Files.exists(target, LinkOption.NOFOLLOW_LINKS)) deleteTree(target)
+                            runCatching { restoreLocalRecord(request.versionId, null) }
+                        }
+                        old
+                    }
+                }
+                throw if (restoredBackup != null) IllegalStateException("重新安装失败，旧版本已保存在$restoredBackup", error) else error
+            } finally {
+                withContext(NonCancellable + Dispatchers.IO) { deleteTree(staging) }
+            }
+        } }
+
+    suspend fun delete(versionId: Uuid): Result<Unit> = versionCoordinator.withLock(versionId) { resultOf {
+        require(!isRunning(versionId)) { "整合包正在运行或准备中，不能删除" }
+        withContext(NonCancellable + Dispatchers.IO) {
+            deleteVersionDirectory(versionId)
+            repository.delete(versionId).getOrThrow()
+        }
+    } }
+
+    /** Removes only invalid database rows; canonical unlinked directories are recoverable data. */
+    suspend fun cleanupInvalidLocalModpacks(): Result<Unit> = resultOf {
+        withContext(Dispatchers.IO) {
+            val root = versionsDirectory.toAbsolutePath().normalize()
+            val attributes = Files.readAttributes(root, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+            require(attributes.isDirectory && !attributes.isSymbolicLink()) { "整合包版本目录根路径无效: $root" }
+            repository.list().getOrThrow().filter { record ->
+                !Files.isDirectory(versionPath(root, record.versionId), LinkOption.NOFOLLOW_LINKS)
+            }.forEach { record ->
+                versionCoordinator.withLock(record.versionId) {
+                    try {
+                        if (repository.find(record.versionId).getOrThrow() != null &&
+                            !Files.isDirectory(versionPath(root, record.versionId), LinkOption.NOFOLLOW_LINKS) &&
+                            !recoverInterruptedInstall(root, record.versionId) &&
+                            !Files.isDirectory(versionPath(root, record.versionId), LinkOption.NOFOLLOW_LINKS)
+                        ) repository.delete(record.versionId).getOrThrow()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Throwable) {
+                        // A failed cleanup must leave both bytes and metadata recoverable.
+                        lgr.warn(error) { "启动时清理缺失Modpack2记录失败: ${record.versionId}" }
+                    }
+                }
+            }
+            // Canonical UUID directories without an active row are deliberately untouched.
+        }
+    }
+
+    private suspend fun materializeManifest(manifest: Modpack2ClientManifestVo, staging: Path, context: Task2Context?) {
+        val requests = manifest.contents.map { it.toContentRequest() }
+        if (requests.isNotEmpty()) contentStore.materialize(requests, staging, context?.let { it::emit } ?: {}).getOrThrow()
+    }
+
+    private suspend fun commitInstalled(versionId: Uuid, modpackId: Uuid, detail: Modpack2VersionDetailVo, manifest: Modpack2ClientManifestVo) {
+        repository.upsert(LocalModpack2InstanceRecord(
+            versionId = versionId,
+            remoteModpackId = modpackId,
+            remoteVersionId = versionId,
+            name = detail.name,
+            comment = detail.changelog.takeIf(String::isNotBlank),
+            mcVersion = manifest.mc.toMcVersion(),
+            modLoader = manifest.loader.toModLoader(),
+            updatedAt = System.currentTimeMillis(),
+        )).getOrThrow()
+    }
+
+    private suspend fun restoreLocalRecord(versionId: Uuid, previous: LocalModpack2InstanceRecord?) {
+        repository.delete(versionId).getOrThrow()
+        previous?.let { repository.upsert(it).getOrThrow() }
+    }
+
+    private suspend fun rebuildRestoredContentCache(versionId: Uuid) {
+        runCatching { contentService?.scan(versionId)?.getOrThrow() }
+            .onFailure { error -> lgr.warn(error) { "重新安装回滚后重建整合包内容索引失败，可稍后重新扫描: $versionId" } }
+    }
+
+    private fun moveToBackup(target: Path): Path {
+        var index = 0
+        lateinit var backup: Path
+        do {
+            backup = target.resolveSibling("${target.name}.backup-${System.currentTimeMillis()}${if (index == 0) "" else "-$index"}")
+            index++
+        } while (Files.exists(backup, LinkOption.NOFOLLOW_LINKS))
+        moveAtomically(target, backup)
+        return backup
+    }
+
+    private fun moveAtomically(source: Path, target: Path) {
+        try { Files.move(source, target, StandardCopyOption.ATOMIC_MOVE) }
+        catch (_: java.nio.file.AtomicMoveNotSupportedException) { Files.move(source, target) }
+    }
+
+    private fun deleteTree(path: Path) { if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) path.toFile().deleteRecursivelyNoSymlink() }
+
+    private fun deleteVersionDirectory(versionId: Uuid) {
+        val root = versionsDirectory.toAbsolutePath().normalize()
+        if (Files.exists(root, LinkOption.NOFOLLOW_LINKS)) require(Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) { "整合包目录根路径无效" }
+        val target = versionPath(root, versionId)
+        moveToTrash(target).getOrThrow()
+        check(!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) { "无法确认整合包目录已移入回收站: $target" }
+    }
+
+    private fun versionPath(root: Path, versionId: Uuid): Path {
+        val target = root.resolve(versionId.toString()).normalize()
+        require(target.parent == root) { "整合包版本路径越界: $target" }
+        return target
+    }
+
+    private fun recoverInterruptedInstall(root: Path, versionId: Uuid): Boolean {
+        val target = versionPath(root, versionId)
+        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) return false
+        val prefix = "${versionId}.backup-"
+        val backup = Files.list(root).use { paths -> paths.filter { path -> path.parent == root && path.fileName.toString().startsWith(prefix) && Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) }.toList().maxByOrNull { it.fileName.toString() } } ?: return false
+        moveAtomically(backup, target)
+        return Files.isDirectory(target, LinkOption.NOFOLLOW_LINKS)
+    }
+
+    @Deprecated("The workspace route was removed")
+    fun createWorkspaceTask(source: Modpack2WorkspaceSource, name: String, mcVersion: McVersion, modLoader: ModLoader): Task2 =
+        removedLifecycleTask("创建本地整合包")
+
+    @Deprecated("The workspace route was removed")
+    suspend fun createWorkspace(source: Modpack2WorkspaceSource, name: String, mcVersion: McVersion, modLoader: ModLoader, comment: String? = null, iconUrl: String? = null): Result<Uuid> =
+        Result.failure(UnsupportedOperationException("Modpack2本地创建入口已移除，请选择平台安装包"))
+
+    @Deprecated("The import route was removed")
+    fun importUnregisteredDirectoryTask(directory: Path, name: String, mcVersion: McVersion, modLoader: ModLoader): Task2 =
+        removedLifecycleTask("导入未关联整合包")
+
+    @Deprecated("The import route was removed")
+    suspend fun importUnregisteredDirectory(directory: Path, name: String, mcVersion: McVersion, modLoader: ModLoader): Result<Uuid> =
+        Result.failure(UnsupportedOperationException("Modpack2未关联目录不能直接导入"))
+
+    @Deprecated("The local publish route was removed")
+    fun publishTask(request: Modpack2PublishRequest): Task2 = removedLifecycleTask("发布整合包")
+
+    @Deprecated("The local publish route was removed")
+    suspend fun publish(request: Modpack2PublishRequest): Result<Uuid> =
+        Result.failure(UnsupportedOperationException("Modpack2本地发布入口已移除，请选择平台安装包"))
+
+    @Deprecated("The local publish retry route was removed")
+    fun retrySubmissionTask(request: Modpack2PublishRequest): Task2 = removedLifecycleTask("重试发布整合包")
+
+    @Deprecated("The local publish retry route was removed")
+    suspend fun retrySubmission(request: Modpack2PublishRequest): Result<Uuid> =
+        Result.failure(UnsupportedOperationException("Modpack2本地发布入口已移除，请选择平台安装包"))
+
+    @Deprecated("The local publish route was removed")
+    suspend fun abandonSubmission(localVersionId: Uuid): Result<Unit> =
+        Result.failure(UnsupportedOperationException("Modpack2发布记录已移除"))
+
+    private fun removedLifecycleTask(label: String): Task2 = Task2.Leaf(label) {
+        throw UnsupportedOperationException("Modpack2旧入口已移除，请选择平台安装包")
+    }
+
+    private suspend fun <T> resultOf(block: suspend () -> T): Result<T> = try { Result.success(block()) } catch (cancelled: CancellationException) { throw cancelled } catch (error: Throwable) { Result.failure(error) }
+}
+
+data class Modpack2UploadArchive(
+    val archive: Path,
+    val preview: ModpackArchivePreview,
+    val selectedOptionalFiles: Set<String> = emptySet(),
+    val resolvedMods: Map<String, ResolvedArchiveMod> = emptyMap(),
+)
+
+/** Deprecated source model retained only for the unreachable removed Install screen. */
+@Deprecated("Modpack2 local creation was removed; use Modpack2UploadArchive")
+sealed interface Modpack2WorkspaceSource {
+    data object Empty : Modpack2WorkspaceSource
+    data class Directory(val directory: Path, val versionId: Uuid? = null) : Modpack2WorkspaceSource
+    @Deprecated("Modpack2 local creation was removed; use Modpack2UploadArchive")
+    data class Archive(
+        val archive: Path,
+        val preview: ModpackArchivePreview,
+        val selectedOptionalFiles: Set<String> = emptySet(),
+        val resolvedMods: Map<String, ResolvedArchiveMod> = emptyMap(),
+    ) : Modpack2WorkspaceSource
+}
+
+private fun Modpack2Content.toContentRequest() = Mod(
+    platform = platform.name.lowercase(), projectId = projectId, slug = slug, fileId = fileId, hash = hash,
+).toClientContentRequest(targetRelativePath = targetPath ?: defaultContentPath(this), size = fileSize.takeIf { it >= 0L })
+
+private fun defaultContentPath(content: Modpack2Content): String {
+    val mod = Mod(content.platform.name.lowercase(), content.projectId, content.slug, content.fileId, content.hash)
+    return when (content.type) {
+        ContentType.Mod -> "mods/${mod.fileName}"
+        ContentType.ShaderPack -> "shaderpacks/${mod.fileName}"
+        ContentType.ResPack -> "resourcepacks/${mod.fileName}"
+        ContentType.DataPack -> "datapacks/${mod.fileName}"
+        ContentType.Other -> mod.fileName
+    }
+}
+
+private fun Modpack2Loader.toModLoader() = when (this) {
+    Modpack2Loader.Forge -> ModLoader.forge
+    Modpack2Loader.NeoForge -> ModLoader.neoforge
+}
+
+@Deprecated("The local publish route was removed")
+data class Modpack2PublishRequest(
+    val localVersionId: Uuid,
+    val modpackId: Uuid? = null,
+    val baseVersionId: Uuid? = null,
+    val versionName: String = "",
+    val changelog: String = "",
+    val serverMode: Modpack2ServerMode = Modpack2ServerMode.Generated,
+    val modpack: Modpack2CreateModpackDto? = null,
+    val sourceDirectory: Path? = null,
+    val providedServerPack: Path? = null,
+    val preview: Modpack2PackPreview? = null,
+    val manualSideOverrides: Map<String, ContentSide> = emptyMap(),
+    val explicitGithubSources: List<Modpack2ExplicitGithubSource> = emptyList(),
+    val serverOnlyPaths: Set<String> = emptySet(),
+    val manifest: Modpack2VersionManifestDto? = null,
+    val allowRunning: Boolean = false,
+)
+
+@Deprecated("The local publish route was removed")
+data class Modpack2PublishReceipt(val modpackId: Uuid, val versionId: Uuid, val status: Modpack2VersionStatus)
+
+@Deprecated("The local server test route was removed")
+data class Modpack2ServerTestRequest(
+    val localVersionId: Uuid,
+    val sourceDirectory: Path,
+    val providedServerDirectory: Path?,
+    val serverMode: Modpack2ServerMode,
+    val processing: Modpack2ProcessingResult,
+    val context: Task2Context?,
+)
+
+@Deprecated("The local server test route was removed")
+fun interface Modpack2ServerTestRunner {
+    suspend fun run(request: Modpack2ServerTestRequest): Result<Unit>
+    companion object { val Rejecting = Modpack2ServerTestRunner { Result.failure(UnsupportedOperationException("本地服务端测试入口已移除")) } }
+}
+
+internal fun decodeManualSideOverrides(encoded: String): Map<String, ContentSide> = emptyMap()
+
+internal fun encodeManualSideOverrides(overrides: Map<String, ContentSide>): String =
+    overrides.entries.sortedBy { it.key }.joinToString("\n") { (path, side) -> "$path\t${side.name}" }
+
+internal fun validateModpack2AppendPreflight(baseVersionId: Uuid, preflight: calebxzau.rdi.common.model.Modpack2AppendPreflightVo) {
+    if (preflight.canAppend) require(preflight.currentVersionId.toString() == baseVersionId.toString()) { "整合包基础版本已过期，请刷新后重试" }
+}
+
+internal fun modpack2RawFilesFromArchive(archive: File): List<calebxzau.rdi.common.model.Modpack2RawFile> = emptyList()
+
+suspend fun recoverModpack2Remapping(repository: LocalModpack2Repository, versionsDirectory: Path): Result<Unit> =
+    Result.failure(UnsupportedOperationException("Modpack2重映射恢复已移除"))
+
+suspend fun recoverModpack2Startup(repository: LocalModpack2Repository, versionsDirectory: Path, packProcessingDirectory: Path = ClientDirs.packProcDir.toPath()): Result<Unit> =
+    Result.failure(UnsupportedOperationException("Modpack2发布恢复已移除"))
+
+suspend fun clearUnreferencedModpack2PackProcessingFiles(repository: LocalModpack2Repository, packProcessingDirectory: Path): Result<Unit> =
+    Result.failure(UnsupportedOperationException("Modpack2发布处理目录已移除"))
+
+private fun Int.toMcVersion(): McVersion = McVersion.entries.firstOrNull { it.mcVer.substringAfter("1.").substringBefore('.').toIntOrNull() == this }
+    ?: error("不支持的Minecraft版本: $this")
+
+internal fun shouldRunModpack2ServerTest(
+    serverMode: Modpack2ServerMode,
+    ignoreModpackTest: Boolean,
+): Boolean = serverMode == Modpack2ServerMode.Generated && !ignoreModpackTest

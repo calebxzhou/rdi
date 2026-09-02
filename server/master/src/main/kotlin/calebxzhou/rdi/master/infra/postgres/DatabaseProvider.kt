@@ -19,7 +19,7 @@ class DatabaseProvider(config: PostgresConfig) : AutoCloseable {
             username = config.username
             password = config.password
             maximumPoolSize = config.maximumPoolSize
-            poolName = "rdi-host2-postgres"
+            poolName = "rdi-master-postgres"
             transactionIsolation = "TRANSACTION_READ_COMMITTED"
             connectionInitSql = "SET TIME ZONE 'UTC'"
         }
@@ -54,7 +54,7 @@ class DatabaseProvider(config: PostgresConfig) : AutoCloseable {
                 maxAttempts = 1
                 block()
             }
-        }
+    }
 
     override fun close() {
         dispatcher.close()

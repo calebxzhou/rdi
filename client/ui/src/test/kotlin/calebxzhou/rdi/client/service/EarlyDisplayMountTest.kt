@@ -36,6 +36,23 @@ class EarlyDisplayMountTest {
     }
 
     @Test
+    fun `mounts the shared jar on Forge 20`() {
+        val root = Files.createTempDirectory("early-display-mount-forge20").toFile()
+        try {
+            val source = root.resolve("rdi-early-display.jar").apply { writeText("current") }
+            val versionDir = root.resolve("versions/pack")
+
+            assertTrue(
+                EarlyDisplayMount.mount(source, McVersion.V201, ModLoader.forge, versionDir)
+                    .getOrThrow()
+            )
+            assertTrue(Files.isSameFile(source.toPath(), versionDir.resolve("mods/rdi-early-display.jar").toPath()))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `does not mount on unsupported loader`() {
         val root = Files.createTempDirectory("early-display-mount-unsupported").toFile()
         try {
@@ -43,7 +60,7 @@ class EarlyDisplayMountTest {
             val versionDir = root.resolve("versions/pack")
 
             assertFalse(
-                EarlyDisplayMount.mount(source, McVersion.V201, ModLoader.forge, versionDir)
+                EarlyDisplayMount.mount(source, McVersion.V201, ModLoader.neoforge, versionDir)
                     .getOrThrow()
             )
             assertFalse(versionDir.exists())

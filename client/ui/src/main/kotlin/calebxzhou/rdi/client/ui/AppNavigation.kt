@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
@@ -19,8 +20,6 @@ import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.ui.screen.ModpackVersionEditScreen
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.model.ModLoader
-import org.bson.types.ObjectId
 
 private const val SCREEN_FADE_DURATION_MS = 500
 private const val BLESSING_SKIN_BASE_URL = "https://littleskin.cn"
@@ -32,37 +31,62 @@ private fun RemoteModRoute.toInfoRoute(mod: CatalogMod): RemoteModInfoRoute =
         requiredMcVer = requiredMcVer,
         requiredLoader = requiredLoader,
         targetLocalVersionId = targetLocalVersionId,
+        targetLocalKind = targetLocalKind,
+        targetLocalId = targetLocalId,
         targetHostId = targetHostId,
-        targetHost2Id = targetHost2Id,
         fromAllHosts = fromAllHosts,
         fromHostMods = fromHostMods,
     )
 
-private fun RemoteModInfoRoute.toBrowseRoute(clearLocalTarget: Boolean = false): RemoteModRoute =
-    RemoteModRoute(
-        requiredMcVer = requiredMcVer,
-        requiredLoader = requiredLoader,
+private fun RemoteModInfoRoute.toBrowseRouteOrNull(clearLocalTarget: Boolean = false): RemoteModRoute? {
+    val mcVersion = requiredMcVer ?: return null
+    val loader = requiredLoader ?: return null
+    return RemoteModRoute(
+        requiredMcVer = mcVersion,
+        requiredLoader = loader,
         targetLocalVersionId = targetLocalVersionId.takeUnless { clearLocalTarget },
+        targetLocalKind = targetLocalKind.takeUnless { clearLocalTarget },
+        targetLocalId = targetLocalId.takeUnless { clearLocalTarget },
         targetHostId = targetHostId,
-        targetHost2Id = targetHost2Id,
         fromAllHosts = fromAllHosts,
         fromHostMods = fromHostMods,
     )
+}
+
+private fun NavHostController.returnFromRemoteModInfo(route: RemoteModInfoRoute, clearLocalTarget: Boolean) {
+    route.toBrowseRouteOrNull(clearLocalTarget)?.let(::navigateAbsolute) ?: when {
+        !clearLocalTarget && route.localCatalogTarget() != null -> navigateAbsolute(MyModpackRoute)
+        else -> navigateAbsolute(Menu)
+    }
+}
 
 private fun NavHostController.returnFromRemoteMod(route: RemoteModRoute) {
     if (popBackStack()) return
-    val host2Id = route.targetHost2Id
     val hostId = route.targetHostId
     when {
-        host2Id != null -> navigateAbsolute(Host2Info(host2Id))
         hostId != null -> {
             if (route.fromHostMods) {
-                navigateAbsolute(HostMods(hostId, route.fromAllHosts))
+                navigateAbsolute(HostMods(hostId, route.fromAllHosts, HostKind.Legacy.name))
             } else {
-                navigateAbsolute(HostInfo(hostId, route.fromAllHosts))
+                navigateAbsolute(HostInfo(hostId, route.fromAllHosts, HostKind.Legacy.name))
             }
         }
+        route.localCatalogTarget() != null -> navigateAbsolute(MyModpackRoute)
         else -> navigateAbsolute(Menu)
+    }
+}
+
+private fun NavHostController.returnFromModpackPlaza(route: ModpackPlazaRoute) {
+    if (popBackStack()) return
+    when {
+        route.fromHostId != null -> {
+            if (route.fromHostMods) {
+                navigateAbsolute(HostMods(route.fromHostId, route.fromAllHosts, HostKind.Legacy.name))
+            } else {
+                navigateAbsolute(HostInfo(route.fromHostId, route.fromAllHosts, HostKind.Legacy.name))
+            }
+        }
+        else -> navigateAbsolute(MyModpackRoute)
     }
 }
 
@@ -87,6 +111,7 @@ fun NavHostController.navigateRoot(route: Any) {
 fun AppNavigation(
     navController: NavHostController,
     modCatalog: ModCatalog,
+    onOpenTask: (String) -> Unit,
     startDestination: Any = Login,
 ) {
     val blessingSkin = remember { BlessingSkinClient(BLESSING_SKIN_BASE_URL) }
@@ -95,10 +120,9 @@ fun AppNavigation(
         McPlayStore.onBack = onBack
         navController.navigate(McPlayView)
     }
-    val returnToHostList: (Boolean) -> Unit = { fromAllHosts ->
+    val returnToHostList: () -> Unit = {
         if (!navController.popBackStack()) {
-            val tab = if (fromAllHosts) HostTab.AllHosts else HostTab.MyHosts
-            navController.navigateAbsolute(HostRoute(tab.name))
+            navController.navigateAbsolute(HostRoute)
         }
     }
 
@@ -124,18 +148,13 @@ fun AppNavigation(
         }
         composable<Menu> {
             MenuScreen(
-                onOpenResources = { navController.navigate(ResourceRoute(ResourceTab.Installed.name)) },
-                onOpenHostLobby = { navController.navigate(HostRoute(HostTab.MyHosts.name)) },
-                onOpenHost2Lobby = { navController.navigate(Host2Lobby) },
-                onOpenWardrobe = { navController.navigate(Wardrobe) },
+                onOpenModpacks = { navController.navigate(MyModpackRoute) },
+                onOpenHostLobby = { navController.navigate(HostRoute) },
                 onOpenMcPlay = { args ->
                     openMcPlay(args) { navController.navigateAbsolute(Menu) }
                 },
-                onOpenMcVersions = { mcVersion ->
-                    navController.navigate(ResourceRoute(ResourceTab.McResources.name, mcVersion?.mcVer))
-                },
                 onOpenTaskList = { runId ->
-                    navController.navigate(TaskList(selectedRunId = runId))
+                    onOpenTask(runId)
                 }
             )
         }
@@ -208,37 +227,30 @@ fun AppNavigation(
             )
         }
         composable<HostRoute> {
-            val route = it.toRoute<HostRoute>()
             HostListScreen(
-                initialTab = HostTab.fromRouteValue(route.tab),
                 onBack = { navController.navigateAbsolute(Menu) },
-                onOpenHostInfo = { hostId, fromAllHosts ->
-                    navController.navigate(HostInfo(hostId, fromAllHosts))
+                onOpenModpackPlaza = { navController.navigate(ModpackPlazaRoute()) },
+                onOpenWorlds = { navController.navigate(WorldRoute) },
+                onOpenHostInfo = { target, fromAllHosts ->
+                    navController.navigate(HostInfo(target.id, fromAllHosts, target.kind.name))
                 },
-                onOpenHostMembers = { hostId, fromAllHosts ->
-                    navController.navigate(HostMembers(hostId, fromAllHosts))
+                onOpenHostMembers = { target, fromAllHosts ->
+                    navController.navigate(HostMembers(target.id, fromAllHosts, target.kind.name))
                 },
-                onOpenHostMods = { hostId, fromAllHosts ->
-                    navController.navigate(HostMods(hostId, fromAllHosts))
+                onOpenHostMods = { target, fromAllHosts ->
+                    navController.navigate(HostMods(target.id, fromAllHosts, target.kind.name))
                 },
-                onOpenHostFiles = { hostId, fromAllHosts ->
-                    navController.navigate(HostFiles(hostId, fromAllHosts))
+                onOpenHostFiles = { target, fromAllHosts ->
+                    navController.navigate(HostFiles(target.id, fromAllHosts, target.kind.name))
                 },
-                onOpenHostBackend = { hostId, fromAllHosts ->
-                    navController.navigate(HostBackend(hostId, fromAllHosts))
+                onOpenHostBackend = { target, fromAllHosts ->
+                    navController.navigate(HostBackend(target.id, fromAllHosts, target.kind.name))
                 },
-                onOpenHostSettings = { hostId, fromAllHosts ->
-                    navController.navigate(HostCreate(hostId, fromAllHosts))
+                onOpenHostSettings = { target, fromAllHosts ->
+                    navController.navigate(HostCreate(target.id, fromAllHosts, target.kind.name))
                 },
-                onOpenMcPlay = { args, fromAllHosts ->
-                    val tab = if (fromAllHosts) HostTab.AllHosts else HostTab.MyHosts
-                    openMcPlay(args) { navController.navigateAbsolute(HostRoute(tab.name)) }
-                },
-                onOpenMcVersions = { mcVer, _ ->
-                    navController.navigate(ResourceRoute(ResourceTab.McResources.name, mcVer?.mcVer))
-                },
-                onOpenHostCreate = {
-                    navController.navigate(HostCreate())
+                onOpenMcPlay = { args, _ ->
+                    openMcPlay(args) { navController.navigateAbsolute(HostRoute) }
                 },
                 /*
                 onOpenBirdView = { worldId ->
@@ -254,20 +266,26 @@ fun AppNavigation(
                 },
                 */
                 onOpenTaskList = { runId ->
-                    navController.navigate(TaskList(selectedRunId = runId, fromHostTab = route.tab))
+                    onOpenTask(runId)
+                }
+            )
+        }
+        composable<WorldRoute> {
+            WorldListScreen(
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigateAbsolute(HostRoute)
+                    }
                 }
             )
         }
         composable<HostInfo> {
             val route = it.toRoute<HostInfo>()
+            val kind = HostKind.fromRouteValue(route.kind)
             HostInfoScreen(
-                hostId = ObjectId(route.hostId),
+                target = HostTarget(kind, route.hostId),
                 onBack = {
-                    if (route.fromAllHosts) {
-                        navController.navigateAbsolute(HostRoute(HostTab.AllHosts.name))
-                    } else {
-                        navController.navigateAbsolute(HostRoute(HostTab.MyHosts.name))
-                    }
+                    navController.navigateAbsolute(HostRoute)
                 },
                 onOpenModpackInfo = { modpackId ->
                     navController.navigate(
@@ -277,68 +295,64 @@ fun AppNavigation(
                             fromAllHosts = route.fromAllHosts
                         )
                     )
-                }
+                },
+                onOpenPlay = { args ->
+                    openMcPlay(args) { navController.navigateAbsolute(HostRoute) }
+                },
+                onOpenTaskList = onOpenTask,
             )
         }
         composable<HostMembers> {
             val route = it.toRoute<HostMembers>()
+            val kind = HostKind.fromRouteValue(route.kind)
             HostMembersScreen(
-                hostId = ObjectId(route.hostId),
-                onBack = { returnToHostList(route.fromAllHosts) },
-                onQuit = { returnToHostList(route.fromAllHosts) }
+                target = HostTarget(kind, route.hostId),
+                onBack = returnToHostList,
+                onQuit = returnToHostList
             )
         }
         composable<HostMods> {
             val route = it.toRoute<HostMods>()
+            val kind = HostKind.fromRouteValue(route.kind)
             HostModsScreen(
                 modCatalog = modCatalog,
-                hostId = ObjectId(route.hostId),
-                onBack = { returnToHostList(route.fromAllHosts) },
+                target = HostTarget(kind, route.hostId),
+                onBack = returnToHostList,
                 onOpenResourceMods = { mcVersion, modLoader ->
                     navController.navigate(
                         RemoteModRoute(
                             requiredMcVer = mcVersion.mcVer,
                             requiredLoader = modLoader.name,
-                            targetHostId = route.hostId,
+                            targetHostId = route.hostId.takeIf { kind == HostKind.Legacy },
                             fromAllHosts = route.fromAllHosts,
                             fromHostMods = true
                         )
                     )
                 },
                 onOpenTaskList = { runId ->
-                    navController.navigate(
-                        TaskList(
-                            selectedRunId = runId,
-                            fromHostModsId = route.hostId,
-                            fromAllHosts = route.fromAllHosts
-                        )
-                    )
+                    onOpenTask(runId)
                 }
             )
         }
         composable<HostFiles> {
             val route = it.toRoute<HostFiles>()
+            val kind = HostKind.fromRouteValue(route.kind)
             HostFilesScreen(
-                hostId = ObjectId(route.hostId),
+                target = HostTarget(kind, route.hostId),
                 onBack = {
-                    val tab = if (route.fromAllHosts) HostTab.AllHosts else HostTab.MyHosts
-                    navController.navigateAbsolute(HostRoute(tab.name))
+                    navController.navigateAbsolute(HostRoute)
                 },
                 onOpenTaskList = { runId ->
-                    navController.navigate(
-                        TaskList(
-                            selectedRunId = runId,
-                            fromHostTab = if (route.fromAllHosts) HostTab.AllHosts.name else HostTab.MyHosts.name
-                        )
-                    )
+                    onOpenTask(runId)
                 }
             )
         }
         composable<HostBackend> {
             val route = it.toRoute<HostBackend>()
+            val kind = HostKind.fromRouteValue(route.kind)
             HostBackendScreen(
-                hostId = ObjectId(route.hostId),
-                onBack = { returnToHostList(route.fromAllHosts) }
+                target = HostTarget(kind, route.hostId),
+                onBack = returnToHostList
             )
         }
         /*composable<WorldBirdView> {
@@ -352,36 +366,29 @@ fun AppNavigation(
             }
             WorldBirdViewScreen(
                 sourceSpec = sourceSpec,
-                onBack = { navController.navigateAbsolute(HostRoute(HostTab.Worlds.name)) }
+                onBack = { navController.navigateAbsolute(WorldRoute) }
             )
         }*/
-        composable<TaskList> {
-            val route = it.toRoute<TaskList>()
-            TaskListScreen(
-                onBack = {
-                    route.fromHostModsId?.let { hostId ->
-                        navController.navigateAbsolute(HostMods(hostId, route.fromAllHosts))
-                    } ?: route.fromHostTab?.let { tab ->
-                        navController.navigateAbsolute(HostRoute(tab))
-                    } ?: navController.navigateAbsolute(Menu)
-                },
-                initialSelectedRunId = route.selectedRunId
-            )
-        }
         composable<HostCreate> {
             val route = it.toRoute<HostCreate>()
-            HostNewCreateScreen(
-                route,
-                onBack = {
-                    if (route.hostId != null) {
-                        val tab = if (route.fromAllHosts) HostTab.AllHosts else HostTab.MyHosts
-                        navController.navigateAbsolute(HostRoute(tab.name))
-                    } else {
-                        navController.navigateAbsolute(HostRoute(HostTab.MyHosts.name))
-                    }
-                },
-                onNavigateProfile = { navController.navigateAbsolute(HostRoute(HostTab.MyHosts.name)) }
-            )
+            val kind = HostKind.fromRouteValue(route.kind)
+            val onBack = {
+                if (route.hostId == null) {
+                    navController.navigateAbsolute(MyModpackRoute)
+                } else {
+                    navController.navigateAbsolute(HostRoute)
+                }
+            }
+            if (kind == HostKind.Host2) {
+                HostDetailRouteError("该房间类型暂不可用", onBack)
+            } else if (route.hostId == null) {
+                HostNewCreateScreen(
+                    route,
+                    onBack = onBack,
+                )
+            } else {
+                HostNewCreateScreen(route, onBack = onBack)
+            }
         }
         composable<McPlayView> {
             val launchArgs = androidx.compose.runtime.remember {
@@ -401,25 +408,7 @@ fun AppNavigation(
                     if (callback != null) {
                         callback()
                     } else {
-                        navController.navigate(HostRoute(HostTab.MyHosts.name))
-                    }
-                }
-            )
-        }
-        composable<ModpackUpload> {
-            ModpackUploadScreen(
-                onBack = {
-                    navController.navigate(ResourceRoute(ResourceTab.All.name)) {
-                        popUpTo<ModpackUpload> { inclusive = true }
-                        launchSingleTop = true
-                        restoreState = false
-                    }
-                },
-                onUploadSubmitted = { runId ->
-                    navController.navigate(TaskList(runId)) {
-                        popUpTo<ModpackUpload> { inclusive = true }
-                        launchSingleTop = true
-                        restoreState = false
+                        navController.navigate(HostRoute)
                     }
                 }
             )
@@ -441,45 +430,15 @@ fun AppNavigation(
                 versionName = route.versionName,
                 onBack = {
                     if (!navController.popBackStack()) {
-                        navController.navigateAbsolute(ResourceRoute(ResourceTab.Installed.name))
+                        navController.navigateAbsolute(MyModpackRoute)
                     }
                 }
             )
         }
-        composable<Host2Lobby> {
-            Host2LobbyScreen(
-                onBack = { navController.navigateAbsolute(Menu) },
-                onCreate = { navController.navigate(Host2Create) },
-                onOpen = { navController.navigate(Host2Info(it)) }
-            )
-        }
-        composable<Host2Create> {
-            Host2CreateScreen(
-                onBack = { navController.navigateAbsolute(Host2Lobby) },
-                onCreated = { navController.navigateAbsolute(Host2Info(it)) }
-            )
-        }
-        composable<Host2Info> {
-            val route = it.toRoute<Host2Info>()
-            Host2InfoScreen(
-                hostId = route.hostId,
-                onBack = { navController.navigateAbsolute(Host2Lobby) },
-                onOpenMods = { mcVersion ->
-                    navController.navigate(
-                        RemoteModRoute(
-                            requiredMcVer = mcVersion.mcVer,
-                            targetHost2Id = route.hostId,
-                        )
-                    )
-                },
-                onOpenTask = { runId -> navController.navigate(TaskList(runId)) },
-                onOpenPlay = { args ->
-                    openMcPlay(args) { navController.navigateAbsolute(Host2Info(route.hostId)) }
-                }
-            )
-        }
-        composable<PlayerInfo> {
+        composable<PlayerInfo> { entry ->
+            val route = entry.toRoute<PlayerInfo>()
             PlayerInfoScreen(
+                playerId = route.playerId,
                 onBack = {
                     if (!navController.popBackStack()) {
                         navController.navigateRoot(if (AccountSessionStore.isLoggedIn) Menu else Login)
@@ -487,76 +446,134 @@ fun AppNavigation(
                 }
             )
         }
-        composable<ResourceRoute> {
-            val route = it.toRoute<ResourceRoute>()
-            ResourceScreen(
-                initialCategory = ResourceTab.fromRouteValue(route.tab),
-                requiredMcVer = route.requiredMcVer?.let(McVersion::from),
-                requiredLoader = route.requiredLoader?.let(ModLoader::from),
+        composable<MyModpackRoute> {
+            MyModpackScreen(
                 onBack = {
-                    val fromHostId = route.fromHostId
-                    if (route.fromHost2Id != null) {
-                        navController.navigateAbsolute(Host2Info(route.fromHost2Id))
-                    } else if (fromHostId != null) {
-                        if (!navController.popBackStack()) {
-                            if (route.fromHostMods) {
-                                navController.navigateAbsolute(HostMods(fromHostId, route.fromAllHosts))
-                            } else {
-                                navController.navigateAbsolute(HostInfo(fromHostId, route.fromAllHosts))
-                            }
-                        }
-                    } else {
+                    if (!navController.popBackStack()) {
                         navController.navigateAbsolute(Menu)
                     }
                 },
-                onOpenUpload = { navController.navigate(ModpackUpload) },
-                onOpenModpackInfo = { modpackId ->
-                    navController.navigate(ModpackInfo(modpackId))
-                },
-                onOpenRemoteMods = { pack ->
-                    navController.navigate(
-                        RemoteModRoute(
-                            requiredMcVer = pack.vo.mcVer.mcVer,
-                            requiredLoader = pack.vo.modloader.name,
-                            targetLocalVersionId = pack.versionId,
-                            targetHostId = route.fromHostId,
-                            targetHost2Id = route.fromHost2Id,
-                            fromAllHosts = route.fromAllHosts,
-                            fromHostMods = route.fromHostMods,
+                onOpenPlaza = { navController.navigate(ModpackPlazaRoute()) },
+                onOpenContent = { pack, contentType ->
+                    when (contentType) {
+                        ModpackContentType.Mods -> navController.navigate(
+                            RemoteModRoute(
+                                requiredMcVer = pack.mcVersion.mcVer,
+                                requiredLoader = pack.modLoader.name,
+                                targetLocalVersionId = pack.versionId,
+                            )
                         )
-                    )
-                },
-                onOpenResourceInfo = { resource, type, pack ->
-                    navController.navigate(
-                        ResourceInfoRoute(
-                            type = type.name,
-                            projectId = resource.projectId,
-                            targetLocalVersionId = pack?.versionId
+
+                        ModpackContentType.ResourcePacks,
+                        ModpackContentType.Shaders -> navController.navigate(
+                            ModpackContentRoute(
+                                type = contentType.name,
+                                requiredMcVer = pack.mcVersion.mcVer,
+                                requiredLoader = pack.modLoader.name,
+                                targetLocalVersionId = pack.versionId,
+                            )
                         )
-                    )
+                    }
                 },
-                onOpenPlay = { args ->
-                    openMcPlay(args) { navController.navigateAbsolute(route) }
-                },
-                onOpenModpackOptions = { pack ->
+                onOpenOptions = { pack ->
                     navController.navigate(
                         ModpackOptions(
                             versionId = pack.versionId,
-                            modpackName = pack.vo.name,
+                            modpackName = pack.name,
                             versionName = pack.verName,
                         )
                     )
                 },
-                onOpenTaskList = { runId ->
+                onOpenPlay = { args ->
+                    openMcPlay(args) { navController.navigateAbsolute(MyModpackRoute) }
+                },
+                onOpenTask = onOpenTask,
+            )
+        }
+        /* Friends navigation is archived with the friend system. */
+        composable<ModpackPlazaRoute> {
+            val route = it.toRoute<ModpackPlazaRoute>()
+            RemoteModpackScreen(
+                onOpenInfo = { modpackId ->
                     navController.navigate(
-                        TaskList(
-                            selectedRunId = runId,
-                            fromHostModsId = route.fromHostId.takeIf { route.fromHostMods },
-                            fromAllHosts = route.fromAllHosts
+                        ModpackInfo(
+                            modpackId = modpackId,
                         )
                     )
-                }
+                },
+                onBack = { navController.returnFromModpackPlaza(route) },
+                onOpenUpload = { navController.navigate(ModpackUpload) },
+                requiredMcVer = route.requiredMcVer?.let(McVersion::from),
+                requiredLoader = route.requiredLoader,
             )
+        }
+        composable<ModpackContentRoute> {
+            val route = it.toRoute<ModpackContentRoute>()
+            val contentType = ModpackContentType.valueOf(route.type)
+            val onBack = {
+                if (!navController.popBackStack()) {
+                    navController.navigateAbsolute(MyModpackRoute)
+                }
+            }
+            when (contentType) {
+                ModpackContentType.Mods -> RemoteModScreen(
+                    route = RemoteModRoute(
+                        requiredMcVer = route.requiredMcVer,
+                        requiredLoader = route.requiredLoader,
+                        targetLocalVersionId = route.targetLocalVersionId,
+                        targetLocalKind = route.targetLocalKind,
+                        targetLocalId = route.targetLocalId,
+                    ),
+                    onBack = onBack,
+                    onOpenMod = { mod ->
+                        navController.navigate(
+                            RemoteModInfoRoute(
+                                platform = mod.primaryRef.platform.name,
+                                projectId = mod.primaryRef.projectId,
+                                requiredMcVer = route.requiredMcVer,
+                                requiredLoader = route.requiredLoader,
+                                targetLocalVersionId = route.targetLocalVersionId,
+                                targetLocalKind = route.targetLocalKind,
+                                targetLocalId = route.targetLocalId,
+                            )
+                        )
+                    },
+                )
+
+                ModpackContentType.ResourcePacks -> ResourcepackListScreen(
+                    requiredMcVer = route.requiredMcVer?.let(McVersion::from),
+                    onBack = onBack,
+                    onOpenResourcepack = { project ->
+                        navController.navigate(
+                            ResourceInfoRoute(
+                                type = ResourceInfoType.ResourcePack.name,
+                                projectId = project.projectId,
+                                targetLocalVersionId = route.targetLocalVersionId,
+                                targetLocalKind = route.targetLocalKind,
+                                targetLocalId = route.targetLocalId,
+                            )
+                        )
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+
+                ModpackContentType.Shaders -> ShaderListScreen(
+                    requiredMcVer = route.requiredMcVer?.let(McVersion::from),
+                    onBack = onBack,
+                    onOpenShader = { project ->
+                        navController.navigate(
+                            ResourceInfoRoute(
+                                type = ResourceInfoType.Shader.name,
+                                projectId = project.projectId,
+                                targetLocalVersionId = route.targetLocalVersionId,
+                                targetLocalKind = route.targetLocalKind,
+                                targetLocalId = route.targetLocalId,
+                            )
+                        )
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
         composable<ResourceInfoRoute> {
             val route = it.toRoute<ResourceInfoRoute>()
@@ -565,28 +582,86 @@ fun AppNavigation(
                 modCatalog = modCatalog,
                 onBack = {
                     if (!navController.popBackStack()) {
-                        navController.navigateAbsolute(ResourceRoute())
+                        navController.navigateAbsolute(MyModpackRoute)
                     }
                 },
-                onOpenTaskList = { runId -> navController.navigate(TaskList(runId)) },
+                onOpenTaskList = onOpenTask,
                 onTargetUnavailable = {
-                    if (route.targetLocalVersionId != null) {
-                        navController.navigateAbsolute(ResourceRoute(ResourceTab.Installed.name))
+                    if (route.localCatalogTarget() != null) {
+                        navController.navigateAbsolute(MyModpackRoute)
                     } else if (!navController.popBackStack()) {
-                        navController.navigateAbsolute(ResourceRoute())
+                        navController.navigateAbsolute(MyModpackRoute)
                     }
                 }
             )
         }
-        composable<RemoteModRoute> {
-            val route = it.toRoute<RemoteModRoute>()
-            RemoteModScreen(
-                route = route,
-                onBack = { navController.returnFromRemoteMod(route) },
-                onOpenMod = { mod ->
-                    navController.navigate(route.toInfoRoute(mod))
+        composable<ModpackUpload> {
+            ModpackUploadScreen(
+                onBack = {
+                    if (!navController.popBackStack()) navController.navigateAbsolute(ModpackPlazaRoute())
+                },
+                onUploadSubmitted = onOpenTask,
+            )
+        }
+        /* composable<Modpack2Upload> {
+            Modpack2UploadScreen(
+                onBack = {
+                    if (!navController.popBackStack()) navController.navigateAbsolute(ModpackPlazaRoute())
+                },
+                onOpenTask = onOpenTask,
+            )
+        }
+        composable<Modpack2ContentRoute> {
+            val route = it.toRoute<Modpack2ContentRoute>()
+            Modpack2ContentScreen(
+                versionId = route.versionId,
+                onBack = {
+                    if (!navController.popBackStack()) navController.navigateAbsolute(MyModpackRoute)
+                },
+                onBrowse = { type, versionId, mcVersion, modLoader ->
+                    when (type) {
+                        ModpackContentType.Mods -> navController.navigate(RemoteModRoute(
+                            requiredMcVer = mcVersion.mcVer,
+                            requiredLoader = modLoader.name,
+                            targetLocalKind = CatalogLocalTargetKind.Modpack2.name,
+                            targetLocalId = versionId,
+                        ))
+                        else -> navController.navigate(ModpackContentRoute(
+                            type = type.name,
+                            requiredMcVer = mcVersion.mcVer,
+                            requiredLoader = modLoader.name,
+                            targetLocalKind = CatalogLocalTargetKind.Modpack2.name,
+                            targetLocalId = versionId,
+                        ))
+                    }
+                },
+                onOpenKnown = { content, mcVersion, modLoader ->
+                    navController.navigate(RemoteModInfoRoute(
+                        platform = when (content.platform.name) { "CurseForge" -> "CURSEFORGE"; else -> "MODRINTH" },
+                        projectId = content.projectId,
+                        requiredMcVer = mcVersion.mcVer,
+                        requiredLoader = modLoader.name,
+                        targetLocalKind = CatalogLocalTargetKind.Modpack2.name,
+                        targetLocalId = route.versionId,
+                    ))
                 },
             )
+        } */
+        composable<RemoteModRoute> {
+            val route = it.toRoute<RemoteModRoute>()
+            if (isDisabledCatalogLocalTargetKind(route.targetLocalKind)) {
+                LaunchedEffect(route) {
+                    navController.navigateAbsolute(MyModpackRoute)
+                }
+            } else {
+                RemoteModScreen(
+                    route = route,
+                    onBack = { navController.returnFromRemoteMod(route) },
+                    onOpenMod = { mod ->
+                        navController.navigate(route.toInfoRoute(mod))
+                    },
+                )
+            }
         }
         composable<RemoteModInfoRoute> {
             val route = it.toRoute<RemoteModInfoRoute>()
@@ -594,7 +669,7 @@ fun AppNavigation(
                 route = route,
                 onBack = {
                     if (!navController.popBackStack()) {
-                        navController.navigateAbsolute(route.toBrowseRoute())
+                        navController.returnFromRemoteModInfo(route, clearLocalTarget = false)
                     }
                 },
                 onOpenDependencyMod = { dependency ->
@@ -606,49 +681,59 @@ fun AppNavigation(
                         )
                     )
                 },
-                onOpenTaskList = { runId ->
-                    navController.navigate(
-                        TaskList(
-                            selectedRunId = runId,
-                            fromHostModsId = route.targetHostId.takeIf { route.fromHostMods },
-                            fromAllHosts = route.fromAllHosts
-                        )
-                    )
-                },
+                onOpenTaskList = onOpenTask,
                 onTargetUnavailable = {
-                    if (route.targetLocalVersionId != null) {
-                        navController.navigateAbsolute(route.toBrowseRoute(clearLocalTarget = true))
+                    if (route.hasDisabledCatalogLocalTargetKind()) {
+                        navController.navigateAbsolute(MyModpackRoute)
+                    } else if (route.localCatalogTarget() != null) {
+                        navController.returnFromRemoteModInfo(route, clearLocalTarget = true)
                     } else if (!navController.popBackStack()) {
-                        navController.navigateAbsolute(route.toBrowseRoute())
+                        navController.returnFromRemoteModInfo(route, clearLocalTarget = false)
                     }
                 }
             )
         }
         composable<ModpackInfo> {
             val route = it.toRoute<ModpackInfo>()
-            ModpackInfoScreen(
-                modpackId = route.modpackId,
-                onBack = {
-                    if (route.fromHostId != null) {
-                        navController.navigateAbsolute(HostInfo(route.fromHostId, route.fromAllHosts))
-                    } else {
-                        navController.navigateAbsolute(ResourceRoute())
-                    }
-                },
-                onOpenTaskList = { runId ->
-                    navController.navigate(TaskList(runId))
-                },
-                onOpenVersionEdit = { verName ->
-                    navController.navigate(
-                        ModpackVersionEdit(
-                            modpackId = route.modpackId,
-                            verName = verName,
-                            fromHostId = route.fromHostId,
-                            fromAllHosts = route.fromAllHosts
-                        )
-                    )
+            val onBackFromModpackInfo = {
+                if (route.fromHostId != null) {
+                    navController.navigateAbsolute(HostInfo(route.fromHostId, route.fromAllHosts))
+                } else if (!navController.popBackStack()) {
+                    navController.navigateAbsolute(ModpackPlazaRoute())
                 }
-            )
+            }
+            if (ModpackInfoSource.fromRouteValue(route.source) != ModpackInfoSource.Legacy) {
+                LaunchedEffect(route) {
+                    onBackFromModpackInfo()
+                }
+            } else {
+                ModpackInfoScreen(
+                    modpackId = route.modpackId,
+                    onBack = onBackFromModpackInfo,
+                    onOpenTaskList = onOpenTask,
+                    onOpenVersionEdit = { verName ->
+                        navController.navigate(
+                            ModpackVersionEdit(
+                                modpackId = route.modpackId,
+                                verName = verName,
+                                fromHostId = route.fromHostId,
+                                fromAllHosts = route.fromAllHosts
+                            )
+                        )
+                    },
+                    onCreateHost = { pack, version ->
+                        navController.navigate(
+                            HostCreate(
+                                kind = HostKind.Legacy.name,
+                                sourceId = pack._id.toHexString(),
+                                legacyVersionName = version.name,
+                                displayName = pack.name,
+                                legacyMcVersion = pack.mcVer.name,
+                            )
+                        )
+                    },
+                )
+            }
         }
         composable<ModpackVersionEdit> {
             val route = it.toRoute<ModpackVersionEdit>()

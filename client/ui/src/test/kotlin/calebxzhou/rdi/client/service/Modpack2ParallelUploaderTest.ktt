@@ -1,0 +1,156 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
+import calebxzhou.rdi.common.model.ModpackUploadSessionVo
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.security.MessageDigest
+import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+
+class Modpack2ParallelUploaderTest {
+    @Test
+    fun `resume handles lost part and complete responses while staying at max eight`() = runBlocking {
+        val bytes = ByteArray(24) { it.toByte() }
+        val file = Files.createTempFile("modpack2-upload", ".tar.zst")
+        Files.write(file, bytes)
+        try {
+            val session = ModpackUploadSessionVo(
+                id = UUID.fromString("019fe723-72c0-7000-8000-000000000001"),
+                fileName = "pack.tar.zst",
+                size = bytes.size.toLong(),
+                sha1 = bytes.sha1(),
+                partSize = 1,
+                partCount = bytes.size,
+                uploadedParts = emptyList(),
+                ready = false,
+                expiresAt = Long.MAX_VALUE,
+            )
+            val gateway = RecordingUploadGateway(session)
+            val result = Modpack2ParallelUploader(
+                gateway = gateway,
+                maxConcurrency = Modpack2ParallelUploader.MAX_CONCURRENCY,
+                maxAttempts = 2,
+                retryDelayMillis = { 0L },
+            ).upload(file.toFile(), existingSession = session).getOrThrow()
+
+            assertTrue(result.session.ready)
+            assertEquals(bytes.size, gateway.uploadedParts.size)
+            assertTrue(gateway.lostPartResponseRecovered)
+            assertTrue(gateway.lostCompleteResponseRecovered)
+            assertTrue(gateway.maxConcurrent <= Modpack2ParallelUploader.MAX_CONCURRENCY)
+            // A response-lost part is confirmed from session status; it is not uploaded twice.
+            assertEquals(1, gateway.partRequests.count { it == 0 })
+        } finally {
+            Files.deleteIfExists(file)
+        }
+    }
+}
+
+private class RecordingUploadGateway(
+    private var session: ModpackUploadSessionVo,
+) : Modpack2Gateway {
+    val uploadedParts = ConcurrentHashMap.newKeySet<Int>()
+    val partRequests = java.util.Collections.synchronizedList(mutableListOf<Int>())
+    var maxConcurrent: Int = 0
+        private set
+    var lostPartResponseRecovered: Boolean = false
+        private set
+    var lostCompleteResponseRecovered: Boolean = false
+        private set
+
+    private val activeRequests = AtomicInteger()
+    private val lostPartResponse = AtomicBoolean()
+    private val lostCompleteResponse = AtomicBoolean()
+    private var ready = false
+
+    override suspend fun appendPreflight(
+        modpackId: kotlin.uuid.Uuid,
+        baseVersionId: kotlin.uuid.Uuid,
+    ) = unsupported<calebxzau.rdi.common.model.Modpack2AppendPreflightVo>()
+
+    override suspend fun create(request: calebxzau.rdi.common.model.Modpack2CreateDto) =
+        unsupported<calebxzau.rdi.common.model.Modpack2CreateResult>()
+
+    override suspend fun createVersion(
+        modpackId: kotlin.uuid.Uuid,
+        request: calebxzau.rdi.common.model.Modpack2VersionCreateFromUploadDto,
+    ) = unsupported<calebxzau.rdi.common.model.Modpack2CreateResult>()
+
+    override suspend fun listVersions(modpackId: kotlin.uuid.Uuid) =
+        unsupported<List<calebxzau.rdi.common.model.Modpack2VersionDetailVo>>()
+
+    override suspend fun retry(modpackId: kotlin.uuid.Uuid, versionId: kotlin.uuid.Uuid) =
+        unsupported<calebxzau.rdi.common.model.Modpack2CreateResult>()
+
+    override suspend fun clientPackHash(modpackId: kotlin.uuid.Uuid, versionId: kotlin.uuid.Uuid) =
+        unsupported<String>()
+
+    override suspend fun clientManifest(modpackId: kotlin.uuid.Uuid, versionId: kotlin.uuid.Uuid) =
+        unsupported<calebxzau.rdi.common.model.Modpack2ClientManifestVo>()
+
+    override suspend fun downloadClientPack(
+        modpackId: kotlin.uuid.Uuid,
+        versionId: kotlin.uuid.Uuid,
+        target: java.nio.file.Path,
+        expectedSha1: String,
+        onProgress: (Long, Long?) -> Unit,
+    ) = unsupported<Unit>()
+
+    override suspend fun createUploadSession(request: ModpackUploadSessionCreateDto) =
+        unsupported<ModpackUploadSessionVo>()
+
+    override suspend fun uploadSessionStatus(uploadId: UUID): Result<ModpackUploadSessionVo> {
+        return Result.success(
+            session.copy(
+                uploadedParts = uploadedParts.sorted(),
+                ready = ready,
+            )
+        )
+    }
+
+    override suspend fun uploadPart(
+        uploadId: UUID,
+        index: Int,
+        bytes: ByteArray,
+        sha1: String,
+    ): Result<Unit> {
+        partRequests += index
+        val active = activeRequests.incrementAndGet()
+        maxConcurrent = maxOf(maxConcurrent, active)
+        try {
+            delay(2)
+            uploadedParts += index
+            if (index == 0 && lostPartResponse.compareAndSet(false, true)) {
+                lostPartResponseRecovered = true
+                return Result.failure(IllegalStateException("part response lost"))
+            }
+            return Result.success(Unit)
+        } finally {
+            activeRequests.decrementAndGet()
+        }
+    }
+
+    override suspend fun completeUpload(uploadId: UUID): Result<ModpackUploadSessionVo> {
+        ready = true
+        session = session.copy(ready = true, uploadedParts = uploadedParts.sorted())
+        if (lostCompleteResponse.compareAndSet(false, true)) {
+            lostCompleteResponseRecovered = true
+            return Result.failure(IllegalStateException("complete response lost"))
+        }
+        return Result.success(session)
+    }
+
+    private fun <T> unsupported(): Result<T> =
+        Result.failure(UnsupportedOperationException("not used by uploader test"))
+}
+
+private fun ByteArray.sha1(): String = MessageDigest.getInstance("SHA-1")
+    .digest(this)
+    .joinToString("") { "%02x".format(it) }

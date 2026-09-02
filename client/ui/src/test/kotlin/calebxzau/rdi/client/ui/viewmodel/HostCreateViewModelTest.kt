@@ -1,0 +1,372 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.model.Host2
+import calebxzhou.rdi.common.model.Host2PackStatus
+import calebxzhou.rdi.common.model.HostStatus
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.PackSource
+import calebxzhou.rdi.client.ui.screen.HostKind
+import calebxzhou.rdi.model.Role
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.bson.types.ObjectId
+import java.util.UUID
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class HostCreateViewModelTest {
+    @Test
+    fun `batch game rule update replaces map and copies supplied values`() = runBlocking {
+        val viewModel = createViewModel(FakeHostCreateGateway())
+        awaitLoaded(viewModel)
+
+        val supplied = mutableMapOf(
+            "keepInventory" to "true",
+            "doDaylightCycle" to "false",
+        )
+        viewModel.updateGameRules(supplied)
+        supplied["keepInventory"] = "false"
+        supplied["newRule"] = "unexpected"
+        supplied.remove("doDaylightCycle")
+
+        assertEquals(
+            mapOf(
+                "keepInventory" to "true",
+                "doDaylightCycle" to "false",
+            ),
+            viewModel.uiState.value.gameRules,
+        )
+
+        viewModel.updateGameRules(mapOf("keepInventory" to "false"))
+        assertEquals(mapOf("keepInventory" to "false"), viewModel.uiState.value.gameRules)
+    }
+
+    @Test
+    fun `create mode uses route source and does not load candidate packs`() = runBlocking {
+        val gateway = FakeHostCreateGateway()
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "2.0.0",
+            displayName = "测试整合包",
+        )
+
+        val state = awaitLoaded(viewModel)
+
+        assertFalse(state.isEditMode)
+        assertEquals("测试整合包", state.selectedPackTitle)
+        assertEquals("2.0.0", state.selectedVersionName)
+        assertEquals(1, gateway.loadInitialCalls)
+        assertEquals("创建新房间", state.title)
+    }
+
+    @Test
+    fun `create submission preserves exact legacy options`() = runBlocking {
+        val gateway = FakeHostCreateGateway(submissionResult = Result.success(Unit))
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "2.0.0",
+            displayName = "测试整合包",
+        )
+        awaitLoaded(viewModel)
+
+        viewModel.updateHostName("  新房间  ")
+        viewModel.updateIntro("  和朋友一起玩  ")
+        viewModel.updateWhitelist(false)
+        viewModel.submit()
+
+        val event = assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
+        assertTrue(event.message.contains("创建中"))
+        val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
+        assertEquals(ObjectId(PACK_ID), create.modpackId)
+        assertEquals("2.0.0", create.packVer)
+        assertTrue(create.saveWorld)
+        assertNull(create.worldId)
+        assertFalse(create.whitelist)
+    }
+
+    @Test
+    fun `legacy create no-save clears world and sends saveWorld false`() = runBlocking {
+        val gateway = FakeHostCreateGateway(submissionResult = Result.success(Unit))
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "2.0.0",
+        )
+        awaitLoaded(viewModel)
+
+        viewModel.updateHostName("无存档房间")
+        viewModel.updateNoSave(true)
+        viewModel.submit()
+
+        assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
+        val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
+        assertFalse(create.saveWorld)
+        assertNull(create.worldId)
+    }
+
+    @Test
+    fun `legacy create can switch from no-save back to new world`() = runBlocking {
+        val gateway = FakeHostCreateGateway(submissionResult = Result.success(Unit))
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "2.0.0",
+        )
+        awaitLoaded(viewModel)
+
+        viewModel.updateHostName("持久世界房间")
+        viewModel.updateNoSave(true)
+        viewModel.updateNoSave(false)
+        viewModel.submit()
+
+        assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
+        val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
+        assertTrue(create.saveWorld)
+        assertNull(create.worldId)
+    }
+
+    @Test
+    fun `legacy 1 12 create uses custom skyblock terrain`() = runBlocking {
+        val gateway = FakeHostCreateGateway(submissionResult = Result.success(Unit))
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "1.12.2",
+            legacyMcVersion = McVersion.V122.name,
+        )
+        awaitLoaded(viewModel)
+
+        assertEquals(McVersion.V122, viewModel.uiState.value.currentMcVersion)
+        viewModel.updateHostName("1.12房间")
+        viewModel.selectLevelChoice(2)
+        viewModel.submit()
+
+        assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
+        val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
+        assertEquals("skyblockbuilder:custom_skyblock", create.levelType)
+    }
+
+    @Test
+    fun `legacy 1 20 create uses modern skyblock terrain`() = runBlocking {
+        val gateway = FakeHostCreateGateway(submissionResult = Result.success(Unit))
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "1.20.1",
+            legacyMcVersion = McVersion.V201.name,
+        )
+        awaitLoaded(viewModel)
+
+        viewModel.updateHostName("1.20房间")
+        viewModel.selectLevelChoice(2)
+        viewModel.submit()
+
+        assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
+        val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
+        assertEquals("skyblockbuilder:skyblock", create.levelType)
+    }
+
+    /* @Test
+    fun `create submission preserves exact modpack2 version source`() = runBlocking {
+        val versionId = "019c9c18-778d-7000-8000-000000000003"
+        val gateway = FakeHostCreateGateway(submissionResult = Result.success(testHost2Detail()))
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Host2,
+            sourceId = versionId,
+            displayName = "Modpack2整合包",
+        )
+        awaitLoaded(viewModel)
+
+        viewModel.updateHostName("Modpack2房间")
+        viewModel.submit()
+
+        assertIs<HostCreateEvent.Host2Created>(viewModel.events.first())
+        val create = assertIs<HostCreateSubmission.CreateHost2>(gateway.submissions.single()).dto
+        assertEquals(PackSource.Modpack2(UUID.fromString(versionId)), create.packSource)
+    }
+
+    */
+
+    @Test
+    fun `missing source cannot submit and explains the entry point`() = runBlocking {
+        val gateway = FakeHostCreateGateway()
+        val viewModel = createViewModel(gateway)
+        awaitLoaded(viewModel)
+
+        viewModel.updateHostName("新房间")
+        viewModel.submit()
+
+        assertEquals("请从“我的整合包”的菜单发起创建多人房间", viewModel.uiState.value.statusMessage)
+        assertTrue(gateway.submissions.isEmpty())
+    }
+
+    /* @Test
+    fun `invalid host2 source cannot submit`() = runBlocking {
+        val gateway = FakeHostCreateGateway()
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Host2,
+            sourceId = "not-a-uuid",
+        )
+        awaitLoaded(viewModel)
+
+        viewModel.updateHostName("新房间")
+        viewModel.submit()
+
+        assertTrue(viewModel.uiState.value.statusMessage?.contains("来源无效") == true)
+        assertTrue(gateway.submissions.isEmpty())
+    } */
+
+    @Test
+    fun `edit mode loads host and submits only host options`() = runBlocking {
+        val gateway = FakeHostCreateGateway(
+            initial = HostCreateInitialData(host = testHostDetail(ObjectId(WORLD_ID))),
+        )
+        val viewModel = createViewModel(gateway, hostId = HOST_ID)
+        val state = awaitLoaded(viewModel)
+
+        assertTrue(state.isEditMode)
+        assertEquals("编辑中的房间", state.hostName)
+        assertEquals("测试整合包", state.selectedPackTitle)
+        assertEquals("latest", state.selectedVersionName)
+
+        viewModel.updateHostName("  修改后的名称 ")
+        viewModel.updateWhitelist(true)
+        viewModel.submit()
+
+        assertIs<HostCreateEvent.EditSaved>(viewModel.events.first())
+        val edit = assertIs<HostCreateSubmission.EditLegacy>(gateway.submissions.single())
+        assertEquals(ObjectId(HOST_ID), edit.hostId)
+        assertEquals("修改后的名称", edit.options.name)
+        assertEquals(true, edit.options.whitelist)
+        assertNull(edit.options.modpackId)
+        assertNull(edit.options.packVer)
+    }
+
+    @Test
+    fun `duplicate submit is ignored while submission is running`() = runBlocking {
+        val gate = CompletableDeferred<Result<Unit>>()
+        val gateway = FakeHostCreateGateway(submissionGate = gate)
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "2.0.0",
+        )
+        awaitLoaded(viewModel)
+
+        viewModel.updateHostName("新房间")
+        viewModel.submit()
+        gateway.submissionStarted.await()
+        viewModel.submit()
+
+        assertEquals(1, gateway.submissions.size)
+        gate.complete(Result.success(Unit))
+        assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
+    }
+
+    private fun createViewModel(
+        gateway: HostCreateGateway,
+        hostId: String? = null,
+        kind: HostKind = HostKind.Legacy,
+        sourceId: String? = null,
+        legacyVersionName: String? = null,
+        displayName: String? = null,
+        legacyMcVersion: String? = null,
+    ) = HostCreateViewModel(
+        args = HostCreateViewModelArgs(
+            hostId = hostId,
+            defaultHostName = "默认房间名",
+            kind = kind,
+            sourceId = sourceId,
+            legacyVersionName = legacyVersionName,
+            displayName = displayName,
+            legacyMcVersion = legacyMcVersion,
+        ),
+        gateway = gateway,
+    )
+
+    private suspend fun awaitLoaded(viewModel: HostCreateViewModel): HostCreateUiState =
+        withTimeout(5_000) { viewModel.uiState.filter { !it.loading }.first() }
+
+    private class FakeHostCreateGateway(
+        private val initial: HostCreateInitialData = HostCreateInitialData(),
+        private val submissionResult: Result<Unit> = Result.success(Unit),
+        private val submissionGate: CompletableDeferred<Result<Unit>>? = null,
+    ) : HostCreateGateway {
+        var loadInitialCalls = 0
+        val submissions = mutableListOf<HostCreateSubmission>()
+        val submissionStarted = CompletableDeferred<Unit>()
+
+        override suspend fun loadInitial(hostId: ObjectId?): Result<HostCreateInitialData> {
+            loadInitialCalls++
+            return Result.success(initial)
+        }
+
+        override suspend fun createOrUpdate(submission: HostCreateSubmission): Result<Unit> {
+            submissions += submission
+            submissionStarted.complete(Unit)
+            return submissionGate?.await() ?: submissionResult
+        }
+
+        override suspend fun requestHostPackUpdate(hostId: ObjectId): Result<Unit> = Result.success(Unit)
+    }
+
+    private companion object {
+        const val HOST_ID = "66a000000000000000000001"
+        const val PACK_ID = "66a000000000000000000002"
+        const val WORLD_ID = "66a000000000000000000003"
+        val OWNER_ID = ObjectId("66a000000000000000000004")
+
+        /* fun testHost2Detail() = Host2.DetailVo(
+            id = UUID.fromString("019c9c18-778d-7000-8000-000000000003"),
+            name = "新房间",
+            ownerId = UUID.fromString("019c9c18-778d-7000-8000-000000000004"),
+            packSource = PackSource.Modpack2(UUID.fromString("019c9c18-778d-7000-0000-000000000003")),
+            packStatus = Host2PackStatus.Busy,
+            port = 25565,
+            whitelist = true,
+            status = HostStatus.STOPPED,
+            role = Role.OWNER,
+        ) */
+
+        fun testHostDetail(worldId: ObjectId? = null) = Host.DetailVo(
+            _id = ObjectId(HOST_ID),
+            name = "编辑中的房间",
+            ownerId = OWNER_ID,
+            modpack = calebxzhou.rdi.common.model.Modpack.BriefVo(
+                id = ObjectId(PACK_ID),
+                name = "测试整合包",
+                mcVer = McVersion.V201,
+                modloader = ModLoader.forge,
+            ),
+            packVer = "latest",
+            worldId = worldId,
+            port = 25565,
+            difficulty = 1,
+            gameMode = 1,
+            levelType = "minecraft:flat",
+            gameRules = mutableMapOf("keepInventory" to "true"),
+            whitelist = false,
+            allowCheats = true,
+        )
+    }
+}

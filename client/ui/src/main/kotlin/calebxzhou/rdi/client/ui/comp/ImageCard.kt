@@ -36,10 +36,11 @@ fun ImageCard(
     val bitmap = remember(iconPath) {
         loadImageBitmap(iconPath).getOrThrow()
     }
-    Box(modifier = Modifier.padding(6.dp)) {
+    Box(modifier = Modifier.padding(1.dp)) {
         Surface(
             modifier = Modifier
                 .width(70.dp)
+                .height(25.dp)
                 .then(
                     if (selected) {
                         Modifier.shadow(6.dp, shape, clip = false)
@@ -51,14 +52,14 @@ fun ImageCard(
                 .clickable { onClick() },
             shape = shape,
             color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-            border = if (selected) BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null,
-            tonalElevation = if (selected) 2.dp else 0.dp
+            border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,
+            tonalElevation = if (selected) 1.dp else 0.dp
         ) {
-            Column(modifier = Modifier.clip(shape)) {
+            Row(modifier = Modifier.clip(shape)) {
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .height(35.dp)
+                        .fillMaxHeight()
+                        .width(25.dp)
                         .clip(shape)
                         .background(Color(0xFF1E1E1E), shape)
                 ) {
@@ -72,7 +73,7 @@ fun ImageCard(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .padding(horizontal = 5.dp, vertical = 3.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(

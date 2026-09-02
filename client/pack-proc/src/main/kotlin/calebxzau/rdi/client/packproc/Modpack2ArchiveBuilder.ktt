@@ -1,0 +1,220 @@
+package calebxzau.rdi.client.packproc
+
+import calebxzau.rdi.common.logging.Loggers
+import calebxzau.rdi.mediaproc.MediaProcUnavailableException
+import calebxzau.rdi.mediaproc.OggTranscodeResult
+import calebxzau.rdi.mediaproc.OggTranscoder
+import calebxzhou.rdi.common.archive.TarZstArchiveWriter
+import calebxzau.rdi.common.model.Modpack2RawFile
+import calebxzau.rdi.common.model.Modpack2RawFileRoot
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.openChineseZip
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.File
+import java.nio.file.Files
+import java.util.zip.ZipEntry
+import java.util.zip.ZipException
+import java.util.zip.ZipOutputStream
+
+data class Modpack2ArchiveResult(
+    val archive: File,
+    val sha1: String,
+    val size: Long,
+    /** Raw declarations matching the bytes actually written to tar.zst. */
+    val rawFiles: List<Modpack2RawFile>,
+    /** Declarations from the frozen source before PNG/OGG processing. */
+    val sourceRawFiles: List<Modpack2RawFile> = rawFiles,
+)
+
+/** Writes only raw client/shared/server files; platform content never enters the tar. */
+class Modpack2ArchiveBuilder(
+    private val paths: PackProcessingPaths,
+) {
+    private val logger by Loggers
+
+    suspend fun build(
+        result: Modpack2ProcessingResult,
+        baseName: String = result.snapshot.sourceName,
+        manifestName: String? = null,
+        manifestJson: String? = null,
+    ): Result<Modpack2ArchiveResult> = withContext(Dispatchers.IO) {
+        var target: File? = null
+        runCatching {
+            result.snapshot.requireUnchanged()
+            result.providedServerSnapshot?.requireUnchanged()
+            paths.workDir.mkdirs()
+            val safeBaseName = baseName.trim().ifBlank { "modpack2" }
+                .replace(Regex("[^a-zA-Z0-9._-]+"), "_")
+            target = paths.workDir.resolve("${safeBaseName}_${System.currentTimeMillis()}.tar.zst")
+            val writtenRawFiles = mutableListOf<Modpack2RawFile>()
+            TarZstArchiveWriter(target!!).use { out ->
+                if (manifestName != null || manifestJson != null) {
+                    require(manifestName != null && manifestJson != null) { "Modpack2清单元数据必须成对提供" }
+                    require(manifestName == "manifest.json" || manifestName == "modrinth.index.json") {
+                        "不支持的Modpack2清单文件名：$manifestName"
+                    }
+                    out.addDirectory("metadata")
+                    out.addFile("metadata/$manifestName", manifestJson.toByteArray(Charsets.UTF_8), 0L)
+                }
+                out.addDirectory(Modpack2RawFileRoot.Client.name.lowercase())
+                out.addDirectory(Modpack2RawFileRoot.Shared.name.lowercase())
+                if (result.rawFiles.any { it.root == Modpack2RawFileRoot.Server }) {
+                    out.addDirectory(Modpack2RawFileRoot.Server.name.lowercase())
+                }
+                result.rawFiles
+                    .sortedWith(compareBy<Modpack2RawFile> { it.root.name }.thenBy { it.path })
+                    .forEach { rawFile ->
+                        val key = rawFileKey(rawFile.root, rawFile.path)
+                        val source = result.rawFileSources[key]
+                            ?: throw IllegalStateException("找不到Modpack2原始文件: $key")
+                        require(source.isFile) { "Modpack2原始文件不存在: ${source.path}" }
+                        val bytes = processBytes(
+                            rawPath = rawFile.path,
+                            sourceBytes = source.readBytes(),
+                        )
+                        val archivePath = "${rawFile.root.name.lowercase()}/${normalizePackPath(rawFile.path)}"
+                        out.addFile(archivePath, bytes, source.lastModified())
+                        writtenRawFiles += rawFile.copy(
+                            sha1 = sha1(bytes),
+                            size = bytes.size.toLong(),
+                        )
+                    }
+            }
+            Modpack2ArchiveResult(
+                archive = target!!,
+                sha1 = Modpack2SnapshotHasher.sha1(target!!),
+                size = target!!.length(),
+                rawFiles = writtenRawFiles,
+                sourceRawFiles = result.rawFiles,
+            )
+        }.onFailure {
+            target?.let { partial ->
+                runCatching { Files.deleteIfExists(partial.toPath()) }
+            }
+        }
+    }
+
+    private fun sha1(bytes: ByteArray): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-1")
+        return digest.digest(bytes).joinToString("") { "%02x".format(it) }
+    }
+
+    private suspend fun processBytes(rawPath: String, sourceBytes: ByteArray): ByteArray {
+        val lower = rawPath.lowercase()
+        return when {
+            lower.endsWith(".zip") || lower.endsWith(".jar") -> processNestedArchive(
+                bytes = sourceBytes,
+                jarArchive = lower.endsWith(".jar"),
+            )
+
+            lower.endsWith(".png") -> processUploadPng(sourceBytes, rawPath)
+            lower.endsWith(".ogg") -> processOggBytes(sourceBytes, rawPath)
+            else -> sourceBytes
+        }
+    }
+
+    private suspend fun processNestedArchive(bytes: ByteArray, jarArchive: Boolean): ByteArray {
+        return try {
+            val output = ByteArrayOutputStream()
+            ZipOutputStream(output).use { out ->
+                val addedDirectories = mutableSetOf<String>()
+                val temp = Files.createTempFile(paths.workDir.toPath(), "modpack2-nested-", ".zip").toFile()
+                try {
+                    temp.writeBytes(bytes)
+                    temp.openChineseZip().use { zip ->
+                        zip.entries().asSequence().forEach { entry ->
+                            val relative = normalizePackPath(entry.name)
+                            if (relative.isBlank() || Modpack2ArchivePolicy.shouldExclude(relative, insideJar = jarArchive)) {
+                                return@forEach
+                            }
+                            if (!Modpack2SnapshotHasher.isSafePackPath(relative)) {
+                                throw IllegalArgumentException("嵌套归档路径无效: $relative")
+                            }
+                            if (entry.isDirectory || relative.endsWith('/')) {
+                                addZipDirectory(relative, out, addedDirectories)
+                                return@forEach
+                            }
+                            val entryBytes = zip.getInputStream(entry).use { it.readBytes() }
+                            val processed = when {
+                                relative.lowercase().endsWith(".png") -> processUploadPng(entryBytes, relative)
+                                relative.lowercase().endsWith(".ogg") -> processOggBytes(entryBytes, relative)
+                                else -> entryBytes
+                            }
+                            addZipParents(relative, out, addedDirectories)
+                            out.putNextEntry(ZipEntry(relative).apply { time = entry.time })
+                            out.write(processed)
+                            out.closeEntry()
+                        }
+                    }
+                } finally {
+                    runCatching { temp.deleteRecursivelyNoSymlink() }
+                }
+            }
+            output.toByteArray()
+        } catch (_: ZipException) {
+            // A raw file can have a .zip/.jar suffix without being an archive.
+            bytes
+        }
+    }
+
+    private fun addZipParents(path: String, out: ZipOutputStream, addedDirectories: MutableSet<String>) {
+        val segments = path.split('/').dropLast(1)
+        var current = ""
+        segments.forEach { segment ->
+            current = if (current.isBlank()) segment else "$current/$segment"
+            addZipDirectory(current, out, addedDirectories)
+        }
+    }
+
+    private fun addZipDirectory(path: String, out: ZipOutputStream, addedDirectories: MutableSet<String>) {
+        val normalized = path.trim('/').takeIf { it.isNotBlank() } ?: return
+        if (!addedDirectories.add(normalized)) return
+        out.putNextEntry(ZipEntry("$normalized/").apply { time = 0L })
+        out.closeEntry()
+    }
+
+    private val emptyOggBytes: ByteArray by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        Modpack2ArchiveBuilder::class.java.classLoader
+            .getResourceAsStream("assets/empty.ogg")
+            ?.use { it.readBytes() }
+            ?: error("缺少资源文件: assets/empty.ogg")
+    }
+
+    private suspend fun processOggBytes(rawBytes: ByteArray, entryName: String): ByteArray {
+        val workDir = Files.createTempDirectory(paths.workDir.toPath(), "modpack2-ogg-").toFile()
+        return try {
+            val result = OggTranscoder.transcodeOgg(rawBytes, workDir.toPath())
+            result.fold(
+                onSuccess = { outcome ->
+                    when (outcome) {
+                        is OggTranscodeResult.Encoded -> outcome.bytes
+                        is OggTranscodeResult.TooLong -> {
+                            logger.warn {
+                                "OGG超过10秒，已替换为空音频: $entryName (${outcome.durationMicros}微秒)"
+                            }
+                            emptyOggBytes
+                        }
+                    }
+                },
+                onFailure = { error ->
+                    if (error is MediaProcUnavailableException) throw error
+                    logger.error(error) { "OGG处理失败，已替换为空音频: $entryName" }
+                    emptyOggBytes
+                },
+            )
+        } finally {
+            runCatching { workDir.deleteRecursivelyNoSymlink() }
+        }
+    }
+}
+
+suspend fun buildModpack2Archive(
+    result: Modpack2ProcessingResult,
+    paths: PackProcessingPaths,
+    baseName: String = result.snapshot.sourceName,
+    manifestName: String? = null,
+    manifestJson: String? = null,
+): Result<Modpack2ArchiveResult> = Modpack2ArchiveBuilder(paths).build(result, baseName, manifestName, manifestJson)

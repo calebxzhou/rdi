@@ -1,0 +1,407 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2ContentCacheRecord
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.ContentRequest
+import calebxzhou.rdi.client.service.content.toClientContentRequest
+import calebxzhou.rdi.client.ui.McPlayArgs
+import calebxzhou.rdi.client.ui.McPlayCleanup
+import calebxzhou.rdi.client.ui.McPlayStore
+import calebxzhou.rdi.common.exception.RequestError
+import calebxzau.rdi.common.model.ClientContentVo
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzhou.rdi.common.model.Host2
+import calebxzhou.rdi.common.model.Host2PackStatus
+import calebxzhou.rdi.common.model.HostStatus
+import calebxzhou.rdi.common.model.Mod
+import io.ktor.http.HttpMethod
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import org.koin.core.context.GlobalContext
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.security.MessageDigest
+import kotlin.uuid.toKotlinUuid
+
+private val host2PreparedPlans = Host2PreparedPlanCache()
+
+private data class Host2Execution(
+    val plan: Host2PreparedPlan,
+    val transaction: Host2PlayPathTransaction,
+)
+
+/**
+ * Starts a Host2 from the server-selected source. Modpack2 is installed through the existing
+ * local service first; the room overlay transaction is kept alive until the game exits.
+ */
+suspend fun startHost2Play(
+    hostId: String,
+    modpack2LocalService: Modpack2LocalService = GlobalContext.get().get(),
+    localRepository: LocalModpack2Repository = GlobalContext.get().get(),
+    versionCoordinator: Modpack2VersionCoordinator = GlobalContext.get().get(),
+    transactionService: Host2PlayTransactionService = Host2PlayTransactionService(),
+    contentStore: ClientContentStore = ClientContentStore.shared,
+): Result<StartPlayResult> = runCatching {
+    transactionService.recoverInterrupted().getOrThrow()
+    val detailResponse = server.makeRequest<Host2.DetailVo>("host2/$hostId")
+    if (!detailResponse.ok) throw RequestError(detailResponse.msg)
+    val detail = detailResponse.data ?: throw RequestError("无法加载房间信息")
+    if (detail.packStatus != Host2PackStatus.Ok) {
+        throw RequestError("房间整合包尚未准备完成")
+    }
+    val pack = detail.pack ?: throw RequestError("房间整合包信息为空")
+    if (detail.status == HostStatus.UNKNOWN) throw RequestError("房间当前不可用")
+
+    val source = detail.packSource
+    val parentModpackId = pack.modpackId
+    val versionUuid = source.versionId.toKotlinUuid()
+    val versionId = source.versionId.toString()
+    val installed = localRepository.find(versionUuid).getOrThrow()?.isMatchingInstalled(
+        modpackId = parentModpackId.toKotlinUuid(),
+        versionId = versionUuid,
+        mcVersion = pack.mcVersion,
+        modLoader = pack.modLoader,
+    ) == true && Files.isDirectory(
+        ClientDirs.versionsDir.toPath().resolve(versionId),
+        LinkOption.NOFOLLOW_LINKS,
+    )
+    if (!installed) {
+        return@runCatching StartPlayResult.NeedInstall(
+            task = modpack2LocalService.installTask(
+                Modpack2InstallRequest(
+                    modpackId = parentModpackId.toKotlinUuid(),
+                    versionId = versionUuid,
+                )
+            ),
+            dedupeKey = "modpack2-install:$versionId",
+        )
+    }
+
+    val versionDir = ClientDirs.versionsDir.toPath().resolve(source.versionId.toString())
+    val packName = pack.name
+
+    if (McPlayStore.aliveCount(versionId) > 0) {
+        throw RequestError("该整合包正在运行，无法同步房间内容")
+    }
+    ensureHost2Playable(hostId, detail)
+    val manifestResponse = server.makeRequest<Host2.ClientManifest>("host2/$hostId/client-manifest")
+    if (!manifestResponse.ok) throw RequestError(manifestResponse.msg)
+    val manifest = manifestResponse.data ?: throw RequestError("房间客户端清单为空")
+    if (manifest.packSource != source) throw RequestError("房间整合包来源在启动期间发生变化，请重试")
+    if (manifest.mcVersion != null && manifest.mcVersion != pack.mcVersion) {
+        throw RequestError("房间客户端清单的Minecraft版本与整合包来源不一致")
+    }
+    if (manifest.modLoader != null && manifest.modLoader != pack.modLoader) {
+        throw RequestError("房间客户端清单的加载器与整合包来源不一致")
+    }
+
+    val execution = versionCoordinator.withLock(versionUuid) {
+            val snapshot = Host2LocalPresenceScanner(versionDir, versionUuid).scan()
+            if (!snapshot.isComplete) {
+                val paths = snapshot.errors.joinToString("; ") { "${it.path}: ${it.message}" }
+                throw RequestError("无法安全读取整合包目录: $paths")
+            }
+            val cacheEnrichment = localRepository.contentCache(versionUuid)
+                .getOrElse { emptyList() }
+            val plan = host2PreparedPlans.getOrPrepare(
+                hostId = hostId,
+                versionId = versionId,
+                activeRevision = manifest.activeContentRevision,
+                snapshot = snapshot,
+                remoteContents = manifest.contents,
+                cacheEnrichment = cacheEnrichment,
+            )
+            val transaction = transactionService.begin(versionId, versionDir, plan.touchedPaths).getOrThrow()
+            try {
+                applyHost2Plan(plan, transaction, versionDir, contentStore)
+            } catch (error: Throwable) {
+                val cleanup = transaction.restore()
+                if (!cleanup.restored) throw IllegalStateException("房间内容应用失败且恢复失败: ${cleanup.message}", error)
+                throw error
+            }
+            Host2Execution(plan, transaction)
+    }
+    val plan = execution.plan
+    val transaction = execution.transaction
+
+    StartPlayResult.Ready(
+        McPlayArgs(
+            title = "游玩 ${detail.name}",
+            mcVer = pack.mcVersion,
+            modLoader = pack.modLoader,
+            versionId = versionId,
+            playArg = hostPlayArg(detail),
+            modpackName = packName,
+            versionDir = versionDir.toAbsolutePath().toString(),
+            activeBaseMods = emptyList(),
+            manageHostBaseMods = false,
+            startupWarnings = plan.startupWarnings,
+            cleanup = McPlayCleanup { transaction.restore() },
+        )
+    )
+}
+
+internal fun LocalModpack2InstanceRecord.isMatchingInstalled(
+    modpackId: kotlin.uuid.Uuid,
+    versionId: kotlin.uuid.Uuid,
+    mcVersion: calebxzhou.rdi.common.model.McVersion,
+    modLoader: calebxzhou.rdi.common.model.ModLoader,
+): Boolean = remoteModpackId == modpackId &&
+    remoteVersionId == versionId &&
+    this.mcVersion == mcVersion &&
+    this.modLoader == modLoader
+
+private suspend fun applyHost2Plan(
+    plan: Host2PreparedPlan,
+    transaction: Host2PlayPathTransaction,
+    versionDirectory: Path,
+    contentStore: ClientContentStore,
+) {
+    suspend fun materialize(requests: List<ContentRequest>) {
+        if (requests.isEmpty()) return
+        requests.forEach { transaction.removeDeclared(it.relativePath) }
+        contentStore.materialize(requests, versionDirectory).getOrThrow()
+    }
+
+    plan.removedLocalPaths.forEach(transaction::removeDeclared)
+    materialize(plan.remoteRequests)
+}
+
+private fun hostPlayArg(detail: Host2.DetailVo): String = "${server.hqUrl}\n" +
+    "127.0.0.1:55667\n" +
+    "${detail.name}\n" +
+    "${detail.port}\n" +
+    "${loggedAccount.uuid}\n" +
+    loggedAccount.name
+
+private suspend fun ensureHost2Playable(hostId: String, initial: Host2.DetailVo) {
+    if (initial.status == HostStatus.PLAYABLE) return
+    if (initial.status == HostStatus.STOPPED) {
+        val startResponse = server.makeRequest<Unit>("host2/$hostId/start", HttpMethod.Post)
+        if (!startResponse.ok) throw RequestError("启动房间失败: ${startResponse.msg}")
+    } else if (initial.status != HostStatus.STARTED) {
+        throw RequestError("房间当前状态不支持加入：${initial.status}")
+    }
+    repeat(120) {
+        delay(1000)
+        val response = server.makeRequest<Host2.DetailVo>("host2/$hostId")
+        if (!response.ok) throw RequestError(response.msg)
+        val detail = response.data ?: throw RequestError("无法读取房间启动状态")
+        when (detail.status) {
+            HostStatus.PLAYABLE -> return
+            HostStatus.STOPPED, HostStatus.UNKNOWN ->
+                throw RequestError("房间启动失败，当前状态：${detail.status}")
+            HostStatus.STARTED, HostStatus.PAUSED -> Unit
+        }
+    }
+    throw RequestError("房间启动超时，请稍后重试")
+}
+
+private class Host2PreparedPlanCache {
+    private val mutex = Mutex()
+    private val values = LinkedHashMap<Host2PreparedCacheKey, Host2PreparedPlan>()
+
+    suspend fun getOrPrepare(
+        hostId: String,
+        versionId: String,
+        activeRevision: Long,
+        snapshot: Host2LocalPresenceSnapshot,
+        remoteContents: List<ClientContentVo>,
+        cacheEnrichment: List<LocalModpack2ContentCacheRecord>,
+    ): Host2PreparedPlan = mutex.withLock {
+        val fingerprint = host2PreparedPlanFingerprint(snapshot.fingerprint, cacheEnrichment)
+        val key = host2PreparedCacheKey(hostId, versionId, activeRevision, fingerprint)
+        values[key]?.let { return@withLock it }
+        val plan = buildHost2PreparedPlan(
+            key,
+            snapshot,
+            remoteContents,
+            cacheEnrichment,
+        )
+        values[key] = plan
+        while (values.size > 32) values.remove(values.entries.first().key)
+        plan
+    }
+}
+
+data class Host2PreparedPlan(
+    val cacheKey: Host2PreparedCacheKey,
+    val remoteRequests: List<ContentRequest>,
+    val removedLocalPaths: Set<String>,
+    val startupWarnings: List<String>,
+) {
+    val touchedPaths: Set<String>
+        get() = buildSet {
+            addAll(remoteRequests.map { it.relativePath })
+            addAll(removedLocalPaths)
+        }
+}
+
+internal fun buildHost2PreparedPlan(
+    key: Host2PreparedCacheKey,
+    snapshot: Host2LocalPresenceSnapshot,
+    remoteContents: List<ClientContentVo>,
+    cacheEnrichment: List<LocalModpack2ContentCacheRecord> = emptyList(),
+): Host2PreparedPlan {
+    val warnings = linkedSetOf<String>()
+    val remoteRequests = remoteContents.mapNotNull { content ->
+        when (content.side) {
+            ContentSide.Server -> null
+            ContentSide.Both -> {
+                warnings += "房间内容${content.slug}同时应用于客户端和服务端"
+                content.toHost2ClientContentRequest("remote")
+            }
+            ContentSide.Client -> content.toHost2ClientContentRequest("remote")
+        }
+    }
+    val enriched = cacheEnrichment.associateBy { it.contentType to it.physicalPath }
+    val local = snapshot.items.map { item ->
+        Host2LocalSnapshotContent(
+            unit = item,
+            enrichment = enriched[item.type to item.physicalRelativePath],
+        )
+    }
+    val enabledLocal = local.filter { it.unit.enabled && it.isHost2ClientApplicable() }
+    val removedLocalPaths = linkedSetOf<String>()
+    remoteContents.filter { it.side != ContentSide.Server }.forEach { remote ->
+        val remotePath = normalizeHost2PlayPath(remote.effectiveHost2TargetPath())
+        enabledLocal.filter { localContent ->
+            val localPath = normalizeHost2PlayPath(localContent.unit.targetPath)
+            localPath == remotePath
+        }.forEach { localContent ->
+            removedLocalPaths += normalizeHost2PlayPath(localContent.unit.targetPath)
+        }
+    }
+    enabledLocal.flatMap { it.enrichment?.modIds.orEmpty().map(String::lowercase) }
+        .groupingBy { it }
+        .eachCount()
+        .filterValues { it > 1 }
+        .keys
+        .forEach { modId -> warnings += "检测到重复启用的Mod ID: $modId" }
+    enabledLocal.forEach { localContent ->
+        if (ContentSide.Both in localContent.enrichment?.sideHints.orEmpty()) {
+            warnings += "本地内容${localContent.enrichment?.name ?: localContent.unit.physicalRelativePath}同时应用于客户端和服务端"
+        }
+    }
+    return Host2PreparedPlan(
+        cacheKey = key,
+        remoteRequests = remoteRequests,
+        removedLocalPaths = removedLocalPaths,
+        startupWarnings = warnings.toList(),
+    )
+}
+
+private data class Host2LocalSnapshotContent(
+    val unit: Host2LocalPresenceItem,
+    val enrichment: LocalModpack2ContentCacheRecord?,
+)
+
+private fun Host2LocalSnapshotContent.isHost2ClientApplicable(): Boolean =
+    enrichment?.sideHints.isNullOrEmpty() || enrichment?.sideHints?.any { it != ContentSide.Server } == true
+
+internal fun host2PreparedPlanFingerprint(
+    presenceFingerprint: String,
+    cacheEnrichment: List<LocalModpack2ContentCacheRecord>,
+): String {
+    val digest = MessageDigest.getInstance("SHA-256")
+    fun update(value: String?) {
+        val encoded = value ?: "<null>"
+        digest.update(encoded.toByteArray(StandardCharsets.UTF_8))
+        digest.update(0)
+    }
+    update(presenceFingerprint)
+    cacheEnrichment.sortedWith(
+        compareBy<LocalModpack2ContentCacheRecord>(
+            { it.contentType.name },
+            { it.physicalPath },
+            { it.targetPath },
+            { it.enabled },
+            { it.modIds.sorted().joinToString("\u0000") },
+            { it.sideHints.map(Enum<*>::name).sorted().joinToString("\u0000") },
+            { it.name },
+            { it.platform?.name },
+            { it.projectId },
+        )
+    ).forEach { record ->
+        update(record.contentType.name)
+        update(record.physicalPath)
+        update(record.targetPath)
+        update(record.enabled.toString())
+        record.modIds.sorted().forEach(::update)
+        record.sideHints.map(Enum<*>::name).sorted().forEach(::update)
+        update(record.name)
+        update(record.platform?.name)
+        update(record.projectId)
+    }
+    return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+}
+
+private fun ClientContentVo.toHost2ClientContentRequest(prefix: String): ContentRequest {
+    val relative = targetPath?.takeIf(String::isNotBlank) ?: defaultHost2ContentPath(
+        type = type,
+        projectId = projectId,
+        slug = slug,
+        fileId = fileId,
+        hash = hash,
+        platform = platform,
+    )
+    val mod = Mod(
+        platform = platform.toHost2ModPlatform(),
+        projectId = projectId,
+        slug = slug,
+        fileId = fileId,
+        hash = hash,
+    )
+    return mod.toClientContentRequest(
+        targetRelativePath = normalizeHost2PlayPath(relative),
+        size = fileSize.takeIf { it > 0L },
+    ).copy(id = "$prefix:${mod.platform}:${projectId}:${fileId}:${hash}")
+}
+
+private fun ClientContentVo.effectiveHost2TargetPath(): String =
+    targetPath?.takeIf(String::isNotBlank) ?: defaultHost2ContentPath(
+        type = type,
+        projectId = projectId,
+        slug = slug,
+        fileId = fileId,
+        hash = hash,
+        platform = platform,
+    )
+
+private fun defaultHost2ContentPath(
+    type: ContentType,
+    projectId: String,
+    slug: String,
+    fileId: String,
+    hash: String,
+    platform: ContentPlatform,
+): String {
+    val mod = Mod(
+        platform = platform.toHost2ModPlatform(),
+        projectId = projectId,
+        slug = slug,
+        fileId = fileId,
+        hash = hash,
+    )
+    return when (type) {
+        ContentType.Mod -> "mods/${mod.fileName}"
+        ContentType.ShaderPack -> "shaderpacks/${mod.fileName}"
+        ContentType.ResPack -> "resourcepacks/${mod.fileName}"
+        ContentType.DataPack -> "datapacks/${mod.fileName}"
+        ContentType.Other -> mod.fileName
+    }
+}
+
+internal fun ContentPlatform.toHost2ModPlatform(): String = when (this) {
+    ContentPlatform.CurseForge -> "cf"
+    ContentPlatform.Modrinth -> "mr"
+    ContentPlatform.GitHub -> "github"
+}

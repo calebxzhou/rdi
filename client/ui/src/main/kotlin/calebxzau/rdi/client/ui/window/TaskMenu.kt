@@ -24,7 +24,9 @@ import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzhou.rdi.common.model.Task2Entry
+import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.model.Task2Status
+import calebxzhou.rdi.common.model.compactText
 
 @Composable
 internal fun TaskMenuButton(onOpenTask: (String) -> Unit) {
@@ -84,7 +86,7 @@ internal fun TaskMenuButton(onOpenTask: (String) -> Unit) {
 private fun TaskMenuRow(entry: Task2Entry, onOpen: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
-    val fraction = if (entry.status == Task2Status.DONE) 1f else entry.snapshot.currentFraction?.coerceIn(0f, 1f)
+    val fraction = if (entry.status == Task2Status.DONE) 1f else entry.progressFraction()
 
     Surface(
         onClick = onOpen,
@@ -132,7 +134,7 @@ private fun TaskMenuRow(entry: Task2Entry, onOpen: () -> Unit) {
                     TaskHoverAction.CANCEL -> TaskActionButton("×", MaterialTheme.colorScheme.errorContainer) {
                         ClientTaskManager.cancel(entry.runId)
                     }
-                    TaskHoverAction.REMOVE -> TaskActionButton("\uF2ED", MaterialTheme.colorScheme.surfaceVariant) {
+                    TaskHoverAction.REMOVE -> TaskActionButton("\uEA81", MaterialTheme.colorScheme.surfaceVariant) {
                         ClientTaskManager.remove(entry.runId)
                     }
                     null -> Unit
@@ -189,9 +191,11 @@ internal fun taskHoverAction(entry: Task2Entry): TaskHoverAction? = when {
 
 internal enum class TaskHoverAction { CANCEL, REMOVE }
 
-private fun Task2Entry.progressText(): String = snapshot.currentFraction?.let {
-    "${(it.coerceIn(0f, 1f) * 100).toInt()}%"
-} ?: snapshot.currentMessage
+private fun Task2Entry.progressText(): String = (snapshot.currentProgress
+    ?: Task2Progress(snapshot.currentMessage, snapshot.currentFraction)).compactText()
+
+private fun Task2Entry.progressFraction(): Float? = (snapshot.currentProgress?.fraction
+    ?: snapshot.currentFraction)?.coerceIn(0f, 1f)
 
 private fun Task2Status.displayName(): String = when (this) {
     Task2Status.QUEUED -> "排队中"

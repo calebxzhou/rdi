@@ -1,0 +1,190 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.database.LocalModpack2Kind
+import calebxzhou.rdi.client.database.LocalModpack2Store
+import calebxzhou.rdi.client.database.MinecraftInstallationDatabase
+import calebxzau.rdi.client.packproc.Modpack2ContentResolver
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
+
+class Modpack2LocalServiceDeleteTest {
+    @Test
+    fun `delete removes version directory before its database row`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-delete-success")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val repository = LocalModpack2Repository(database.localModpack2Store)
+            val versionId = Uuid.generateV7()
+            repository.upsert(instance(versionId)).getOrThrow()
+            val versionDirectory = root.resolve("versions/$versionId")
+            Files.createDirectories(versionDirectory.resolve("mods"))
+            Files.writeString(versionDirectory.resolve("mods/example.jar"), "example")
+
+            deleteService(repository, root.resolve("versions")).delete(versionId).getOrThrow()
+
+            assertFalse(Files.exists(versionDirectory, LinkOption.NOFOLLOW_LINKS))
+            assertNull(repository.find(versionId).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `delete rejects a running version and preserves directory and row`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-delete-running")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val repository = LocalModpack2Repository(database.localModpack2Store)
+            val versionId = Uuid.generateV7()
+            repository.upsert(instance(versionId)).getOrThrow()
+            val versionDirectory = root.resolve("versions/$versionId")
+            Files.createDirectories(versionDirectory)
+
+            val result = deleteService(repository, root.resolve("versions"), isRunning = { true }).delete(versionId)
+
+            assertTrue(result.isFailure)
+            assertTrue(Files.exists(versionDirectory, LinkOption.NOFOLLOW_LINKS))
+            assertNotNull(repository.find(versionId).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `delete reports an invalid versions directory and preserves the row`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-delete-disk-failure")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val repository = LocalModpack2Repository(database.localModpack2Store)
+            val versionId = Uuid.generateV7()
+            repository.upsert(instance(versionId)).getOrThrow()
+            val versionsFile = root.resolve("versions")
+            Files.writeString(versionsFile, "not a directory")
+
+            val result = deleteService(repository, versionsFile).delete(versionId)
+
+            assertTrue(result.isFailure)
+            assertNotNull(repository.find(versionId).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `delete preserves directory and row when moving to trash fails`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-delete-trash-failure")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val repository = LocalModpack2Repository(database.localModpack2Store)
+            val versionId = Uuid.generateV7()
+            repository.upsert(instance(versionId)).getOrThrow()
+            val versionDirectory = root.resolve("versions/$versionId")
+            Files.createDirectories(versionDirectory)
+
+            val result = deleteService(
+                repository,
+                root.resolve("versions"),
+                moveToTrash = { Result.failure(IllegalStateException("forced trash failure")) },
+            ).delete(versionId)
+
+            assertTrue(result.isFailure)
+            assertTrue(Files.exists(versionDirectory, LinkOption.NOFOLLOW_LINKS))
+            assertNotNull(repository.find(versionId).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `delete keeps row when sqlite deletion fails after directory removal`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-delete-sqlite-failure")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val baseStore = database.localModpack2Store
+            val versionId = Uuid.generateV7()
+            LocalModpack2Repository(baseStore).upsert(instance(versionId)).getOrThrow()
+            val versionDirectory = root.resolve("versions/$versionId")
+            Files.createDirectories(versionDirectory)
+
+            val repository = LocalModpack2Repository(FailingDeleteStore(baseStore))
+            val result = deleteService(repository, root.resolve("versions")).delete(versionId)
+
+            assertTrue(result.isFailure)
+            assertFalse(Files.exists(versionDirectory, LinkOption.NOFOLLOW_LINKS))
+            assertNotNull(LocalModpack2Repository(baseStore).find(versionId).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `delete completes its disk and sqlite transaction after caller cancellation`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-delete-cancelled")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val baseStore = database.localModpack2Store
+            val versionId = Uuid.generateV7()
+            LocalModpack2Repository(baseStore).upsert(instance(versionId)).getOrThrow()
+            val versionDirectory = root.resolve("versions/$versionId")
+            Files.createDirectories(versionDirectory)
+            val deleteStarted = CompletableDeferred<Unit>()
+            val allowDelete = CompletableDeferred<Unit>()
+            val repository = LocalModpack2Repository(BlockingDeleteStore(baseStore, deleteStarted, allowDelete))
+            val job = launch {
+                deleteService(repository, root.resolve("versions")).delete(versionId)
+            }
+
+            deleteStarted.await()
+            job.cancel()
+            allowDelete.complete(Unit)
+            job.join()
+
+            assertFalse(Files.exists(versionDirectory, LinkOption.NOFOLLOW_LINKS))
+            assertNull(LocalModpack2Repository(baseStore).find(versionId).getOrThrow())
+        }
+    }
+
+    private fun deleteService(
+        repository: LocalModpack2Repository,
+        versionsDirectory: Path,
+        isRunning: (Uuid) -> Boolean = { false },
+        moveToTrash: (Path) -> Result<Unit> = { path ->
+            if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
+                path.toFile().deleteRecursivelyNoSymlink()
+            }
+            Result.success(Unit)
+        },
+    ) = Modpack2LocalService(
+        repository = repository,
+        gateway = RServerModpack2Gateway(),
+        versionsDirectory = versionsDirectory,
+        contentResolver = object : Modpack2ContentResolver {},
+        isRunning = isRunning,
+        moveToTrash = moveToTrash,
+    )
+
+    private fun instance(versionId: Uuid) = LocalModpack2InstanceRecord(
+        versionId = versionId,
+        remoteModpackId = Uuid.generateV7(),
+        remoteVersionId = versionId,
+        name = "测试整合包",
+        mcVersion = McVersion.V211,
+        modLoader = ModLoader.neoforge,
+        updatedAt = 1,
+    )
+}
+
+private class FailingDeleteStore(private val delegate: LocalModpack2Store) : LocalModpack2Store by delegate {
+    override suspend fun delete(versionId: Uuid): Result<Unit> =
+        Result.failure(IllegalStateException("forced delete failure"))
+}
+
+private class BlockingDeleteStore(
+    private val delegate: LocalModpack2Store,
+    private val started: CompletableDeferred<Unit>,
+    private val allow: CompletableDeferred<Unit>,
+) : LocalModpack2Store by delegate {
+    override suspend fun delete(versionId: Uuid): Result<Unit> {
+        started.complete(Unit)
+        allow.await()
+        return delegate.delete(versionId)
+    }
+}

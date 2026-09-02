@@ -60,7 +60,10 @@ object CurseForgeService {
 
 
     //从完整的cf mod信息取得card vo
-    private fun CurseForgeModInfo.toCardVo(modFile: File? = null): Mod.CardVo {
+    private fun CurseForgeModInfo.toCardVo(
+        modFile: File? = null,
+        side: Mod.Side = Mod.Side.BOTH,
+    ): Mod.CardVo {
         val icons = buildIconUrls(logo?.thumbnailUrl, logo?.url)
         val resolvedName = (name ?: slug).ifBlank { slug }
         val localMeta = modFile?.readLocalModCardMeta()
@@ -74,7 +77,7 @@ object CurseForgeService {
             intro = introText,
             iconData = localMeta?.iconBytes,
             iconUrls = icons,
-            side = Mod.Side.BOTH
+            side = side
         )
     }
 
@@ -98,7 +101,13 @@ object CurseForgeService {
         fingerprintData: CurseForgeFingerprintData
     ): CurseForgeLocalResult {
 
-        data class MatchRecord(val projectId: Int, val fileId: String, val fingerprint: String, val file: File)
+        data class MatchRecord(
+            val projectId: Int,
+            val fileId: String,
+            val fingerprint: String,
+            val file: File,
+            val side: Mod.Side,
+        )
 
         val matchRecords = fingerprintData.exactMatches.mapNotNull { match ->
             val projectId = match.id.takeIf { it > 0 } ?: return@mapNotNull null
@@ -108,7 +117,8 @@ object CurseForgeService {
                 projectId = projectId,
                 fileId = match.file.id.toString(),
                 fingerprint = fingerprint.toString(),
-                file = localFile
+                file = localFile,
+                side = match.file.gameVersions.toCurseForgeModSide() ?: Mod.Side.BOTH,
             )
         }.groupBy { it.projectId }
 
@@ -161,8 +171,9 @@ object CurseForgeService {
                         slug = meta.canonicalSlug,
                         fileId = record.fileId,
                         hash = record.fingerprint,
+                        side = record.side,
                     ),
-                    card = meta.mod.toCardVo(record.file),
+                    card = meta.mod.toCardVo(record.file, record.side),
                     file = record.file
                 )
             }
@@ -205,14 +216,16 @@ object CurseForgeService {
                 ?.takeIf { it.isNotBlank() }
                 ?.let { sha1ToMrVersion[it] }
                 ?.let { mrProjectMap[it.projectId] }
-            val side = mrProject?.run {
-                if (serverSide == "unsupported") {
-                    return@run Mod.Side.CLIENT
+            val side = fileInfo.gameVersions.toCurseForgeModSide()
+                ?: mrProject?.run {
+                    if (serverSide == "unsupported") {
+                        return@run Mod.Side.CLIENT
+                    }
+                    if (clientSide == "unsupported") {
+                        return@run Mod.Side.SERVER
+                    } else return@run Mod.Side.BOTH
                 }
-                if (clientSide == "unsupported") {
-                    return@run Mod.Side.SERVER
-                } else return@run Mod.Side.BOTH
-            } ?: Mod.Side.UNKNOWN
+                ?: Mod.Side.UNKNOWN
             Mod(
                 platform = "cf",
                 projectId = modInfo.id.toString(),

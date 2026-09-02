@@ -17,9 +17,14 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import okhttp3.Cache
 import okhttp3.OkHttpClient
+import okhttp3.MediaType
+import okhttp3.Request
+import okhttp3.RequestBody
+import okio.Buffer
 import java.io.File
 import java.io.IOException
 import java.net.*
+import java.nio.charset.StandardCharsets
 import java.security.SecureRandom
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
@@ -36,6 +41,7 @@ fun HttpRequestBuilder.json() = contentType(ContentType.Application.Json)
  */
 var httpCacheDir: File = DIR.resolve("cache").resolve("http").apply { mkdirs() }
 private const val HTTP_CACHE_SIZE_BYTES = 4 * 1024L * 1024 * 1024 // 4GiB
+private const val MAX_DEBUG_TEXT_BODY_BYTES = 64 * 1024L
 private val httpLgr by Loggers
 
 val ktorClient by lazy {
@@ -74,15 +80,78 @@ val ktorClient by lazy {
         }
     }
 }
-
 internal fun OkHttpClient.Builder.configureDebugRequestLogging() {
     if (!DEBUG) return
     addInterceptor { chain ->
         val request = chain.request()
-        httpLgr.info { "HTTP ${request.method} ${request.url}" }
+        runCatching {
+            httpLgr.info { "HTTP ${request.method} ${request.url}" }
+            val requestBody = request.body
+            val contentType = requestBody?.contentType()
+            val contentLength = requestBody?.debugContentLengthOrNull()
+            httpLgr.info {
+                "Request metadata Content-Type=${contentType ?: "<none>"} " +
+                    "Content-Length=${contentLength ?: "<unknown>"}"
+            }
+            httpLgr.info { "Body ${request.debugBodyForLogging(contentLength)}" }
+        }
         chain.proceed(request)
     }
 }
+
+internal fun MediaType.isDebugTextType(): Boolean {
+    if (type.equals("text", ignoreCase = true)) return true
+    if (!type.equals("application", ignoreCase = true)) return false
+    return subtype.equals("json", ignoreCase = true) ||
+        subtype.endsWith("+json", ignoreCase = true) ||
+        subtype.equals("xml", ignoreCase = true) ||
+        subtype.endsWith("+xml", ignoreCase = true) ||
+        subtype.equals("x-www-form-urlencoded", ignoreCase = true) ||
+        subtype.equals("javascript", ignoreCase = true) ||
+        subtype.equals("ecmascript", ignoreCase = true)
+}
+
+internal fun Request.debugBodyForLogging(): String {
+    return debugBodyForLogging(body?.debugContentLengthOrNull())
+}
+
+private fun Request.debugBodyForLogging(contentLength: Long?): String {
+    val requestBody = body ?: return "<empty>"
+    val contentType = requestBody.contentType()
+        ?: return "<omitted: unknown>"
+    if (contentType.type.equals("multipart", ignoreCase = true)) {
+        return "<omitted: multipart>"
+    }
+    if (!contentType.isDebugTextType()) {
+        return "<omitted: binary>"
+    }
+    if (hasNonIdentityContentEncoding()) {
+        return "<omitted: encoded>"
+    }
+    if (requestBody.isOneShot() || requestBody.isDuplex()) {
+        return "<omitted: streaming>"
+    }
+    if (contentLength == null || contentLength < 0L) {
+        return "<omitted: streaming>"
+    }
+    if (contentLength > MAX_DEBUG_TEXT_BODY_BYTES) {
+        return "<omitted: too large>"
+    }
+    return try {
+        Buffer().apply { requestBody.writeTo(this) }
+            .readString(contentType.charset(StandardCharsets.UTF_8) ?: StandardCharsets.UTF_8)
+    } catch (_: Exception) {
+        "<omitted: unreadable>"
+    }
+}
+
+private fun RequestBody.debugContentLengthOrNull(): Long? =
+    runCatching { contentLength() }.getOrNull()
+
+private fun Request.hasNonIdentityContentEncoding(): Boolean =
+    headers("Content-Encoding")
+        .flatMap { it.split(',') }
+        .any { !it.trim().equals("identity", ignoreCase = true) }
 
 internal fun OkHttpClient.Builder.configureDebugTlsForSelfSigned() {
     if (!DEBUG) return

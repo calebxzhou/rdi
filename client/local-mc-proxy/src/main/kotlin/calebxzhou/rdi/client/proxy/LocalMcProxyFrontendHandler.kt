@@ -34,7 +34,7 @@ internal class LocalMcProxyFrontendHandler(
             recordMetrics("c2s", msg)
             forwardToBackend(ctx, msg)
             if (metrics == null) ctx.pipeline().remove(MinecraftFrameDecoder::class.java)
-            reportLog("bridge ${ctx.channel().remoteAddress()} -> ${endpoint.host}:${endpoint.port}")
+            reportLog("bridge ${ctx.channel().remoteAddress()}")//player no need know this -> ${endpoint.host}:${endpoint.port}")
             return
         }
         recordMetrics("c2s", msg)

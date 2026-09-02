@@ -8,6 +8,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.Properties
 
 data class MinecraftInstallationRecord(
     val path: Path,
@@ -48,6 +49,8 @@ class MinecraftInstallationDatabase private constructor(
         driver.close()
     }
 
+    internal fun foreignKeysEnabled(): Boolean = readPragmaLong(driver, "foreign_keys") == 1L
+
     companion object {
         //rdi
         const val APPLICATION_ID = 0x524449L
@@ -64,8 +67,19 @@ class MinecraftInstallationDatabase private constructor(
             }
             databaseFile.parent?.let(Files::createDirectories)
 
-            val driver = JdbcSqliteDriver("jdbc:sqlite:${databaseFile.toUri()}")
+            // JdbcSqliteDriver uses one JDBC connection per worker thread for file-backed databases.
+            // Configure the SQLite pragma as a connection property so every connection enforces
+            // the normalized Modpack2 foreign keys, not only the connection that opens the file.
+            val driverProperties = Properties().apply {
+                setProperty("foreign_keys", "true")
+            }
+            val driver = JdbcSqliteDriver("jdbc:sqlite:${databaseFile.toUri()}", driverProperties)
             try {
+                // SQLite leaves foreign-key enforcement disabled by default.  The normalized
+                // Modpack2 tables rely on this connection-local setting for delete/remap
+                // cascades, so enable it before creating or migrating the schema.
+                driver.execute(null, "PRAGMA foreign_keys = ON", 0)
+                val database = RClientDatabase(driver)
                 if (existed) {
                     require(readPragmaLong(driver, "application_id") == APPLICATION_ID) {
                         "Unknown Minecraft installation database ownership: $databaseFile"
@@ -76,8 +90,10 @@ class MinecraftInstallationDatabase private constructor(
                         "Unsupported Minecraft installation database schema version $version"
                     }
                     if (version < SCHEMA_VERSION) {
-                        RClientDatabase.Schema.migrate(driver, version, SCHEMA_VERSION).value
-                        writePragmaLong(driver, "user_version", SCHEMA_VERSION)
+                        database.transaction {
+                            RClientDatabase.Schema.migrate(driver, version, SCHEMA_VERSION).value
+                            writePragmaLong(driver, "user_version", SCHEMA_VERSION)
+                        }
                     }
                 } else {
                     writePragmaLong(driver, "application_id", APPLICATION_ID)
@@ -85,7 +101,6 @@ class MinecraftInstallationDatabase private constructor(
                     writePragmaLong(driver, "user_version", SCHEMA_VERSION)
                 }
 
-                val database = RClientDatabase(driver)
                 database.minecraftInstallationQueries.selectAll().executeAsList()
                 database.minecraftInstallationQueries.selectLastFullScanAt().executeAsOneOrNull()
                 MinecraftInstallationDatabase(driver, database, dispatcher)

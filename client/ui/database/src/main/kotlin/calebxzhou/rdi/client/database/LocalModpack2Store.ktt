@@ -1,0 +1,407 @@
+package calebxzhou.rdi.client.database
+
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import kotlin.uuid.Uuid
+
+@Deprecated("The local mode split was removed; retained only for unreachable legacy UI source")
+enum class LocalModpack2Kind { Installed, Workspace }
+
+@Deprecated("Local publish state is no longer persisted")
+enum class LocalModpack2PublishStatus { Draft, Building, Ok, Fail }
+
+@Deprecated("Submission journals are no longer persisted")
+enum class LocalModpack2SubmissionPhase { Pending, Snapshot, Identifying, Testing, Archiving, Uploading, Completing, Creating, Remapping, Building, Failed, Completed }
+
+@Deprecated("Legacy content override state is no longer persisted")
+enum class LocalModpack2ContentOverrideKind { Override, Tombstone, Replacement }
+
+@Deprecated("Legacy unknown-file state is no longer persisted")
+enum class LocalModpack2UnknownFileState { Handmade, Trash }
+
+@Deprecated("Legacy file-root state is no longer persisted")
+enum class LocalModpack2FileRoot { Client, Shared, Server }
+
+/** Where a recognized content entry came from. This is a transient disk-scan value. */
+enum class LocalModpack2ContentOrigin {
+    Remote,
+    Local,
+    Copied,
+    Inherited,
+}
+
+/** The durable local identity of a Modpack2 installation. */
+data class LocalModpack2InstanceRecord(
+    val versionId: Uuid,
+    @Deprecated("All active records are installed") val kind: LocalModpack2Kind = LocalModpack2Kind.Installed,
+    val remoteModpackId: Uuid? = null,
+    val remoteVersionId: Uuid? = null,
+    @Deprecated("Local-only source identity is no longer persisted") val sourceModpackId: Uuid? = null,
+    @Deprecated("Local-only source identity is no longer persisted") val sourceVersionId: Uuid? = null,
+    @Deprecated("Local-only base identity is no longer persisted") val baseVersionId: Uuid? = null,
+    @Deprecated("Local publish state is no longer persisted") val publishStatus: LocalModpack2PublishStatus = LocalModpack2PublishStatus.Ok,
+    val name: String,
+    val comment: String? = null,
+    val iconUrl: String? = null,
+    val mcVersion: McVersion,
+    val modLoader: ModLoader,
+    @Deprecated("Local revision is no longer persisted") val localRevision: Long = 0,
+    @Deprecated("Published revision is no longer persisted") val publishedRevision: Long = 0,
+    val updatedAt: Long,
+) {
+    init {
+        if (remoteVersionId != null) require(versionId == remoteVersionId) { "Local and remote version IDs must match" }
+    }
+}
+
+/** Transient content presentation model generated from the current disk snapshot. */
+data class LocalModpack2ContentRecord(
+    val contentId: Uuid,
+    val versionId: Uuid,
+    val platform: ContentPlatform,
+    val type: ContentType,
+    val projectId: String,
+    val fileId: String,
+    val slug: String,
+    val hash: String,
+    val targetPath: String? = null,
+    val side: ContentSide,
+    val required: Boolean = true,
+    val fileSize: Long,
+    val logicalId: String,
+    val manualSide: ContentSide? = null,
+    val origin: LocalModpack2ContentOrigin = LocalModpack2ContentOrigin.Remote,
+    val kept: Boolean = true,
+    val enabled: Boolean = true,
+)
+
+/** Transient dependency information used while constructing an installation plan. */
+data class LocalModpack2ContentDependencyRecord(
+    val versionId: Uuid,
+    val contentId: Uuid,
+    val dependencyContentId: Uuid,
+    val required: Boolean = true,
+)
+
+/** Disposable enrichment for one physical item in a Modpack2 directory. */
+data class LocalModpack2ContentCacheRecord(
+    val versionId: Uuid,
+    val contentType: ContentType,
+    val physicalPath: String,
+    val targetPath: String,
+    val enabled: Boolean,
+    val hash: String,
+    val fileSize: Long,
+    val modIds: List<String> = emptyList(),
+    val sideHints: Set<ContentSide> = emptySet(),
+    val name: String? = null,
+    val iconPath: String? = null,
+    val platform: ContentPlatform? = null,
+    val projectId: String? = null,
+    val fileId: String? = null,
+    val slug: String? = null,
+    val side: ContentSide? = null,
+    val required: Boolean? = null,
+    val updatedAt: Long,
+)
+
+@Deprecated("Legacy content intent is no longer persisted")
+data class LocalModpack2ContentOverrideRecord(
+    val versionId: Uuid,
+    val logicalId: String,
+    val type: ContentType,
+    val kind: LocalModpack2ContentOverrideKind,
+    val replacementContentId: Uuid? = null,
+    val updatedAt: Long,
+)
+
+@Deprecated("Legacy unknown-file state is no longer persisted")
+data class LocalModpack2UnknownFileRecord(
+    val versionId: Uuid,
+    val root: LocalModpack2FileRoot,
+    val path: String,
+    val sha1: String,
+    val size: Long,
+    val state: LocalModpack2UnknownFileState = LocalModpack2UnknownFileState.Handmade,
+    val trashPath: String? = null,
+    val discoveredAt: Long,
+    val updatedAt: Long,
+)
+
+@Deprecated("Submission journals are no longer persisted")
+data class LocalModpack2SubmissionRecord(
+    val versionId: Uuid,
+    val uploadId: Uuid? = null,
+    val temporaryModpackId: Uuid? = null,
+    val temporaryVersionId: Uuid? = null,
+    val phase: LocalModpack2SubmissionPhase = LocalModpack2SubmissionPhase.Pending,
+    val sourceFingerprint: String = "",
+    val snapshotRevision: Long = 0,
+    val snapshotPath: String? = null,
+    val snapshotFingerprint: String? = null,
+    val archivePath: String? = null,
+    val archiveSha1: String? = null,
+    val archiveSize: Long? = null,
+    val uploadSessionUrl: String? = null,
+    val uploadPartSize: Long? = null,
+    val uploadPartCount: Int? = null,
+    val uploadedParts: String = "",
+    val manualSideOverrides: String = "",
+    val finalModpackId: Uuid? = null,
+    val finalVersionId: Uuid? = null,
+    val lastError: String? = null,
+    val updatedAt: Long,
+)
+
+@Deprecated("Legacy mutation API is no longer persisted")
+data class LocalModpack2Mutation(
+    val instance: LocalModpack2InstanceRecord? = null,
+    val contents: List<LocalModpack2ContentRecord> = emptyList(),
+)
+
+@Deprecated("Legacy content key API is no longer persisted")
+data class LocalModpack2ContentOverrideKey(val versionId: Uuid, val logicalId: String, val type: ContentType)
+
+@Deprecated("Legacy dependency key API is no longer persisted")
+data class LocalModpack2ContentDependencyKey(val versionId: Uuid, val contentId: Uuid, val dependencyContentId: Uuid)
+
+@Deprecated("Legacy file key API is no longer persisted")
+data class LocalModpack2FileKey(val versionId: Uuid, val root: LocalModpack2FileRoot, val path: String)
+
+/** SQLDelight-backed persistence for remote-backed local Modpack2 instances. */
+interface LocalModpack2Store : AutoCloseable {
+    suspend fun list(): Result<List<LocalModpack2InstanceRecord>>
+    suspend fun find(versionId: Uuid): Result<LocalModpack2InstanceRecord?>
+    suspend fun upsert(record: LocalModpack2InstanceRecord): Result<Unit>
+    suspend fun delete(versionId: Uuid): Result<Unit>
+
+    suspend fun listContentCache(versionId: Uuid): Result<List<LocalModpack2ContentCacheRecord>> = Result.success(emptyList())
+    suspend fun replaceContentCache(
+        versionId: Uuid,
+        records: List<LocalModpack2ContentCacheRecord>,
+    ): Result<Unit> = Result.failure(UnsupportedOperationException("Content cache is unavailable"))
+
+    @Deprecated("Content authority tables were removed")
+    suspend fun listByVersion(versionId: Uuid): Result<List<LocalModpack2ContentRecord>> = Result.success(emptyList())
+    @Deprecated("Content authority tables were removed")
+    suspend fun findContent(contentId: Uuid): Result<LocalModpack2ContentRecord?> = Result.success(null)
+    @Deprecated("Content authority tables were removed")
+    suspend fun upsertContent(record: LocalModpack2ContentRecord): Result<Unit> = legacyStateFailure()
+    @Deprecated("Content authority tables were removed")
+    suspend fun deleteContent(contentId: Uuid): Result<Unit> = legacyStateFailure()
+    @Deprecated("Content authority tables were removed")
+    suspend fun overrides(versionId: Uuid): Result<List<LocalModpack2ContentOverrideRecord>> = Result.success(emptyList())
+    @Deprecated("Content authority tables were removed")
+    suspend fun upsertOverride(record: LocalModpack2ContentOverrideRecord): Result<Unit> = legacyStateFailure()
+    @Deprecated("Content authority tables were removed")
+    suspend fun deleteOverride(key: LocalModpack2ContentOverrideKey): Result<Unit> = legacyStateFailure()
+    @Deprecated("Content authority tables were removed")
+    suspend fun dependencies(versionId: Uuid): Result<List<LocalModpack2ContentDependencyRecord>> = Result.success(emptyList())
+    @Deprecated("Content authority tables were removed")
+    suspend fun upsertDependency(record: LocalModpack2ContentDependencyRecord): Result<Unit> = legacyStateFailure()
+    @Deprecated("Content authority tables were removed")
+    suspend fun deleteDependency(key: LocalModpack2ContentDependencyKey): Result<Unit> = legacyStateFailure()
+    @Deprecated("Content authority tables were removed")
+    suspend fun unknownFiles(versionId: Uuid): Result<List<LocalModpack2UnknownFileRecord>> = Result.success(emptyList())
+    @Deprecated("Content authority tables were removed")
+    suspend fun upsertUnknownFile(record: LocalModpack2UnknownFileRecord): Result<Unit> = legacyStateFailure()
+    @Deprecated("Content authority tables were removed")
+    suspend fun deleteUnknownFile(key: LocalModpack2FileKey): Result<Unit> = legacyStateFailure()
+    @Deprecated("Submission journals were removed")
+    suspend fun listSubmissions(): Result<List<LocalModpack2SubmissionRecord>> = Result.success(emptyList())
+    @Deprecated("Submission journals were removed")
+    suspend fun findSubmission(versionId: Uuid): Result<LocalModpack2SubmissionRecord?> = Result.success(null)
+    @Deprecated("Submission journals were removed")
+    suspend fun writeSubmission(record: LocalModpack2SubmissionRecord): Result<Unit> = legacyStateFailure()
+    @Deprecated("Submission journals were removed")
+    suspend fun clearSubmission(versionId: Uuid): Result<Unit> = legacyStateFailure()
+    @Deprecated("Version remapping was removed")
+    suspend fun remapVersionId(oldVersionId: Uuid, newVersionId: Uuid): Result<Unit> = legacyStateFailure()
+
+    override fun close() = Unit
+}
+
+private fun legacyStateFailure(): Result<Unit> =
+    Result.failure(UnsupportedOperationException("This removed Modpack2 lifecycle is unavailable"))
+
+internal class SqliteLocalModpack2Store(
+    private val database: RClientDatabase,
+    private val dispatcher: CoroutineDispatcher,
+    private val mutex: Mutex,
+) : LocalModpack2Store {
+    override suspend fun list(): Result<List<LocalModpack2InstanceRecord>> = databaseOperation {
+        database.localModpack2Queries.selectAllInstances(::mapInstance).executeAsList()
+    }
+
+    override suspend fun find(versionId: Uuid): Result<LocalModpack2InstanceRecord?> = databaseOperation {
+        database.localModpack2Queries.selectInstanceByVersionId(versionId.toString(), ::mapInstance).executeAsOneOrNull()
+    }
+
+    override suspend fun upsert(record: LocalModpack2InstanceRecord): Result<Unit> = databaseOperation {
+        requireNotNull(record.remoteModpackId) { "Remote Modpack2 ID is required" }
+        requireNotNull(record.remoteVersionId) { "Remote Modpack2 version ID is required" }
+        require(record.versionId == record.remoteVersionId) { "Local and remote version IDs must match" }
+        database.transaction {
+            val id = record.versionId.toString()
+            if (database.localModpack2Queries.selectInstanceByVersionId(id).executeAsOneOrNull() == null) {
+                database.localModpack2Queries.insertInstance(
+                    versionId = id,
+                    remoteModpackId = record.remoteModpackId.toString(),
+                    remoteVersionId = record.remoteVersionId.toString(),
+                    name = record.name,
+                    comment = record.comment,
+                    iconUrl = record.iconUrl,
+                    mcVersion = record.mcVersion.name,
+                    modLoader = record.modLoader.name,
+                    updatedAt = record.updatedAt,
+                )
+            } else {
+                database.localModpack2Queries.updateInstance(
+                    remoteModpackId = record.remoteModpackId.toString(),
+                    remoteVersionId = record.remoteVersionId.toString(),
+                    name = record.name,
+                    comment = record.comment,
+                    iconUrl = record.iconUrl,
+                    mcVersion = record.mcVersion.name,
+                    modLoader = record.modLoader.name,
+                    updatedAt = record.updatedAt,
+                    versionId = id,
+                )
+            }
+        }
+    }
+
+    override suspend fun delete(versionId: Uuid): Result<Unit> = databaseOperation {
+        database.localModpack2Queries.deleteInstanceByVersionId(versionId.toString())
+    }
+
+    override suspend fun listContentCache(versionId: Uuid): Result<List<LocalModpack2ContentCacheRecord>> = databaseOperation {
+        database.localModpack2Queries.selectContentCacheByVersionId(versionId.toString(), ::mapContentCache).executeAsList()
+    }
+
+    override suspend fun replaceContentCache(
+        versionId: Uuid,
+        records: List<LocalModpack2ContentCacheRecord>,
+    ): Result<Unit> = databaseOperation {
+        database.transaction {
+            val id = versionId.toString()
+            database.localModpack2Queries.deleteContentCacheByVersionId(id)
+            records.forEach { record ->
+                require(record.versionId == versionId) { "Content cache record belongs to another version" }
+                database.localModpack2Queries.insertContentCache(
+                    versionId = id,
+                    contentType = record.contentType.name,
+                    physicalPath = record.physicalPath,
+                    targetPath = record.targetPath,
+                    enabled = record.enabled.toSqlBoolean(),
+                    hash = record.hash,
+                    fileSize = record.fileSize,
+                    modIds = record.modIds.joinToString(METADATA_SEPARATOR),
+                    sideHints = record.sideHints.map(ContentSide::name).sorted().joinToString(METADATA_SEPARATOR),
+                    name = record.name,
+                    iconPath = record.iconPath,
+                    platform = record.platform?.name,
+                    projectId = record.projectId,
+                    fileId = record.fileId,
+                    slug = record.slug,
+                    side = record.side?.name,
+                    required = record.required?.toSqlBoolean(),
+                    updatedAt = record.updatedAt,
+                )
+            }
+        }
+    }
+
+    private suspend fun <T> databaseOperation(block: () -> T): Result<T> = withContext(dispatcher) {
+        mutex.withLock {
+            try {
+                Result.success(block())
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (cause: Throwable) {
+                Result.failure(cause)
+            }
+        }
+    }
+
+    private fun mapInstance(
+        versionId: String,
+        remoteModpackId: String,
+        remoteVersionId: String,
+        name: String,
+        comment: String?,
+        iconUrl: String?,
+        mcVersion: String,
+        modLoader: String,
+        updatedAt: Long,
+    ) = LocalModpack2InstanceRecord(
+        versionId = Uuid.parse(versionId),
+        remoteModpackId = Uuid.parse(remoteModpackId),
+        remoteVersionId = Uuid.parse(remoteVersionId),
+        name = name,
+        comment = comment,
+        iconUrl = iconUrl,
+        mcVersion = enumValue(mcVersion),
+        modLoader = enumValue(modLoader),
+        updatedAt = updatedAt,
+    )
+
+    private fun mapContentCache(
+        versionId: String,
+        contentType: String,
+        physicalPath: String,
+        targetPath: String,
+        enabled: Long,
+        hash: String,
+        fileSize: Long,
+        modIds: String,
+        sideHints: String,
+        name: String?,
+        iconPath: String?,
+        platform: String?,
+        projectId: String?,
+        fileId: String?,
+        slug: String?,
+        side: String?,
+        required: Long?,
+        updatedAt: Long,
+    ) = LocalModpack2ContentCacheRecord(
+        versionId = Uuid.parse(versionId),
+        contentType = enumValue(contentType),
+        physicalPath = physicalPath,
+        targetPath = targetPath,
+        enabled = enabled.toBooleanValue(),
+        hash = hash,
+        fileSize = fileSize,
+        modIds = modIds.split(METADATA_SEPARATOR).filter(String::isNotBlank),
+        sideHints = sideHints.split(METADATA_SEPARATOR).filter(String::isNotBlank).map { enumValue<ContentSide>(it) }.toSet(),
+        name = name,
+        iconPath = iconPath,
+        platform = platform?.let { enumValue<ContentPlatform>(it) },
+        projectId = projectId,
+        fileId = fileId,
+        slug = slug,
+        side = side?.let { enumValue<ContentSide>(it) },
+        required = required?.toBooleanValue(),
+        updatedAt = updatedAt,
+    )
+
+    private inline fun <reified T : Enum<T>> enumValue(value: String): T =
+        enumValues<T>().firstOrNull { it.name.equals(value, ignoreCase = true) }
+            ?: error("Unknown local Modpack2 enum value '$value' for ${T::class.simpleName}")
+
+    private fun Boolean.toSqlBoolean(): Long = if (this) 1L else 0L
+    private fun Long.toBooleanValue(): Boolean = this != 0L
+
+    private companion object {
+        const val METADATA_SEPARATOR = "\u001f"
+    }
+}

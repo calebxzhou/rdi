@@ -45,7 +45,7 @@ class UpdateServiceTest {
                 finishUpdate.await()
                 Result.success(McCoreUpdateResult(updated = true))
             }
-        val link: (McVersion, ModLoader, java.io.File) -> Unit = { _, _, dir ->
+        val link: suspend (McVersion, ModLoader, java.io.File, McCoreUpdateResult) -> Unit = { _, _, dir, _ ->
             synchronized(linkedDirs) { linkedDirs += dir }
         }
 

@@ -1,0 +1,73 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2ContentCacheRecord
+import calebxzau.rdi.common.model.ContentType
+import kotlin.uuid.Uuid
+
+/** The result of indexing is useful even when the disposable cache cannot be written. */
+data class Modpack2ContentIndexResult(
+    val snapshot: Modpack2DiskSnapshot,
+    val entries: List<LocalModpack2ContentCacheRecord>,
+    val cacheError: Throwable? = null,
+) {
+    val cacheWriteError: Throwable? get() = cacheError
+}
+
+/**
+ * Rebuilds the disposable content cache from a disk snapshot. Cache rows are never used to add
+ * an item to the result: only items in the current snapshot are returned.
+ */
+class Modpack2ContentIndexer(
+    private val repository: LocalModpack2Repository,
+    private val clock: () -> Long = { System.currentTimeMillis() },
+) {
+    suspend fun index(
+        snapshot: Modpack2DiskSnapshot,
+        versionId: Uuid? = snapshot.versionId,
+        persist: Boolean = true,
+    ): Modpack2ContentIndexResult {
+        val id = requireNotNull(versionId) { "Modpack2 content indexing requires a version ID" }
+        var cacheError: Throwable? = null
+        val oldRows = repository.contentCache(id).fold(
+            onSuccess = { it },
+            onFailure = { cause -> cacheError = cause; emptyList() },
+        )
+        val oldByKey = oldRows.associateBy { CacheKey(it.contentType, it.physicalPath) }
+        val now = clock()
+        val entries = snapshot.items.map { item ->
+            val key = CacheKey(item.type, item.physicalRelativePath)
+            val old = oldByKey[key]?.takeIf { it.hash.equals(item.hash, ignoreCase = true) }
+            LocalModpack2ContentCacheRecord(
+                versionId = id,
+                contentType = item.type,
+                physicalPath = item.physicalRelativePath,
+                targetPath = item.targetPath,
+                enabled = item.enabled,
+                hash = item.hash,
+                fileSize = item.fileSize,
+                modIds = item.modIds,
+                sideHints = item.sideHints,
+                name = old?.name ?: item.displayName,
+                iconPath = old?.iconPath,
+                platform = old?.platform,
+                projectId = old?.projectId,
+                fileId = old?.fileId,
+                slug = old?.slug,
+                side = old?.side,
+                required = old?.required,
+                updatedAt = now,
+            )
+        }
+        if (persist) {
+            repository.replaceContentCache(id, entries).onFailure { cause ->
+                cacheError = cacheError?.also { it.addSuppressed(cause) } ?: cause
+            }
+        }
+        return Modpack2ContentIndexResult(snapshot, entries, cacheError)
+    }
+
+    suspend fun rebuild(snapshot: Modpack2DiskSnapshot, versionId: Uuid? = snapshot.versionId): Modpack2ContentIndexResult =
+        index(snapshot, versionId)
+
+    private data class CacheKey(val type: ContentType, val physicalPath: String)
+}

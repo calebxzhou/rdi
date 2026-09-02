@@ -1,11 +1,39 @@
 package calebxzhou.rdi.common.model
 
+import calebxzhou.rdi.common.util.humanFileSize
+import calebxzhou.rdi.common.util.humanSpeed
 import java.util.UUID
 
 data class Task2Progress(
     val message: String,
-    val fraction: Float? = null
+    val fraction: Float? = null,
+    val completedBytes: Long? = null,
+    val totalBytes: Long? = null,
+    val bytesPerSecond: Double? = null,
+    val completedItems: Int? = null,
+    val totalItems: Int? = null
 )
+
+fun Task2Progress.compactText(): String = buildList {
+    completedItems?.let { completed ->
+        add(totalItems?.let { total -> "$completed/$total" } ?: completed.toString())
+    }
+    if (completedBytes != null || totalBytes != null) {
+        add(
+            when {
+                completedBytes != null && totalBytes != null ->
+                    "${completedBytes.humanFileSize}/${totalBytes.humanFileSize}"
+                completedBytes != null -> completedBytes.humanFileSize
+                else -> "--/${totalBytes!!.humanFileSize}"
+            }
+        )
+    }
+    bytesPerSecond?.takeIf { it > 0.0 }?.let { add(it.humanSpeed) }
+    if (isEmpty()) {
+        fraction?.let { add("${(it.coerceIn(0f, 1f) * 100).toInt()}%") }
+            ?: add(message)
+    }
+}.joinToString(" · ")
 
 class Task2Context(
     val isCancelled: () -> Boolean = { false },
@@ -35,7 +63,9 @@ data class Task2Snapshot(
     val errorMessage: String? = null,
     val status: Task2Status = Task2Status.QUEUED,
     val progressByPath: Map<String, Task2Progress> = emptyMap(),
-    val donePaths: Set<String> = emptySet()
+    val donePaths: Set<String> = emptySet(),
+    /** Structured root progress. The message/fraction fields remain for old callers. */
+    val currentProgress: Task2Progress? = null
 ) {
     val running: Boolean
         get() = status == Task2Status.RUNNING

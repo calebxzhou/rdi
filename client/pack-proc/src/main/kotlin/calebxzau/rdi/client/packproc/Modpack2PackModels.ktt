@@ -1,0 +1,214 @@
+package calebxzau.rdi.client.packproc
+
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.Modpack2ClientManifestVo
+import calebxzau.rdi.common.model.Modpack2Content
+import calebxzau.rdi.common.model.Modpack2ContentDto
+import calebxzau.rdi.common.model.Modpack2InheritedRawFile
+import calebxzau.rdi.common.model.Modpack2Loader
+import calebxzau.rdi.common.model.Modpack2RawFile
+import calebxzau.rdi.common.model.Modpack2RawFileRoot
+import calebxzau.rdi.common.model.Modpack2ServerMode
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import java.io.Closeable
+import java.io.File
+import java.util.UUID
+
+/** A file in the immutable directory used while a Modpack2 publish is built. */
+data class Modpack2SnapshotFile(
+    val relativePath: String,
+    val file: File,
+    val sha1: String,
+    val size: Long,
+)
+
+/** The immutable file identity supplied to a content resolver for one batch. */
+data class Modpack2ContentCandidate(
+    val file: File,
+    val relativePath: String,
+    val sha1: String,
+)
+
+/** The cheap, deterministic view used by an editor before a publish starts. */
+data class Modpack2PackPreview(
+    val sourceName: String,
+    val fingerprint: String,
+    val files: List<Modpack2SnapshotFile>,
+)
+
+/**
+ * A frozen source tree.  The processor always owns a private copy, so a game
+ * process or an editor changing the original directory cannot change the
+ * source after publish processing has started.
+ */
+class Modpack2FrozenSnapshot internal constructor(
+    val rootDir: File,
+    val sourceName: String,
+    val fingerprint: String,
+    val files: List<Modpack2SnapshotFile>,
+    private val deleteRootOnClose: Boolean = true,
+) : Closeable {
+    @Volatile
+    private var closed = false
+
+    /** Re-hash the frozen tree and fail if it was modified during processing. */
+    fun requireUnchanged(): Modpack2FrozenSnapshot {
+        check(!closed) { "Modpack2冻结快照已关闭" }
+        val current = Modpack2SnapshotHasher.scan(rootDir, sourceName)
+        if (current.fingerprint != fingerprint) {
+            throw Modpack2PreviewMismatchException(fingerprint, current.fingerprint)
+        }
+        return this
+    }
+
+    override fun close() {
+        if (closed) return
+        closed = true
+        if (deleteRootOnClose) {
+            runCatching { rootDir.deleteRecursivelyNoSymlink() }
+        }
+    }
+}
+
+/** An explicit RDI source record is the only way a local file may become GitHub content. */
+data class Modpack2ExplicitGithubSource(
+    val relativePath: String? = null,
+    val sha1: String? = null,
+    val content: Modpack2ContentDto,
+) {
+    init {
+        require(content.platform == ContentPlatform.GitHub) { "GitHub来源记录必须使用GitHub平台" }
+        require(!relativePath.isNullOrBlank() || !sha1.isNullOrBlank()) {
+            "GitHub来源记录必须指定相对路径或SHA-1"
+        }
+    }
+
+    fun matches(path: String, fileSha1: String): Boolean =
+        (relativePath == null || normalizePackPath(relativePath) == normalizePackPath(path)) &&
+            (sha1 == null || sha1.equals(fileSha1, ignoreCase = true))
+}
+
+/** Compatibility aliases for callers that use the shorter source terminology. */
+typealias Modpack2GithubSource = Modpack2ExplicitGithubSource
+typealias Modpack2RdiSourceRecord = Modpack2ExplicitGithubSource
+
+/** Platform lookup hooks. Implementations may use the local catalog or a test map. */
+interface Modpack2ContentResolver {
+    /** Resolves all candidates in one operation. Implementations backed by a catalog must batch. */
+    suspend fun resolveBatch(files: List<Modpack2ContentCandidate>): Map<String, Modpack2ContentDto> = emptyMap()
+}
+
+/** A deterministic resolver useful for UI caches and focused pack-proc tests. */
+class MapModpack2ContentResolver(
+    private val modrinth: Map<String, Modpack2ContentDto> = emptyMap(),
+    private val curseForge: Map<String, Modpack2ContentDto> = emptyMap(),
+) : Modpack2ContentResolver {
+    override suspend fun resolveBatch(files: List<Modpack2ContentCandidate>): Map<String, Modpack2ContentDto> =
+        files.mapNotNull { candidate ->
+            val content = find(modrinth, candidate.file, candidate.relativePath, candidate.sha1)
+                ?: find(curseForge, candidate.file, candidate.relativePath, candidate.sha1)
+            content?.let { normalizePackPath(candidate.relativePath) to it }
+        }.toMap()
+
+    private fun find(
+        entries: Map<String, Modpack2ContentDto>,
+        file: File,
+        relativePath: String,
+        sha1: String,
+    ): Modpack2ContentDto? = entries[relativePath] ?: entries[normalizePackPath(relativePath)] ?: entries[sha1.lowercase()]
+        ?: entries[file.name] ?: entries[file.nameWithoutExtension]
+}
+
+data class Modpack2GeneratedInheritance(
+    val serverContents: List<Modpack2ContentDto> = emptyList(),
+    val serverFiles: List<Modpack2InheritedRawFile> = emptyList(),
+)
+
+/** A recognized platform file together with its local source path. */
+data class Modpack2ResolvedContent(
+    val sourcePath: String,
+    val sourceSha1: String,
+    val content: Modpack2ContentDto,
+    val logicalIdentity: String = modpack2LogicalIdentity(content),
+    val serverArtifact: Boolean = false,
+)
+
+/** A local file without a platform match; it is retained for Side editing. */
+data class Modpack2UnmatchedContent(
+    val sourcePath: String,
+    val sha1: String,
+    val size: Long,
+    val side: ContentSide = ContentSide.Both,
+)
+
+/** The platform part of a Modpack2 source manifest. */
+data class Modpack2PlatformManifest(
+    val contents: List<Modpack2ContentDto>,
+) {
+    val clientContents: List<Modpack2ContentDto>
+        get() = contents.filter { it.side != ContentSide.Server }
+}
+
+/**
+ * Result of classifying a frozen snapshot. `rawFileSources` is intentionally
+ * kept local; the upload layer uses it to stream the same files into tar.zst.
+ */
+data class Modpack2ProcessingResult(
+    val snapshot: Modpack2FrozenSnapshot,
+    val serverMode: Modpack2ServerMode,
+    val contents: List<Modpack2ResolvedContent>,
+    /** Manifest declarations shadowed by raw overrides; submitted with RawSource bindings. */
+    val rawShadowedContents: List<Modpack2ResolvedContent> = emptyList(),
+    val unmatchedContents: List<Modpack2UnmatchedContent> = emptyList(),
+    val rawFiles: List<Modpack2RawFile>,
+    val rawFileSources: Map<String, File>,
+    val inheritedServerFiles: List<Modpack2InheritedRawFile> = emptyList(),
+    val providedServerSnapshot: Modpack2FrozenSnapshot? = null,
+) {
+    val platformManifest: Modpack2PlatformManifest
+        get() = Modpack2PlatformManifest(contents.map { it.content })
+
+    fun toClientManifest(
+        modpackId: UUID,
+        versionId: UUID,
+        mc: Int,
+        loader: Modpack2Loader,
+    ): Modpack2ClientManifestVo = Modpack2ClientManifestVo(
+        modpackId = modpackId,
+        versionId = versionId,
+        mc = mc,
+        loader = loader,
+        contents = platformManifest.clientContents.map { content ->
+            Modpack2Content(
+                versionId = versionId,
+                platform = content.platform,
+                type = content.type,
+                projectId = content.projectId,
+                fileId = content.fileId,
+                slug = content.slug,
+                hash = content.hash,
+                targetPath = content.targetPath,
+                side = content.side,
+                required = content.required,
+                fileSize = content.fileSize,
+            )
+        },
+    )
+}
+
+class Modpack2PreviewMismatchException(
+    val expectedFingerprint: String,
+    val actualFingerprint: String,
+) : IllegalStateException(
+    "Modpack2预览与冻结快照不一致: expected=$expectedFingerprint actual=$actualFingerprint",
+)
+
+internal fun normalizePackPath(raw: String): String =
+    raw.replace('\\', '/').trimStart('/').split('/').filter { it.isNotBlank() }.joinToString("/")
+
+internal fun modpack2LogicalIdentity(content: Modpack2ContentDto): String =
+    "${content.platform.name.lowercase()}:${content.type.name.lowercase()}:${content.projectId.trim().lowercase()}"
+
+internal fun rawFileKey(root: Modpack2RawFileRoot, path: String): String =
+    "${root.name.lowercase()}:$path"

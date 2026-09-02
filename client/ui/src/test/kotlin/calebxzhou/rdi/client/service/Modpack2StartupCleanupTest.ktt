@@ -1,0 +1,213 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.database.LocalModpack2Kind
+import calebxzhou.rdi.client.database.LocalModpack2Store
+import calebxzhou.rdi.client.database.MinecraftInstallationDatabase
+import calebxzau.rdi.client.packproc.Modpack2ContentResolver
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
+
+class Modpack2StartupCleanupTest {
+    @Test
+    fun `missing directory removes database record`() = runBlocking {
+        withFixture { root, repository ->
+            val versionId = Uuid.generateV7()
+            repository.upsert(instance(versionId)).getOrThrow()
+
+            service(repository, root).cleanupInvalidLocalModpacks().getOrThrow()
+
+            assertNull(repository.find(versionId).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `missing versions root fails before changing database`(): Unit = runBlocking {
+        val root = Files.createTempDirectory("modpack2-startup-missing-root")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val repository = LocalModpack2Repository(database.localModpack2Store)
+            val versionId = Uuid.generateV7()
+            repository.upsert(instance(versionId)).getOrThrow()
+
+            val result = service(repository, root).cleanupInvalidLocalModpacks()
+
+            assertTrue(result.isFailure)
+            assertNotNull(repository.find(versionId).getOrThrow())
+        }
+        Unit
+    }
+
+    @Test
+    fun `non directory versions root fails before changing database`(): Unit = runBlocking {
+        val root = Files.createTempDirectory("modpack2-startup-invalid-root")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val repository = LocalModpack2Repository(database.localModpack2Store)
+            val versionId = Uuid.generateV7()
+            repository.upsert(instance(versionId)).getOrThrow()
+            Files.writeString(root.resolve("versions"), "not a directory")
+
+            val result = service(repository, root).cleanupInvalidLocalModpacks()
+
+            assertTrue(result.isFailure)
+            assertNotNull(repository.find(versionId).getOrThrow())
+        }
+        Unit
+    }
+
+    @Test
+    fun `orphan canonical directory remains available for import`() = runBlocking {
+        withFixture { root, repository ->
+            val versionId = Uuid.generateV7()
+            val versionDirectory = root.resolve("versions/$versionId")
+            Files.createDirectories(versionDirectory)
+            Files.writeString(versionDirectory.resolve("keep.txt"), "keep")
+
+            service(repository, root, moveToTrash = { error("orphan directories must not be moved") })
+                .cleanupInvalidLocalModpacks().getOrThrow()
+
+            assertTrue(Files.isDirectory(versionDirectory, LinkOption.NOFOLLOW_LINKS))
+            assertEquals("keep", Files.readString(versionDirectory.resolve("keep.txt")))
+        }
+    }
+
+    @Test
+    fun `valid pair and non Modpack2 entries remain untouched`() = runBlocking {
+        withFixture { root, repository ->
+            val validId = Uuid.generateV7()
+            repository.upsert(instance(validId)).getOrThrow()
+            Files.createDirectories(root.resolve("versions/$validId"))
+            Files.createDirectories(root.resolve("versions/not-a-uuid"))
+            Files.createDirectories(root.resolve("versions/${validId}.installing"))
+            Files.createDirectories(root.resolve("versions/${validId}.backup-1"))
+            Files.createDirectories(root.resolve("versions/${validId}.host2-play"))
+            Files.writeString(root.resolve("versions/ordinary-file"), "keep")
+
+            val symlink = root.resolve("versions/symlink")
+            val symlinkCreated = runCatching {
+                Files.createSymbolicLink(symlink, root.resolve("versions/$validId"))
+            }.isSuccess
+
+            service(repository, root).cleanupInvalidLocalModpacks().getOrThrow()
+
+            assertTrue(Files.isDirectory(root.resolve("versions/$validId")))
+            assertTrue(Files.isDirectory(root.resolve("versions/not-a-uuid")))
+            assertTrue(Files.isDirectory(root.resolve("versions/${validId}.installing")))
+            assertTrue(Files.isDirectory(root.resolve("versions/${validId}.backup-1")))
+            assertTrue(Files.isDirectory(root.resolve("versions/${validId}.host2-play")))
+            assertTrue(Files.isRegularFile(root.resolve("versions/ordinary-file")))
+            if (symlinkCreated) assertTrue(Files.isSymbolicLink(symlink))
+        }
+    }
+
+    @Test
+    fun `orphan directories are not affected by trash failures`() = runBlocking {
+        withFixture { root, repository ->
+            val failedId = Uuid.generateV7()
+            val movedId = Uuid.generateV7()
+            Files.createDirectories(root.resolve("versions/$failedId"))
+            Files.createDirectories(root.resolve("versions/$movedId"))
+            service(repository, root, moveToTrash = { Result.failure(IllegalStateException("must not be called")) })
+                .cleanupInvalidLocalModpacks().getOrThrow()
+
+            assertTrue(Files.isDirectory(root.resolve("versions/$failedId")))
+            assertTrue(Files.isDirectory(root.resolve("versions/$movedId"), LinkOption.NOFOLLOW_LINKS))
+        }
+    }
+
+    @Test
+    fun `missing record directory restores interrupted reinstall backup before deleting record`() = runBlocking {
+        withFixture { root, repository ->
+            val versionId = Uuid.generateV7()
+            repository.upsert(instance(versionId)).getOrThrow()
+            val backup = root.resolve("versions/${versionId}.backup-20260827")
+            Files.createDirectories(backup)
+            Files.writeString(backup.resolve("keep.txt"), "old")
+
+            service(repository, root).cleanupInvalidLocalModpacks().getOrThrow()
+
+            assertTrue(Files.isDirectory(root.resolve("versions/$versionId"), LinkOption.NOFOLLOW_LINKS))
+            assertEquals("old", Files.readString(root.resolve("versions/$versionId/keep.txt")))
+            assertNotNull(repository.find(versionId).getOrThrow())
+        }
+    }
+
+    @Test
+    fun `record appearing during scan is preserved`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-startup-race")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val baseStore = database.localModpack2Store
+            val versionId = Uuid.generateV7()
+            val record = instance(versionId)
+            val store = object : LocalModpack2Store by baseStore {
+                var injected = false
+
+                override suspend fun find(id: Uuid): Result<LocalModpack2InstanceRecord?> {
+                    if (id == versionId && !injected) {
+                        injected = true
+                        delegateUpsert(record)
+                    }
+                    return baseStore.find(id)
+                }
+
+                private suspend fun delegateUpsert(value: LocalModpack2InstanceRecord) {
+                    baseStore.upsert(value).getOrThrow()
+                }
+            }
+            val repository = LocalModpack2Repository(store)
+            val versionDirectory = root.resolve("versions/$versionId")
+            Files.createDirectories(versionDirectory)
+
+            service(repository, root, moveToTrash = { error("must not move a record that appeared") })
+                .cleanupInvalidLocalModpacks()
+                .getOrThrow()
+
+            assertNotNull(repository.find(versionId).getOrThrow())
+            assertTrue(Files.isDirectory(versionDirectory))
+        }
+    }
+
+    private suspend fun withFixture(block: suspend (Path, LocalModpack2Repository) -> Unit) {
+        val root = Files.createTempDirectory("modpack2-startup-cleanup")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            Files.createDirectories(root.resolve("versions"))
+            block(root, LocalModpack2Repository(database.localModpack2Store))
+        }
+    }
+
+    private fun service(
+        repository: LocalModpack2Repository,
+        root: Path,
+        moveToTrash: (Path) -> Result<Unit> = { path ->
+            path.toFile().deleteRecursivelyNoSymlink()
+            Result.success(Unit)
+        },
+    ) = Modpack2LocalService(
+        repository = repository,
+        gateway = RServerModpack2Gateway(),
+        versionsDirectory = root.resolve("versions"),
+        contentResolver = object : Modpack2ContentResolver {},
+        moveToTrash = moveToTrash,
+    )
+
+    private fun instance(versionId: Uuid) = LocalModpack2InstanceRecord(
+        versionId = versionId,
+        remoteModpackId = Uuid.generateV7(),
+        remoteVersionId = versionId,
+        name = "测试整合包",
+        mcVersion = McVersion.V211,
+        modLoader = ModLoader.neoforge,
+        updatedAt = 1,
+    )
+}

@@ -15,7 +15,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import calebxzhou.rdi.common.util.secondsToHumanDateTime
 import calebxzhou.rdi.client.net.server
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody
@@ -25,6 +24,7 @@ import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzhou.rdi.common.model.Mail
+import calebxzhou.rdi.common.util.secondsToHumanDateTime
 import io.ktor.http.HttpMethod
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch

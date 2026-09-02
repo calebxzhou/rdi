@@ -1,0 +1,236 @@
+package calebxzhou.rdi.client.service
+
+import calebxzau.rdi.client.modcatalog.CatalogContentType
+import calebxzau.rdi.client.modcatalog.CatalogDigestAlgorithm
+import calebxzau.rdi.client.modcatalog.CatalogFile
+import calebxzau.rdi.client.modcatalog.CatalogMod
+import calebxzau.rdi.client.modcatalog.EnvironmentCompatibility
+import calebxzau.rdi.client.modcatalog.EnvironmentRequirement
+import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.ModPlatform
+import calebxzau.rdi.client.modcatalog.CatalogProjectRef
+import calebxzau.rdi.client.modcatalog.effectiveEnvironment
+import calebxzau.rdi.client.packproc.Modpack2ContentCandidate
+import calebxzau.rdi.client.packproc.Modpack2ContentResolver
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzau.rdi.common.model.Modpack2ContentDto
+import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.client.database.LocalModpack2ContentOrigin
+import calebxzhou.rdi.client.database.LocalModpack2ContentRecord
+import java.io.File
+import java.nio.file.Path
+import kotlin.uuid.Uuid
+
+data class Modpack2RecognizedContent(
+    val record: LocalModpack2ContentRecord,
+    val card: Mod.CardVo,
+)
+
+data class Modpack2CatalogEnrichment(
+    val newlyRecognized: Map<Path, Modpack2RecognizedContent> = emptyMap(),
+    val cards: Map<Path, Mod.CardVo> = newlyRecognized.mapValues { it.value.card },
+)
+
+/**
+ * Resolves files in a Modpack2 workspace against the same catalog used by the installed-mod UI.
+ * The processor submits one complete snapshot at a time, so both platform lookups share one
+ * catalog match request and one project hydration request.
+ */
+class Modpack2CatalogContentResolver(
+    private val catalog: ModCatalog,
+) : Modpack2ContentResolver {
+    /** Reidentifies only uncached files and hydrates cards for both new and cached identities. */
+    suspend fun enrichBatch(
+        files: List<Path>,
+        cachedRecords: Map<Path, LocalModpack2ContentRecord>,
+        versionId: Uuid,
+    ): Result<Modpack2CatalogEnrichment> = runCatching {
+        if (files.isEmpty()) return@runCatching Modpack2CatalogEnrichment()
+        val unresolvedFiles = files.filterNot(cachedRecords::containsKey)
+        val report = if (unresolvedFiles.isEmpty()) {
+            null
+        } else {
+            catalog.matchLocalFiles(unresolvedFiles).getOrThrow().value
+        }
+        val matches = report?.matched.orEmpty().associateBy { it.path.toAbsolutePath().normalize() }
+        val newCatalogFiles = report?.matched.orEmpty().flatMap { it.files }
+        val projectRefs = buildSet {
+            addAll(newCatalogFiles.map(CatalogFile::project))
+            addAll(cachedRecords.values.mapNotNull { it.toCatalogProjectRef() })
+        }
+        val projects = if (projectRefs.isEmpty()) {
+            emptyMap()
+        } else {
+            catalog.getMods(projectRefs).getOrThrow().value
+        }
+        val newlyRecognized = unresolvedFiles.mapNotNull { file ->
+            val match = matches[file.toAbsolutePath().normalize()] ?: return@mapNotNull null
+            createRecognized(file, match.files, projects, versionId)?.let { file to it }
+        }.toMap()
+        val hydratedCards = cachedRecords.mapNotNull { (file, record) ->
+            hydrateCard(file, record, projects)?.let { file to it }
+        }.toMap()
+        Modpack2CatalogEnrichment(
+            newlyRecognized = newlyRecognized,
+            cards = hydratedCards + newlyRecognized.mapValues { it.value.card },
+        )
+    }
+
+    /** Compatibility entry point for callers that need complete reidentification. */
+    suspend fun recognizeBatch(files: List<Path>, versionId: Uuid): Result<Map<Path, Modpack2RecognizedContent?>> =
+        enrichBatch(files, emptyMap(), versionId).map { enrichment -> files.associateWith { enrichment.newlyRecognized[it] } }
+
+    private fun createRecognized(
+        file: Path,
+        catalogFiles: List<CatalogFile>,
+        projects: Map<CatalogProjectRef, CatalogMod>,
+        versionId: Uuid,
+    ): Modpack2RecognizedContent? {
+        val catalogFile = catalogFiles.firstOrNull { it.ref.platform == ModPlatform.MODRINTH }
+            ?: catalogFiles.firstOrNull { it.ref.platform == ModPlatform.CURSEFORGE }
+            ?: return null
+        val mod = projects[catalogFile.project] ?: return null
+        val source = mod.sources.firstOrNull { it.ref == catalogFile.project } ?: return null
+        val relativePath = file.toString().replace('\\', '/')
+        val hash = catalogFile.contentHash() ?: return null
+        val record = LocalModpack2ContentRecord(
+            contentId = Uuid.generateV7(), versionId = versionId,
+            platform = catalogFile.ref.platform.toContentPlatform(),
+            type = source.contentType.toContentType(relativePath), projectId = catalogFile.project.projectId,
+            fileId = catalogFile.ref.fileId, slug = source.slug, hash = hash,
+            targetPath = normalizePath(relativePath), side = catalogFile.effectiveEnvironment(source).toContentSide(),
+            required = true, fileSize = catalogFile.fileSize, logicalId = mod.identity.stableKey,
+            origin = LocalModpack2ContentOrigin.Local,
+        )
+        val localMeta = if (source.contentType == CatalogContentType.MOD) {
+            runCatching { file.toFile().readLocalModCardMeta() }.getOrNull()
+        } else null
+        return Modpack2RecognizedContent(
+            record = record,
+            card = mod.toCardVo(source, localMeta, record.side.toModSide()),
+        )
+    }
+
+    private fun hydrateCard(
+        file: Path,
+        record: LocalModpack2ContentRecord,
+        projects: Map<CatalogProjectRef, CatalogMod>,
+    ): Mod.CardVo? {
+        val projectRef = record.toCatalogProjectRef() ?: return null
+        val mod = projects[projectRef] ?: return null
+        val source = mod.sources.firstOrNull { it.ref == projectRef } ?: return null
+        val localMeta = if (record.type == ContentType.Mod) {
+            runCatching { file.toFile().readLocalModCardMeta() }.getOrNull()
+        } else null
+        return mod.toCardVo(source, localMeta, record.side.toModSide())
+    }
+
+    private fun CatalogFile.contentHash(): String? = when (ref.platform) {
+        ModPlatform.MODRINTH -> digests.firstOrNull { it.algorithm == CatalogDigestAlgorithm.SHA1 }?.value
+        ModPlatform.CURSEFORGE -> digests.firstOrNull { it.algorithm == CatalogDigestAlgorithm.CURSEFORGE_MURMUR2 }?.value
+    }
+
+    private fun LocalModpack2ContentRecord.toCatalogProjectRef(): CatalogProjectRef? {
+        val catalogPlatform = when (platform) {
+            ContentPlatform.Modrinth -> ModPlatform.MODRINTH
+            ContentPlatform.CurseForge -> ModPlatform.CURSEFORGE
+            else -> return null
+        }
+        return CatalogProjectRef(platform = catalogPlatform, projectId = projectId)
+    }
+
+    override suspend fun resolveBatch(files: List<Modpack2ContentCandidate>): Map<String, Modpack2ContentDto> {
+        if (files.isEmpty()) return emptyMap()
+        val byPath = files.associateBy { normalizePath(it.relativePath) }
+        val candidatePaths = files.map { it.file.toPath().toAbsolutePath().normalize() }
+        val report = catalog.matchLocalFiles(candidatePaths).getOrThrow().value
+        val matches = report.matched.associateBy { it.path.toAbsolutePath().normalize() }
+        val catalogFiles = report.matched.flatMap { it.files }
+        val projects = if (catalogFiles.isEmpty()) {
+            emptyMap()
+        } else {
+            catalog.getMods(catalogFiles.mapTo(linkedSetOf(), CatalogFile::project)).getOrThrow().value
+        }
+        return byPath.mapNotNull { (path, candidate) ->
+            val match = matches[candidate.file.toPath().toAbsolutePath().normalize()] ?: return@mapNotNull null
+            match.files.asSequence()
+                .sortedBy { if (it.ref.platform == ModPlatform.MODRINTH) 0 else 1 }
+                .mapNotNull { catalogFile ->
+                    val mod = projects[catalogFile.project] ?: return@mapNotNull null
+                    catalogFile.toContentDto(mod, candidate.file, candidate.relativePath, candidate.sha1)
+                }
+                .firstOrNull()?.let { path to it }
+        }.toMap()
+    }
+
+    private fun CatalogFile.toContentDto(
+        mod: CatalogMod,
+        file: File,
+        relativePath: String,
+        sha1: String,
+    ): Modpack2ContentDto? {
+        val source = mod.sources.firstOrNull { it.ref == project } ?: return null
+        val contentHash = when (ref.platform) {
+            ModPlatform.MODRINTH -> digests.firstOrNull {
+                it.algorithm == CatalogDigestAlgorithm.SHA1
+            }?.value?.also { expected ->
+                if (!expected.equals(sha1, ignoreCase = true)) return null
+            } ?: return null
+            ModPlatform.CURSEFORGE -> digests.firstOrNull {
+                it.algorithm == CatalogDigestAlgorithm.CURSEFORGE_MURMUR2
+            }?.value ?: return null
+        }
+        return Modpack2ContentDto(
+            platform = ref.platform.toContentPlatform(),
+            type = source.contentType.toContentType(relativePath),
+            projectId = project.projectId,
+            fileId = ref.fileId,
+            slug = source.slug,
+            hash = contentHash,
+            targetPath = normalizePath(relativePath),
+            side = effectiveEnvironment(source).toContentSide(),
+            required = true,
+            fileSize = file.length(),
+        )
+    }
+}
+
+private fun ContentSide.toModSide(): Mod.Side = when (this) {
+    ContentSide.Client -> Mod.Side.CLIENT
+    ContentSide.Server -> Mod.Side.SERVER
+    ContentSide.Both -> Mod.Side.BOTH
+}
+
+private fun ModPlatform.toContentPlatform(): ContentPlatform = when (this) {
+    ModPlatform.CURSEFORGE -> ContentPlatform.CurseForge
+    ModPlatform.MODRINTH -> ContentPlatform.Modrinth
+}
+
+private fun CatalogContentType.toContentType(relativePath: String): ContentType {
+    val path = normalizePath(relativePath).lowercase()
+    return when {
+        path.startsWith("resourcepacks/") -> ContentType.ResPack
+        path.startsWith("shaderpacks/") -> ContentType.ShaderPack
+        path.startsWith("datapacks/") -> ContentType.DataPack
+        this == CatalogContentType.MOD -> ContentType.Mod
+        this == CatalogContentType.RESOURCE_PACK -> ContentType.ResPack
+        this == CatalogContentType.SHADER_PACK -> ContentType.ShaderPack
+        else -> ContentType.Other
+    }
+}
+
+private fun EnvironmentCompatibility.toContentSide(): ContentSide {
+    val client = client != EnvironmentRequirement.UNSUPPORTED
+    val server = server != EnvironmentRequirement.UNSUPPORTED
+    return when {
+        client && server -> ContentSide.Both
+        client -> ContentSide.Client
+        server -> ContentSide.Server
+        else -> ContentSide.Both
+    }
+}
+
+private fun normalizePath(path: String): String =
+    path.replace('\\', '/').trimStart('/').split('/').filter(String::isNotBlank).joinToString("/")

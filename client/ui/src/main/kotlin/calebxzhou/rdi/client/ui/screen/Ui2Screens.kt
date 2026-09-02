@@ -9,9 +9,14 @@ object Wardrobe
 @Serializable data class HostCreate(
     val hostId: String? = null,
     val fromAllHosts: Boolean = false,
+    val kind: String = HostKind.Legacy.name,
+    val sourceId: String? = null,
+    val legacyVersionName: String? = null,
+    val displayName: String? = null,
+    val legacyMcVersion: String? = null,
 )
-@Serializable data class ResourceRoute(
-    val tab: String = ResourceTab.Installed.name,
+@Serializable object MyModpackRoute
+@Serializable data class ModpackPlazaRoute(
     val requiredMcVer: String? = null,
     val requiredLoader: String? = null,
     val fromHostId: String? = null,
@@ -20,9 +25,12 @@ object Wardrobe
     val fromHostMods: Boolean = false
 )
 @Serializable data class RemoteModRoute(
-    val requiredMcVer: String? = null,
-    val requiredLoader: String? = null,
+    val requiredMcVer: String,
+    val requiredLoader: String,
     val targetLocalVersionId: String? = null,
+    /** Explicit local target. targetLocalVersionId remains the Legacy compatibility field. */
+    val targetLocalKind: String? = null,
+    val targetLocalId: String? = null,
     val targetHostId: String? = null,
     val targetHost2Id: String? = null,
     val fromAllHosts: Boolean = false,
@@ -34,6 +42,8 @@ object Wardrobe
     val requiredMcVer: String? = null,
     val requiredLoader: String? = null,
     val targetLocalVersionId: String? = null,
+    val targetLocalKind: String? = null,
+    val targetLocalId: String? = null,
     val targetHostId: String? = null,
     val targetHost2Id: String? = null,
     val fromAllHosts: Boolean = false,
@@ -43,15 +53,88 @@ object Wardrobe
     ResourcePack,
     Shader
 }
+@Serializable enum class CatalogLocalTargetKind { Legacy }
+
+data class CatalogLocalTarget(val kind: CatalogLocalTargetKind, val id: String)
+
+fun isDisabledCatalogLocalTargetKind(kindValue: String?): Boolean =
+    kindValue != null && kindValue != CatalogLocalTargetKind.Legacy.name
+
+/** Decodes the Legacy target, including routes persisted before explicit target fields existed. */
+fun resolveCatalogLocalTarget(
+    kindValue: String?,
+    targetId: String?,
+    targetLocalVersionId: String?,
+): CatalogLocalTarget? {
+    if (isDisabledCatalogLocalTargetKind(kindValue)) return null
+    return when (kindValue) {
+        CatalogLocalTargetKind.Legacy.name -> (targetId ?: targetLocalVersionId)
+            ?.takeIf(String::isNotBlank)
+            ?.let { CatalogLocalTarget(CatalogLocalTargetKind.Legacy, it) }
+        null -> targetLocalVersionId?.takeIf(String::isNotBlank)
+            ?.let { CatalogLocalTarget(CatalogLocalTargetKind.Legacy, it) }
+        else -> null
+    }
+}
+
+fun RemoteModRoute.localCatalogTarget(): CatalogLocalTarget? =
+    resolveCatalogLocalTarget(targetLocalKind, targetLocalId, targetLocalVersionId)
+
+fun RemoteModInfoRoute.localCatalogTarget(): CatalogLocalTarget? =
+    resolveCatalogLocalTarget(targetLocalKind, targetLocalId, targetLocalVersionId)
+
+fun RemoteModInfoRoute.hasDisabledCatalogLocalTargetKind(): Boolean =
+    isDisabledCatalogLocalTargetKind(targetLocalKind)
+
+fun ResourceInfoRoute.localCatalogTarget(): CatalogLocalTarget? =
+    resolveCatalogLocalTarget(targetLocalKind, targetLocalId, targetLocalVersionId)
+
+fun ResourceInfoRoute.hasDisabledCatalogLocalTargetKind(): Boolean =
+    isDisabledCatalogLocalTargetKind(targetLocalKind)
+
+fun ModpackContentRoute.localCatalogTarget(): CatalogLocalTarget? =
+    resolveCatalogLocalTarget(targetLocalKind, targetLocalId, targetLocalVersionId)
+
 @Serializable data class ResourceInfoRoute(
     val type: String,
     val projectId: String,
-    val targetLocalVersionId: String? = null
+    val targetLocalVersionId: String? = null,
+    val targetLocalKind: String? = null,
+    val targetLocalId: String? = null,
 )
+enum class ModpackContentType(
+    val label: String,
+    val icon: String,
+) {
+    Mods("模组", "\uDB85\uDCD3"),
+    ResourcePacks("材质", "\uF001"),
+    Shaders("光影", "\uDB83\uDC4C"),
+}
+@Serializable data class ModpackContentRoute(
+    val type: String,
+    val requiredMcVer: String,
+    val requiredLoader: String,
+    val targetLocalVersionId: String? = null,
+    val targetLocalKind: String? = null,
+    val targetLocalId: String? = null,
+)
+@Serializable enum class ModpackInfoSource {
+    Legacy,
+    Modpack2;
+
+    companion object {
+        fun fromRouteValue(value: String?): ModpackInfoSource =
+            entries.firstOrNull { it.name == value } ?: Legacy
+    }
+}
 @Serializable data class ModpackInfo(
     val modpackId: String,
     val fromHostId: String? = null,
-    val fromAllHosts: Boolean = false
+    val fromAllHosts: Boolean = false,
+    /** Explicit source for new routes; absent on old persisted routes means Legacy. */
+    val source: String = ModpackInfoSource.Legacy.name,
+    /** New source-specific identifier. Old callers continue to use modpackId. */
+    val ref: String? = null,
 )
 @Serializable data class ModpackOptions(
     val versionId: String,
@@ -64,7 +147,9 @@ object Wardrobe
     val fromHostId: String? = null,
     val fromAllHosts: Boolean = false
 )
+/* @Serializable object Modpack2Upload */
 @Serializable object ModpackUpload
+/* @Serializable data class Modpack2ContentRoute(val versionId: String) */
 @Serializable object Login
 @Serializable object Menu
 @Serializable object Mcmod
@@ -76,24 +161,17 @@ object Wardrobe
 )*/
 @Serializable data class Register(val msa: Boolean)
 @Serializable object ResetPassword
-@Serializable object PlayerInfo
+@Serializable data class PlayerInfo(val playerId: String? = null)
+/* @Serializable object Friends */
 @Serializable object Setting
 @Serializable object Mailbox
-@Serializable data class HostRoute(val tab: String = HostTab.MyHosts.name)
-@Serializable data class HostInfo(val hostId: String, val fromAllHosts: Boolean = false)
-@Serializable data class HostMembers(val hostId: String, val fromAllHosts: Boolean = false)
-@Serializable data class HostMods(val hostId: String, val fromAllHosts: Boolean = false)
-@Serializable data class HostFiles(val hostId: String, val fromAllHosts: Boolean = false)
-@Serializable data class HostBackend(val hostId: String, val fromAllHosts: Boolean = false)
-@Serializable object Host2Lobby
-@Serializable object Host2Create
-@Serializable data class Host2Info(val hostId: String)
+@Serializable object HostRoute
+@Serializable object WorldRoute
+@Serializable data class HostInfo(val hostId: String, val fromAllHosts: Boolean = false, val kind: String = HostKind.Legacy.name)
+@Serializable data class HostMembers(val hostId: String, val fromAllHosts: Boolean = false, val kind: String = HostKind.Legacy.name)
+@Serializable data class HostMods(val hostId: String, val fromAllHosts: Boolean = false, val kind: String = HostKind.Legacy.name)
+@Serializable data class HostFiles(val hostId: String, val fromAllHosts: Boolean = false, val kind: String = HostKind.Legacy.name)
+@Serializable data class HostBackend(val hostId: String, val fromAllHosts: Boolean = false, val kind: String = HostKind.Legacy.name)
 @Serializable data class MailDetail(val mailId: String)
 //@Serializable data class WorldBirdView(val worldId: String)
-@Serializable data class TaskList(
-    val selectedRunId: String? = null,
-    val fromHostModsId: String? = null,
-    val fromAllHosts: Boolean = false,
-    val fromHostTab: String? = null
-)
 @Serializable object McPlayView

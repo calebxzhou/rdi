@@ -1,7 +1,7 @@
 package calebxzau.rdi.client.ui.viewmodel
 
 import calebxzhou.rdi.client.model.UiMod
-import calebxzhou.rdi.client.service.TestStatus
+import calebxzau.rdi.modpacktest.ModpackTestStatus
 import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.McVersion
@@ -97,8 +97,8 @@ class ModpackUploadViewModelTest {
         assertEquals("1.21.1", state.mcVersionText)
         assertEquals("neoforge", state.modloaderText)
         assertEquals(1, state.uiMods.size)
-        assertEquals(TestStatus.NOT_RUN, state.clientTestStatus)
-        assertEquals(TestStatus.NOT_RUN, state.serverTestStatus)
+        assertEquals(ModpackTestStatus.NOT_RUN, state.clientTestStatus)
+        assertEquals(ModpackTestStatus.NOT_RUN, state.serverTestStatus)
     }
 
     @Test
@@ -358,7 +358,7 @@ class ModpackUploadViewModelTest {
         val state = viewModel.uiState.filter { it.pendingMissingModDownload != null }.first()
         assertEquals("客户端测试", state.pendingMissingModDownload?.usage)
         assertEquals(listOf(missing), state.pendingMissingModDownload?.mods)
-        assertEquals(TestStatus.NOT_RUN, state.clientTestStatus)
+        assertEquals(ModpackTestStatus.NOT_RUN, state.clientTestStatus)
     }
 
     @Test

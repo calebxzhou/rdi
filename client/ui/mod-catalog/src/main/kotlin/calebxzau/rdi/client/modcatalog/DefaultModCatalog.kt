@@ -8,6 +8,7 @@ import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.supervisorScope
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.serialization.json.Json
 import java.nio.file.Path
 import java.time.Clock
@@ -41,6 +42,13 @@ internal class DefaultModCatalog(
         cachePolicy.metadataTtl,
         cachePolicy.negativeTtl
     )
+    private val fileListCache = MemoryCatalogCache<FileListKey, AdapterFileList>(
+        clock,
+        cachePolicy.metadataTtl,
+        cachePolicy.negativeTtl,
+        maxSize = FILE_LIST_CACHE_SIZE
+    )
+    private val fileLoadMutexes = adapters.keys.associateWith { Mutex() }
     private val changelogCache = MemoryCatalogCache<CatalogFileRef, String>(
         clock,
         cachePolicy.metadataTtl,
@@ -252,29 +260,18 @@ internal class DefaultModCatalog(
         refs: Set<CatalogProjectRef>
     ): Result<CatalogOutcome<Map<CatalogProjectRef, CatalogMod>>> = catalogResult {
         if (refs.isEmpty()) return@catalogResult CatalogOutcome(emptyMap())
-        val calls = supervisorScope {
-            refs.map { ref -> async { ref to runSource(ref.platform) { loadProject(ref) } } }.awaitAll()
-        }
+        val loadedProjects = loadProjects(refs.toList())
         val issues = mutableListOf<CatalogIssue>()
         identityIssue()?.let(issues::add)
-        val sources = linkedMapOf<CatalogProjectRef, CatalogProjectSource>()
-        calls.forEach { (ref, result) ->
-            when (result) {
-                is SourceCall.Success -> result.value?.let { sources[ref] = it }
-                    ?: run { issues += CatalogIssue.MissingProjects(setOf(ref)) }
-
-                is SourceCall.Failure -> issues += CatalogIssue.SourceFailed(
-                    result.platform,
-                    result.cause.message ?: result.cause.toString()
-                )
-            }
+        val sources = loadedProjects.found.toMutableMap()
+        loadedProjects.missing.forEach { ref ->
+            issues += CatalogIssue.MissingProjects(setOf(ref))
         }
-        if (sources.isEmpty() && calls.all { it.second is SourceCall.Failure }) {
-            throw CatalogException.AllSourcesFailed(
-                calls.mapNotNull { (_, value) ->
-                    (value as? SourceCall.Failure)?.let { it.platform to it.cause }
-                }.toMap()
-            )
+        loadedProjects.failures.forEach { (platform, cause) ->
+            issues += CatalogIssue.SourceFailed(platform, cause.message ?: cause.toString())
+        }
+        if (sources.isEmpty() && loadedProjects.successfulPlatforms.isEmpty() && loadedProjects.failures.isNotEmpty()) {
+            throw CatalogException.AllSourcesFailed(loadedProjects.failures)
         }
         val groupedSources = groupSourcesByIdentity(sources.values.toList(), issues)
         val logicalByIdentity = groupedSources.groups
@@ -284,6 +281,49 @@ internal class DefaultModCatalog(
             logicalByIdentity.getValue(groupedSources.identityByRef.getValue(source.ref).stableKey)
         }
         CatalogOutcome(found, issues)
+    }
+
+    override suspend fun getFiles(
+        refs: Set<CatalogFileRef>
+    ): Result<CatalogOutcome<Map<CatalogFileRef, CatalogFile>>> = catalogResult {
+        if (refs.isEmpty()) return@catalogResult CatalogOutcome(emptyMap())
+        val calls = supervisorScope {
+            refs.groupBy(CatalogFileRef::platform).map { (platform, platformRefs) ->
+                async {
+                    platformRefs to runSource(platform) {
+                        loadPlatformFiles(platform, platformRefs)
+                    }
+                }
+            }.awaitAll()
+        }
+        val files = linkedMapOf<CatalogFileRef, CatalogFile>()
+        val issues = mutableListOf<CatalogIssue>()
+        calls.forEach { (platformRefs, result) ->
+            when (result) {
+                is SourceCall.Success -> {
+                    platformRefs.forEach { ref ->
+                        result.value.found[ref.fileId]?.let { file ->
+                            files[ref] = file
+                        }
+                    }
+                    val missing = platformRefs.filterTo(linkedSetOf()) { it.fileId in result.value.missing }
+                    if (missing.isNotEmpty()) issues += CatalogIssue.MissingFiles(missing)
+                }
+
+                is SourceCall.Failure -> issues += CatalogIssue.SourceFailed(
+                    result.platform,
+                    result.cause.message ?: result.cause.toString()
+                )
+            }
+        }
+        if (files.isEmpty() && calls.all { it.second is SourceCall.Failure }) {
+            throw CatalogException.AllSourcesFailed(
+                calls.mapNotNull { (_, value) ->
+                    (value as? SourceCall.Failure)?.let { it.platform to it.cause }
+                }.toMap()
+            )
+        }
+        CatalogOutcome(files, issues)
     }
 
     override suspend fun getDetails(
@@ -342,20 +382,25 @@ internal class DefaultModCatalog(
         var successfulSource = false
         for (source in sources) {
             val result = runSource(source.ref.platform) {
-                adapters.getValue(source.ref.platform).listFiles(
-                    source.ref,
-                    request.target,
-                    request.channels,
-                    request.cursor?.offset ?: 0,
-                    request.pageSize
-                )
+                loadFileList(source.ref, request.target, request.cursor?.offset ?: 0, request.pageSize)
             }
             when (result) {
                 is SourceCall.Success -> {
                     successfulSource = true
                     selectedPlatform = source.ref.platform
-                    selectedFiles = result.value.first
-                    nextOffset = result.value.second
+                    when (val list = result.value) {
+                        is AdapterFileList.Complete -> {
+                            val compatible = list.items.filter { it.channel in request.channels }
+                            val offset = request.cursor?.offset ?: 0
+                            selectedFiles = compatible.drop(offset).take(request.pageSize)
+                            nextOffset = (offset + selectedFiles.size)
+                                .takeIf { selectedFiles.isNotEmpty() && it < compatible.size }
+                        }
+                        is AdapterFileList.Page -> {
+                            selectedFiles = list.items.filter { it.channel in request.channels }
+                            nextOffset = list.nextOffset
+                        }
+                    }
                     if (selectedFiles.isNotEmpty() || requestedPlatform != null) break
                 }
 
@@ -379,6 +424,33 @@ internal class DefaultModCatalog(
             ),
             issues
         )
+    }
+
+    override suspend fun matchFiles(
+        hashes: List<CatalogFileHashes>
+    ): Result<Map<String, CatalogFile>> = catalogResult {
+        if (hashes.isEmpty()) return@catalogResult emptyMap()
+        val calls = supervisorScope {
+            adapters.values.map { adapter ->
+                async { runSource(adapter.platform) { adapter.matchFiles(hashes) } }
+            }.awaitAll()
+        }
+        val failures = calls.filterIsInstance<SourceCall.Failure>()
+        if (calls.none { it is SourceCall.Success<*> }) {
+            throw CatalogException.AllSourcesFailed(failures.associate { it.platform to it.cause })
+        }
+
+        val matches = linkedMapOf<String, CatalogFile>()
+        listOf(ModPlatform.CURSEFORGE, ModPlatform.MODRINTH).forEach { platform ->
+            calls.filterIsInstance<SourceCall.Success<Map<String, CatalogFile>>>()
+                .firstOrNull { it.platform == platform }
+                ?.value
+                ?.forEach { (key, file) ->
+                    matches[key] = file
+                    fileCache.put(file.ref, file)
+                }
+        }
+        matches
     }
 
     override suspend fun matchLocalFiles(
@@ -414,10 +486,21 @@ internal class DefaultModCatalog(
         }
         val byPath = linkedMapOf<Path, MutableList<CatalogFile>>()
         successes.forEach { result ->
-            result.value.forEach { (path, file) -> byPath.getOrPut(path, ::mutableListOf) += file }
+            result.value.forEach { (path, file) ->
+                fileCache.put(file.ref, file)
+                byPath.getOrPut(path, ::mutableListOf) += file
+            }
         }
+        val loadedProjects = loadProjects(
+            byPath.values.asSequence()
+                .flatten()
+                .map(CatalogFile::project)
+                .distinct()
+                .toList()
+        )
+        val identities = loadedProjects.found.mapValues { (_, project) -> identityFor(project).first }
         val matched = byPath.map { (path, files) ->
-            LocalFileMatch(path, files, files.firstNotNullOfOrNull { identityForFile(it) })
+            LocalFileMatch(path, files, files.firstNotNullOfOrNull { identities[it.project] })
         }
         CatalogOutcome(
             LocalFileMatchReport(
@@ -428,6 +511,9 @@ internal class DefaultModCatalog(
             buildList {
                 identityIssue()?.let(::add)
                 failures.forEach { add(CatalogIssue.SourceFailed(it.platform, it.cause.message ?: it.cause.toString())) }
+                loadedProjects.failures.forEach { (platform, cause) ->
+                    add(CatalogIssue.SourceFailed(platform, cause.message ?: cause.toString()))
+                }
             }
         )
     }
@@ -442,13 +528,12 @@ internal class DefaultModCatalog(
         var successful = 0
         for (installed in request.installed) {
             when (val result = runSource(installed.file.ref.platform) {
-                adapters.getValue(installed.file.ref.platform).listFiles(
+                loadFileList(
                     installed.file.project,
                     installed.target,
-                    installed.file.channel.compatibleChannels(),
                     0,
                     50
-                ).first.firstOrNull()
+                ).items.firstOrNull { it.channel in installed.file.channel.compatibleChannels() }
             }) {
                 is SourceCall.Success -> {
                     successful++
@@ -499,6 +584,7 @@ internal class DefaultModCatalog(
             currentCoroutineContext().ensureActive()
             val current = queue.removeFirst()
             current.file.dependencies.forEach { dependency ->
+                if (dependency.requirement !in request.requirements) return@forEach
                 edges += DependencyEdge(current.file.ref, dependency.target, dependency.requirement)
                 val platform = dependency.target.platform
                 val resolved = when (val result = runSource(platform) {
@@ -569,6 +655,7 @@ internal class DefaultModCatalog(
         }
         val recordsBySource = sources.associateWith { source ->
             records[CatalogSlugRef(source.ref.platform, source.slug)]
+                ?.takeIf { source.contentType == CatalogContentType.MOD }
         }
         val identityByRef = sources.associate { source ->
             val record = recordsBySource[source]
@@ -705,6 +792,9 @@ internal class DefaultModCatalog(
     private suspend fun identityFor(
         source: CatalogProjectSource
     ): Pair<CatalogIdentity, CatalogIdentityRecord?> {
+        if (source.contentType != CatalogContentType.MOD) {
+            return CatalogIdentity.Unmapped(source.ref) to null
+        }
         val record = try {
             identityIndex.find(source.ref.platform, source.slug)
         } catch (cause: CancellationException) {
@@ -720,50 +810,156 @@ internal class DefaultModCatalog(
     private fun List<CatalogProjectSource>.toCatalogMod(
         identityRecord: CatalogIdentityRecord?
     ): CatalogMod {
-        val primary = firstOrNull { it.ref.platform == ModPlatform.MODRINTH } ?: first()
-        val identity = identityRecord?.let { CatalogIdentity.Mcmod(it.mcmodId) }
+        val hasModSource = any { it.contentType == CatalogContentType.MOD }
+        val primary = firstOrNull {
+            it.contentType == CatalogContentType.MOD && it.ref.platform == ModPlatform.MODRINTH
+        } ?: firstOrNull { it.contentType == CatalogContentType.MOD } ?: first()
+        val identity = identityRecord
+            ?.takeIf { hasModSource }
+            ?.let { CatalogIdentity.Mcmod(it.mcmodId) }
             ?: CatalogIdentity.Unmapped(primary.ref)
+        val identityData = identityRecord?.takeIf { identity is CatalogIdentity.Mcmod }
         return CatalogMod(
             identity = identity,
             primaryRef = primary.ref,
             sources = distinctBy(CatalogProjectSource::ref),
-            name = identityRecord?.name ?: primary.name,
-            nameCn = identityRecord?.projects
+            name = identityData?.name ?: primary.name,
+            nameCn = identityData?.projects
                 ?.firstOrNull { it.platform == primary.ref.platform }
                 ?.nameCnOverride
-                ?: identityRecord?.nameCn,
-            summary = identityRecord?.intro?.takeIf(String::isNotBlank) ?: primary.summary,
-            mcmodIconUrl = identityRecord?.logoUrl,
+                ?: identityData?.nameCn,
+            summary = identityData?.intro?.takeIf(String::isNotBlank) ?: primary.summary,
+            mcmodIconUrl = identityData?.logoUrl,
             downloadCount = sumOf(CatalogProjectSource::downloadCount),
             updatedAt = maxOf(CatalogProjectSource::updatedAt),
             environment = primary.environment
         )
     }
 
-    private suspend fun loadProject(ref: CatalogProjectRef): CatalogProjectSource? =
-        projectCache.getOrLoad(ref) {
-            adapters.getValue(ref.platform).getProjects(setOf(ref.projectId)).found[ref.projectId]
+    private suspend fun loadProjects(refs: List<CatalogProjectRef>): ProjectLoad {
+        if (refs.isEmpty()) return ProjectLoad()
+
+        val found = linkedMapOf<CatalogProjectRef, CatalogProjectSource>()
+        val missing = linkedSetOf<CatalogProjectRef>()
+        val failures = linkedMapOf<ModPlatform, Throwable>()
+        val successfulPlatforms = linkedSetOf<ModPlatform>()
+        val uncachedByPlatform = linkedMapOf<ModPlatform, MutableList<CatalogProjectRef>>()
+
+        refs.distinct().forEach { ref ->
+            when (val cached = projectCache.get(ref)) {
+                null -> uncachedByPlatform.getOrPut(ref.platform, ::mutableListOf) += ref
+                else -> {
+                    successfulPlatforms += ref.platform
+                    cached.value?.let { found[ref] = it } ?: run { missing += ref }
+                }
+            }
         }
 
-    private suspend fun identityForFile(file: CatalogFile): CatalogIdentity? =
-        loadProject(file.project)?.let { identityFor(it).first }
+        val calls = supervisorScope {
+            uncachedByPlatform.map { (platform, platformRefs) ->
+                async {
+                    platformRefs to runSource(platform) {
+                        adapters.getValue(platform).getProjects(
+                            platformRefs.mapTo(linkedSetOf(), CatalogProjectRef::projectId)
+                        )
+                    }
+                }
+            }.awaitAll()
+        }
+        calls.forEach { (platformRefs, result) ->
+            when (result) {
+                is SourceCall.Success -> {
+                    successfulPlatforms += platformRefs.first().platform
+                    platformRefs.forEach { ref ->
+                        val project = result.value.found[ref.projectId]
+                        projectCache.put(ref, project)
+                        if (project == null) {
+                            missing += ref
+                        } else {
+                            found[ref] = project
+                        }
+                    }
+                }
+
+                is SourceCall.Failure -> failures[platformRefs.first().platform] = result.cause
+            }
+        }
+        return ProjectLoad(found, missing, failures, successfulPlatforms)
+    }
 
     private suspend fun resolveDependency(
         target: DependencyTarget,
         catalogTarget: CatalogTarget,
         channels: Set<ReleaseChannel>
     ): CatalogFile? = when (target) {
-        is DependencyTarget.File -> fileCache.getOrLoad(target.ref) {
-            adapters.getValue(target.ref.platform).getFiles(setOf(target.ref.fileId)).found[target.ref.fileId]
-        }
+        is DependencyTarget.File -> loadPlatformFiles(target.ref.platform, listOf(target.ref))
+            .found[target.ref.fileId]
 
-        is DependencyTarget.Project -> adapters.getValue(target.ref.platform).listFiles(
+        is DependencyTarget.Project -> loadFileList(
             target.ref,
             catalogTarget,
-            channels,
             0,
             1
-        ).first.firstOrNull()
+        ).items.firstOrNull { it.channel in channels }
+    }
+
+    private suspend fun loadPlatformFiles(
+        platform: ModPlatform,
+        refs: List<CatalogFileRef>
+    ): AdapterResult<CatalogFile> {
+        val mutex = fileLoadMutexes.getValue(platform)
+        mutex.lock()
+        try {
+            val found = linkedMapOf<String, CatalogFile>()
+            val missing = linkedSetOf<String>()
+            val uncached = linkedSetOf<CatalogFileRef>()
+            refs.distinct().forEach { ref ->
+                when (val cached = fileCache.get(ref)) {
+                    null -> uncached += ref
+                    else -> cached.value?.let { found[ref.fileId] = it } ?: missing.add(ref.fileId)
+                }
+            }
+            if (uncached.isNotEmpty()) {
+                val loaded = adapters.getValue(platform).getFiles(
+                    uncached.mapTo(linkedSetOf(), CatalogFileRef::fileId)
+                )
+                uncached.forEach { ref ->
+                    val file = loaded.found[ref.fileId]
+                    when {
+                        file != null -> {
+                            fileCache.put(ref, file)
+                            found[ref.fileId] = file
+                        }
+                        ref.fileId in loaded.missing -> {
+                            fileCache.put(ref, null)
+                            missing += ref.fileId
+                        }
+                    }
+                }
+            }
+            return AdapterResult(found, missing)
+        } finally {
+            mutex.unlock()
+        }
+    }
+
+    private suspend fun loadFileList(
+        project: CatalogProjectRef,
+        target: CatalogTarget,
+        offset: Int,
+        limit: Int
+    ): AdapterFileList {
+        val key = FileListKey(
+            project = project,
+            target = target,
+            offset = offset.takeIf { project.platform == ModPlatform.CURSEFORGE },
+            limit = limit.takeIf { project.platform == ModPlatform.CURSEFORGE }
+        )
+        val list = fileListCache.getOrLoad(key) {
+            adapters.getValue(project.platform).listFiles(project, target, offset, limit)
+        } ?: error("File list cache loader returned null")
+        list.items.forEach { fileCache.put(it.ref, it) }
+        return list
     }
 
     private fun ReleaseChannel.compatibleChannels(): Set<ReleaseChannel> =
@@ -845,6 +1041,13 @@ internal class DefaultModCatalog(
         val failure: Throwable? = null
     )
 
+    private data class ProjectLoad(
+        val found: Map<CatalogProjectRef, CatalogProjectSource> = emptyMap(),
+        val missing: Set<CatalogProjectRef> = emptySet(),
+        val failures: Map<ModPlatform, Throwable> = emptyMap(),
+        val successfulPlatforms: Set<ModPlatform> = emptySet()
+    )
+
     private data class RankedCatalogMod(
         val mod: CatalogMod,
         val relevanceRank: Int
@@ -857,6 +1060,13 @@ internal class DefaultModCatalog(
         val loader: String
     )
 
+    private data class FileListKey(
+        val project: CatalogProjectRef,
+        val target: CatalogTarget,
+        val offset: Int?,
+        val limit: Int?
+    )
+
     private sealed interface SourceCall<out T> {
         val platform: ModPlatform
 
@@ -867,6 +1077,7 @@ internal class DefaultModCatalog(
 
     companion object {
         private const val CURSEFORGE_SLUG_REQUEST_BUDGET = 3
+        private const val FILE_LIST_CACHE_SIZE = 64
 
         fun create(
             httpClient: HttpClient,

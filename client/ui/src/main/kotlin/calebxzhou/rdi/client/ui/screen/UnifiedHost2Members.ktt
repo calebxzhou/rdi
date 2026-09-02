@@ -1,0 +1,168 @@
+package calebxzhou.rdi.client.ui.screen
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import calebxzau.rdi.client.ui.*
+import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.ui.comp.HeadButton
+import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.model.Host2
+import calebxzhou.rdi.common.model.Host2MemberRole
+import calebxzhou.rdi.model.Role
+import calebxzhou.rdi.common.model.isDav
+import calebxzhou.rdi.common.util.toObjectId
+import calebxzhou.rdi.common.serdesJson
+import io.ktor.client.request.setBody
+import io.ktor.http.HttpMethod
+import io.ktor.http.contentType
+import kotlinx.coroutines.launch
+import java.util.UUID
+
+@Composable
+fun UnifiedHost2MembersScreen(
+    target: HostTarget,
+    onBack: () -> Unit,
+    onQuit: () -> Unit,
+) {
+    val id = target.id
+    val scope = rememberCoroutineScope()
+    var detail by remember(id) { mutableStateOf<Host2.DetailVo?>(null) }
+    var loading by remember(id) { mutableStateOf(true) }
+    var error by remember(id) { mutableStateOf<String?>(null) }
+    var inviteDialog by remember { mutableStateOf(false) }
+    var qq by remember { mutableStateOf("") }
+    var transferMember by remember { mutableStateOf<Host2.Member?>(null) }
+
+    fun reload() {
+        scope.launch {
+            loading = true
+            runCatching { server.makeRequest<Host2.DetailVo>("host2/$id") }
+                .onSuccess { response -> if (response.ok) detail = response.data else error = response.msg }
+                .onFailure { error = it.message }
+            loading = false
+        }
+    }
+    LaunchedEffect(id) { reload() }
+
+    val current = detail
+    val isOwner = current?.role == Role.OWNER || loggedAccount.isDav
+    val isAdmin = isOwner || current?.role == Role.ADMIN
+    MaxBox {
+        ScreenContentSurface(ScreenContentSize.MEDIUM) {
+            TitleRow(current?.let { "${it.name} - 成员" } ?: "房间成员", onBack) {
+                if (isAdmin) CircleIconButton("\uF067", "邀请") { inviteDialog = true }
+            }
+            ContentBody {
+                when {
+                    loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(error ?: "无法加载成员名单", color = MaterialTheme.colorScheme.error)
+                    }
+                    current.members.isEmpty() -> Text("当前没有其他成员")
+                    else -> ScrollableContentBody {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            current.members.forEach { member ->
+                                val objectId = member.playerId.toObjectId().getOrNull()
+                                Row(
+                                    Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                ) {
+                                    if (objectId != null) HeadButton(objectId, avatarSize = 36.dp, showName = true)
+                                    else Text(member.playerId.toString())
+                                    Text(member.role.name)
+                                    Spacer(Modifier.weight(1f))
+                                    if (isOwner) {
+                                        TextButton(onClick = {
+                                            val next = if (member.role == Host2MemberRole.ADMIN) Host2MemberRole.MEMBER else Host2MemberRole.ADMIN
+                                            scope.launch {
+                                                mutate("host2/$id/members/${member.playerId}/role", HttpMethod.Put, Host2.SetMemberRoleDto(next), ::reload, { error = it })
+                                            }
+                                        }) { Text(if (member.role == Host2MemberRole.ADMIN) "取消管理员" else "设为管理员") }
+                                        TextButton(onClick = { transferMember = member }) { Text("转让房主") }
+                                    }
+                                    if (isOwner) TextButton(onClick = {
+                                        scope.launch {
+                                            val response = server.makeRequest<Unit>("host2/$id/members/${member.playerId}", HttpMethod.Delete)
+                                            if (response.ok) reload() else error = response.msg
+                                        }
+                                    }) { Text("移除") }
+                                }
+                            }
+                            if (!isOwner) {
+                                TextButton(onClick = {
+                                    scope.launch {
+                                        val response = server.makeRequest<Unit>("host2/$id/quit", HttpMethod.Post)
+                                        if (response.ok) onQuit() else error = response.msg
+                                    }
+                                }) { Text("退出房间") }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (inviteDialog) {
+        AlertDialog(
+            onDismissRequest = { inviteDialog = false },
+            title = { Text("邀请成员") },
+            text = { OutlinedTextField(qq, { qq = it }, label = { Text("QQ号") }, singleLine = true) },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        mutate("host2/$id/members", HttpMethod.Post, Host2.InviteMemberDto(qq.trim()), ::reload, { error = it })
+                        inviteDialog = false
+                    }
+                }, enabled = qq.isNotBlank()) { Text("邀请") }
+            },
+            dismissButton = { TextButton(onClick = { inviteDialog = false }) { Text("取消") } },
+        )
+    }
+    transferMember?.let { member ->
+        AlertDialog(
+            onDismissRequest = { transferMember = null },
+            title = { Text("转让房主") },
+            text = { Text("确定将房主转让给该成员吗？转让后你会成为管理员。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    scope.launch {
+                        mutate(
+                            "host2/$id/ownership",
+                            HttpMethod.Put,
+                            Host2.TransferOwnershipDto(member.playerId),
+                            onSuccess = {
+                                transferMember = null
+                                reload()
+                            },
+                            onError = { error = it },
+                        )
+                    }
+                }) { Text("确认转让") }
+            },
+            dismissButton = { TextButton(onClick = { transferMember = null }) { Text("取消") } },
+        )
+    }
+}
+
+private suspend inline fun <reified T> mutate(
+    path: String,
+    method: HttpMethod,
+    body: T,
+    crossinline onSuccess: () -> Unit,
+    crossinline onError: (String) -> Unit,
+) {
+    runCatching {
+        val response = server.makeRequest<Unit>(path, method) {
+            contentType(io.ktor.http.ContentType.Application.Json)
+            setBody(serdesJson.encodeToString(body))
+        }
+        if (!response.ok) throw RequestError(response.msg)
+    }.onSuccess { onSuccess() }.onFailure { onError(it.message ?: "操作失败") }
+}

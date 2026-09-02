@@ -19,6 +19,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":misc"))
     implementation(project(":model"))
     implementation(project(":mediaproc"))
     implementation(libs.kotlinx.serialization.json)

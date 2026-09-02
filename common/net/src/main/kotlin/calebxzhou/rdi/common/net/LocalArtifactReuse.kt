@@ -4,6 +4,7 @@ import java.nio.file.Path
 
 enum class LocalArtifactHashAlgorithm {
     SHA1,
+    SHA256,
     CURSEFORGE_MURMUR2
 }
 

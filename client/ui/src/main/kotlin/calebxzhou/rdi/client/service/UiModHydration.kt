@@ -6,7 +6,6 @@ import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModrinthProject
-import calebxzhou.rdi.common.service.ModService.buildIconUrls
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -80,7 +79,7 @@ fun List<UiMod>.hydrateToUiModsInBatches(
             resolution.result
                 .onSuccess { remoteCardMap ->
                     remoteCardMap.forEach { (key, remoteCard) ->
-                        cardMap[key] = localCardMap[key]?.mergeWithRemote(remoteCard) ?: remoteCard
+                        cardMap[key] = localCardMap[key]?.mergeLocalFirst(remoteCard) ?: remoteCard
                     }
                 }
                 .onFailure { cause ->
@@ -108,8 +107,3 @@ private fun List<UiMod>.withCards(cardMap: Map<String, Mod.CardVo>): List<UiMod>
     )
 }
 
-private fun Mod.CardVo.mergeWithRemote(remote: Mod.CardVo): Mod.CardVo = remote.copy(
-    iconData = iconData ?: remote.iconData,
-    iconUrls = buildIconUrls(remote.iconUrls + iconUrls),
-    side = side
-)

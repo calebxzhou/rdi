@@ -1,32 +1,26 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.toClientContentRequests
 import calebxzhou.rdi.common.model.EXTRA_MOD_PREFIX
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
-import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.runInline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.nio.file.Files
-import java.nio.file.LinkOption
 
 fun buildHostExtraModSyncTask2(versionId: String, extraMods: List<Mod>): Task2 {
     val distinctMods = extraMods.distinctBy { it.fileName }
     return Task2.Sequence(
         title = "同步房间附加Mod",
-        children = buildList {
-            if (distinctMods.isNotEmpty()) {
-                add(ModService.downloadModsTask2(distinctMods))
+        children = listOf(
+            Task2.Leaf("下载并同步附加Mod") { ctx ->
+                materializeHostExtraMods(versionId, distinctMods, ctx)
             }
-            add(
-                Task2.Leaf("整理附加Mod链接") { ctx ->
-                    syncHostExtraModLinks(versionId, distinctMods, ctx)
-                }
-            )
-        }
+        )
     )
 }
 
@@ -40,12 +34,12 @@ suspend fun syncHostExtraMods(
     )
 }
 
-private fun syncHostExtraModLinks(
+private suspend fun materializeHostExtraMods(
     versionId: String,
     extraMods: List<Mod>,
     ctx: Task2Context
 ) {
-    val versionDir = GameService.versionListDir.resolve(versionId)
+    val versionDir = mcInstall.versionListDir.resolve(versionId)
     require(versionDir.exists()) { "未找到整合包目录: ${versionDir.absolutePath}" }
     val modsDir = versionDir.resolve("mods").apply { mkdirs() }
     val expectedTargets = extraMods
@@ -65,30 +59,11 @@ private fun syncHostExtraModLinks(
         return
     }
 
-    extraMods.forEachIndexed { index, mod ->
-        val source = mod.candidateFiles.firstOrNull(File::exists)
-            ?: error("缺少附加Mod文件: ${mod.targetFile.absolutePath}")
-        val target = modsDir.resolve(extraModTargetFileName(mod))
-        if (!target.pointsTo(source)) {
-            hardLinkFile(source, target).getOrThrow()
-        }
-        val fraction = (index + 1).toFloat() / extraMods.size
-        ctx.emit(Task2Progress("已同步附加Mod ${index + 1}/${extraMods.size}", fraction))
-    }
+    ClientContentStore.shared.materialize(
+        requests = extraMods.toClientContentRequests(::extraModTargetFileName),
+        targetRoot = modsDir.toPath(),
+        onProgress = ctx::emit
+    ).getOrThrow()
 }
 
 private fun extraModTargetFileName(mod: Mod): String = EXTRA_MOD_PREFIX + mod.fileName
-
-internal fun File.pointsTo(source: File): Boolean {
-    val targetPath = toPath()
-    if (!Files.exists(targetPath, LinkOption.NOFOLLOW_LINKS)) return false
-    return runCatching {
-        if (Files.isSymbolicLink(targetPath)) {
-            val rawLink = Files.readSymbolicLink(targetPath)
-            val resolvedLink = if (rawLink.isAbsolute) rawLink.normalize() else parentFile.toPath().resolve(rawLink).normalize()
-            resolvedLink == source.toPath().normalize()
-        } else {
-            Files.isSameFile(targetPath, source.toPath())
-        }
-    }.getOrDefault(false)
-}

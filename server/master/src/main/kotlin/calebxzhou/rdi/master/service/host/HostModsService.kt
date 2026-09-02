@@ -2,6 +2,8 @@ package calebxzhou.rdi.master.service.host
 
 import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.model.CurseForgeFile
+import calebxzhou.rdi.common.model.CurseForgeModInfo
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.LoadProgress
 import calebxzhou.rdi.common.model.Mod
@@ -91,7 +93,28 @@ object HostModsService {
         }.getOrDefault(false)
     }
 
-    private suspend fun validateExtraMod(mod: Mod) {
+    private suspend fun validateExtraMods(mods: List<Mod>) {
+        val curseForgeMods = mods.filter { it.platform.equals("cf", ignoreCase = true) }
+        val curseForgeProjects = curseForgeMods
+            .mapNotNull { it.projectId.toIntOrNull() }
+            .distinct()
+            .let { ids ->
+                if (ids.isEmpty()) emptyMap() else CurseForgeService.getModsInfo(ids).associateBy { it.id }
+            }
+        val curseForgeFiles = curseForgeMods
+            .mapNotNull { it.fileId.toIntOrNull() }
+            .distinct()
+            .let { ids ->
+                if (ids.isEmpty()) emptyMap() else CurseForgeService.getModFilesInfo(ids).associateBy { it.id }
+            }
+        mods.forEach { mod -> validateExtraMod(mod, curseForgeProjects, curseForgeFiles) }
+    }
+
+    private suspend fun validateExtraMod(
+        mod: Mod,
+        curseForgeProjects: Map<Int, CurseForgeModInfo> = emptyMap(),
+        curseForgeFiles: Map<Int, CurseForgeFile> = emptyMap()
+    ) {
         if (mod.projectId.isBlank()) throw RequestError("Mod projectId不能为空")
         if (mod.fileId.isBlank()) throw RequestError("Mod fileId不能为空")
         if (mod.slug.isBlank()) throw RequestError("Mod slug不能为空")
@@ -120,9 +143,9 @@ object HostModsService {
                     ?: throw RequestError("CurseForge projectId无效: ${mod.projectId}")
                 val fileId = mod.fileId.toIntOrNull()
                     ?: throw RequestError("CurseForge fileId无效: ${mod.fileId}")
-                val project = CurseForgeService.getModsInfo(listOf(projectId)).firstOrNull { it.id == projectId }
+                val project = curseForgeProjects[projectId]
                     ?: throw RequestError("CurseForge不存在此项目: ${mod.projectId}")
-                val fileInfo = CurseForgeService.getModFileInfo(projectId, fileId)
+                val fileInfo = curseForgeFiles[fileId]
                     ?: throw RequestError("CurseForge不存在此文件: ${mod.fileId}")
                 if (fileInfo.realDownloadUrl.isBlank() || !fileInfo.realDownloadUrl.isValidDownloadUrl()) {
                     throw RequestError("CurseForge Mod ${project.slug} 缺少有效下载链接")
@@ -223,8 +246,8 @@ object HostModsService {
                     val currentHost = HostQueryService.getById(hostId) ?: throw RequestError("无此房间")
                     val modpack = ModpackService.getById(modpackId) ?: throw RequestError("无此整合包")
                     val baseVersion = modpack.getVersion(packVer) ?: throw RequestError("无此整合包版本: $packVer")
+                    validateExtraMods(mods)
                     mods.forEachIndexed { index, mod ->
-                        validateExtraMod(mod)
                         val message = "已校验 ${index + 1}/${mods.size}: ${mod.slug}"
                         MailService.changeMail(mailId, newContent = message)
                         ctx.emit(

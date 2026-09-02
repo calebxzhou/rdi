@@ -1,0 +1,248 @@
+package calebxzhou.rdi.client.ui.screen
+
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import calebxzhou.rdi.common.model.Host2
+import calebxzhou.rdi.common.model.Host2PackInfo
+import calebxzhou.rdi.common.model.Host2PackStatus
+import calebxzhou.rdi.common.model.HostStatus
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.PackSource
+import calebxzhou.rdi.common.serdesJson
+import calebxzhou.rdi.common.util.toUUID
+import calebxzhou.rdi.model.Role
+import kotlinx.serialization.descriptors.PrimitiveKind
+import kotlinx.serialization.descriptors.SerialDescriptor
+import org.bson.types.ObjectId
+import java.util.UUID
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+
+class HostTargetTest {
+    @Test
+    fun `route target keeps legacy object id and host2 uuid separate`() {
+        val objectId = ObjectId("0123456789abcdef01234567")
+        val legacy = HostTarget.parse(HostKind.Legacy, objectId.toHexString())
+        val host2Id = objectId.toUUID()
+        val host2 = HostTarget.parse(HostKind.Host2, host2Id.toString())
+
+        assertEquals(objectId, legacy?.objectIdOrNull())
+        assertNull(legacy?.uuidOrNull())
+        assertEquals(host2Id, host2?.uuidOrNull())
+        assertNull(host2?.objectIdOrNull())
+        assertNull(HostTarget.parse(HostKind.Host2, objectId.toHexString()))
+    }
+
+    @Test
+    fun `host2 brief maps objectid derived players without failing arbitrary uuid`() {
+        val owner = ObjectId("0123456789abcdef01234567")
+        val brief = Host2.BriefVo(
+            id = UUID.fromString("019c9c18-778d-7000-8000-000000000003"),
+            name = "房间",
+            ownerId = owner.toUUID(),
+            packSource = PackSource.Modpack2(owner.toUUID()),
+            packStatus = Host2PackStatus.Ok,
+            pack = Host2PackInfo("整合包", "1.2.3", McVersion.V211, ModLoader.neoforge, owner.toUUID()),
+            port = 25565,
+            whitelist = false,
+            status = HostStatus.PLAYABLE,
+            role = Role.MEMBER,
+            onlinePlayerIds = listOf(owner.toUUID(), UUID.fromString("019c9c18-778d-7000-8000-000000000004")),
+        )
+
+        val mapped = UnifiedHostBrief.fromHost2(brief)
+        assertEquals(HostKind.Host2, mapped.target.kind)
+        assertEquals(owner, mapped.ownerId)
+        assertEquals(listOf(owner), mapped.onlinePlayerIds)
+        assertTrue(mapped.playable)
+    }
+
+    @Test
+    fun `host2 content mutation dto preserves expected revision and keys`() {
+        val key = calebxzau.rdi.common.model.ContentKey(
+            calebxzau.rdi.common.model.ContentOrigin.Extra,
+            calebxzau.rdi.common.model.ContentPlatform.Modrinth,
+            "project",
+        )
+        val dto = Host2.SetContentsEnabledDto(
+            expectedRevision = 17,
+            keys = listOf(key),
+            enabled = false,
+        )
+        val encoded = serdesJson.encodeToString(dto)
+        val decoded = serdesJson.decodeFromString<Host2.SetContentsEnabledDto>(encoded)
+
+        assertEquals(dto, decoded)
+        assertTrue(encoded.contains("\"expectedRevision\":17"))
+        assertTrue(encoded.contains("\"enabled\":false"))
+
+        val delete = Host2.DeleteContentsDto(expectedRevision = 18, keys = listOf(key))
+        assertEquals(delete, serdesJson.decodeFromString<Host2.DeleteContentsDto>(serdesJson.encodeToString(delete)))
+    }
+
+    @Test
+    fun `navigation host routes use string kind and preserve host2`() {
+        val host2Id = "019c9c18-778d-7000-8000-000000000003"
+        listOf(
+            HostCreate.serializer().descriptor,
+            HostInfo.serializer().descriptor,
+            HostMembers.serializer().descriptor,
+            HostMods.serializer().descriptor,
+            HostFiles.serializer().descriptor,
+            HostBackend.serializer().descriptor,
+        ).forEach(::assertKindIsString)
+
+        val create = serdesJson.decodeFromString<HostCreate>(
+            serdesJson.encodeToString(
+                HostCreate(
+                    kind = HostKind.Legacy.name,
+                    sourceId = "0123456789abcdef01234567",
+                    legacyVersionName = "2.0.0",
+                    displayName = "旧整合包",
+                    legacyMcVersion = "V122",
+                )
+            )
+        )
+        val modpack2Create = serdesJson.decodeFromString<HostCreate>(
+            serdesJson.encodeToString(
+                HostCreate(
+                    kind = HostKind.Host2.name,
+                    sourceId = host2Id,
+                    displayName = "新整合包",
+                )
+            )
+        )
+        val info = serdesJson.decodeFromString<HostInfo>(
+            serdesJson.encodeToString(HostInfo(host2Id, fromAllHosts = true, kind = HostKind.Host2.name))
+        )
+        val members = serdesJson.decodeFromString<HostMembers>(
+            serdesJson.encodeToString(HostMembers(host2Id, kind = HostKind.Host2.name))
+        )
+        val mods = serdesJson.decodeFromString<HostMods>(
+            serdesJson.encodeToString(HostMods(host2Id, kind = HostKind.Host2.name))
+        )
+        val files = serdesJson.decodeFromString<HostFiles>(
+            serdesJson.encodeToString(HostFiles(host2Id, kind = HostKind.Host2.name))
+        )
+        val backend = serdesJson.decodeFromString<HostBackend>(
+            serdesJson.encodeToString(HostBackend(host2Id, kind = HostKind.Host2.name))
+        )
+
+        assertEquals("Legacy", create.kind)
+        assertEquals("0123456789abcdef01234567", create.sourceId)
+        assertEquals("2.0.0", create.legacyVersionName)
+        assertEquals("旧整合包", create.displayName)
+        assertEquals("V122", create.legacyMcVersion)
+        assertEquals("Host2", modpack2Create.kind)
+        assertEquals(host2Id, modpack2Create.sourceId)
+        assertNull(modpack2Create.legacyVersionName)
+        assertEquals("新整合包", modpack2Create.displayName)
+        listOf(info.kind, members.kind, mods.kind, files.kind, backend.kind).forEach {
+            assertEquals(HostKind.Host2, HostKind.fromRouteValue(it))
+        }
+        assertEquals(host2Id, info.hostId)
+        assertTrue(info.fromAllHosts)
+        assertEquals(HostKind.Legacy, HostKind.fromRouteValue("unknown"))
+    }
+
+    @Test
+    fun `mixed host pages merge by target and keep both kinds`() {
+        val legacyId = ObjectId("0123456789abcdef01234567")
+        val host2Id = UUID.fromString("019c9c18-778d-7000-8000-000000000003")
+        val legacy = UnifiedHostBrief(
+            target = HostTarget.legacy(legacyId),
+            name = "旧房间",
+            intro = "",
+            iconUrl = null,
+            ownerId = null,
+            onlinePlayerIds = emptyList(),
+            modpackName = "",
+            packVersion = "",
+            playable = true,
+            isMember = true,
+            role = Role.MEMBER,
+            status = HostStatus.PLAYABLE,
+        )
+        val host2 = legacy.copy(target = HostTarget.host2(host2Id), name = "房间2")
+
+        val merged = mergeUnifiedHosts(listOf(legacy), listOf(host2, legacy.copy(name = "重复")))
+
+        assertEquals(2, merged.size)
+        assertEquals(setOf(HostKind.Legacy, HostKind.Host2), merged.map { it.target.kind }.toSet())
+        assertEquals("旧房间", merged.single { it.target == legacy.target }.name)
+    }
+
+    @Test
+    fun `combined room groups keep playable hosts before unavailable hosts`() {
+        val playable = UnifiedHostBrief(
+            target = HostTarget.legacy(ObjectId("0123456789abcdef01234567")),
+            name = "可玩",
+            intro = "",
+            iconUrl = null,
+            ownerId = null,
+            onlinePlayerIds = emptyList(),
+            modpackName = "",
+            packVersion = "",
+            playable = true,
+            isMember = false,
+            role = null,
+            status = HostStatus.PLAYABLE,
+        )
+        val unavailable = playable.copy(
+            target = HostTarget.host2(UUID.fromString("019c9c18-778d-7000-8000-000000000004")),
+            name = "不可玩",
+            playable = false,
+            status = HostStatus.STOPPED,
+        )
+
+        val (playableHosts, unavailableHosts) = groupUnifiedHosts(listOf(unavailable, playable))
+
+        assertEquals(listOf("可玩"), playableHosts.map { it.name })
+        assertEquals(listOf("不可玩"), unavailableHosts.map { it.name })
+        assertTrue(allHostSourcesEnded(true, true, true, true))
+    }
+
+    @Test
+    fun `dav override makes every displayed host playable without changing ordinary users`() {
+        val unavailable = UnifiedHostBrief(
+            target = HostTarget.legacy(ObjectId("0123456789abcdef01234567")),
+            name = "不可玩",
+            intro = "",
+            iconUrl = null,
+            ownerId = null,
+            onlinePlayerIds = emptyList(),
+            modpackName = "",
+            packVersion = "",
+            playable = false,
+            isMember = false,
+            role = null,
+            status = HostStatus.STOPPED,
+        )
+
+        assertTrue(applyDavPlayableOverride(listOf(unavailable), true).single().playable)
+        assertEquals(listOf(unavailable), applyDavPlayableOverride(listOf(unavailable), false))
+    }
+
+    @Test
+    fun `home navigates to worlds only once on key up`() {
+        var navigationCount = 0
+        val onNavigate = { navigationCount++ }
+
+        assertFalse(handleHomeNavigationKeyEvent(Key.Enter, KeyEventType.KeyDown, onNavigate))
+        assertEquals(0, navigationCount)
+        assertTrue(handleHomeNavigationKeyEvent(Key.MoveHome, KeyEventType.KeyDown, onNavigate))
+        assertEquals(0, navigationCount)
+        assertTrue(handleHomeNavigationKeyEvent(Key.MoveHome, KeyEventType.KeyUp, onNavigate))
+        assertEquals(1, navigationCount)
+    }
+
+    private fun assertKindIsString(descriptor: SerialDescriptor) {
+        val kindIndex = descriptor.getElementIndex("kind")
+        assertTrue(kindIndex >= 0)
+        assertEquals(PrimitiveKind.STRING, descriptor.getElementDescriptor(kindIndex).kind)
+    }
+}

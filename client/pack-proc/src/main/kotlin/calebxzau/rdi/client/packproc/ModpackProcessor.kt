@@ -26,7 +26,6 @@ import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.ModrinthService
 import calebxzhou.rdi.common.service.ModrinthService.mapModrinthVersions
 import calebxzhou.rdi.common.service.ModrinthService.toCardVo
-import calebxzhou.rdi.common.util.ok
 import kotlinx.coroutines.*
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
@@ -77,7 +76,6 @@ class ModpackProcessor(
         onProgress: LoadProgressConsumer
     ): Result<LoadedLocalModpack> = withContext(Dispatchers.IO) {
         paths.workDir.mkdirs()
-        paths.modCacheDir.mkdirs()
         var payload: UploadPayload? = null
         runCatching {
             onProgress.phase("开始读取整合包")
@@ -118,6 +116,7 @@ class ModpackProcessor(
                 modloader = loader,
                 mods = mods,
                 embeddedModOriginalFileNames = parsedPayload.embeddedModOriginalFileNames,
+                embeddedModSources = parsedPayload.embeddedModSources,
                 serverExtraFiles = parsedPayload.serverExtraFiles
             )
         }.fold(
@@ -188,7 +187,6 @@ class ModpackProcessor(
             val originalName = uiMod.file?.name?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
             uiMod.mod.fileName to originalName
         }.toMap()
-        persistMatchedEmbeddedMods(embeddedMatches.mods)
         val resolvedMods = when (payload.sourceType) {
             LocalModpackSourceType.MODRINTH -> {
                 onProgress(LoadProgress.Phase("解析Modrinth整合包索引"))
@@ -214,11 +212,12 @@ class ModpackProcessor(
                     .toMutableList()
             }
         }
+        onProgress(LoadProgress.Phase("整理Mod单双端属性"))
+        ModService.run { resolvedMods.postProcessModSides() }
+        payload.embeddedModSources = stageMatchedEmbeddedMods(embeddedMatches.mods)
         if (embeddedMatches.matchedFiles.isNotEmpty()) {
             embeddedMatches.matchedFiles.forEach { it.delete() }
         }
-        onProgress(LoadProgress.Phase("整理Mod单双端属性"))
-        ModService.run { resolvedMods.postProcessModSides() }
         payload.mods = resolvedMods
         return ok(resolvedMods)
     }
@@ -226,10 +225,10 @@ class ModpackProcessor(
     suspend fun loadServerPack(
         file: File,
         clientMods: List<Mod>,
+        clientModSources: Map<Mod, File>,
         onProgress: LoadProgressConsumer
     ): Result<LoadedServerPackResult> = withContext(Dispatchers.IO) {
         paths.workDir.mkdirs()
-        paths.modCacheDir.mkdirs()
         runCatching {
             onProgress.phase("开始读取服务端目录")
             if (!file.exists() || !file.isDirectory) {
@@ -243,7 +242,7 @@ class ModpackProcessor(
             if (modFiles.isEmpty()) {
                 throw ModpackError("请选择服务端根目录，目录下应有mods文件夹")
             }
-            val clientModsByModId = buildClientModsByModId(clientMods)
+            val clientModsByModId = buildClientModsByModId(clientMods, clientModSources)
             val matchedByModId = matchServerModsByClientModId(
                 files = modFiles,
                 clientModsByModId = clientModsByModId,
@@ -254,7 +253,6 @@ class ModpackProcessor(
                 .distinctBy(::serverModMergeKey)
             val matchedFiles = matched.matchedFiles + matchedByModId.matchedFiles
             val finalUnmatchedFiles = matched.unmatchedFiles
-            persistMatchedEmbeddedMods(finalMatchedMods)
             if (finalUnmatchedFiles.isNotEmpty()) {
                 val preview = finalUnmatchedFiles.take(5).joinToString("、") { it.nameWithoutExtension }
                 val suffix = if (finalUnmatchedFiles.size > 5) "等${finalUnmatchedFiles.size}个" else ""
@@ -267,9 +265,11 @@ class ModpackProcessor(
                 rootDir = file,
                 matchedModFiles = matchedFiles
             )
+            val embeddedModSources = stageMatchedEmbeddedMods(finalMatchedMods)
             LoadedServerPackResult(
                 mods = resolvedMods,
-                serverExtraFiles = serverExtraFiles
+                serverExtraFiles = serverExtraFiles,
+                embeddedModSources = embeddedModSources
             )
         }.fold(
             onSuccess = ::ok,
@@ -348,19 +348,26 @@ class ModpackProcessor(
         return EmbeddedMatchResult(matched, matchedFiles, unmatchedFiles)
     }
 
-    private fun persistMatchedEmbeddedMods(mods: List<ModCardMatch>) {
-        if (mods.isEmpty()) return
-        paths.modCacheDir.mkdirs()
-        mods.forEach { uiMod ->
-            val sourceFile = uiMod.file ?: return@forEach
-            if (!sourceFile.exists() || !sourceFile.isFile) return@forEach
-            val targetFile = paths.modCacheDir.resolve(uiMod.mod.fileName)
-            if (targetFile.absolutePath == sourceFile.absolutePath) return@forEach
-            runCatching {
+    private fun stageMatchedEmbeddedMods(mods: List<ModCardMatch>): List<EmbeddedModSource> {
+        if (mods.isEmpty()) return emptyList()
+        val stagingDir = Files.createTempDirectory(paths.workDir.toPath(), "embedded-mods-").toFile()
+        return try {
+            mods.mapNotNull { uiMod ->
+                val sourceFile = uiMod.file ?: return@mapNotNull null
+                if (!sourceFile.exists() || !sourceFile.isFile) {
+                    throw ModpackError("识别的内嵌mod文件不存在: ${sourceFile.absolutePath}")
+                }
+                val targetFile = stagingDir.resolve(uiMod.mod.fileName)
                 sourceFile.copyTo(targetFile, overwrite = true)
-            }.onFailure { err ->
-                lgr.warn { "复制内置mod到下载目录失败: ${sourceFile.absolutePath} -> ${targetFile.absolutePath}\n$err" }
+                EmbeddedModSource(
+                    mod = uiMod.mod,
+                    stagedFile = targetFile,
+                    originalFileName = sourceFile.name
+                )
             }
+        } catch (error: Throwable) {
+            runCatching { stagingDir.deleteRecursivelyNoSymlink() }
+            throw ModpackError("暂存内嵌mod失败", error)
         }
     }
 
@@ -389,11 +396,14 @@ class ModpackProcessor(
         return EmbeddedMergedResult(mergedMods, matchedFiles, cfResult.unmatchedFiles)
     }
 
-    private fun buildClientModsByModId(clientMods: List<Mod>): Map<String, Mod> {
+    private fun buildClientModsByModId(
+        clientMods: List<Mod>,
+        clientModSources: Map<Mod, File>
+    ): Map<String, Mod> {
         if (clientMods.isEmpty()) return emptyMap()
         val clientModsByModId = linkedMapOf<String, Mod>()
         clientMods.forEach { clientMod ->
-            val clientFile = clientMod.targetPath.toFile().takeIf { it.exists() && it.isFile } ?: return@forEach
+            val clientFile = clientModSources[clientMod]?.takeIf { it.exists() && it.isFile } ?: return@forEach
             val modId = readPrimaryModId(clientFile) ?: return@forEach
             val previous = clientModsByModId.putIfAbsent(modId, clientMod)
             if (previous != null && previous != clientMod) {

@@ -1,0 +1,101 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.database.LocalModpack2Store
+import calebxzhou.rdi.client.database.MinecraftInstallationDatabase
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.ContentRequest
+import calebxzhou.rdi.common.archive.TarZstArchiveWriter
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzau.rdi.common.model.Modpack2Content
+import calebxzau.rdi.common.model.Modpack2AppendPreflightVo
+import calebxzau.rdi.common.model.Modpack2ClientManifestVo
+import calebxzau.rdi.common.model.Modpack2CreateDto
+import calebxzau.rdi.common.model.Modpack2CreateResult
+import calebxzau.rdi.common.model.Modpack2Loader
+import calebxzau.rdi.common.model.Modpack2ServerMode
+import calebxzau.rdi.common.model.Modpack2VersionCreateFromUploadDto
+import calebxzau.rdi.common.model.Modpack2VersionDetailVo
+import calebxzau.rdi.common.model.Modpack2VersionStatus
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
+import calebxzhou.rdi.common.model.ModpackUploadSessionVo
+import calebxzhou.rdi.common.model.Task2Progress
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.UUID
+import kotlin.test.*
+import kotlin.uuid.Uuid
+import kotlin.uuid.toJavaUuid
+
+class Modpack2LocalServiceRecoveryTest {
+    @Test fun `clean reinstall replaces remote-backed installation`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-reinstall"); val id = Uuid.generateV7(); val pack = Uuid.generateV7()
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { db ->
+            val repo = LocalModpack2Repository(db.localModpack2Store); repo.upsert(record(id, pack)).getOrThrow()
+            val target = root.resolve("versions/$id"); Files.createDirectories(target.resolve("mods")); Files.writeString(target.resolve("mods/manual.jar"), "manual")
+            val trash = root.resolve("trash").also(Files::createDirectories)
+            val service = Modpack2LocalService(repo, ReinstallGateway(pack, id), root.resolve("versions"), ReinstallContentStore(root.resolve("cache")), moveToTrash = { path -> Files.move(path, trash.resolve(path.fileName)); Result.success(Unit) })
+            service.install(Modpack2InstallRequest(pack, id, true, true)).getOrThrow()
+            assertTrue(Files.exists(target.resolve("mods/B-v2.jar"))); assertFalse(Files.exists(target.resolve("mods/manual.jar")))
+        }
+    }
+
+    @Test fun `failed reinstall restores old bytes and remote record`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-rollback"); val id = Uuid.generateV7(); val pack = Uuid.generateV7()
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { db ->
+            val repo = LocalModpack2Repository(db.localModpack2Store); repo.upsert(record(id, pack)).getOrThrow()
+            val file = root.resolve("versions/$id/mods/manual.jar").also { Files.createDirectories(it.parent) }; Files.writeString(file, "manual")
+            val service = Modpack2LocalService(repo, ReinstallGateway(pack, id), root.resolve("versions"), FailingReinstallContentStore(root.resolve("cache")), moveToTrash = { error("must not trash old tree") })
+            assertTrue(service.install(Modpack2InstallRequest(pack, id, true, true)).isFailure); assertEquals("manual", Files.readString(file)); assertEquals(id, repo.find(id).getOrThrow()?.remoteVersionId)
+        }
+    }
+
+    @Test fun `initial cache failure removes new directory and metadata`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-cache"); val id = Uuid.generateV7(); val pack = Uuid.generateV7()
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { db ->
+            val failing = object : LocalModpack2Store by db.localModpack2Store { override suspend fun replaceContentCache(versionId: Uuid, records: List<calebxzhou.rdi.client.database.LocalModpack2ContentCacheRecord>) = Result.failure<Unit>(IllegalStateException("forced")) }
+            val repo = LocalModpack2Repository(failing); val content = Modpack2ContentService(repo, root.resolve("versions"))
+            try { val service = Modpack2LocalService(repo, ReinstallGateway(pack, id), root.resolve("versions"), ReinstallContentStore(root.resolve("cache")), contentService = content); assertTrue(service.install(Modpack2InstallRequest(pack, id)).isFailure); assertFalse(Files.exists(root.resolve("versions/$id"))); assertNull(repo.find(id).getOrThrow()) } finally { content.close() }
+        }
+    }
+
+    @Test fun `reinstall rejects running or mismatched remote identity`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-reject"); val id = Uuid.generateV7(); val pack = Uuid.generateV7()
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { db ->
+            val repo = LocalModpack2Repository(db.localModpack2Store); repo.upsert(record(id, pack)).getOrThrow()
+            val running = Modpack2LocalService(repo, ReinstallGateway(pack, id), root.resolve("versions"), ReinstallContentStore(root.resolve("cache")), isRunning = { true })
+            assertTrue(running.install(Modpack2InstallRequest(pack, id, true, true)).isFailure)
+            val mismatch = Modpack2LocalService(repo, ReinstallGateway(pack, id), root.resolve("versions"), ReinstallContentStore(root.resolve("cache")))
+            assertTrue(mismatch.install(Modpack2InstallRequest(Uuid.generateV7(), id, true, true)).isFailure)
+        }
+    }
+
+    private fun record(id: Uuid, pack: Uuid) = LocalModpack2InstanceRecord(id, remoteModpackId = pack, remoteVersionId = id, name = "远程整合包", mcVersion = McVersion.V211, modLoader = ModLoader.neoforge, updatedAt = 1L)
+}
+
+private class ReinstallContentStore(root: Path) : ClientContentStore(root) {
+    override suspend fun materialize(requests: List<ContentRequest>, targetRoot: Path, onProgress: (Task2Progress) -> Unit): Result<List<Path>> = runCatching {
+        requests.map { request -> targetRoot.resolve(request.relativePath).also { Files.createDirectories(it.parent); Files.writeString(it, "remote") } }
+    }
+}
+private class FailingReinstallContentStore(root: Path) : ClientContentStore(root) { override suspend fun materialize(requests: List<ContentRequest>, targetRoot: Path, onProgress: (Task2Progress) -> Unit): Result<List<Path>> = Result.failure(IllegalStateException("forced")) }
+private class ReinstallGateway(private val pack: Uuid, private val version: Uuid) : Modpack2Gateway {
+    private val content = Modpack2Content(version.toJavaUuid(), ContentPlatform.Modrinth, ContentType.Mod, "B", "2", "B", "new-b", "mods/B-v2.jar", ContentSide.Client, fileSize = 1)
+    override suspend fun listVersions(modpackId: Uuid) = Result.success(listOf(Modpack2VersionDetailVo(version.toJavaUuid(), pack.toJavaUuid(), null, "远程", "", Modpack2VersionStatus.Ok, 1, Modpack2ServerMode.Generated, contents = listOf(content))))
+    override suspend fun clientManifest(modpackId: Uuid, versionId: Uuid) = Result.success(Modpack2ClientManifestVo(pack.toJavaUuid(), version.toJavaUuid(), 21, Modpack2Loader.NeoForge, listOf(content)))
+    override suspend fun clientPackHash(modpackId: Uuid, versionId: Uuid) = Result.success("unused")
+    override suspend fun downloadClientPack(modpackId: Uuid, versionId: Uuid, target: Path, expectedSha1: String, onProgress: (Long, Long?) -> Unit) = runCatching { TarZstArchiveWriter(target.toFile()).use {} }
+    override suspend fun appendPreflight(modpackId: Uuid, baseVersionId: Uuid) = Result.failure<Modpack2AppendPreflightVo>(UnsupportedOperationException())
+    override suspend fun create(request: Modpack2CreateDto) = Result.failure<Modpack2CreateResult>(UnsupportedOperationException())
+    override suspend fun createVersion(modpackId: Uuid, request: Modpack2VersionCreateFromUploadDto) = Result.failure<Modpack2CreateResult>(UnsupportedOperationException())
+    override suspend fun retry(modpackId: Uuid, versionId: Uuid) = Result.failure<Modpack2CreateResult>(UnsupportedOperationException())
+    override suspend fun createUploadSession(request: ModpackUploadSessionCreateDto) = Result.failure<ModpackUploadSessionVo>(UnsupportedOperationException())
+    override suspend fun uploadSessionStatus(uploadId: UUID) = Result.failure<ModpackUploadSessionVo>(UnsupportedOperationException())
+    override suspend fun uploadPart(uploadId: UUID, index: Int, bytes: ByteArray, sha1: String) = Result.failure<Unit>(UnsupportedOperationException())
+    override suspend fun completeUpload(uploadId: UUID) = Result.failure<ModpackUploadSessionVo>(UnsupportedOperationException())
+}

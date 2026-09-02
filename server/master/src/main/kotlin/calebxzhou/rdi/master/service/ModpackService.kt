@@ -79,6 +79,7 @@ import java.nio.file.StandardOpenOption
 import java.nio.file.StandardCopyOption
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.jar.JarFile
+import java.util.UUID
 
 val Modpack.dir
     get() = MODPACK_DATA_DIR.resolve(_id.str)
@@ -110,6 +111,11 @@ private val parallelUploadService = ModpackParallelUploadService(
     MODPACK_DATA_DIR.resolve(".upload-tmp").resolve("sessions"),
     MAX_PACK_SIZE
 )
+// Modpack2 upload routes are archived. Legacy upload code continues using
+// parallelUploadService directly.
+// /** Shared by the legacy and Modpack2 upload routes. */
+// internal val ModpackService.modpack2ParallelUploadService: ModpackParallelUploadService
+//     get() = parallelUploadService
 private val uploadLgr by Loggers
 
 private fun deleteUploadTempFile(file: File, reason: String) {
@@ -445,6 +451,11 @@ object ModpackService {
     internal var testDbcl: MongoCollection<Modpack>? = null
     val dbcl: MongoCollection<Modpack>
         get() = testDbcl ?: realDbcl
+    internal val modernListingVersions: Set<McVersion> = McVersion.entries
+        .filter { it.isModern }
+        .toSet()
+
+    private fun modernListingFilter() = `in`(Modpack::mcVer.name, modernListingVersions)
 
     fun cleanupStaleUploadsOnStartup() {
         var cleanedCount = 0
@@ -701,7 +712,12 @@ object ModpackService {
     suspend fun searchByName(name: String): List<Modpack> {
         if (name.isBlank()) return emptyList()
         //Uses MongoDB's regex filter with case-insensitive flag ("i")
-        return dbcl.find(regex(Modpack::name.name, name, "i")).toList()
+        return dbcl.find(
+            and(
+                modernListingFilter(),
+                regex(Modpack::name.name, name, "i")
+            )
+        ).toList()
     }
 
     suspend fun search(call: ApplicationCall): Modpack.SearchResultVo {
@@ -736,6 +752,7 @@ object ModpackService {
         val offset = call.paramNull("offset")?.toIntOrNull()?.coerceAtLeast(0) ?: 0
 
         val filters = buildList {
+            add(modernListingFilter())
             if (onlyMine) {
                 add(eq(Modpack::authorId.name, call.uid))
             }
@@ -793,7 +810,7 @@ object ModpackService {
     }
 
     suspend fun listAll(): List<Modpack.BriefVo> {
-        val modpacks = dbcl.find().toList()
+        val modpacks = dbcl.find(modernListingFilter()).toList()
         return toModpackVoList(modpacks)
     }
 
@@ -963,7 +980,7 @@ object ModpackService {
         }
     }
 
-    fun ModpackContext.rebuildVersion() {
+    suspend fun ModpackContext.rebuildVersion() {
         ServerTaskManager.submit(
             task = createVersionBuildTask(
                 player = player,

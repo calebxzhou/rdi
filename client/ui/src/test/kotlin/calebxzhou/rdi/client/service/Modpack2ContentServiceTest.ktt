@@ -1,0 +1,395 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2ContentCacheRecord
+import calebxzhou.rdi.client.database.LocalModpack2ContentOrigin
+import calebxzhou.rdi.client.database.LocalModpack2ContentRecord
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.database.LocalModpack2Kind
+import calebxzhou.rdi.client.database.LocalModpack2Store
+import calebxzhou.rdi.client.database.MinecraftInstallationDatabase
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.ContentRequest
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.Mod
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.jar.JarOutputStream
+import java.util.zip.ZipEntry
+import java.security.MessageDigest
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
+
+class Modpack2ContentServiceTest {
+    @Test
+    fun `load uses disk snapshot and removes stale cache rows`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val stale = LocalModpack2ContentCacheRecord(
+                id, ContentType.Mod, "mods/missing.jar", "mods/missing.jar", true, "a".repeat(40), 1,
+                platform = ContentPlatform.Modrinth, projectId = "missing", fileId = "1", slug = "missing",
+                side = ContentSide.Both, updatedAt = 1,
+            )
+            repository.replaceContentCache(id, listOf(stale)).getOrThrow()
+            val loaded = Modpack2ContentService(repository, versions).load(id).getOrThrow()
+            assertTrue(loaded.contents.isEmpty())
+            assertTrue(repository.contentCache(id).getOrThrow().isEmpty())
+        }
+    }
+
+    @Test
+    fun `cache write failure does not hide in memory snapshot`() = runBlocking {
+        fixture { base, versions, id, store ->
+            val file = versions.resolve("$id/mods/example.jar")
+            Files.createDirectories(file.parent)
+            Files.writeString(file, "example")
+            val repository = LocalModpack2Repository(FailingCacheStore(store))
+            val loaded = Modpack2ContentService(repository, versions).load(id).getOrThrow()
+            assertEquals(1, loaded.snapshot?.items?.size)
+            assertTrue(loaded.cacheError != null)
+        }
+    }
+
+    @Test
+    fun `delete trash failure preserves original file`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val file = versions.resolve("$id/mods/example.jar")
+            Files.createDirectories(file.parent)
+            Files.writeString(file, "example")
+            val item = Modpack2DiskScanner(versions.resolve(id.toString()), id).scan().items.single()
+            val service = Modpack2ContentService(repository, versions, moveToTrash = { Result.failure(IllegalStateException("trash unavailable")) })
+            assertTrue(service.delete(item).isFailure)
+            assertTrue(Files.exists(file))
+        }
+    }
+
+    @Test
+    fun `enable and disable use mirrored roots and destination conflicts preserve both files`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val enabled = versions.resolve("$id/mods/example.jar")
+            val disabled = versions.resolve("$id/.rdi/disabled/mods/example.jar")
+            Files.createDirectories(enabled.parent)
+            Files.createDirectories(disabled.parent)
+            Files.writeString(enabled, "enabled")
+            Files.writeString(disabled, "disabled")
+            val snapshot = Modpack2DiskScanner(versions.resolve(id.toString()), id).scan()
+            val enabledItem = snapshot.items.first { it.enabled }
+            val disabledItem = snapshot.items.first { !it.enabled }
+            val service = Modpack2ContentService(repository, versions)
+            assertTrue(service.disable(enabledItem).isFailure)
+            assertTrue(service.enable(disabledItem).isFailure)
+            assertEquals("enabled", Files.readString(enabled))
+            assertEquals("disabled", Files.readString(disabled))
+        }
+    }
+
+    @Test
+    fun `duplicate enabled mod paths remain in snapshot and receive warning ids`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val first = versions.resolve("$id/mods/a.jar")
+            val second = versions.resolve("$id/mods/b.jar")
+            Files.createDirectories(first.parent)
+            writeFabricJar(first, "duplicate")
+            writeFabricJar(second, "duplicate")
+            val service = Modpack2ContentService(
+                repository,
+                versions,
+                recognizer = { files, _, version ->
+                    Result.success(
+                        Modpack2CatalogEnrichment(
+                            files.associateWith { path ->
+                                Modpack2RecognizedContent(
+                                    content(version).copy(targetPath = path.fileName.toString().let { "mods/$it" }, logicalId = "Modrinth:duplicate"),
+                                    Mod.CardVo(name = path.fileName.toString()),
+                                )
+                            },
+                        ),
+                    )
+                },
+            )
+            val loaded = service.load(id).getOrThrow()
+            assertEquals(2, loaded.snapshot?.items?.size)
+            assertEquals(setOf("duplicate"), loaded.duplicateModIds)
+        }
+    }
+
+    @Test
+    fun `enrich returns cards per physical path without persisting presentation metadata`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val first = versions.resolve("$id/mods/a.jar")
+            val second = versions.resolve("$id/mods/b.jar")
+            Files.createDirectories(first.parent)
+            writeFabricJar(first, "shared")
+            writeFabricJar(second, "shared")
+            val service = Modpack2ContentService(
+                repository,
+                versions,
+                recognizer = { files, _, version ->
+                    Result.success(
+                        Modpack2CatalogEnrichment(
+                            files.associateWith { path ->
+                                Modpack2RecognizedContent(
+                                    content(version).copy(
+                                        hash = "recognized-${path.fileName}",
+                                        targetPath = "mods/${path.fileName}",
+                                        logicalId = "Modrinth:shared",
+                                    ),
+                                    Mod.CardVo(
+                                        name = "Remote ${path.fileName}",
+                                        nameCn = "远程${path.fileName}",
+                                        intro = "平台简介${path.fileName}",
+                                        iconUrls = listOf("https://example/${path.fileName}.png"),
+                                    ),
+                                )
+                            },
+                        ),
+                    )
+                },
+            )
+
+            val cards = service.enrich(id).getOrThrow()
+            val snapshot = service.load(id).getOrThrow().snapshot!!
+            val expectedKeys = snapshot.items.map {
+                Modpack2ContentCardKey(it.physicalRelativePath, it.hash)
+            }.toSet()
+            assertEquals(expectedKeys, cards.keys)
+            assertEquals("远程a.jar", cards.getValue(expectedKeys.first { it.physicalRelativePath.endsWith("a.jar") }).nameCn)
+            assertEquals("平台简介b.jar", cards.getValue(expectedKeys.first { it.physicalRelativePath.endsWith("b.jar") }).intro)
+
+            val cache = repository.contentCache(id).getOrThrow()
+            assertEquals(2, cache.size)
+            assertTrue(cache.all { it.projectId == "duplicate" && it.slug == "duplicate" })
+            assertTrue(cache.none { it.name?.startsWith("Remote ") == true })
+        }
+    }
+
+    @Test
+    fun `enrich recognizes more than 24 files in one call`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val files = (0 until 25).map { index ->
+                versions.resolve("$id/mods/content-$index.jar").also { path ->
+                    Files.createDirectories(path.parent)
+                    writeFabricJar(path, "content-$index")
+                }
+            }
+            val calls = mutableListOf<List<Path>>()
+            val service = Modpack2ContentService(
+                repository,
+                versions,
+                recognizer = { paths, _, version ->
+                    calls += paths
+                    Result.success(
+                        Modpack2CatalogEnrichment(
+                            paths.associateWith { path ->
+                                Modpack2RecognizedContent(
+                                    content(version).copy(
+                                        hash = "recognized-${path.fileName}",
+                                        targetPath = "mods/${path.fileName}",
+                                    ),
+                                    Mod.CardVo(name = path.fileName.toString()),
+                                )
+                            },
+                        ),
+                    )
+                },
+            )
+
+            service.enrich(id).getOrThrow()
+
+            assertEquals(1, calls.size)
+            assertEquals(files.toSet(), calls.single().toSet())
+        }
+    }
+
+    @Test
+    fun `enrich reuses complete cache identities on the next scan`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val file = versions.resolve("$id/mods/example.jar")
+            Files.createDirectories(file.parent)
+            Files.writeString(file, "example")
+            val cachedArguments = mutableListOf<Map<Path, LocalModpack2ContentRecord>>()
+            val service = Modpack2ContentService(
+                repository,
+                versions,
+                recognizer = { files, cachedRecords, version ->
+                    cachedArguments += cachedRecords
+                    if (cachedRecords.isEmpty()) {
+                        Result.success(Modpack2CatalogEnrichment(files.associateWith {
+                            Modpack2RecognizedContent(content(version), Mod.CardVo(name = "Example"))
+                        }))
+                    } else Result.success(Modpack2CatalogEnrichment())
+                },
+            )
+
+            service.enrich(id).getOrThrow()
+            service.enrich(id).getOrThrow()
+
+            assertEquals(2, cachedArguments.size)
+            assertEquals(setOf(file), cachedArguments[1].keys)
+            assertEquals("duplicate", repository.contentCache(id).getOrThrow().single().projectId)
+        }
+    }
+
+    @Test
+    fun `enrich only sends a newly added file to recognition`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val oldFile = versions.resolve("$id/mods/old.jar")
+            Files.createDirectories(oldFile.parent)
+            Files.writeString(oldFile, "old")
+            val calls = mutableListOf<Pair<List<Path>, Map<Path, LocalModpack2ContentRecord>>>()
+            val service = Modpack2ContentService(
+                repository,
+                versions,
+                recognizer = { files, cachedRecords, version ->
+                    calls += files to cachedRecords
+                    Result.success(Modpack2CatalogEnrichment(files.associateWith {
+                        Modpack2RecognizedContent(content(version), Mod.CardVo(name = it.fileName.toString()))
+                    }))
+                },
+            )
+            service.enrich(id).getOrThrow()
+
+            val newFile = versions.resolve("$id/mods/new.jar")
+            Files.writeString(newFile, "new")
+            service.enrich(id).getOrThrow()
+
+            assertEquals(2, calls.size)
+            assertEquals(setOf(oldFile), calls[1].second.keys)
+            assertEquals(setOf(newFile, oldFile), calls[1].first.toSet())
+            assertTrue(repository.contentCache(id).getOrThrow().all { it.projectId == "duplicate" })
+        }
+    }
+
+    @Test
+    fun `enrich reidentifies a path whose bytes changed`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val file = versions.resolve("$id/mods/example.jar")
+            Files.createDirectories(file.parent)
+            Files.writeString(file, "before")
+            val cachedArguments = mutableListOf<Map<Path, LocalModpack2ContentRecord>>()
+            val service = Modpack2ContentService(
+                repository,
+                versions,
+                recognizer = { files, cachedRecords, version ->
+                    cachedArguments += cachedRecords
+                    Result.success(Modpack2CatalogEnrichment(files.associateWith {
+                        Modpack2RecognizedContent(content(version), Mod.CardVo(name = "Example"))
+                    }))
+                },
+            )
+            service.enrich(id).getOrThrow()
+            Files.writeString(file, "after")
+            service.enrich(id).getOrThrow()
+
+            assertEquals(2, cachedArguments.size)
+            assertTrue(file !in cachedArguments[1])
+        }
+    }
+
+    @Test
+    fun `mutation is rejected while pack is running`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val file = versions.resolve("$id/mods/example.jar")
+            Files.createDirectories(file.parent)
+            Files.writeString(file, "example")
+            val item = Modpack2DiskScanner(versions.resolve(id.toString()), id).scan().items.single()
+            val service = Modpack2ContentService(repository, versions, isRunning = { true })
+            assertTrue(service.delete(item).isFailure)
+            assertTrue(Files.exists(file))
+        }
+    }
+
+    @Test
+    fun `replace restores old bytes when moving backup to os trash fails`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val file = versions.resolve("$id/mods/example.jar")
+            Files.createDirectories(file.parent)
+            Files.writeString(file, "old")
+            val oldHash = sha1(Files.readAllBytes(file))
+            val replacement = Modpack2ContentRequest(
+                request = ContentRequest("replacement", "mods/example.jar"),
+                record = content(id).copy(hash = "b".repeat(40)),
+            )
+            val service = Modpack2ContentService(
+                repository,
+                versions,
+                contentStore = WritingContentStore(Files.createTempDirectory("content-store")),
+                moveToTrash = { Result.failure(IllegalStateException("trash unavailable")) },
+            )
+            assertTrue(service.replace(content(id).copy(hash = oldHash), replacement, confirmReplace = true).isFailure)
+            assertEquals("old", Files.readString(file))
+        }
+    }
+
+    @Test
+    fun `successful disk mutations rebuild cache with current physical paths`() = runBlocking {
+        fixture { repository, versions, id, _ ->
+            val file = versions.resolve("$id/mods/example.jar")
+            Files.createDirectories(file.parent)
+            Files.writeString(file, "example")
+            val service = Modpack2ContentService(repository, versions, moveToTrash = { Files.deleteIfExists(it); Result.success(Unit) })
+            val item = service.load(id).getOrThrow().snapshot!!.items.single()
+            service.disable(item).getOrThrow()
+            assertEquals(".rdi/disabled/mods/example.jar", repository.contentCache(id).getOrThrow().single().physicalPath)
+            val disabled = Modpack2DiskScanner(versions.resolve(id.toString()), id).scan().items.single()
+            service.delete(disabled).getOrThrow()
+            assertTrue(repository.contentCache(id).getOrThrow().isEmpty())
+        }
+    }
+
+    private suspend fun fixture(block: suspend (LocalModpack2Repository, Path, Uuid, LocalModpack2Store) -> Unit) {
+        val root = Files.createTempDirectory("modpack2-content-contract")
+        val id = Uuid.generateV7()
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { database ->
+            val repository = LocalModpack2Repository(database.localModpack2Store)
+            repository.upsert(instance(id)).getOrThrow()
+            block(repository, root.resolve("versions"), id, database.localModpack2Store)
+        }
+    }
+
+    private fun instance(id: Uuid) = LocalModpack2InstanceRecord(
+        versionId = id, remoteModpackId = Uuid.generateV7(), remoteVersionId = id, name = "测试整合包",
+        mcVersion = McVersion.V211, modLoader = ModLoader.neoforge, updatedAt = 1,
+    )
+
+    private fun content(id: Uuid) = LocalModpack2ContentRecord(
+        contentId = Uuid.generateV7(), versionId = id, platform = ContentPlatform.Modrinth,
+        type = ContentType.Mod, projectId = "duplicate", fileId = "1", slug = "duplicate",
+        hash = "a".repeat(40), targetPath = "mods/example.jar", side = ContentSide.Both,
+        fileSize = 1, logicalId = "Modrinth:duplicate", origin = LocalModpack2ContentOrigin.Local,
+    )
+
+    private fun writeFabricJar(path: Path, id: String) {
+        JarOutputStream(Files.newOutputStream(path)).use { jar ->
+            jar.putNextEntry(ZipEntry("fabric.mod.json"))
+            jar.write("{\"id\":\"$id\"}".toByteArray())
+            jar.closeEntry()
+        }
+    }
+
+    private fun sha1(bytes: ByteArray): String = MessageDigest.getInstance("SHA-1").digest(bytes).joinToString("") { "%02x".format(it) }
+}
+
+private class WritingContentStore(root: Path) : ClientContentStore(root) {
+    override suspend fun materialize(
+        requests: List<ContentRequest>, targetRoot: Path, onProgress: (calebxzhou.rdi.common.model.Task2Progress) -> Unit,
+    ): Result<List<Path>> = Result.success(requests.map { request ->
+        val target = targetRoot.resolve(request.relativePath)
+        Files.createDirectories(target.parent)
+        Files.writeString(target, "new")
+        target
+    })
+}
+
+private class FailingCacheStore(private val delegate: LocalModpack2Store) : LocalModpack2Store by delegate {
+    override suspend fun replaceContentCache(
+        versionId: Uuid,
+        records: List<LocalModpack2ContentCacheRecord>,
+    ): Result<Unit> = Result.failure(IllegalStateException("cache unavailable"))
+}

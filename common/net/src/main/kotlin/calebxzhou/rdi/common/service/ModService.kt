@@ -3,6 +3,7 @@ package calebxzhou.rdi.common.service
 import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.util.humanSpeed
 import calebxzhou.rdi.common.util.sha1
+import calebxzhou.rdi.common.util.sha256
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.deser
 import calebxzhou.rdi.common.model.*
@@ -18,7 +19,10 @@ import java.io.File
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
+import java.util.Locale
 import java.util.jar.JarFile
 import java.util.jar.JarInputStream
 import kotlin.io.path.exists
@@ -35,6 +39,14 @@ object ModService {
     private val lgr by Loggers
     private val modsToml = Toml { ignoreUnknownKeys = true }
     private val supportedModsTomlPaths = listOf(NEOFORGE_CONFIG_PATH, FORGE_CONFIG_PATH)
+
+    /**
+     * GitHub host records before the SHA-256 migration contain a SHA-1 digest.
+     * Keep invalid hashes on the existing SHA-256 path so the old failure
+     * behavior is unchanged.
+     */
+    fun githubUsesSha1(hash: String): Boolean =
+        hash.trim().matches(Regex("[0-9a-fA-F]{40}"))
 
     val downloadedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
     var installedMods = DL_MOD_DIR.listFiles { it.extension == "jar" }?.toMutableList() ?: mutableListOf()
@@ -366,16 +378,38 @@ object ModService {
                     expectedFingerprint != null && targetPath.murmur2 == expectedFingerprint
                 }
 
-                "mr", "github" -> targetPath.sha1 == expectedHash
+                "mr" -> targetPath.sha1 == expectedHash
+                "github" -> if (githubUsesSha1(expectedHash)) {
+                    targetPath.sha1 == expectedHash
+                } else {
+                    targetPath.toFile().sha256 == expectedHash
+                }
                 else -> true
             }
         }.getOrDefault(false)
     }
 
     private fun Mod.downloadedFileCandidates(targetDir: File): List<Path> =
-        candidateFiles(targetDir)
+        (candidateFiles(targetDir) + legacyGithubCandidateFiles(targetDir))
             .map(File::toPath)
             .distinctBy { it.toAbsolutePath().normalize() }
+
+    /**
+     * GitHub records can use historical SHA-1 or current SHA-256 filenames.
+     * Keep looking at those aliases, but accept one only after validating the
+     * bytes with the record-declared SHA-1/SHA-256 contract.
+     */
+    private fun Mod.legacyGithubCandidateFiles(targetDir: File): List<File> {
+        if (!platform.equals("github", ignoreCase = true)) return emptyList()
+        val prefixes = listOf(fileSlug, slug)
+            .map { "${it}_github_".lowercase(Locale.ROOT) }
+            .distinct()
+        return targetDir.listFiles { file ->
+            file.isFile &&
+                file.extension.equals("jar", ignoreCase = true) &&
+                prefixes.any { prefix -> file.name.lowercase(Locale.ROOT).startsWith(prefix) }
+        }?.toList().orEmpty()
+    }
 
     private fun copyExistingModFile(source: Path, target: Path) {
         if (source.toAbsolutePath().normalize() == target.toAbsolutePath().normalize()) return
@@ -385,18 +419,19 @@ object ModService {
 
     fun downloadCFModsTask2(mods: List<Mod>, targetDir: File = DL_MOD_DIR): Task2 {
         if (mods.isEmpty()) return Task2.Group("下载CurseForge Mod", emptyList())
-        val fileIds = mods.map { it.fileId.toInt() }
         val fileInfoMap = mutableMapOf<Int, CurseForgeFile>()
         val aggregateProgress = createBatchProgressTracker2(mods)
         val prepareTask = Task2.Leaf("获取CurseForge文件信息") { ctx ->
-            val fileInfos = CurseForgeService.getModFilesInfo(fileIds)
+            val unresolvedMods = mods.filterNot { it.trustedCurseForgeFile() != null }
+            val fileInfos = prepareCurseForgeFileInfos(unresolvedMods)
             fileInfoMap.clear()
-            fileInfoMap.putAll(fileInfos.associateBy { it.id })
+            fileInfoMap.putAll(fileInfos)
             ctx.emit(Task2Progress("获取完成", 1f))
         }
         val tasks = mods.map { mod ->
             Task2.Leaf("下载 ${mod.slug}") { ctx ->
-                val fileInfo = fileInfoMap[mod.fileId.toInt()]
+                val fileInfo = mod.trustedCurseForgeFile()
+                    ?: fileInfoMap[mod.fileId.toIntOrNull()]
                     ?: throw IllegalStateException("未找到文件信息: ${mod.slug}")
                 val result = downloadSingleCFMod(mod, fileInfo, targetDir) { progress ->
                     ctx.emit(aggregateProgress(mod, progress))
@@ -436,7 +471,7 @@ object ModService {
         val aggregateProgress = createBatchProgressTracker2(modsWithUrls)
         val tasks = modsWithUrls.map { mod ->
             Task2.Leaf("下载 ${mod.slug}") { ctx ->
-                val result = downloadSingleMRMod(mod, targetDir) { progress ->
+                val result = downloadSingleGithubMod(mod, targetDir) { progress ->
                     ctx.emit(aggregateProgress(mod, progress))
                 }
                 result.getOrElse { throw it }
@@ -444,6 +479,94 @@ object ModService {
             }
         }
         return Task2.Group("下载GitHub Mod", tasks)
+    }
+
+    /**
+     * Downloads one mod into the caller-owned temporary path while retaining the
+     * existing platform/source ordering.  The normal task API and its default
+     * DL_MOD_DIR are intentionally unchanged for server callers.
+     */
+    suspend fun downloadModToPath(
+        mod: Mod,
+        targetPath: Path,
+        onProgress: (DownloadProgress) -> Unit = {},
+        preparedCurseForgeFile: CurseForgeFile? = null
+    ): Result<Path> {
+        return runCatching {
+            targetPath.parent?.let { Files.createDirectories(it) }
+            val stagingDir = Files.createTempDirectory(
+                targetPath.parent ?: targetPath.toAbsolutePath().parent ?: Paths.get(".").toAbsolutePath(),
+                "mod-source-"
+            )
+            try {
+                val downloaded = when (mod.platform.lowercase()) {
+                    "cf" -> {
+                        val info = preparedCurseForgeFile ?: CurseForgeService
+                            .getModFilesInfo(listOf(mod.fileId.toInt()))
+                            .associateBy { it.id }[mod.fileId.toInt()]
+                            ?: error("未找到文件信息: ${mod.slug}")
+                        downloadSingleCFMod(mod, info, stagingDir.toFile(), onProgress)
+                    }
+
+                    "mr" -> downloadSingleMRMod(mod, stagingDir.toFile(), onProgress)
+
+                    "github" -> downloadSingleGithubMod(mod, stagingDir.toFile(), onProgress)
+
+                    else -> error("不支持的Mod平台: ${mod.platform}")
+                }.getOrThrow()
+                if (downloaded.toAbsolutePath().normalize() != targetPath.toAbsolutePath().normalize()) {
+                    Files.move(
+                        downloaded,
+                        targetPath,
+                        StandardCopyOption.REPLACE_EXISTING
+                    )
+                }
+                targetPath
+            } finally {
+                Files.deleteIfExists(stagingDir.resolve(mod.fileName))
+                Files.deleteIfExists(stagingDir)
+            }
+        }.onFailure { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            lgr.error(error) { "Failed to download mod ${mod.slug} to temporary content path" }
+        }
+    }
+
+    /**
+     * Resolve the CurseForge file metadata required by a batch download.
+     * Mods which already carry a non-empty URL and a valid Murmur2 fingerprint
+     * are trusted and do not need a metadata request.  All remaining file IDs
+     * are looked up in one batched request (the service itself handles mirror
+     * fallback), and the result is keyed by file ID rather than list position.
+     */
+    suspend fun prepareCurseForgeFileInfos(
+        mods: List<Mod>,
+        fetch: suspend (List<Int>) -> List<CurseForgeFile> = CurseForgeService::getModFilesInfo
+    ): Map<Int, CurseForgeFile> {
+        val fileIds = mods.asSequence()
+            .filter { it.platform.equals("cf", ignoreCase = true) }
+            .filterNot { it.trustedCurseForgeFile() != null }
+            .mapNotNull { it.fileId.toIntOrNull() }
+            .distinct()
+            .toList()
+        if (fileIds.isEmpty()) return emptyMap()
+        return fetch(fileIds).associateBy { it.id }
+    }
+
+    /** A file descriptor is sufficient when the caller already has URL+hash. */
+    fun Mod.trustedCurseForgeFile(): CurseForgeFile? {
+        if (!platform.equals("cf", ignoreCase = true)) return null
+        val fileId = fileId.toIntOrNull() ?: return null
+        val fingerprint = hash.trim().toLongOrNull() ?: return null
+        if (downloadUrls.none { it.trim().isNotEmpty() }) return null
+        return CurseForgeFile(
+            id = fileId,
+            modId = projectId.toIntOrNull() ?: 0,
+            fileName = fileName,
+            downloadUrl = downloadUrls.first { it.trim().isNotEmpty() },
+            fileFingerprint = fingerprint,
+            isAvailable = true,
+        )
     }
 
     private fun createBatchProgressTracker2(mods: List<Mod>): (Mod, DownloadProgress) -> Task2Progress {
@@ -532,6 +655,49 @@ object ModService {
                         Result.failure(
                             IllegalStateException(
                                 "Downloaded mod ${mod.slug} SHA1 mismatch: expected $expectedHash, got $actualHash"
+                            )
+                        )
+                    }
+                }
+            },
+            onProgress = onProgress
+        )
+    }
+
+    private suspend fun downloadSingleGithubMod(
+        mod: Mod,
+        targetDir: File,
+        onProgress: (DownloadProgress) -> Unit
+    ): Result<Path> {
+        val expectedHash = mod.hash.trim().lowercase()
+        val usesSha1 = githubUsesSha1(expectedHash)
+        val algorithm = if (usesSha1) LocalArtifactHashAlgorithm.SHA1 else LocalArtifactHashAlgorithm.SHA256
+        val algorithmName = if (usesSha1) "SHA-1" else "SHA-256"
+        val hashOf: (Path) -> String = { path ->
+            if (usesSha1) path.sha1 else path.toFile().sha256
+        }
+        return downloadSingleModFromSources(
+            mod = mod,
+            targetDir = targetDir,
+            officialUrls = mod.downloadUrls,
+            localRequest = LocalArtifactRequest(
+                algorithm = algorithm,
+                hash = expectedHash
+            ),
+            existingFileMatches = {
+                path -> expectedHash.isNotBlank() && path.exists() && hashOf(path) == expectedHash
+            },
+            validator = { path ->
+                if (expectedHash.isBlank()) {
+                    Result.success(Unit)
+                } else {
+                    val actualHash = hashOf(path)
+                    if (actualHash == expectedHash) {
+                        Result.success(Unit)
+                    } else {
+                        Result.failure(
+                            IllegalStateException(
+                                "Downloaded mod ${mod.slug} $algorithmName mismatch: expected $expectedHash, got $actualHash"
                             )
                         )
                     }

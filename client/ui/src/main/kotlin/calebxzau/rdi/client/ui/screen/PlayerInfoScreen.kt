@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -42,6 +44,7 @@ import calebxzhou.rdi.client.service.PlayerService
 import calebxzhou.rdi.client.service.SettingsService
 import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.ui.comp.PlayerModel
+import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.RPasswordField
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.MsaAccountInfo
@@ -62,9 +65,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import net.raphimc.minecraftauth.msa.model.MsaDeviceCode
+import org.bson.types.ObjectId
 
 @Composable
-fun PlayerInfoScreen(onBack: () -> Unit) {
+fun PlayerInfoScreen(playerId: String? = null, onBack: () -> Unit) {
+    if (playerId != null) {
+        PublicPlayerInfoScreen(playerId, onBack)
+        return
+    }
     val account by AccountSessionStore.account.collectAsState()
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
@@ -261,6 +269,34 @@ fun PlayerInfoScreen(onBack: () -> Unit) {
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun PublicPlayerInfoScreen(playerId: String, onBack: () -> Unit) {
+    val id = remember(playerId) { runCatching { ObjectId(playerId) }.getOrNull() }
+    var account by remember(playerId) { mutableStateOf<RAccount.Dto?>(null) }
+    LaunchedEffect(id) {
+        account = id?.let { PlayerService.getPlayerInfo(it) }
+    }
+    MaxBox {
+        ScreenContentSurface(size = ScreenContentSize.MEDIUM) {
+            TitleRow("玩家信息", onBack)
+            ContentBody {
+                when {
+                    id == null -> Text("玩家ID无效", color = MaterialTheme.colorScheme.error)
+                    account == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    else -> Column(
+                        modifier = Modifier.fillMaxSize(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        HeadButton(uid = account!!.id, avatarSize = 72.dp, showName = false)
+                        Text(account!!.name, style = MaterialTheme.typography.headlineSmall)
+                    }
+                }
+            }
+        }
     }
 }
 

@@ -8,6 +8,7 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.request
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.request
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMethod
@@ -20,11 +21,28 @@ import java.io.IOException
 import kotlin.coroutines.cancellation.CancellationException
 
 internal data class CatalogHttpResponse(
+    val method: HttpMethod,
+    val url: String,
+    val requestBody: String?,
     val status: HttpStatusCode,
     val body: String,
     val contentType: ContentType?,
-    val retryAfterMillis: Long?
-)
+    val retryAfterMillis: Long?,
+    val onInvalid: (Throwable?) -> CatalogException.InvalidResponse,
+    val decodeFallback: (suspend () -> CatalogHttpResponse)? = null
+) {
+    fun invalid(cause: Throwable? = null): CatalogException.InvalidResponse = onInvalid(
+        IllegalStateException(
+            """method=${method.value}
+url=$url
+requestBody=${requestBody.orEmpty()}
+status=${status.value}
+contentType=$contentType
+responseBody=$body""",
+            cause
+        )
+    )
+}
 
 internal class CatalogHttpTransport(
     private val httpClient: HttpClient,
@@ -32,7 +50,7 @@ internal class CatalogHttpTransport(
     private val officialBaseUrl: String,
     private val mirrorBaseUrl: String,
     private val defaultHeaders: Map<String, String>,
-    private val preferMirror: Boolean,
+    private val preferMirror: () -> Boolean,
     private val json: Json,
     private val onWarning: (Throwable) -> Unit
 ) {
@@ -55,34 +73,43 @@ internal class CatalogHttpTransport(
         body: String?,
         allowedStatuses: Set<HttpStatusCode>
     ): CatalogHttpResponse {
+        if (preferMirror()) {
+            try {
+                val mirrorResponse = request(mirrorBaseUrl, path, method, parameters, body)
+                val invalidCause = mirrorResponse.invalidCause()
+                if (invalidCause == null) {
+                    return mirrorResponse.copy(
+                        decodeFallback = {
+                            executeOfficial(path, method, parameters, body, allowedStatuses)
+                        }
+                    )
+                }
+                // invalid() records the mirror response; its exception is discarded so the official request can run.
+                mirrorResponse.invalid(invalidCause)
+            } catch (cause: CancellationException) {
+                throw cause
+            } catch (cause: CatalogException.InvalidResponse) {
+                // The invalid mirror response was already recorded. Continue with the official endpoint.
+            } catch (cause: Exception) {
+                onWarning(cause)
+            }
+        }
+        return executeOfficial(path, method, parameters, body, allowedStatuses)
+    }
+
+    private suspend fun executeOfficial(
+        path: String,
+        method: HttpMethod,
+        parameters: Map<String, String>,
+        body: String?,
+        allowedStatuses: Set<HttpStatusCode>
+    ): CatalogHttpResponse {
         var lastFailure: Throwable? = null
         repeat(2) { attempt ->
             try {
-                if (preferMirror && attempt == 0) {
-                    try {
-                        val mirrorResponse = request(mirrorBaseUrl, path, method, parameters, body)
-                        if (isValidMirrorResponse(mirrorResponse)) {
-                            return classify(mirrorResponse, allowedStatuses)
-                        }
-                        onWarning(
-                            CatalogException.InvalidResponse(
-                                platform,
-                                IllegalStateException("Mirror HTTP ${mirrorResponse.status.value}")
-                            )
-                        )
-                    } catch (cause: CancellationException) {
-                        throw cause
-                    } catch (cause: Exception) {
-                        onWarning(cause)
-                        // A mirror failure falls through to the official endpoint in the same attempt.
-                    }
-                }
                 val official = request(officialBaseUrl, path, method, parameters, body)
                 if (official.status.value in TRANSIENT_STATUSES && attempt == 0) {
-                    lastFailure = CatalogException.InvalidResponse(
-                        platform,
-                        IllegalStateException("HTTP ${official.status.value}")
-                    )
+                    lastFailure = official.invalid(official.invalidCause())
                     delay(RETRY_DELAY_MILLIS)
                     return@repeat
                 }
@@ -118,24 +145,32 @@ internal class CatalogHttpTransport(
             }
         }
         return CatalogHttpResponse(
+            method = method,
+            url = response.request.url.toString(),
+            requestBody = body,
             status = response.status,
             body = response.bodyAsText(),
             contentType = response.contentType(),
-            retryAfterMillis = response.headers[HttpHeaders.RetryAfter]?.toLongOrNull()?.times(1_000)
+            retryAfterMillis = response.headers[HttpHeaders.RetryAfter]?.toLongOrNull()?.times(1_000),
+            onInvalid = { cause ->
+                CatalogException.InvalidResponse(platform, cause).also(onWarning)
+            }
         )
     }
 
-    private fun isValidMirrorResponse(response: CatalogHttpResponse): Boolean {
-        if (response.status.value !in 200..299) return false
-        if (response.contentType?.match(ContentType.Application.Json) != true) return false
-        return try {
-            json.parseToJsonElement(response.body)
-            true
-        } catch (_: SerializationException) {
-            false
-        } catch (_: IllegalArgumentException) {
-            false
+    private fun CatalogHttpResponse.invalidCause(): Throwable? {
+        if (status.value !in 200..299) return IllegalStateException("HTTP ${status.value}")
+        if (contentType?.match(ContentType.Application.Json) != true) {
+            return IllegalStateException("Unexpected Content-Type: $contentType")
         }
+        try {
+            json.parseToJsonElement(body)
+        } catch (cause: SerializationException) {
+            return cause
+        } catch (cause: IllegalArgumentException) {
+            return cause
+        }
+        return null
     }
 
     private fun classify(
@@ -146,25 +181,13 @@ internal class CatalogHttpTransport(
         throw when (response.status) {
             HttpStatusCode.Unauthorized, HttpStatusCode.Forbidden -> CatalogException.Unauthorized(platform)
             HttpStatusCode.TooManyRequests -> CatalogException.RateLimited(platform, response.retryAfterMillis)
-            else -> CatalogException.InvalidResponse(
-                platform,
-                IllegalStateException("HTTP ${response.status.value}")
-            )
+            else -> response.invalid(IllegalStateException("HTTP ${response.status.value}"))
         }
     }
 
     private fun validateOfficialResponse(response: CatalogHttpResponse) {
         if (response.status.value !in 200..299) return
-        if (response.contentType?.match(ContentType.Application.Json) != true) {
-            throw CatalogException.InvalidResponse(platform)
-        }
-        try {
-            json.parseToJsonElement(response.body)
-        } catch (cause: SerializationException) {
-            throw CatalogException.InvalidResponse(platform, cause)
-        } catch (cause: IllegalArgumentException) {
-            throw CatalogException.InvalidResponse(platform, cause)
-        }
+        response.invalidCause()?.let { throw response.invalid(it) }
     }
 
     private fun Throwable.isTransientTransportFailure(): Boolean =
@@ -181,13 +204,19 @@ internal class CatalogHttpTransport(
     }
 }
 
-internal inline fun <reified T> CatalogHttpResponse.decode(
+internal suspend inline fun <reified T> CatalogHttpResponse.decode(
     platform: ModPlatform,
     json: Json
-): T = try {
-    json.decodeFromString(body)
-} catch (cause: CancellationException) {
-    throw cause
-} catch (cause: Exception) {
-    throw CatalogException.InvalidResponse(platform, cause)
+): T {
+    var response = this
+    while (true) {
+        try {
+            return json.decodeFromString(response.body)
+        } catch (cause: CancellationException) {
+            throw cause
+        } catch (cause: Exception) {
+            val failure = response.invalid(cause)
+            response = response.decodeFallback?.invoke() ?: throw failure
+        }
+    }
 }

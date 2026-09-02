@@ -1,0 +1,331 @@
+package calebxzhou.rdi.client.service
+
+import calebxzau.rdi.client.packproc.MapModpack2ContentResolver
+import calebxzau.rdi.client.packproc.Modpack2Processor
+import calebxzau.rdi.client.packproc.PackProcessingPaths
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.database.LocalModpack2Store
+import calebxzhou.rdi.common.model.Task2Context
+import calebxzhou.rdi.common.service.runInline
+import calebxzau.rdi.common.model.Modpack2AppendPreflightVo
+import calebxzau.rdi.common.model.Modpack2CreateResult
+import calebxzau.rdi.common.model.Modpack2OwnedVo
+import calebxzau.rdi.common.model.Modpack2VersionStatus
+import calebxzau.rdi.common.model.Modpack2Loader
+import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
+import calebxzhou.rdi.common.model.ModpackUploadSessionVo
+import calebxzau.rdi.common.model.Modpack2ClientManifestVo
+import calebxzau.rdi.common.model.Modpack2VersionDetailVo
+import calebxzau.rdi.common.model.Modpack2CreateDto
+import java.util.UUID
+import kotlin.uuid.Uuid
+import kotlin.uuid.toKotlinUuid
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFails
+import kotlin.test.assertTrue
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.util.zip.ZipOutputStream
+import java.util.zip.ZipEntry
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+
+class Modpack2UploadServiceTest {
+    @Test
+    fun changedServerPackIsRejectedWithoutDeletingSource() {
+        val root = Files.createTempDirectory("modpack2-server-snapshot")
+        try {
+            val source = root.resolve("server.zip")
+            ZipOutputStream(Files.newOutputStream(source)).use { zip ->
+                zip.putNextEntry(ZipEntry("mods/")); zip.closeEntry()
+            }
+            val selected = Modpack2SelectedServerPack(source, Files.size(source), Files.getLastModifiedTime(source).toMillis())
+            Files.write(source, byteArrayOf(1, 2, 3))
+            val failure = runCatching { snapshotModpack2ServerPack(selected, root.resolve("work").also(Files::createDirectories)) }
+            assertTrue(failure.isFailure)
+            assertTrue(Files.exists(source))
+        } finally {
+            root.toFile().deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun changedInstallerFailsBeforeNetworkOrLocalRepository() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-upload-test")
+        try {
+            val archive = root.resolve("pack.zip")
+            Files.write(archive, byteArrayOf(1))
+            val preview = ModpackArchivePreview(
+                archive = archive, archiveSize = 0, archiveModifiedAt = 0,
+                format = ModpackArchiveFormat.CURSEFORGE, name = "Pack", summary = "Pack",
+                mcVersion = McVersion.V201, modLoader = ModLoader.forge,
+                files = emptyList(), embeddedMods = emptyList(), overrides = emptyList(),
+            )
+            val service = Modpack2UploadService(
+                gateway = RServerModpack2Gateway(),
+                materializer = ModpackArchiveMaterializer(),
+                processor = Modpack2Processor(PackProcessingPaths(root.resolve("work").toFile()), MapModpack2ContentResolver()),
+                packProcessingDirectory = root.resolve("work"),
+            )
+            val result = service.upload(
+                Modpack2DirectUploadRequest(
+                    source = Modpack2UploadArchive(archive, preview),
+                    name = "Pack", version = "1.0.0", intro = "Pack",
+                    iconUrl = "https://example.com/icon.png",
+                )
+            )
+            assertTrue(result.isFailure)
+            assertTrue(Files.notExists(root.resolve("work")) || Files.list(root.resolve("work")).use { !it.findAny().isPresent })
+        } finally {
+            root.toFile().deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun createUsesCreateAfterRealRawProcessing() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-create-flow")
+        try {
+            val fixture = uploadFixture(root)
+            val gateway = RecordingGateway()
+            val service = fixture.service(gateway)
+            val result = service.upload(fixture.sourceRequest())
+            assertTrue(result.isSuccess)
+            assertTrue(gateway.events.indexOf("create-session") < gateway.events.indexOf("create"))
+            assertTrue(gateway.createCalls == 1)
+            assertTrue(gateway.createVersionCalls == 0)
+            assertTrue(gateway.preflightCalls == 0)
+        } finally {
+            root.toFile().deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun updatePreflightHappensBeforeSessionAndUsesCreateVersion() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-update-flow")
+        try {
+            val fixture = uploadFixture(root)
+            val modpackId = UUID.randomUUID()
+            val versionId = UUID.randomUUID()
+            val gateway = RecordingGateway(
+                preflight = Modpack2AppendPreflightVo(modpackId, versionId, versionId, true),
+            )
+            val service = fixture.service(gateway)
+            val request = fixture.sourceRequest().copy(
+                target = Modpack2UploadTarget.Update(fixture.owned(modpackId, versionId)),
+            )
+            assertTrue(service.upload(request).isSuccess)
+            assertTrue(gateway.events.indexOf("preflight") < gateway.events.indexOf("create-session"))
+            assertTrue(gateway.createCalls == 0)
+            assertTrue(gateway.createVersionCalls == 1)
+        } finally {
+            root.toFile().deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun staleUpdateStopsBeforeRawProcessingAndUpload() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-stale-update")
+        try {
+            val fixture = uploadFixture(root)
+            val id = UUID.randomUUID()
+            val version = UUID.randomUUID()
+            val gateway = RecordingGateway(Modpack2AppendPreflightVo(id, version, UUID.randomUUID(), false))
+            val result = fixture.service(gateway).upload(
+                fixture.sourceRequest().copy(target = Modpack2UploadTarget.Update(fixture.owned(id, version)))
+            )
+            assertTrue(result.isFailure)
+            assertTrue(gateway.createSessionCalls == 0)
+            assertTrue(gateway.createCalls == 0)
+            assertTrue(gateway.createVersionCalls == 0)
+        } finally {
+            root.toFile().deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun updateCompatibilityMismatchStopsBeforePreflight() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-mismatch-update")
+        try {
+            val fixture = uploadFixture(root)
+            val id = UUID.randomUUID()
+            val version = UUID.randomUUID()
+            val gateway = RecordingGateway()
+            val result = fixture.service(gateway).upload(
+                fixture.sourceRequest().copy(target = Modpack2UploadTarget.Update(fixture.owned(id, version).copy(mc = 21)))
+            )
+            assertTrue(result.isFailure)
+            assertTrue(gateway.preflightCalls == 0)
+            assertTrue(gateway.createSessionCalls == 0)
+        } finally {
+            root.toFile().deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun uploadInstallFailureCanRetryWithoutRepeatingRemoteUpload() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-upload-install-failure")
+        try {
+            val fixture = uploadFixture(root)
+            val gateway = RecordingGateway()
+            val localService = Modpack2LocalService(
+                repository = LocalModpack2Repository(EmptyLocalModpack2Store),
+                gateway = gateway,
+                versionsDirectory = root.resolve("versions"),
+                isRunning = { false },
+            )
+            val service = fixture.service(gateway, localService)
+            val events = mutableListOf<Modpack2UploadWorkflowEvent>()
+
+            assertFails {
+                service.uploadTask(fixture.sourceRequest(), events::add)
+                    .runInline(Task2Context { })
+            }
+
+            val remoteReady = events.filterIsInstance<Modpack2UploadWorkflowEvent.RemoteReady>().single()
+            val installFailed = events.filterIsInstance<Modpack2UploadWorkflowEvent.InstallFailed>().single()
+            assertEquals(remoteReady.result, installFailed.result)
+            assertTrue(events.none { it is Modpack2UploadWorkflowEvent.UploadFailed })
+            assertTrue(events.none { it is Modpack2UploadWorkflowEvent.InstallSucceeded })
+            assertEquals(1, gateway.createCalls)
+            assertEquals(0, gateway.createVersionCalls)
+            assertEquals(1, gateway.createSessionCalls)
+            assertTrue(gateway.uploadPartCalls > 0)
+            assertEquals(1, gateway.completeUploadCalls)
+            assertEquals(1, gateway.listVersionsCalls)
+
+            val createCalls = gateway.createCalls
+            val createVersionCalls = gateway.createVersionCalls
+            val createSessionCalls = gateway.createSessionCalls
+            val uploadPartCalls = gateway.uploadPartCalls
+            val completeUploadCalls = gateway.completeUploadCalls
+            val retryEvents = mutableListOf<Modpack2UploadWorkflowEvent>()
+            assertFails {
+                service.retryInstallTask(remoteReady.result, retryEvents::add)
+                    .runInline(Task2Context { })
+            }
+
+            assertTrue(retryEvents.first() is Modpack2UploadWorkflowEvent.InstallStarted)
+            assertTrue(retryEvents.last() is Modpack2UploadWorkflowEvent.InstallFailed)
+            assertTrue(retryEvents.none {
+                it is Modpack2UploadWorkflowEvent.RemoteReady ||
+                    it is Modpack2UploadWorkflowEvent.UploadFailed ||
+                    it is Modpack2UploadWorkflowEvent.InstallSucceeded
+            })
+            assertEquals(remoteReady.result, (retryEvents.last() as Modpack2UploadWorkflowEvent.InstallFailed).result)
+            assertEquals(createCalls, gateway.createCalls)
+            assertEquals(createVersionCalls, gateway.createVersionCalls)
+            assertEquals(createSessionCalls, gateway.createSessionCalls)
+            assertEquals(uploadPartCalls, gateway.uploadPartCalls)
+            assertEquals(completeUploadCalls, gateway.completeUploadCalls)
+            assertEquals(2, gateway.listVersionsCalls)
+        } finally {
+            root.toFile().deleteRecursivelyNoSymlink()
+        }
+    }
+
+    private data class Fixture(val root: java.nio.file.Path, val source: Modpack2UploadArchive) {
+        fun sourceRequest() = Modpack2DirectUploadRequest(
+            source = source,
+            name = "A pack",
+            version = "1.0.0",
+            intro = "A valid pack description.",
+            iconUrl = "https://example.com/icon.png",
+        )
+
+        fun owned(id: UUID, version: UUID) = Modpack2OwnedVo(
+            id = id, name = "A pack", intro = "A valid pack description.", mc = 20,
+            loader = Modpack2Loader.Forge, iconUrl = "https://example.com/icon.png",
+            categories = listOf(calebxzau.rdi.common.model.ModpackCategory.Other),
+            currentVersionId = version, currentVersionName = "1.0.0", currentVersionStatus = Modpack2VersionStatus.Ok,
+        )
+
+        fun service(gateway: RecordingGateway, localService: Modpack2LocalService? = null) = Modpack2UploadService(
+            gateway = gateway,
+            materializer = ModpackArchiveMaterializer(),
+            processor = Modpack2Processor(PackProcessingPaths(root.resolve("proc").toFile()), MapModpack2ContentResolver()),
+            packProcessingDirectory = root.resolve("proc"),
+            localService = localService,
+        )
+    }
+
+    private fun uploadFixture(root: java.nio.file.Path): Fixture {
+        val archive = root.resolve("pack.zip")
+        ZipOutputStream(Files.newOutputStream(archive)).use { zip ->
+            zip.putNextEntry(ZipEntry("manifest.json"))
+            zip.write("{}".toByteArray())
+            zip.closeEntry()
+        }
+        val preview = ModpackArchivePreview(
+            archive = archive,
+            archiveSize = Files.size(archive),
+            archiveModifiedAt = Files.getLastModifiedTime(archive).toMillis(),
+            format = ModpackArchiveFormat.CURSEFORGE,
+            name = "A pack",
+            summary = "A valid pack description.",
+            mcVersion = McVersion.V201,
+            modLoader = ModLoader.forge,
+            files = emptyList(), embeddedMods = emptyList(), overrides = emptyList(),
+            manifestJson = "{}",
+        )
+        return Fixture(root, Modpack2UploadArchive(archive, preview))
+    }
+
+    private class RecordingGateway(
+        private val preflight: Modpack2AppendPreflightVo = Modpack2AppendPreflightVo(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), true),
+    ) : Modpack2Gateway {
+        val events = mutableListOf<String>()
+        var createSessionCalls = 0
+        var createCalls = 0
+        var createVersionCalls = 0
+        var preflightCalls = 0
+        var listVersionsCalls = 0
+        var uploadPartCalls = 0
+        var completeUploadCalls = 0
+        private val uploadId = UUID.randomUUID()
+        private val remoteModpackId = UUID.randomUUID()
+        private val remoteVersionId = UUID.randomUUID()
+        private var session: ModpackUploadSessionVo? = null
+
+        override suspend fun appendPreflight(modpackId: Uuid, baseVersionId: Uuid): Result<Modpack2AppendPreflightVo> {
+            preflightCalls++; events += "preflight"; return Result.success(preflight.copy(modpackId = modpackId.toString().let(UUID::fromString), baseVersionId = baseVersionId.toString().let(UUID::fromString)))
+        }
+        override suspend fun create(request: Modpack2CreateDto): Result<Modpack2CreateResult> { createCalls++; events += "create"; return Result.success(Modpack2CreateResult(remoteModpackId, remoteVersionId, Modpack2VersionStatus.Ok)) }
+        override suspend fun createVersion(modpackId: Uuid, request: calebxzau.rdi.common.model.Modpack2VersionCreateFromUploadDto): Result<Modpack2CreateResult> { createVersionCalls++; events += "create-version"; return Result.success(Modpack2CreateResult(modpackId.toString().let(UUID::fromString), remoteVersionId, Modpack2VersionStatus.Ok)) }
+        override suspend fun listVersions(modpackId: Uuid): Result<List<Modpack2VersionDetailVo>> {
+            listVersionsCalls++
+            return Result.failure(IllegalStateException("local installation deliberately failed"))
+        }
+        override suspend fun retry(modpackId: Uuid, versionId: Uuid): Result<Modpack2CreateResult> = Result.failure(UnsupportedOperationException())
+        override suspend fun clientPackHash(modpackId: Uuid, versionId: Uuid): Result<String> = Result.failure(UnsupportedOperationException())
+        override suspend fun clientManifest(modpackId: Uuid, versionId: Uuid): Result<Modpack2ClientManifestVo> = Result.failure(UnsupportedOperationException())
+        override suspend fun downloadClientPack(modpackId: Uuid, versionId: Uuid, target: java.nio.file.Path, expectedSha1: String, onProgress: (Long, Long?) -> Unit): Result<Unit> = Result.failure(UnsupportedOperationException())
+        override suspend fun createUploadSession(request: ModpackUploadSessionCreateDto): Result<ModpackUploadSessionVo> {
+            createSessionCalls++; events += "create-session"
+            val count = request.size.toInt().coerceAtLeast(1)
+            val value = ModpackUploadSessionVo(uploadId, request.fileName, request.size, request.sha1, 1, count, emptyList(), false, Long.MAX_VALUE)
+            session = value
+            return Result.success(value)
+        }
+        override suspend fun uploadSessionStatus(uploadId: UUID): Result<ModpackUploadSessionVo> = Result.success(requireNotNull(session))
+        override suspend fun uploadPart(uploadId: UUID, index: Int, bytes: ByteArray, sha1: String): Result<Unit> {
+            uploadPartCalls++
+            session = requireNotNull(session).copy(uploadedParts = requireNotNull(session).uploadedParts + index)
+            return Result.success(Unit)
+        }
+        override suspend fun completeUpload(uploadId: UUID): Result<ModpackUploadSessionVo> {
+            completeUploadCalls++
+            val current = requireNotNull(session)
+            session = current.copy(ready = true)
+            return Result.success(requireNotNull(session))
+        }
+    }
+}
+
+private object EmptyLocalModpack2Store : LocalModpack2Store {
+    override suspend fun list(): Result<List<LocalModpack2InstanceRecord>> = Result.success(emptyList())
+    override suspend fun find(versionId: Uuid): Result<LocalModpack2InstanceRecord?> = Result.success(null)
+    override suspend fun upsert(record: LocalModpack2InstanceRecord): Result<Unit> = Result.success(Unit)
+    override suspend fun delete(versionId: Uuid): Result<Unit> = Result.success(Unit)
+}

@@ -14,7 +14,10 @@ repositories {
 
 kotlin {
     jvmToolchain(libs.versions.java.get().toInt())
-    compilerOptions.jvmTarget.set(JvmTarget.fromTarget(libs.versions.java.get()))
+    compilerOptions {
+        jvmTarget.set(JvmTarget.fromTarget(libs.versions.java.get()))
+        optIn.add("kotlin.uuid.ExperimentalUuidApi")
+    }
 }
 
 val sqliteWindowsX64 by configurations.creating {
@@ -23,6 +26,7 @@ val sqliteWindowsX64 by configurations.creating {
 }
 
 dependencies {
+    implementation(project(":model"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.sqldelight.sqlite.driver) {
         exclude(group = "org.xerial", module = "sqlite-jdbc")

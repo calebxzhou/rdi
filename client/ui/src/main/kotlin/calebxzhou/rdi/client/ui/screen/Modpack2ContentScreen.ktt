@@ -1,0 +1,234 @@
+package calebxzhou.rdi.client.ui.screen
+
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import calebxzau.rdi.client.ui.AlertErr
+import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.ScreenContentSize
+import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.viewmodel.Modpack2ContentViewModel
+import calebxzhou.rdi.client.database.LocalModpack2ContentRecord
+import calebxzhou.rdi.client.service.Modpack2DiskContentUnit
+import calebxzhou.rdi.client.service.Modpack2ContentCardKey
+import calebxzhou.rdi.client.ui.McPlayStore
+import calebxzhou.rdi.client.ui.comp.ContentGrid
+import calebxzhou.rdi.client.ui.comp.ContentGridContextAction
+import calebxzhou.rdi.client.ui.comp.ContentGridItem
+import calebxzhou.rdi.client.ui.comp.ContentGridType
+import calebxzau.rdi.common.model.ContentType
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
+import kotlin.uuid.Uuid
+
+private data class ContentRow(
+    val unit: Modpack2DiskContentUnit,
+    val grid: ContentGridItem,
+    val known: LocalModpack2ContentRecord? = null,
+)
+
+@Composable
+fun Modpack2ContentScreen(
+    versionId: String,
+    onBack: () -> Unit,
+    onBrowse: (ModpackContentType, String, McVersion, ModLoader) -> Unit,
+    onOpenKnown: (LocalModpack2ContentRecord, McVersion, ModLoader) -> Unit,
+    viewModel: Modpack2ContentViewModel = koinViewModel(key = "content:$versionId") {
+        parametersOf(Uuid.parse(versionId))
+    },
+) {
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val loaded = state.state
+    val running = McPlayStore.aliveCount(versionId) > 0
+    val types = listOf(ContentType.Mod, ContentType.ResPack, ContentType.ShaderPack)
+    val labels = listOf("模组", "材质", "光影")
+    var selectedTab by rememberSaveable("modpack2-content-tab:$versionId") { mutableStateOf(0) }
+    var addMenu by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
+    var deleteItem by remember { mutableStateOf<ContentRow?>(null) }
+    var infoItem by remember { mutableStateOf<ContentRow?>(null) }
+    var selectedUpdates by remember { mutableStateOf<Set<String>>(emptySet()) }
+    val selectedType = types[selectedTab.coerceIn(types.indices)]
+    val gridState = remember(versionId, selectedType) { LazyGridState() }
+
+    state.errorMessage?.let { AlertErr(it, viewModel::clearError) }
+    MaxBox {
+        ScreenContentSurface(ScreenContentSize.LARGE) {
+            TitleRow(loaded?.instance?.name ?: "内容", onBack) {
+                CircleIconButton("\uF067", "添加", enabled = loaded != null && !running, onClick = { addMenu = true })
+                CircleIconButton("\uF2F1", "重新扫描", enabled = !state.scanning, onClick = viewModel::rescan)
+                CircleIconButton("\uF142", "更多", onClick = { moreMenu = true })
+                DropdownMenu(expanded = addMenu, onDismissRequest = { addMenu = false }) {
+                    ModpackContentType.entries.forEach { type ->
+                        DropdownMenuItem(text = { Text(type.label) }, onClick = {
+                            addMenu = false
+                            loaded?.instance?.let { instance -> onBrowse(type, versionId, instance.mcVersion, instance.modLoader) }
+                        })
+                    }
+                }
+                DropdownMenu(expanded = moreMenu, onDismissRequest = { moreMenu = false }) {
+                    DropdownMenuItem(text = { Text("检查更新") }, onClick = {
+                        moreMenu = false
+                        viewModel.checkUpdates()
+                    })
+                }
+            }
+            if (state.scanning) {
+                Column(Modifier.fillMaxWidth()) {
+                    LinearProgressIndicator(
+                        progress = { state.scanProgress?.fraction ?: 0f },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text(state.scanProgress?.phase ?: "正在扫描整合包内容")
+                    TextButton(onClick = viewModel::cancelScan) { Text("取消扫描") }
+                }
+            }
+            if (loaded?.duplicateModIds?.isNotEmpty() == true) {
+                Text("检测到${loaded.duplicateModIds.size}个重复模组，仍会保留全部文件")
+            }
+            if (loaded?.cacheError != null) {
+                Text("部分内容信息暂时不可用，当前文件仍可正常使用")
+            }
+            TabRow(selectedTabIndex = selectedTab) {
+                labels.forEachIndexed { index, label ->
+                    Tab(selected = selectedTab == index, onClick = { selectedTab = index }, text = { Text(label) })
+                }
+            }
+            val rows = remember(loaded, selectedType, state.cards) {
+                loaded?.let { contentState -> contentState.snapshot?.items.orEmpty().filter { it.type == selectedType }.map { unit ->
+                    val known = contentState.contents.firstOrNull { it.targetPath == unit.targetPath && it.hash.equals(unit.hash, true) }
+                    val card = state.cards[Modpack2ContentCardKey(unit.physicalRelativePath, unit.hash)]
+                    ContentRow(unit, known?.toGridItem(unit, card) ?: unit.toGridItem(), known)
+                } }.orEmpty()
+            }
+            ContentGrid(
+                items = rows.map(ContentRow::grid),
+                gridState = gridState,
+                stateKey = "modpack2-content:$versionId:${selectedType.name}",
+                showTypeFilters = false,
+                modifier = Modifier.fillMaxWidth(),
+                onItemClick = { item ->
+                    rows.firstOrNull { it.grid.key == item.key }?.let { row ->
+                        row.known?.let { known -> loaded?.instance?.let { onOpenKnown(known, it.mcVersion, it.modLoader) } }
+                            ?: run { infoItem = row }
+                    }
+                },
+                contextActions = { item ->
+                    rows.firstOrNull { it.grid.key == item.key }?.actions(
+                        canMutate = !running,
+                        onReplace = { row -> row.known?.let { known -> loaded?.instance?.let { onOpenKnown(known, it.mcVersion, it.modLoader) } } },
+                        onDelete = { row -> deleteItem = row },
+                        onEnable = viewModel::enable,
+                        onDisable = viewModel::disable,
+                    ).orEmpty()
+                },
+            )
+        }
+    }
+
+    deleteItem?.let { row ->
+        AlertDialog(
+            onDismissRequest = { deleteItem = null },
+            title = { Text("删除${row.grid.name}？") },
+            text = { Text("文件将移到系统回收站。") },
+            confirmButton = {
+                TextButton(enabled = !running, onClick = { viewModel.delete(row.unit); deleteItem = null }) { Text("删除") }
+            },
+            dismissButton = { TextButton(onClick = { deleteItem = null }) { Text("取消") } },
+        )
+    }
+    infoItem?.let { row ->
+        AlertDialog(
+            onDismissRequest = { infoItem = null },
+            title = { Text(if (row.unit.enabled) "未知内容" else "已禁用内容") },
+            text = { Text("${row.unit.targetPath}\n${row.unit.fileSize}字节") },
+            confirmButton = { TextButton(onClick = { infoItem = null }) { Text("关闭") } },
+        )
+    }
+    if (state.updates.isNotEmpty()) {
+        if (selectedUpdates.isEmpty()) selectedUpdates = state.updates.map { it.content.contentId.toString() }.toSet()
+        AlertDialog(
+            onDismissRequest = viewModel::clearUpdates,
+            title = { Text("可更新内容") },
+            text = {
+                Column {
+                    if (state.skippedUpdateCount > 0) Text("已跳过${state.skippedUpdateCount}项无法识别或已禁用的内容")
+                    state.updates.forEach { update -> Text(update.content.slug) }
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = !running, onClick = {
+                    viewModel.applyUpdates(state.updates.filter { it.content.contentId.toString() in selectedUpdates })
+                    selectedUpdates = emptySet()
+                    viewModel.clearUpdates()
+                }) { Text("更新") }
+            },
+            dismissButton = { TextButton(onClick = { selectedUpdates = emptySet(); viewModel.clearUpdates() }) { Text("取消") } },
+        )
+    }
+}
+
+private fun ContentRow.actions(
+    canMutate: Boolean,
+    onReplace: (ContentRow) -> Unit,
+    onDelete: (ContentRow) -> Unit,
+    onEnable: (Modpack2DiskContentUnit) -> Unit,
+    onDisable: (Modpack2DiskContentUnit) -> Unit,
+): List<ContentGridContextAction> = buildList {
+    if (known != null) add(ContentGridContextAction("更换版本", enabled = canMutate, onClick = { onReplace(this@actions) }))
+    add(ContentGridContextAction("删除", enabled = canMutate, danger = true, onClick = { onDelete(this@actions) }))
+    if (unit.enabled) add(ContentGridContextAction("禁用", enabled = canMutate, onClick = { onDisable(unit) }))
+    else add(ContentGridContextAction("启用", enabled = canMutate, onClick = { onEnable(unit) }))
+}
+
+private fun LocalModpack2ContentRecord.toGridItem(
+    unit: Modpack2DiskContentUnit,
+    card: calebxzhou.rdi.common.model.Mod.CardVo?,
+): ContentGridItem.ContentItem = ContentGridItem.ContentItem(
+    key = "content:${unit.physicalRelativePath}",
+    type = type.toGridType(),
+    name = slug,
+    fileName = unit.targetPath.substringAfterLast('/'),
+    targetPath = unit.targetPath,
+    required = required,
+    card = card,
+    status = if (unit.enabled) "已启用" else "已禁用",
+)
+
+private fun Modpack2DiskContentUnit.toGridItem(): ContentGridItem.ContentItem = ContentGridItem.ContentItem(
+    key = "content:$physicalRelativePath",
+    type = type.toGridType(),
+    name = displayName,
+    fileName = targetPath.substringAfterLast('/'),
+    targetPath = targetPath,
+    required = false,
+    status = if (enabled) "未知内容 · 已启用" else "未知内容 · 已禁用",
+)
+
+private fun ContentType.toGridType(): ContentGridType = when (this) {
+    ContentType.Mod -> ContentGridType.MOD
+    ContentType.ResPack -> ContentGridType.RESOURCE_PACK
+    ContentType.ShaderPack -> ContentGridType.SHADER_PACK
+    else -> ContentGridType.OTHER
+}

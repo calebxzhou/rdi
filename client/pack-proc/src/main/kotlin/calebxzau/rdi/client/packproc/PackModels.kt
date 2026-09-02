@@ -24,7 +24,15 @@ data class LoadedLocalModpack(
     val modloader: ModLoader,
     val mods: List<Mod>,
     val embeddedModOriginalFileNames: Map<String, String> = emptyMap(),
+    val embeddedModSources: List<EmbeddedModSource> = emptyList(),
     val serverExtraFiles: List<ServerExtraFile> = emptyList()
+)
+
+/** A matched embedded mod staged for the caller to import into its content store. */
+data class EmbeddedModSource(
+    val mod: Mod,
+    val stagedFile: File,
+    val originalFileName: String
 )
 
 data class UploadPayload(
@@ -36,17 +44,18 @@ data class UploadPayload(
     val sourceName: String,
     val sourceVersion: String,
     var embeddedModOriginalFileNames: Map<String, String> = emptyMap(),
+    var embeddedModSources: List<EmbeddedModSource> = emptyList(),
     val serverExtraFiles: List<ServerExtraFile> = emptyList()
 )
 
 data class LoadedServerPackResult(
     val mods: List<Mod>,
-    val serverExtraFiles: List<ServerExtraFile>
+    val serverExtraFiles: List<ServerExtraFile>,
+    val embeddedModSources: List<EmbeddedModSource> = emptyList()
 )
 
 data class PackProcessingPaths(
-    val workDir: File,
-    val modCacheDir: File
+    val workDir: File
 )
 
 fun LoadedLocalModpack.toUploadPayload(): UploadPayload = UploadPayload(
@@ -58,6 +67,7 @@ fun LoadedLocalModpack.toUploadPayload(): UploadPayload = UploadPayload(
     sourceName = packName,
     sourceVersion = packVersion,
     embeddedModOriginalFileNames = embeddedModOriginalFileNames,
+    embeddedModSources = embeddedModSources,
     serverExtraFiles = serverExtraFiles
 )
 
@@ -70,5 +80,6 @@ fun UploadPayload.toLoadedLocalModpack(): LoadedLocalModpack = LoadedLocalModpac
     modloader = modloader,
     mods = mods.toList(),
     embeddedModOriginalFileNames = embeddedModOriginalFileNames,
+    embeddedModSources = embeddedModSources,
     serverExtraFiles = serverExtraFiles
 )

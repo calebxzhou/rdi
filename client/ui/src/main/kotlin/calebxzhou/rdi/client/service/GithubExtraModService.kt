@@ -1,12 +1,15 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.common.util.humanFileSize
-import calebxzhou.rdi.common.DIR
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.ContentDigest
+import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
+import calebxzhou.rdi.client.service.content.ContentRequest
+import calebxzhou.rdi.client.service.content.ContentSource
 import calebxzhou.rdi.common.model.Mod
-import calebxzhou.rdi.common.net.downloadFileFrom
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.common.net.httpRequest
 import calebxzhou.rdi.common.service.ModService
-import calebxzhou.rdi.common.util.sha1
+import calebxzhou.rdi.common.util.sha256
 import io.ktor.client.call.body
 import io.ktor.client.request.header
 import io.ktor.client.statement.bodyAsText
@@ -20,6 +23,7 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.File
 import java.net.URI
+import java.nio.file.Files
 import java.util.jar.JarFile
 
 data class GithubRepoRef(
@@ -42,16 +46,14 @@ data class GithubReleaseAsset(
     val releasePublishedAt: String,
     val name: String,
     val size: Long,
-    val downloadUrl: String
+    val downloadUrl: String,
+    val digest: String? = null
 ) {
     val key get() = "$releaseTag:$name:$downloadUrl"
     val sizeText get() = size.takeIf { it > 0 }?.humanFileSize ?: "--"
 }
 
 object GithubExtraModService {
-    private val cacheDir: File
-        get() = DIR.resolve("pack-proc").resolve("github-extra-mod-cache").apply { mkdirs() }
-
     suspend fun fetchReleases(repoUrl: String): Result<Pair<GithubRepoRef, List<GithubRelease>>> = runCatching {
         val repo = parseRepo(repoUrl)
         val response = httpRequest {
@@ -84,7 +86,8 @@ object GithubExtraModService {
                                 releasePublishedAt = release.publishedAt.orEmpty(),
                                 name = asset.name,
                                 size = asset.size,
-                                downloadUrl = asset.browserDownloadUrl
+                                downloadUrl = asset.browserDownloadUrl,
+                                digest = asset.digest
                             )
                         }
                 )
@@ -102,18 +105,28 @@ object GithubExtraModService {
         side: Mod.Side,
         onProgress: (String) -> Unit
     ): Result<Mod> = runCatching {
-        val jarFile = downloadAsset(repo, asset, onProgress)
-        val modId = readModId(jarFile)
-        val hash = withContext(Dispatchers.IO) { jarFile.toPath().sha1.lowercase() }
-        Mod(
-            platform = "github",
-            projectId = repo.projectId,
-            slug = modId,
-            fileId = "${asset.releaseTag}/${asset.name}",
-            hash = hash,
-            side = side,
-            downloadUrls = listOf(asset.downloadUrl)
-        )
+        val workDir = Files.createTempDirectory(ClientDirs.packProcDir.toPath(), "github-extra-mod-")
+        try {
+            val request = asset.toContentRequest(repo)
+            val jarFile = ClientContentStore.shared.materialize(
+                requests = listOf(request),
+                targetRoot = workDir,
+                onProgress = { progress -> onProgress(progress.message) }
+            ).getOrThrow().single().toFile()
+            val modId = readModId(jarFile)
+            val hash = withContext(Dispatchers.IO) { jarFile.sha256.lowercase() }
+            Mod(
+                platform = "github",
+                projectId = repo.projectId,
+                slug = modId,
+                fileId = "${asset.releaseTag}/${asset.name}",
+                hash = hash,
+                side = side,
+                downloadUrls = listOf(asset.downloadUrl)
+            )
+        } finally {
+            runCatching { workDir.toFile().deleteRecursively() }
+        }
     }
 
     fun parseRepo(repoUrl: String): GithubRepoRef {
@@ -134,35 +147,6 @@ object GithubExtraModService {
             owner = parts[0],
             name = parts[1].removeSuffix(".git")
         )
-    }
-
-    private suspend fun downloadAsset(
-        repo: GithubRepoRef,
-        asset: GithubReleaseAsset,
-        onProgress: (String) -> Unit
-    ): File = withContext(Dispatchers.IO) {
-        val target = cacheDir.resolve("${repo.projectId}_${asset.releaseTag}_${asset.name}".toSafeFileName())
-        if (target.exists() && (asset.size <= 0 || target.length() == asset.size)) {
-            onProgress("已复用临时文件 ${asset.name}")
-            return@withContext target
-        }
-        onProgress("下载GitHub文件 ${asset.name}")
-        target.toPath().downloadFileFrom(
-            url = asset.downloadUrl,
-            knownSize = asset.size,
-            validator = { path ->
-                if (asset.size <= 0 || path.toFile().length() == asset.size) {
-                    Result.success(Unit)
-                } else {
-                    Result.failure(IllegalStateException("下载文件大小不匹配: ${asset.name}"))
-                }
-            }
-        ) { progress ->
-            val downloaded = progress.bytesDownloaded.takeIf { it >= 0 }?.humanFileSize ?: "0B"
-            val total = progress.totalBytes.takeIf { it > 0 }?.humanFileSize ?: asset.sizeText
-            onProgress("下载${asset.name} $downloaded/$total")
-        }.getOrElse { throw it }
-        target
     }
 
     private suspend fun readModId(jarFile: File): String = withContext(Dispatchers.IO) {
@@ -188,11 +172,34 @@ object GithubExtraModService {
         }
     }
 
-    private fun String.toSafeFileName(): String =
-        replace(Regex("""[\\/:*?"<>|]+"""), "_")
-            .replace(Regex("""\s+"""), "_")
-            .take(180)
 }
+
+private fun GithubReleaseAsset.toContentRequest(repo: GithubRepoRef): ContentRequest {
+    val sha256 = digest
+        ?.trim()
+        ?.matchSha256Digest()
+        ?.let { value -> ContentDigest(ContentDigestAlgorithm.SHA256, value) }
+    return ContentRequest(
+        id = "github:${repo.projectId}:$releaseTag:$name:$downloadUrl",
+        relativePath = name,
+        size = size.takeIf { it > 0 },
+        digests = listOfNotNull(sha256),
+        sources = listOf(
+            ContentSource(
+                url = downloadUrl,
+                knownSize = size.takeIf { it > 0 },
+                name = "github:${repo.projectId}/$name"
+            )
+        ),
+        displayName = name
+    )
+}
+
+private fun String.matchSha256Digest(): String? =
+    Regex("""sha256:([0-9a-fA-F]{64})""", RegexOption.IGNORE_CASE)
+        .matchEntire(this)
+        ?.groupValues
+        ?.getOrNull(1)
 
 @Serializable
 private data class GithubReleaseResp(
@@ -206,5 +213,6 @@ private data class GithubReleaseResp(
 private data class GithubAssetResp(
     val name: String = "",
     val size: Long = 0,
-    @SerialName("browser_download_url") val browserDownloadUrl: String = ""
+    @SerialName("browser_download_url") val browserDownloadUrl: String = "",
+    val digest: String? = null
 )

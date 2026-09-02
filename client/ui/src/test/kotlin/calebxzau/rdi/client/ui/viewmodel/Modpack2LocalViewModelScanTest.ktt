@@ -1,0 +1,33 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
+
+class Modpack2LocalViewModelScanTest {
+    @Test
+    fun `scan returns only unlinked canonical ordinary directories`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-unlinked-scan")
+        try {
+            val registered = "019f2d68-6b7e-7ec8-98d1-0b8483c39875"
+            val unlinked = "019f2d68-6b7e-7ec8-98d1-0b8483c39876"
+            Files.createDirectories(root.resolve(registered).resolve("mods"))
+            Files.createDirectories(root.resolve(unlinked).resolve("config"))
+            Files.createDirectories(root.resolve("not-a-uuid"))
+            val link = root.resolve("019f2d68-6b7e-7ec8-98d1-0b8483c39877")
+            runCatching { Files.createSymbolicLink(link, root.resolve(unlinked)) }
+            val before = Files.walk(root).use { it.map(Path::toString).toList() }
+            val result = scanUnlinkedCanonicalDirectories(root, setOf(registered))
+            val after = Files.walk(root).use { it.map(Path::toString).toList() }
+            assertEquals(listOf(root.resolve(unlinked).toAbsolutePath().normalize()), result)
+            assertEquals(before, after)
+            assertTrue(Files.isDirectory(root.resolve(unlinked).resolve("config")))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+}

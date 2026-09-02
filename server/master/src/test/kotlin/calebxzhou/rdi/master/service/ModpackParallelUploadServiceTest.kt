@@ -2,6 +2,8 @@ package calebxzhou.rdi.master.service
 
 import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
 import io.ktor.utils.io.ByteReadChannel
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.runTest
 import org.bson.types.ObjectId
 import java.security.MessageDigest
@@ -32,6 +34,7 @@ class ModpackParallelUploadServiceTest {
             assertEquals(7, session.id.version())
             assertEquals(4, session.partSize)
             assertEquals(4, session.partCount)
+            assertEquals(8, session.maxParallelParts)
 
             listOf(3, 1, 0, 2).forEach { index ->
                 val part = content.part(index, session.partSize)
@@ -45,11 +48,85 @@ class ModpackParallelUploadServiceTest {
                 ).getOrThrow()
             }
 
-            assertTrue(service.complete(ownerId, session.id).getOrThrow().ready)
+            val completed = service.complete(ownerId, session.id).getOrThrow()
+            assertTrue(completed.ready)
+            assertEquals(completed, service.complete(ownerId, session.id).getOrThrow())
             val consumed = service.withReadyUpload(ownerId, session.id) { it.readBytes() }.getOrThrow()
             assertContentEquals(content, consumed)
             assertTrue(service.status(ownerId, session.id).isFailure)
             assertFalse(root.resolve(session.id.toString()).exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `complete rejects missing parts before checking the whole file`() = runTest {
+        val root = createTempDirectory("modpack-parallel-missing-part-test").toFile()
+        try {
+            val ownerId = ObjectId()
+            val content = "missing-part".encodeToByteArray()
+            val service = service(root)
+            val session = service.create(
+                ownerId,
+                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1())
+            ).getOrThrow()
+
+            val firstPart = content.part(0, session.partSize)
+            service.uploadPart(
+                ownerId,
+                session.id,
+                0,
+                firstPart.size.toLong(),
+                firstPart.sha1(),
+                ByteReadChannel(firstPart)
+            ).getOrThrow()
+
+            assertTrue(service.complete(ownerId, session.id).isFailure)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `cancel rejects a ready upload while it is being consumed`() = runTest {
+        val root = createTempDirectory("modpack-parallel-finalizing-test").toFile()
+        try {
+            val ownerId = ObjectId()
+            val content = "finalizing-upload".encodeToByteArray()
+            val service = service(root)
+            val session = service.create(
+                ownerId,
+                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1())
+            ).getOrThrow()
+            (0 until session.partCount).forEach { index ->
+                val part = content.part(index, session.partSize)
+                service.uploadPart(
+                    ownerId,
+                    session.id,
+                    index,
+                    part.size.toLong(),
+                    part.sha1(),
+                    ByteReadChannel(part)
+                ).getOrThrow()
+            }
+            service.complete(ownerId, session.id).getOrThrow()
+
+            val started = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val consuming = async {
+                service.withReadyUpload(ownerId, session.id) {
+                    started.complete(Unit)
+                    release.await()
+                    it.readBytes()
+                }.getOrThrow()
+            }
+            started.await()
+
+            assertTrue(service.cancel(ownerId, session.id).isFailure)
+            release.complete(Unit)
+            assertEquals(content.toList(), consuming.await().toList())
+            assertTrue(service.status(ownerId, session.id).isFailure)
         } finally {
             root.deleteRecursively()
         }

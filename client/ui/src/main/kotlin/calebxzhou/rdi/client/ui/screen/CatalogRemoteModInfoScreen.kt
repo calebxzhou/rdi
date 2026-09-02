@@ -108,7 +108,7 @@ fun RemoteModInfoScreen(
 }
 
 private fun remoteModInfoViewModelKey(route: RemoteModInfoRoute): String =
-    "${route.platform}:${route.projectId}:${route.requiredMcVer}:${route.requiredLoader}:${route.targetLocalVersionId}:${route.targetHostId}:${route.targetHost2Id}:${route.fromAllHosts}:${route.fromHostMods}"
+    "${route.platform}:${route.projectId}:${route.requiredMcVer}:${route.requiredLoader}:${route.targetLocalVersionId}:${route.targetLocalKind}:${route.targetLocalId}:${route.targetHostId}:${route.fromAllHosts}:${route.fromHostMods}"
 
 @Composable
 private fun RemoteModInfoContent(
@@ -396,9 +396,9 @@ private fun CatalogDownloadDialog(
                             ) {
                                 Text(
                                     if ((state.target as? CatalogInstallTarget.Local)?.pack?.versionId == pack.versionId) {
-                                        "✓ ${pack.vo.name}"
+                                        "✓ ${pack.name}"
                                     } else {
-                                        pack.vo.name
+                                        pack.name
                                     }
                                 )
                             }
@@ -432,9 +432,10 @@ private fun CatalogDownloadDialog(
                 }
 
                 when (val target = state.target) {
-                    is CatalogInstallTarget.Local -> Text("安装到整合包：${target.pack.vo.name} ${target.pack.verName}")
+                    is CatalogInstallTarget.Local -> Text(
+                        "安装到整合包：${target.pack.name} ${target.pack.verName}"
+                    )
                     is CatalogInstallTarget.HostTarget -> Text("安装到房间：${target.name}")
-                    is CatalogInstallTarget.Host2Target -> Text("将添加到新版房间")
                     null -> Unit
                 }
                 if (selectedLocalPack != null && !state.dependenciesLoading && state.localInstallMods.isNotEmpty()) {

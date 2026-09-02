@@ -134,8 +134,6 @@ fun HostMembersScreen(
                     CircleIconButton(
                         icon = "\uF067",
                         label = "邀请",
-                        size = 28.dp,
-                        contentPadding = PaddingValues(0.dp)
                     ) {
                         inviteQq = ""
                         showInviteDialog = true
@@ -352,6 +350,21 @@ fun HostMembersScreen(
             },
             onDismiss = { quitConfirm = false }
         )
+    }
+}
+
+@Composable
+fun HostMembersScreen(
+    target: HostTarget,
+    onBack: () -> Unit,
+    onQuit: () -> Unit,
+) {
+    if (target.kind == HostKind.Legacy) {
+        val objectId = target.objectIdOrNull()
+        if (objectId == null) HostDetailRouteError("房间ID格式错误", onBack)
+        else HostMembersScreen(objectId, onBack, onQuit)
+    } else {
+        HostDetailRouteError("该房间类型暂不可用", onBack)
     }
 }
 

@@ -1,0 +1,79 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.MinecraftInstallationDatabase
+import calebxzau.rdi.common.model.Modpack2AppendPreflightVo
+import calebxzau.rdi.common.model.Modpack2ClientManifestVo
+import calebxzau.rdi.common.model.Modpack2CreateDto
+import calebxzau.rdi.common.model.Modpack2CreateResult
+import calebxzau.rdi.common.model.Modpack2VersionCreateFromUploadDto
+import calebxzau.rdi.common.model.Modpack2VersionDetailVo
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
+import calebxzhou.rdi.common.model.ModpackUploadSessionVo
+import calebxzhou.rdi.common.model.Task2Context
+import calebxzhou.rdi.common.service.runInline
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.test.*
+import kotlin.uuid.Uuid
+
+class Modpack2LocalServiceWorkspaceTest {
+    @Test fun `workspace creation is removed without touching disk or database`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-removed-workspace")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { db ->
+            val repo = LocalModpack2Repository(db.localModpack2Store)
+            val service = service(repo, root)
+            val before = Files.list(root).use { it.map(Path::toString).toList() }
+            assertTrue(service.createWorkspace(Modpack2WorkspaceSource.Empty, "pack", McVersion.V211, ModLoader.neoforge).isFailure)
+            assertEquals(emptyList(), repo.list().getOrThrow())
+            assertEquals(before, Files.list(root).use { it.map(Path::toString).toList() })
+        }
+    }
+
+    @Test fun `directory import and publish stubs fail without side effects`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-removed-import")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { db ->
+            val repo = LocalModpack2Repository(db.localModpack2Store); val service = service(repo, root)
+            val directory = root.resolve("versions/019f2d68-6b7e-7ec8-98d1-0b8483c39875").also(Files::createDirectories)
+            Files.writeString(directory.resolve("marker"), "unchanged")
+            assertTrue(service.importUnregisteredDirectory(directory, "pack", McVersion.V211, ModLoader.neoforge).isFailure)
+            assertTrue(service.publish(Modpack2PublishRequest(Uuid.generateV7())).isFailure)
+            assertEquals("unchanged", Files.readString(directory.resolve("marker")))
+            assertTrue(repo.list().getOrThrow().isEmpty())
+        }
+    }
+
+    @Test fun `removed lifecycle task fails when executed`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-removed-task")
+        MinecraftInstallationDatabase.open(root.resolve("data.db")).getOrThrow().use { db ->
+            val service = service(LocalModpack2Repository(db.localModpack2Store), root)
+            val task = service.createWorkspaceTask(Modpack2WorkspaceSource.Empty, "pack", McVersion.V211, ModLoader.neoforge)
+            assertFails { task.runInline(Task2Context(emitProgress = {})) }
+        }
+    }
+
+    private fun service(repo: LocalModpack2Repository, root: Path) = Modpack2LocalService(
+        repository = repo,
+        gateway = RemovedGateway,
+        versionsDirectory = root.resolve("versions"),
+        contentService = null,
+    )
+}
+
+private object RemovedGateway : Modpack2Gateway {
+    private fun <T> removed(): Result<T> = Result.failure(UnsupportedOperationException("removed"))
+    override suspend fun listVersions(modpackId: Uuid) = removed<List<Modpack2VersionDetailVo>>()
+    override suspend fun clientManifest(modpackId: Uuid, versionId: Uuid) = removed<Modpack2ClientManifestVo>()
+    override suspend fun clientPackHash(modpackId: Uuid, versionId: Uuid) = removed<String>()
+    override suspend fun downloadClientPack(modpackId: Uuid, versionId: Uuid, target: Path, expectedSha1: String, onProgress: (Long, Long?) -> Unit) = removed<Unit>()
+    override suspend fun appendPreflight(modpackId: Uuid, baseVersionId: Uuid) = removed<Modpack2AppendPreflightVo>()
+    override suspend fun create(request: Modpack2CreateDto) = removed<Modpack2CreateResult>()
+    override suspend fun createVersion(modpackId: Uuid, request: Modpack2VersionCreateFromUploadDto) = removed<Modpack2CreateResult>()
+    override suspend fun retry(modpackId: Uuid, versionId: Uuid) = removed<Modpack2CreateResult>()
+    override suspend fun createUploadSession(request: ModpackUploadSessionCreateDto) = removed<ModpackUploadSessionVo>()
+    override suspend fun uploadSessionStatus(uploadId: java.util.UUID) = removed<ModpackUploadSessionVo>()
+    override suspend fun uploadPart(uploadId: java.util.UUID, index: Int, bytes: ByteArray, sha1: String) = removed<Unit>()
+    override suspend fun completeUpload(uploadId: java.util.UUID) = removed<ModpackUploadSessionVo>()
+}

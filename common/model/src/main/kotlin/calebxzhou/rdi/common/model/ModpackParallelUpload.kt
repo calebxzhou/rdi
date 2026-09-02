@@ -21,7 +21,8 @@ data class ModpackUploadSessionVo(
     val partCount: Int,
     val uploadedParts: List<Int>,
     val ready: Boolean,
-    val expiresAt: Long
+    val expiresAt: Long,
+    val maxParallelParts: Int = 8
 )
 
 @Serializable

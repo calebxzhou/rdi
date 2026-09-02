@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -52,12 +53,20 @@ import calebxzau.rdi.client.ui.SearchField
 import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.RVerticalScrollbar
+import calebxzau.rdi.client.ui.ContentBody
+import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.ScreenContentSize
+import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.ModpackCard
+import calebxzhou.rdi.client.ui.comp.ModpackCardPresentation
+import calebxzhou.rdi.client.ui.comp.formatModpackUpdatedTime
+import calebxzhou.rdi.client.ui.comp.formatPlayTime
 import calebxzhou.rdi.client.ui.loadResourceBitmap
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.DL_MOD_DIR
+import calebxzau.rdi.common.model.ModpackCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -66,19 +75,70 @@ import kotlinx.coroutines.withContext
  * calebxzhou @ 2026-05-14 11:29
  */
 
+internal enum class RemoteModpackSource {
+    Legacy,
+}
+
+internal data class RemoteModpackRef(
+    val source: RemoteModpackSource,
+    val id: String,
+) {
+    val key: String get() = "${source.name.lowercase()}:$id"
+}
+
+internal data class RemoteModpackPresentation(
+    val ref: RemoteModpackRef,
+    val card: ModpackCardPresentation,
+)
+
+internal fun Modpack.BriefVo.toRemoteModpackPresentation(): RemoteModpackPresentation =
+    RemoteModpackPresentation(
+        ref = RemoteModpackRef(RemoteModpackSource.Legacy, id.toHexString()),
+        card = ModpackCardPresentation(
+            name = name,
+            iconUrl = icon,
+            intro = info,
+            activityText = playCount.toString(),
+            updatedTimeText = formatModpackUpdatedTime(
+                lastUpdatedTime.takeIf { it > 0L } ?: (id.timestamp.toLong() * 1000L),
+            ),
+        ),
+    )
+
+internal fun mergeRemoteModpackPresentations(
+    legacy: List<Modpack.BriefVo>,
+    keyword: String = "",
+    onlyMine: Boolean = false,
+    selectedCategory: Modpack.Category? = null,
+): List<RemoteModpackPresentation> {
+    val normalizedKeyword = keyword.trim().lowercase()
+    val legacyItems = legacy
+        .asSequence()
+        .filter { item ->
+                normalizedKeyword.isBlank() ||
+                    item.name.lowercase().contains(normalizedKeyword) ||
+                    item.info.orEmpty().lowercase().contains(normalizedKeyword)
+        }
+        .filter { item -> selectedCategory == null || selectedCategory in item.categories }
+        .map(Modpack.BriefVo::toRemoteModpackPresentation)
+    return legacyItems.toList()
+}
+
 @Composable
 fun RemoteModpackScreen(
     onOpenInfo: (String) -> Unit,
     onOpenUpload: (() -> Unit)? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    requiredMcVer: McVersion? = null,
+    requiredLoader: String? = null,
+    onBack: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
     val packProcessor = remember {
         ModpackProcessor(
             PackProcessingPaths(
-                workDir = ClientDirs.packProcDir,
-                modCacheDir = DL_MOD_DIR
+                workDir = ClientDirs.packProcDir
             )
         )
     }
@@ -90,11 +150,12 @@ fun RemoteModpackScreen(
     var onlyMine by rememberSaveable { mutableStateOf(false) }
     var searchText by rememberSaveable { mutableStateOf("") }
     var selectedCategory by rememberSaveable { mutableStateOf<Modpack.Category?>(null) }
-    var selectedMcVer by rememberSaveable { mutableStateOf<McVersion?>(null) }
+    var selectedMcVer by rememberSaveable(requiredMcVer, requiredLoader) { mutableStateOf(requiredMcVer) }
     var selectedSort by rememberSaveable { mutableStateOf(Modpack.SearchSort.UPDATED) }
     var hasMore by remember { mutableStateOf(false) }
     var requestKeyword by rememberSaveable { mutableStateOf("") }
     var requestVersion by remember { mutableStateOf(0) }
+    var selectedLoader by rememberSaveable(requiredLoader) { mutableStateOf<String?>(requiredLoader) }
 
     val openUploadAfterAudioCheck: () -> Unit = {
         scope.launch {
@@ -241,8 +302,28 @@ fun RemoteModpackScreen(
 
     @Composable
     fun ResultList(modifier: Modifier = Modifier) {
+        val presentations = remember(
+            modpacks,
+            requestKeyword,
+            onlyMine,
+            requiredMcVer,
+            requiredLoader,
+            selectedMcVer,
+            selectedLoader,
+            selectedCategory,
+        ) {
+            mergeRemoteModpackPresentations(
+                legacy = modpacks,
+                keyword = requestKeyword,
+                onlyMine = onlyMine,
+                selectedCategory = selectedCategory,
+            )
+        }
         Column(modifier = modifier.fillMaxSize()) {
-            errorMessage?.let {
+            listOfNotNull(errorMessage)
+                .takeIf { it.isNotEmpty() }
+                ?.joinToString("\n")
+                ?.let {
                 Text(it, color = MaterialTheme.colorScheme.error)
                 Space8h()
             }
@@ -264,18 +345,23 @@ fun RemoteModpackScreen(
                     horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    gridItems(modpacks, key = { it.id.toHexString() }) { modpack ->
+                    gridItems(presentations, key = { it.ref.key }) { item ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.Center
                         ) {
-                            modpack.ModpackCard(
+                            ModpackCard(
+                                presentation = item.card,
                                 modifier = Modifier.widthIn(max = 360.dp),
-                                onClick = { onOpenInfo(modpack.id.toHexString()) }
+                                onClick = {
+                                    when (item.ref.source) {
+                                        RemoteModpackSource.Legacy -> onOpenInfo(item.ref.id)
+                                    }
+                                },
                             )
                         }
                     }
-                    if (!loading && modpacks.isEmpty()) {
+                    if (!loading && presentations.isEmpty()) {
                         item(
                             key = "empty",
                             span = { GridItemSpan(maxLineSpan) }
@@ -322,20 +408,24 @@ fun RemoteModpackScreen(
         loadModpacks(reset = true)
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
-        Column(modifier = Modifier.fillMaxSize(),verticalArrangement = Arrangement.spacedBy(6.dp)) {
-
-            SearchField(
-                value = searchText,
-                onValueChange = { searchText = it },
-                placeholder = "包名/简介",
-                onSearch = ::submitSearch,
-                modifier = Modifier.fillMaxWidth(),
-                loading = loading
-            )
-            ResultList(modifier = Modifier.weight(1f))
-            uploadErrorText?.let { AlertErr(it) { uploadErrorText = null } }
-            /*BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+    MaxBox {
+        ScreenContentSurface(size = ScreenContentSize.LARGE) {
+            TitleRow("整合广场", onBack) {
+                SearchField(
+                    value = searchText,
+                    onValueChange = { searchText = it },
+                    placeholder = "包名/简介",
+                    onSearch = ::submitSearch,
+                    modifier = Modifier.width(240.dp),
+                    loading = loading,
+                )
+            }
+            ContentBody {
+                Box(modifier = modifier.fillMaxSize()) {
+                    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ResultList(modifier = Modifier.weight(1f))
+                        uploadErrorText?.let { AlertErr(it) { uploadErrorText = null } }
+                        /*BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     Row(
                         modifier = Modifier.fillMaxSize(),
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -355,19 +445,22 @@ fun RemoteModpackScreen(
                         }
                     }
 
-            }*/
-        }
-        if (onOpenUpload != null && loggedAccount.hasMsid) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp)
-            ) {
-                CircleIconButton(
-                    icon = "\uDB80\uDFD5",
-                    label = "传包"
-                ) {
-                    openUploadAfterAudioCheck()
+                        }*/
+                    }
+                    if (onOpenUpload != null && loggedAccount.hasMsid) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(16.dp)
+                        ) {
+                            CircleIconButton(
+                                icon = "\uDB80\uDFD5",
+                                label = "传包"
+                            ) {
+                                openUploadAfterAudioCheck()
+                            }
+                        }
+                    }
                 }
             }
         }

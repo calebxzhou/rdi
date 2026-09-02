@@ -9,7 +9,7 @@ data class Mail(
     @Contextual
     val _id: ObjectId = ObjectId(),
     @Contextual
-    val senderId: ObjectId ,
+    val senderId: ObjectId,
     @Contextual
     val receiverId: ObjectId,
     val title: String,
@@ -36,6 +36,7 @@ data class Mail(
         content = content,
         unread = unread,
     )
+
     @Serializable
     data class Vo(
         @Contextual

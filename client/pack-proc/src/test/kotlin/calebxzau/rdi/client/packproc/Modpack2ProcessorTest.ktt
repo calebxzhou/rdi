@@ -1,0 +1,470 @@
+package calebxzau.rdi.client.packproc
+
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzau.rdi.common.model.Modpack2ContentDto
+import calebxzau.rdi.common.model.Modpack2InheritedRawFile
+import calebxzau.rdi.common.model.Modpack2RawFile
+import calebxzau.rdi.common.model.Modpack2RawFileRoot
+import calebxzau.rdi.common.model.Modpack2ServerMode
+import calebxzhou.rdi.common.archive.listArchiveEntries
+import calebxzhou.rdi.common.archive.forEachArchiveEntry
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import kotlinx.coroutines.runBlocking
+import java.io.File
+import java.nio.file.Files
+import java.util.jar.JarEntry
+import java.util.jar.JarOutputStream
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
+
+class Modpack2ProcessorTest {
+    @Test
+    fun `processor resolves snapshot files through one batch`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-batch-resolver").toFile()
+        try {
+            val first = root.resolve("mods/first.jar").also { writeModJar(it, "first", "first") }
+            val second = root.resolve("mods/second.jar").also { writeModJar(it, "second", "second") }
+            val firstContent = content(ContentPlatform.Modrinth, "first-project", "first-file")
+            val secondContent = content(ContentPlatform.Modrinth, "second-project", "second-file")
+            var batches = 0
+            val resolver = object : Modpack2ContentResolver {
+                override suspend fun resolveBatch(files: List<Modpack2ContentCandidate>): Map<String, Modpack2ContentDto> {
+                    batches++
+                    return files.associate { candidate ->
+                        normalizePackPath(candidate.relativePath) to when (candidate.file.name) {
+                            first.name -> firstContent
+                            second.name -> secondContent
+                            else -> error("unexpected file")
+                        }
+                    }
+                }
+            }
+            val result = Modpack2Processor(PackProcessingPaths(root.resolve("work")), resolver).process(root).getOrThrow()
+            try {
+                assertEquals(1, batches)
+                assertEquals(2, result.contents.size)
+            } finally {
+                result.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `raw-only processing keeps declarations and never resolves client bytes`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-raw-only").toFile()
+        try {
+            root.resolve("config/settings.txt").apply {
+                parentFile.mkdirs()
+                writeText("raw")
+            }
+            var resolverCalls = 0
+            val resolver = object : Modpack2ContentResolver {
+                override suspend fun resolveBatch(files: List<Modpack2ContentCandidate>): Map<String, Modpack2ContentDto> {
+                    resolverCalls++
+                    error("raw-only processing must not resolve client files")
+                }
+            }
+            val declared = content(ContentPlatform.Modrinth, "project", "file").copy(
+                targetPath = "mods/catalog.jar",
+                fileSize = 123,
+            )
+            val result = Modpack2Processor(PackProcessingPaths(root.resolve("work")), resolver).process(
+                source = root,
+                predeclaredContents = listOf(declared),
+                rawOnly = true,
+            ).getOrThrow()
+            try {
+                assertEquals(0, resolverCalls)
+                assertEquals(listOf(declared), result.contents.map { it.content })
+                assertEquals(listOf("config/settings.txt"), result.rawFiles.map { it.path })
+            } finally {
+                result.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `failed archive build removes partial target`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-build-cleanup").toFile()
+        try {
+            val processor = processor(root)
+            val result = processor.process(root).getOrThrow()
+            try {
+                val broken = result.copy(
+                    rawFiles = listOf(Modpack2RawFile(Modpack2RawFileRoot.Client, "missing.txt", "a".repeat(40), 1)),
+                )
+                assertTrue(processor.buildArchive(broken, "cleanup-test").isFailure)
+                val workDir = root.resolve("work")
+                assertTrue(workDir.listFiles().orEmpty().none { it.name.startsWith("cleanup-test_") })
+            } finally {
+                result.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `processing work directory below source is excluded from preview and freeze`() {
+        val root = Files.createTempDirectory("modpack2-work-inside-source").toFile()
+        try {
+            root.resolve("config/settings.txt").apply {
+                parentFile.mkdirs()
+                writeText("shared")
+            }
+            root.resolve("work/old-staging.txt").apply {
+                parentFile.mkdirs()
+                writeText("not pack content")
+            }
+            val processor = processor(root)
+
+            val preview = processor.preview(root).getOrThrow()
+            assertEquals(listOf("config/settings.txt"), preview.files.map { it.relativePath })
+            val frozen = processor.freeze(root, preview).getOrThrow()
+            try {
+                assertEquals(listOf("config/settings.txt"), frozen.files.map { it.relativePath })
+            } finally {
+                frozen.close()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `preview fingerprint mismatch aborts freezing`() {
+        val root = Files.createTempDirectory("modpack2-preview-mismatch").toFile()
+        try {
+            root.resolve("config/settings.txt").apply {
+                parentFile.mkdirs()
+                writeText("before")
+            }
+            val processor = processor(root)
+            val preview = processor.preview(root).getOrThrow()
+            root.resolve("config/settings.txt").writeText("after")
+
+            assertFailsWith<Modpack2PreviewMismatchException> {
+                processor.freeze(root, preview).getOrThrow()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `manual side and unmatched side default are retained`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-side").toFile()
+        try {
+            val recognized = root.resolve("mods/recognized.jar").also { writeModJar(it, "recognized", "client") }
+            root.resolve("mods/unmatched.jar").also { writeModJar(it, "unmatched", "unknown") }
+            val recognizedContent = content(ContentPlatform.Modrinth, "recognized", "file", ContentSide.Both)
+            val processor = Modpack2Processor(
+                PackProcessingPaths(root.resolve("work")),
+                MapModpack2ContentResolver(modrinth = mapOf(recognized.relativeTo(root).invariantSeparatorsPath to recognizedContent)),
+            )
+
+            val result = processor.process(
+                source = root,
+                manualSideOverrides = mapOf(modpack2LogicalIdentity(recognizedContent) to ContentSide.Server),
+            ).getOrThrow()
+            try {
+                assertEquals(ContentSide.Server, result.contents.single().content.side)
+                assertEquals(ContentSide.Both, result.unmatchedContents.single { it.sourcePath.endsWith("unmatched.jar") }.side)
+            } finally {
+                result.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `manual server side puts unmatched raw content under server root`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-unmatched-server-side").toFile()
+        try {
+            root.resolve("mods/unmatched.jar").also { writeModJar(it, "unmatched", "unknown") }
+            val result = processor(root).process(
+                source = root,
+                manualSideOverrides = mapOf("mods/unmatched.jar" to ContentSide.Server),
+            ).getOrThrow()
+            try {
+                assertEquals(ContentSide.Server, result.unmatchedContents.single().side)
+                assertEquals(Modpack2RawFileRoot.Server, result.rawFiles.single().root)
+            } finally {
+                result.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `modrinth wins over curseforge and explicit github is required`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-platform-order").toFile()
+        try {
+            val mrFile = root.resolve("mods/mr.jar").also { writeModJar(it, "mr", "mr") }
+            val githubFile = root.resolve("mods/github.jar").also { writeModJar(it, "gh", "gh") }
+            val mr = content(ContentPlatform.Modrinth, "mr-project", "mr-file")
+            val cf = content(ContentPlatform.CurseForge, "123", "456")
+            val github = content(ContentPlatform.GitHub, "owner/repo", "release")
+            val resolver = MapModpack2ContentResolver(
+                modrinth = mapOf(mrFile.relativeTo(root).invariantSeparatorsPath to mr),
+                curseForge = mapOf(mrFile.relativeTo(root).invariantSeparatorsPath to cf),
+            )
+            val processor = Modpack2Processor(PackProcessingPaths(root.resolve("work")), resolver)
+            val withoutGithub = processor.process(root).getOrThrow()
+            try {
+                assertTrue(withoutGithub.contents.none { it.content.platform == ContentPlatform.GitHub })
+                assertTrue(withoutGithub.rawFiles.any { it.path.endsWith("github.jar") })
+            } finally {
+                withoutGithub.closeSnapshots()
+            }
+            val withGithub = processor.process(
+                source = root,
+                explicitGithubSources = listOf(Modpack2ExplicitGithubSource(relativePath = "mods/github.jar", content = github)),
+            ).getOrThrow()
+            try {
+                assertEquals(ContentPlatform.Modrinth, withGithub.contents.first { it.sourcePath.endsWith("mr.jar") }.content.platform)
+                assertEquals(ContentPlatform.GitHub, withGithub.contents.first { it.sourcePath.endsWith("github.jar") }.content.platform)
+                assertFalse(withGithub.rawFiles.any { it.path.endsWith("github.jar") })
+            } finally {
+                withGithub.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `provided matching merges identical artifacts but keeps changed server artifact`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-provided").toFile()
+        val server = Files.createTempDirectory("modpack2-server").toFile()
+        try {
+            val client = root.resolve("mods/client.jar").also { writeModJar(it, "shared", "same") }
+            val serverSame = server.resolve("mods/server-same.jar").also { writeModJar(it, "shared", "same") }
+            val sameContent = content(ContentPlatform.Modrinth, "shared-project", "same-file", ContentSide.Client)
+            val processor = Modpack2Processor(
+                PackProcessingPaths(root.resolve("work")),
+                MapModpack2ContentResolver(
+                    modrinth = mapOf(
+                        "mods/client.jar" to sameContent,
+                        "mods/server-same.jar" to sameContent,
+                    ),
+                ),
+            )
+            val sameResult = processor.process(
+                source = root,
+                serverMode = Modpack2ServerMode.Provided,
+                providedServerPack = server,
+            ).getOrThrow()
+            try {
+                assertEquals(ContentSide.Both, sameResult.contents.single().content.side)
+                assertFalse(sameResult.rawFiles.any { it.root == Modpack2RawFileRoot.Server })
+            } finally {
+                sameResult.closeSnapshots()
+            }
+
+            serverSame.writeText("changed")
+            val changedContent = sameContent.copy(fileId = "changed-file", hash = "changed-hash")
+            val changedProcessor = Modpack2Processor(
+                PackProcessingPaths(root.resolve("work-changed")),
+                MapModpack2ContentResolver(
+                    modrinth = mapOf(
+                        "mods/client.jar" to sameContent,
+                        "mods/server-same.jar" to changedContent,
+                    ),
+                ),
+            )
+            val changedResult = changedProcessor.process(
+                source = root,
+                serverMode = Modpack2ServerMode.Provided,
+                providedServerPack = server,
+            ).getOrThrow()
+            try {
+                assertEquals(2, changedResult.contents.size)
+                assertEquals(setOf(ContentSide.Client, ContentSide.Server), changedResult.contents.map { it.content.side }.toSet())
+            } finally {
+                changedResult.closeSnapshots()
+            }
+
+            writeModJar(serverSame, "shared", "different-server")
+            val defaultBothContent = sameContent.copy(side = ContentSide.Both)
+            val defaultBothProcessor = Modpack2Processor(
+                PackProcessingPaths(root.resolve("work-default-both")),
+                MapModpack2ContentResolver(
+                    modrinth = mapOf(
+                        "mods/client.jar" to defaultBothContent,
+                        "mods/server-same.jar" to changedContent,
+                    ),
+                ),
+            )
+            val defaultBothResult = defaultBothProcessor.process(
+                source = root,
+                serverMode = Modpack2ServerMode.Provided,
+                providedServerPack = server,
+            ).getOrThrow()
+            try {
+                assertEquals(setOf(ContentSide.Client, ContentSide.Server), defaultBothResult.contents.map { it.content.side }.toSet())
+            } finally {
+                defaultBothResult.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+            server.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `generated inherits only server content and declarations`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-generated").toFile()
+        try {
+            root.resolve("config/server.conf").apply {
+                parentFile.mkdirs()
+                writeText("server")
+            }
+            val inheritedContent = content(ContentPlatform.Modrinth, "server-project", "server-file", ContentSide.Server)
+            val inheritedFile = Modpack2InheritedRawFile("server/config/server.conf", "a".repeat(40))
+            val result = processor(root).process(
+                source = root,
+                generatedInheritance = Modpack2GeneratedInheritance(
+                    serverContents = listOf(inheritedContent, content(ContentPlatform.Modrinth, "client-project", "client-file", ContentSide.Client)),
+                    serverFiles = listOf(inheritedFile),
+                ),
+            ).getOrThrow()
+            try {
+                assertEquals(listOf(ContentSide.Server), result.contents.map { it.content.side })
+                assertEquals(listOf(inheritedFile), result.inheritedServerFiles)
+            } finally {
+                result.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `filter roots and platform content are represented in archive`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-archive").toFile()
+        try {
+            root.resolve("config/settings.txt").apply { parentFile.mkdirs(); writeText("shared") }
+            root.resolve("resourcepacks/example.zip").apply { parentFile.mkdirs(); writeText("pack") }
+            root.resolve("shaderpacks/example.zip").apply { parentFile.mkdirs(); writeText("shader") }
+            root.resolve("mods/recognized.jar").also { writeModJar(it, "recognized", "recognized") }
+            root.resolve("logs/latest.log").apply { parentFile.mkdirs(); writeText("log") }
+            root.resolve("cache/catalog.db").apply { parentFile.mkdirs(); writeText("cache") }
+            root.resolve("options.txt").writeText("private")
+            root.resolve("random.txt").writeText("client")
+            val recognized = content(ContentPlatform.Modrinth, "recognized", "file")
+            val processor = Modpack2Processor(
+                PackProcessingPaths(root.resolve("work")),
+                MapModpack2ContentResolver(modrinth = mapOf("mods/recognized.jar" to recognized)),
+            )
+            val result = processor.process(root).getOrThrow()
+            try {
+                assertEquals(setOf(Modpack2RawFileRoot.Client, Modpack2RawFileRoot.Shared), result.rawFiles.map { it.root }.toSet())
+                assertTrue(result.rawFiles.any { it.root == Modpack2RawFileRoot.Shared && it.path == "config/settings.txt" })
+                assertTrue(result.rawFiles.any { it.path == "shaderpacks/example.zip" })
+                assertFalse(result.rawFiles.any { it.path.contains("recognized.jar") })
+                assertFalse(result.rawFiles.any { it.path.startsWith("logs/") || it.path.startsWith("cache/") || it.path == "options.txt" })
+                val archive = processor.buildArchive(result).getOrThrow()
+                try {
+                    val entries = listArchiveEntries(archive.archive).map { it.path.trimEnd('/') }.toSet()
+                    assertTrue("client" in entries)
+                    assertTrue("shared" in entries)
+                    assertTrue("client/shaderpacks/example.zip" in entries)
+                    assertFalse(entries.any { it.contains("recognized.jar") })
+                } finally {
+                    archive.archive.deleteRecursivelyNoSymlink()
+                }
+            } finally {
+                result.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `archive raw metadata describes processed bytes`() = runBlocking {
+        val root = Files.createTempDirectory("modpack2-archive-metadata").toFile()
+        try {
+            val nested = root.resolve("assets/example.zip")
+            nested.parentFile.mkdirs()
+            nested.outputStream().use { output ->
+                java.util.zip.ZipOutputStream(output).use { zip ->
+                    zip.putNextEntry(java.util.zip.ZipEntry("data.txt"))
+                    zip.write("nested".toByteArray())
+                    zip.closeEntry()
+                }
+            }
+            val processor = processor(root)
+            val result = processor.process(root).getOrThrow()
+            try {
+                val archive = processor.buildArchive(result).getOrThrow()
+                try {
+                    val entry = mutableListOf<calebxzhou.rdi.common.archive.ArchiveEntryData>()
+                    forEachArchiveEntry(archive.archive) { data ->
+                        if (data.path == "shared/assets/example.zip") entry += data
+                    }
+                    val written = entry.single().bytes ?: error("archive entry has no bytes")
+                    val raw = archive.rawFiles.single { it.path == "assets/example.zip" }
+                    val digest = java.security.MessageDigest.getInstance("SHA-1")
+                        .digest(written)
+                        .joinToString("") { "%02x".format(it) }
+                    assertEquals(written.size.toLong(), raw.size)
+                    assertEquals(digest, raw.sha1)
+                } finally {
+                    archive.archive.deleteRecursivelyNoSymlink()
+                }
+            } finally {
+                result.closeSnapshots()
+            }
+        } finally {
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    private fun processor(root: File): Modpack2Processor =
+        Modpack2Processor(PackProcessingPaths(root.resolve("work")))
+
+    private fun content(
+        platform: ContentPlatform,
+        projectId: String,
+        fileId: String,
+        side: ContentSide = ContentSide.Both,
+    ) = Modpack2ContentDto(
+        platform = platform,
+        type = ContentType.Mod,
+        projectId = projectId,
+        fileId = fileId,
+        slug = projectId,
+        hash = if (platform == ContentPlatform.CurseForge) "123" else "a".repeat(40),
+        side = side,
+        fileSize = 1,
+    )
+
+    private fun writeModJar(file: File, modId: String, body: String) {
+        file.parentFile.mkdirs()
+        file.outputStream().use { output ->
+            JarOutputStream(output).use { jar ->
+                jar.putNextEntry(JarEntry("mcmod.info"))
+                jar.write("[{\"modid\":\"$modId\",\"version\":\"$body\"}]".toByteArray())
+                jar.closeEntry()
+            }
+        }
+    }
+
+    private fun Modpack2ProcessingResult.closeSnapshots() {
+        providedServerSnapshot?.close()
+        snapshot.close()
+    }
+}

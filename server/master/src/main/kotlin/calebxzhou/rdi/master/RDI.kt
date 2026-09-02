@@ -4,6 +4,7 @@ import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.exception.RequestError
+// Host2 is archived; its client-pack error handler is intentionally disabled.
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.serdesJson
@@ -17,8 +18,8 @@ import calebxzhou.rdi.master.service.host.HostPresenceService
 import calebxzhou.rdi.master.service.host.HostService
 import calebxzhou.rdi.master.service.host.hostPlayRoutes
 import calebxzhou.rdi.master.service.host.hostRoutes
-import calebxzhou.rdi.master.service.host2.configureHost2
-import calebxzhou.rdi.master.service.host2.host2Routes
+import calebxzau.rdi.server.infra.configurePostgresServices
+// Archived Modpack2 and friend routes are intentionally disabled.
 import calebxzhou.rdi.master.ygg.YggdrasilService.yggdrasilRoutes
 import com.mongodb.MongoClientSettings
 import com.mongodb.ServerAddress
@@ -94,7 +95,7 @@ private fun storageDir(path: String?, defaultName: String): File {
 val CRASH_REPORT_DIR = storageDir(CONF.storage.crashReportDir, "crash-report")
 val MODPACK_DATA_DIR = storageDir(CONF.storage.modpackDir, "modpack")
 val HOSTS_DIR = storageDir(CONF.storage.hostsDir, "hosts")
-val HOST2_DIR = storageDir(CONF.storage.host2Dir, "host2")
+// val HOST2_DIR = storageDir(CONF.storage.host2Dir, "host2")
 val GAME_LIBS_DIR = storageDir(CONF.storage.gameLibsDir, "game-libs")
 val WORLDS_DIR = storageDir(CONF.storage.worldsDir, "worlds")
 val WORLD_CACHE_DIR = storageDir(CONF.storage.worldCacheDir, "world-cache")
@@ -118,7 +119,7 @@ fun main(): Unit = runBlocking {
     CRASH_REPORT_DIR.mkdirs()
     MODPACK_DATA_DIR.mkdirs()
     HOSTS_DIR.mkdirs()
-    HOST2_DIR.mkdirs()
+    // HOST2_DIR.mkdirs()
     GAME_LIBS_DIR.mkdirs()
     WORLDS_DIR.mkdirs()
     WORLD_CACHE_DIR.mkdirs()
@@ -147,7 +148,6 @@ fun main(): Unit = runBlocking {
         UnusedModPurgeService.purgeOnStartup()
     }
     HostPresenceService.startIdleMonitor()
-    EmailService.startListener()
     Runtime.getRuntime().addShutdownHook(Thread {
         lgr.info { "Application shutdown initiated..." }
         EmailService.shutdown()
@@ -276,7 +276,8 @@ private fun createKeyStoreFromPem(certFile: File, keyFile: File): KeyStore {
 }
 
 private fun Application.configureServer() {
-    configureHost2()
+    configurePostgresServices()
+    EmailService.startListener()
     install(StatusPages) {
         status(HttpStatusCode.NotFound) { call, status ->
             call.response<Unit>(-404, "找不到请求的内容", null, status)
@@ -285,9 +286,15 @@ private fun Application.configureServer() {
         exception<ParamError> { call, cause ->
             call.response<Unit>(false, cause.message ?: "参数错误", null)
         }
+        // Host2ClientPackUnavailable is archived with Host2.
         //逻辑错误
         exception<RequestError> { call, cause ->
-            call.response<Unit>(false, cause.message ?: "逻辑错误", null)
+            call.response<Unit>(
+                code = -1,
+                msg = cause.message ?: "逻辑错误",
+                errorCode = cause.errorCode,
+                currentRevision = cause.currentRevision,
+            )
         }
         //认证错误
         exception<AuthError> { call, cause ->
@@ -384,14 +391,14 @@ private fun Application.configureServer() {
             }*/
         hostPlayRoutes()
         authenticate("auth-jwt") {
-            if(DEBUG){
-                host2Routes()
-            }
+            //host2Routes()
             hostRoutes()
             worldRoutes()
             chatRoutes()
             downloadQuotaRoutes()
             modpackRoutes()
+            //modpack2Routes()
+            // friendRoutes() is archived.
             modFileRoutes()
             mailRoutes()
         }

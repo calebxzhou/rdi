@@ -1,15 +1,17 @@
 package calebxzhou.rdi.client.service
 
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.toClientContentRequests
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
-import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.runInline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
 import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
 
 fun buildHostBaseModSyncTask2(
     versionId: String,
@@ -29,17 +31,8 @@ fun buildHostBaseModSyncTask2(
             Task2.Leaf("整理基础Mod状态") { ctx ->
                 removeDisabledBaseMods(versionId, distinctDisabledMods, ctx)
             },
-            Task2.Leaf("检查基础Mod下载") { ctx ->
-                val missingMods = distinctActiveMods.filterNot(ModService::isDownloadedModFileValid)
-                if (missingMods.isEmpty()) {
-                    ctx.emit(Task2Progress("基础Mod已下载", 1f))
-                    return@Leaf
-                }
-                ctx.emit(Task2Progress("开始下载缺失基础Mod ${missingMods.size}个"))
-                ModService.downloadModsTask2(missingMods).runInline(ctx)
-            },
-            Task2.Leaf("同步基础Mod链接") { ctx ->
-                syncHostBaseModLinks(versionId, distinctActiveMods, ctx)
+            Task2.Leaf("下载并同步基础Mod") { ctx ->
+                materializeHostBaseMods(versionId, distinctActiveMods, ctx)
             }
         )
     )
@@ -61,7 +54,7 @@ private fun removeDisabledBaseMods(
     disabledBaseMods: List<Mod>,
     ctx: Task2Context
 ) {
-    val versionDir = GameService.versionListDir.resolve(versionId)
+    val versionDir = mcInstall.versionListDir.resolve(versionId)
     require(versionDir.exists()) { "未找到整合包目录: ${versionDir.absolutePath}" }
     val modsDir = versionDir.resolve("mods").apply { mkdirs() }
 
@@ -76,28 +69,31 @@ private fun removeDisabledBaseMods(
     }
 }
 
-private fun syncHostBaseModLinks(
+private suspend fun materializeHostBaseMods(
     versionId: String,
     activeBaseMods: List<Mod>,
     ctx: Task2Context
 ) {
-    val versionDir = GameService.versionListDir.resolve(versionId)
+    val versionDir = mcInstall.versionListDir.resolve(versionId)
     require(versionDir.exists()) { "未找到整合包目录: ${versionDir.absolutePath}" }
     val modsDir = versionDir.resolve("mods").apply { mkdirs() }
 
-    if (activeBaseMods.isEmpty()) {
+    val missingMods = missingHostBaseMods(modsDir.toPath(), activeBaseMods)
+    if (missingMods.isEmpty()) {
         ctx.emit(Task2Progress("没有基础Mod需要同步", 1f))
         return
     }
 
-    activeBaseMods.forEachIndexed { index, mod ->
-        val source = mod.candidateFiles.firstOrNull(File::exists)
-            ?: error("缺少基础Mod文件: ${mod.targetFile.absolutePath}")
-        val target = modsDir.resolve(mod.fileName)
-        if (!target.pointsTo(source)) {
-            hardLinkFile(source, target).getOrThrow()
-        }
-        val fraction = (index + 1).toFloat() / activeBaseMods.size.coerceAtLeast(1)
-        ctx.emit(Task2Progress("已同步基础Mod ${index + 1}/${activeBaseMods.size}", fraction))
-    }
+    ClientContentStore.shared.materialize(
+        requests = missingMods.toClientContentRequests(),
+        targetRoot = modsDir.toPath(),
+        onProgress = ctx::emit
+    ).getOrThrow()
 }
+
+internal fun missingHostBaseMods(modsDir: Path, mods: List<Mod>): List<Mod> =
+    mods.filter { mod ->
+        mod.fileNames.none { fileName ->
+            Files.isRegularFile(modsDir.resolve(fileName), LinkOption.NOFOLLOW_LINKS)
+        }
+    }

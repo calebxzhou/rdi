@@ -4,8 +4,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.InlineTextContent
-import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -14,30 +12,87 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.Placeholder
-import androidx.compose.ui.text.PlaceholderVerticalAlign
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import calebxzau.rdi.client.ui.DEFAULT_MODPACK_ICON
-import calebxzau.rdi.client.ui.RRow
+import calebxzau.rdi.client.ui.asIconText
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.util.toFriendlyDateTime
+import java.time.Instant
+import java.time.ZoneId
 import kotlin.math.roundToInt
 
 /**
  * calebxzhou @ 2026-01-13 16:14
  */
 
-private const val MODPACK_CARD_META_INLINE_ID = "modpack-card-meta"
+/**
+ * The small amount of information shared by legacy and new public pack cards.
+ *
+ * Keeping this presentation model local to the client means a new source can reuse the
+ * established card without pretending that its identifier is a legacy ObjectId.
+ */
+data class ModpackCardPresentation(
+    val name: String,
+    val iconUrl: String?,
+    val intro: String?,
+    /** A source-neutral activity value, such as a play count or play duration. */
+    val activityText: String,
+    val updatedTimeText: String? = null,
+)
+
+internal fun Modpack.BriefVo.toModpackCardPresentation(): ModpackCardPresentation =
+    ModpackCardPresentation(
+        name = name,
+        iconUrl = icon,
+        intro = info,
+        activityText = playCount.toCompactCountText(),
+        updatedTimeText = formatModpackUpdatedTime(
+            lastUpdatedTime.takeIf { it > 0L } ?: (id.timestamp.toLong() * 1000L),
+        ),
+    )
+
+internal fun formatModpackUpdatedTime(
+    timestampMillis: Long,
+    nowMillis: Long = System.currentTimeMillis(),
+    zoneId: ZoneId = ZoneId.systemDefault(),
+): String {
+    val targetDate = Instant.ofEpochMilli(timestampMillis).atZone(zoneId).toLocalDate()
+    val nowDate = Instant.ofEpochMilli(nowMillis).atZone(zoneId).toLocalDate()
+    return timestampMillis.toFriendlyDateTime(
+        nowMillis = nowMillis,
+        zoneId = zoneId,
+        dateOnly = targetDate != nowDate,
+    )
+}
+
+internal fun formatModpackCardSupportingText(presentation: ModpackCardPresentation): String =
+    buildList {
+        add("\uDB80\uDE97")
+        presentation.activityText.trim().takeIf(String::isNotBlank)?.let(::add)
+        presentation.updatedTimeText?.trim()?.takeIf(String::isNotBlank)?.let(::add)
+        add(presentation.intro?.trim()?.takeIf(String::isNotBlank) ?: "暂无简介")
+    }.joinToString("  ")
 
 @Composable
 fun Modpack.BriefVo.ModpackCard(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null
+) {
+    ModpackCard(
+        presentation = toModpackCardPresentation(),
+        modifier = modifier,
+        onClick = onClick,
+    )
+}
+
+@Composable
+fun ModpackCard(
+    presentation: ModpackCardPresentation,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
     val clickableModifier = if (onClick != null) {
         modifier
@@ -46,9 +101,6 @@ fun Modpack.BriefVo.ModpackCard(
     } else {
         modifier
     }
-
-    val updatedTimeText = ((lastUpdatedTime.takeIf { it > 0L } ?: (id.timestamp.toLong() * 1000L))).toFriendlyDateTime()
-    val briefText = info?.trim()?.takeIf(String::isNotBlank) ?: "暂无简介"
 
     Surface(
         modifier = clickableModifier.fillMaxWidth(),
@@ -61,7 +113,7 @@ fun Modpack.BriefVo.ModpackCard(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top
         ) {
-            val iconUrl = icon?.takeIf { it.isNotBlank() }
+            val iconUrl = presentation.iconUrl?.takeIf { it.isNotBlank() }
             Surface(
                 modifier = Modifier.size(54.dp),
                 shape = RoundedCornerShape(14.dp),
@@ -71,7 +123,7 @@ fun Modpack.BriefVo.ModpackCard(
                     HttpImage(
                         imgUrl = iconUrl,
                         modifier = Modifier.fillMaxSize(),
-                        contentDescription = name,
+                        contentDescription = presentation.name,
                         contentScale = ContentScale.Crop
                     )
                 } else {
@@ -84,31 +136,12 @@ fun Modpack.BriefVo.ModpackCard(
                 }
             }
 
-            val introText = buildAnnotatedString {
-                appendInlineContent(MODPACK_CARD_META_INLINE_ID, " ")
-                append(briefText)
-            }
-            val inlineContent = mapOf(
-                MODPACK_CARD_META_INLINE_ID to InlineTextContent(
-                    placeholder = Placeholder(
-                        width = 120.sp,
-                        height = 16.sp,
-                        placeholderVerticalAlign = PlaceholderVerticalAlign.TextCenter
-                    )
-                ) {
-                    ModpackCardMeta(
-                        playCount = playCount,
-                        updatedTimeText = updatedTimeText
-                    )
-                }
-            )
-
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(0.dp)
             ) {
                 Text(
-                    text = name.ifBlank { "未命名整合包" },
+                    text = presentation.name.ifBlank { "未命名整合包" },
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
@@ -116,8 +149,7 @@ fun Modpack.BriefVo.ModpackCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = introText,
-                    inlineContent = inlineContent,
+                    text = formatModpackCardSupportingText(presentation).asIconText,
                     style = MaterialTheme.typography.labelMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 2,
@@ -129,25 +161,20 @@ fun Modpack.BriefVo.ModpackCard(
     }
 }
 
-@Composable
-private fun ModpackCardMeta(
-    playCount: Int,
-    updatedTimeText: String
-) {
-    RRow {
-        listOf(
-            "\uDB80\uDE97",
-            playCount.toCompactCountText(),
-            updatedTimeText
-        ).forEach {
-            Text(
-                text =  it,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
+/**
+ * Formats the server's accumulated play duration for a compact player-facing card.
+ *
+ * Negative values are treated as zero because the public statistic is cumulative and should not
+ * make the card render an invalid duration if an older record is malformed.
+ */
+internal fun formatPlayTime(seconds: Long): String {
+    val safeSeconds = seconds.coerceAtLeast(0L)
+    val minutes = safeSeconds / 60L
+    val hours = safeSeconds / 3_600L
+    return when {
+        safeSeconds < 60L -> "${safeSeconds}秒"
+        safeSeconds < 3_600L -> "${minutes}分${safeSeconds % 60L}秒"
+        else -> "${hours}小时${(safeSeconds % 3_600L) / 60L}分"
     }
 }
 

@@ -24,6 +24,7 @@ val sqliteWindowsX64 by configurations.creating {
 }
 
 dependencies {
+    implementation(project(":misc"))
     api(project(":model"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)

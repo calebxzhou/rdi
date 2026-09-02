@@ -1,7 +1,6 @@
 package calebxzau.rdi.client.modcatalog
 
 import java.net.URI
-import java.nio.file.Path
 
 internal data class SourcePage(
     val items: List<CatalogProjectSource>,
@@ -18,6 +17,17 @@ internal data class SlugResolution(
     val found: Map<String, CatalogProjectSource>,
     val missing: Set<String>
 )
+
+internal sealed interface AdapterFileList {
+    val items: List<CatalogFile>
+
+    data class Complete(override val items: List<CatalogFile>) : AdapterFileList
+
+    data class Page(
+        override val items: List<CatalogFile>,
+        val nextOffset: Int?
+    ) : AdapterFileList
+}
 
 internal interface PlatformAdapter {
     val platform: ModPlatform
@@ -39,14 +49,29 @@ internal interface PlatformAdapter {
     suspend fun listFiles(
         project: CatalogProjectRef,
         target: CatalogTarget,
-        channels: Set<ReleaseChannel>,
         offset: Int,
         limit: Int
-    ): Pair<List<CatalogFile>, Int?>
+    ): AdapterFileList
 
     suspend fun getFiles(ids: Set<String>): AdapterResult<CatalogFile>
 
-    suspend fun matchLocalFiles(files: List<LocalFileHashes>): Map<Path, CatalogFile>
+    suspend fun matchFiles(files: List<CatalogFileHashes>): Map<String, CatalogFile>
+
+    suspend fun matchLocalFiles(files: List<LocalFileHashes>): Map<java.nio.file.Path, CatalogFile> {
+        if (files.isEmpty()) return emptyMap()
+        val hashesByKey = files.mapIndexed { index, file ->
+            val key = "local-file-$index"
+            key to file
+        }.toMap()
+        val matches = matchFiles(
+            hashesByKey.map { (key, file) ->
+                CatalogFileHashes(key, file.sha1, file.curseForgeFingerprint)
+            }
+        )
+        return matches.mapNotNull { (key, file) ->
+            hashesByKey[key]?.path?.let { path -> path to file }
+        }.toMap()
+    }
 
     suspend fun getChangelog(file: CatalogFileRef): String
 

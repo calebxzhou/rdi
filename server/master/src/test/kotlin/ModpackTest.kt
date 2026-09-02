@@ -114,6 +114,16 @@ class ModpackTest {
     }
 
     @Test
+    fun modernListingVersions_derivedFromMcVersionPredicate() {
+        val expected = McVersion.entries.filter { it.isModern }.toSet()
+
+        assertEquals(expected, ModpackService.modernListingVersions)
+        assertTrue(ModpackService.modernListingVersions.all { it.isModern })
+        assertTrue(McVersion.entries.filterNot { it.isModern }
+            .none { it in ModpackService.modernListingVersions })
+    }
+
+    @Test
     fun orderModpacksByIds_preservesRequestedOrderAndSkipsMissing() {
         val firstId = ObjectId()
         val secondId = ObjectId()

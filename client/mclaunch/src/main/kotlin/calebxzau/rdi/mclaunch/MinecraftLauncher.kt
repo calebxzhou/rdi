@@ -26,7 +26,7 @@ private val utf8LoggingJvmArgs = listOf(
 )
 
 internal fun earlyDisplayJvmArgs(mcVersion: McVersion, nativeLibraryDir: File): List<String> =
-    if (mcVersion == McVersion.V211) {
+    if (mcVersion == McVersion.V201 || mcVersion == McVersion.V211) {
         listOf("-Drdi.earlyDisplay.ffmpeg=${nativeLibraryDir.resolve("ffmpeg.exe").absolutePath}")
     } else {
         emptyList()

@@ -1,19 +1,14 @@
 package calebxzhou.rdi.client.ui.screen
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
@@ -28,21 +23,16 @@ import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.themeNow
+import calebxzau.rdi.client.ui.viewmodel.HostCreateEvent
+import calebxzau.rdi.client.ui.viewmodel.HostCreateViewModel
+import calebxzau.rdi.client.ui.viewmodel.HostCreateViewModelArgs
 import calebxzhou.rdi.client.net.loggedAccount
-import calebxzhou.rdi.client.net.rdiRequest
-import calebxzhou.rdi.client.net.rdiRequestU
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.GameRuleModal
 import calebxzhou.rdi.client.ui.comp.ImageCard
-import calebxzhou.rdi.client.ui.comp.ModpackSelectCard
-import calebxzhou.rdi.client.ui.comp.WorldCard
-import calebxzhou.rdi.common.model.Host
-import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.model.World
-import calebxzhou.rdi.common.serdesJson
-import io.ktor.http.*
-import org.bson.types.ObjectId
+import kotlinx.coroutines.flow.collect
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 import kotlin.random.Random
 
 /**
@@ -53,237 +43,43 @@ import kotlin.random.Random
 fun HostNewCreateScreen(
     arg: HostCreate,
     onBack: () -> Unit,
-    onNavigateProfile: () -> Unit = {},
 ) {
-    val scope = rememberCoroutineScope()
-    val overrideRules = remember { mutableStateMapOf<String, String>() }
-    var selectedTab by remember { mutableStateOf(0) }
-
-    var title by remember { mutableStateOf("创建新房间") }
-    var hostName by remember { mutableStateOf("${loggedAccount.name}的世界${Random.nextInt(1000)}") }
-    var modpackIdText by remember { mutableStateOf("") }
-
-    var serverModpacks by remember { mutableStateOf<List<Modpack.ListSimpleVo>>(emptyList()) }
-    var loadingModpacks by remember { mutableStateOf(true) }
-    var modpackError by remember { mutableStateOf<String?>(null) }
-
-    var worlds by remember { mutableStateOf<List<World.Vo>>(emptyList()) }
-    var loadingWorlds by remember { mutableStateOf(true) }
-    var loadingHost by remember { mutableStateOf(false) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var statusMessage by remember { mutableStateOf<String?>(null) }
+    val defaultHostName = remember(arg.hostId) {
+        "${loggedAccount.name}的世界${Random.nextInt(1000)}"
+    }
+    val routeKey = arg.hostId?.trim()?.ifBlank { "create" }
+        ?: "create:${arg.kind}:${arg.sourceId}:${arg.legacyVersionName}:${arg.legacyMcVersion}"
+    val viewModel = koinViewModel<HostCreateViewModel>(key = "host-create:$routeKey") {
+        parametersOf(
+            HostCreateViewModelArgs(
+                hostId = arg.hostId,
+                defaultHostName = defaultHostName,
+                kind = HostKind.fromRouteValue(arg.kind),
+                sourceId = arg.sourceId,
+                legacyVersionName = arg.legacyVersionName,
+                displayName = arg.displayName,
+                legacyMcVersion = arg.legacyMcVersion,
+            )
+        )
+    }
+    val state by viewModel.uiState.collectAsState()
     var showRules by remember { mutableStateOf(false) }
-    var noSave by remember { mutableStateOf(false) }
     var showResult by remember { mutableStateOf<String?>(null) }
-    var submitting by remember { mutableStateOf(false) }
-    var editHost by remember { mutableStateOf<Host.DetailVo?>(null) }
     var showUpdateConfirm by remember { mutableStateOf(false) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
-
-    var editHostId by remember { mutableStateOf<ObjectId?>(null) }
-    var editWorldId by remember { mutableStateOf<ObjectId?>(null) }
-    var editPreferNoSave by remember { mutableStateOf(false) }
-
-    var selectedWorldId by remember { mutableStateOf<ObjectId?>(null) }
-    var difficulty by remember { mutableStateOf(3) }
-    var gameMode by remember { mutableStateOf(0) }
-    var currentMcVersion by remember { mutableStateOf<McVersion?>(null) }
-    var levelType by remember { mutableStateOf("minecraft:normal") }
-    var levelChoice by remember { mutableStateOf(0) }
-    var customLevelTypeText by remember { mutableStateOf("") }
     var showCustomLevelTypeDialog by remember { mutableStateOf(false) }
-    var customLevelTypeError by remember { mutableStateOf<String?>(null) }
-    var whitelist by remember { mutableStateOf(true) }
-    var allowCheats by remember { mutableStateOf(false) }
-
-    fun isEditMode() = editHostId != null
-    fun skyblockLevelType(mcVersion: McVersion?): String {
-        val minor = mcVersion?.vMinor?.toIntOrNull()
-        return if (minor != null && minor <= 16) {
-            "skyblockbuilder:custom_skyblock"
-        } else {
-            "skyblockbuilder:skyblock"
-        }
-    }
-    fun updateLevelChoiceFromType(type: String, mcVersion: McVersion? = currentMcVersion) {
-        when {
-            type.contains("skyblock", ignoreCase = true) -> {
-                levelChoice = 2
-                levelType = mcVersion?.let(::skyblockLevelType) ?: type
-            }
-
-            type == "minecraft:flat" -> {
-                levelChoice = 1
-                levelType = "minecraft:flat"
-            }
-
-            type == "minecraft:normal" || type.isBlank() -> {
-                levelChoice = 0
-                levelType = "minecraft:normal"
-            }
-
-            else -> {
-                levelChoice = 3
-                levelType = type
-                customLevelTypeText = type
-            }
-        }
-    }
-
-    fun reloadModpacks() {
-        loadingModpacks = true
-        modpackError = null
-        scope.rdiRequest<List<Modpack.ListSimpleVo>>(
-            path = "modpack/list-simple",
-            onOk = { response -> serverModpacks = response.data.orEmpty() },
-            onErr = {
-                modpackError = "读取服务器整合包失败: ${it.message}"
-                serverModpacks = emptyList()
-            },
-            onDone = { loadingModpacks = false }
-        )
-    }
-
-    LaunchedEffect(Unit) {
-        reloadModpacks()
-    }
-
-    LaunchedEffect(arg.hostId) {
-        val rawHostId = arg.hostId?.trim()
-        if (rawHostId.isNullOrBlank() || !ObjectId.isValid(rawHostId)) {
-            title = "创建新房间"
-            editHostId = null
-            return@LaunchedEffect
-        }
-        editHostId = ObjectId(rawHostId)
-        selectedTab = 1
-        loadingHost = true
-        scope.rdiRequest<Host.DetailVo>(
-            path = "host/$rawHostId/detail",
-            onOk = { resp ->
-                val detail = resp.data ?: return@rdiRequest
-                editHost = detail
-                title = "编辑房间 · ${detail.name}"
-                hostName = detail.name
-                modpackIdText = detail.modpack.id.toHexString()
-                difficulty = detail.difficulty
-                gameMode = detail.gameMode
-                currentMcVersion = detail.modpack.mcVer
-                whitelist = detail.whitelist
-                allowCheats = detail.allowCheats
-                updateLevelChoiceFromType(detail.levelType, detail.modpack.mcVer)
-                if (detail.worldId == null) {
-                    editPreferNoSave = true
-                } else {
-                    editWorldId = detail.worldId
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is HostCreateEvent.LegacyCreateSubmitted -> {
+                    showResult = event.message
                 }
-                overrideRules.clear()
-                overrideRules.putAll(detail.gameRules)
-            },
-            onErr = { errorMessage = "无法加载房间信息: ${it.message}" },
-            onDone = { loadingHost = false }
-        )
-    }
-
-    LaunchedEffect(Unit) {
-        loadingWorlds = true
-        scope.rdiRequest<List<World.Vo>>(
-            "world",
-            onErr = { errorMessage = "无法载入存档: ${it.message}" },
-            onOk = { resp ->
-                worlds = resp.data ?: emptyList()
-            },
-            onDone = { loadingWorlds = false }
-        )
-    }
-
-    LaunchedEffect(worlds, editWorldId, editPreferNoSave) {
-        val targetWorldId = editWorldId
-        if (targetWorldId != null) {
-            selectedWorldId = worlds.firstOrNull { it.id == targetWorldId }?.id
-            editWorldId = null
+                is HostCreateEvent.EditSaved -> {
+                    showResult = event.message
+                }
+                is HostCreateEvent.HostPackUpdateSubmitted -> updateMessage = event.message
+            }
         }
-        if (editPreferNoSave) {
-            noSave = true
-            selectedWorldId = null
-            editPreferNoSave = false
-        }
-    }
-
-    fun submit() {
-        if (submitting) return
-        statusMessage = null
-        val trimmedName = hostName.trim()
-        if (trimmedName.isEmpty()) {
-            statusMessage = "请输入房间名称"
-            selectedTab = 1
-            return
-        }
-        val hostId = editHostId
-        if (hostId != null) {
-            submitting = true
-            val optionsDto = Host.OptionsDto(
-                name = trimmedName,
-                difficulty = difficulty,
-                gameMode = gameMode,
-                levelType = levelType,
-                allowCheats = allowCheats,
-                whitelist = whitelist,
-                gameRules = overrideRules.toMutableMap()
-            )
-            val body = serdesJson.encodeToString(optionsDto)
-            scope.rdiRequestU(
-                path = "host/${hostId.toHexString()}/options",
-                method = HttpMethod.Put,
-                body = body,
-                onErr = { statusMessage = "保存失败: ${it.message}" },
-                onOk = { showResult = "设置已保存" },
-                onDone = { submitting = false }
-            )
-            return
-        }
-
-        val pack = serverModpacks.firstOrNull { it.id.toHexString() == modpackIdText }
-        if (pack == null) {
-            statusMessage = "请先在“选择整合包”标签中选择服务器整合包"
-            selectedTab = 0
-            return
-        }
-        if (!ObjectId.isValid(pack.id.toHexString())) {
-            statusMessage = "所选整合包无效，请重新选择"
-            selectedTab = 0
-            return
-        }
-
-        submitting = true
-        val selectedWorld = selectedWorldId?.let { id -> worlds.firstOrNull { it.id == id } }
-        val saveWorld = !noSave
-        val worldId = when {
-            !noSave && selectedWorld != null -> selectedWorld.id
-            else -> null
-        }
-        val createDto = Host.CreateDto(
-            name = trimmedName,
-            modpackId = pack.id,
-            packVer = "latest",
-            saveWorld = saveWorld,
-            worldId = worldId,
-            difficulty = difficulty,
-            gameMode = gameMode,
-            levelType = levelType,
-            allowCheats = allowCheats,
-            whitelist = whitelist,
-            gameRules = overrideRules.toMutableMap()
-        )
-        val body = serdesJson.encodeToString(createDto)
-        scope.rdiRequestU(
-            path = "host/v2",
-            method = HttpMethod.Post,
-            body = body,
-            onErr = { statusMessage = "创建失败: ${it.message}" },
-            onOk = { showResult = "已提交创建请求 请等半分钟 完成后信箱通知你" },
-            onDone = { submitting = false }
-        )
     }
 
     if (showCustomLevelTypeDialog) {
@@ -292,30 +88,20 @@ fun HostNewCreateScreen(
             title = { Text("自定义地形") },
             text = {
                 OutlinedTextField(
-                    value = customLevelTypeText,
-                    onValueChange = {
-                        customLevelTypeText = it
-                        customLevelTypeError = null
-                    },
+                    value = state.customLevelTypeText,
+                    onValueChange = viewModel::updateCustomLevelTypeText,
                     singleLine = true,
-                    isError = customLevelTypeError != null,
+                    isError = state.customLevelTypeError != null,
                     label = { Text("level type") },
-                    supportingText = { customLevelTypeError?.let { Text(it) } }
+                    supportingText = { state.customLevelTypeError?.let { Text(it) } }
                 )
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val trimmed = customLevelTypeText.trim()
-                        if (trimmed.isBlank()) {
-                            customLevelTypeError = "请输入地形ID"
-                            return@TextButton
+                        if (viewModel.applyCustomLevelType()) {
+                            showCustomLevelTypeDialog = false
                         }
-                        levelChoice = 3
-                        levelType = trimmed
-                        customLevelTypeText = trimmed
-                        customLevelTypeError = null
-                        showCustomLevelTypeDialog = false
                     }
                 ) {
                     Text("确定")
@@ -324,7 +110,7 @@ fun HostNewCreateScreen(
             dismissButton = {
                 TextButton(
                     onClick = {
-                        customLevelTypeError = null
+                        viewModel.cancelCustomLevelType()
                         showCustomLevelTypeDialog = false
                     }
                 ) {
@@ -334,27 +120,23 @@ fun HostNewCreateScreen(
         )
     }
 
-    val loadingAny = loadingModpacks || loadingHost || loadingWorlds
-    val selectedPackTitle = serverModpacks.firstOrNull { it.id.toHexString() == modpackIdText }?.name
-        ?: "未选择整合包"
-    val tabs = listOf("1.选择整合包（$selectedPackTitle）", "2.房间设置")
     MaxBox {
-        ScreenContentSurface(size = ScreenContentSize.LARGE) {
-            TitleRow(title, onBack) {
-                if (loadingAny) {
+        ScreenContentSurface(size = ScreenContentSize.MEDIUM) {
+            TitleRow(state.title+" · ${state.selectedPackTitle} v${state.selectedVersionName}", onBack) {
+                if (state.loading) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
-                CircleIconButton("\uDB82\uDE50", bgColor = themeNow.primary) {
-                    submit()
-                }
-                if (editHost != null) {
+                Text("注意，一个月没人玩房间就自动删了")
+                if (state.editHost != null) {
                     CircleIconButton(
                         icon = "\uDB80\uDFD5",
-                        tooltip = "更新",
-                        showText = false
+                        tooltip = "更新整合包",
                     ) {
                         showUpdateConfirm = true
                     }
+                }
+                CircleIconButton("\uDB82\uDE50", bgColor = themeNow.primary) {
+                    viewModel.submit()
                 }
             }
             ScrollableContentBody {
@@ -362,91 +144,53 @@ fun HostNewCreateScreen(
                     Text(it, color = MaterialTheme.colorScheme.primary)
                     Space8h()
                 }
-                statusMessage?.let {
+                state.statusMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                     Space8h()
                 }
-                errorMessage?.let {
+                state.errorMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                     Space8h()
                 }
 
-            TabRow(
-                selectedTabIndex = selectedTab,
-                containerColor = MaterialTheme.colorScheme.surfaceContainer
-            ) {
-                tabs.forEachIndexed { index, tabTitle ->
-                    Tab(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        text = {
-                            Text(
-                                text = tabTitle,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                    )
-                }
-            }
-            Space8h()
-
-            when (selectedTab) {
-                0 -> {
-                    if (isEditMode()) {
-                        Space8h()
-                        Text("整合包一经设定，就不能更换。换包请重新创建房间", color = themeNow.onSurfaceVariant)
-                    }
-                    Space8h()
-                    modpackError?.let {
-                        Text(it, color = MaterialTheme.colorScheme.error)
-                        Space8h()
-                    }
-                    if (loadingModpacks) {
-                        Row(
+            if (false) { // Host2 creation is disabled for this release.
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.Center
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
                         ) {
-                            CircularProgressIndicator()
-                        }
-                    }
-                    if (!loadingModpacks && serverModpacks.isEmpty()) {
-                        Text(
-                            "暂无可用整合包。",
-                            color = themeNow.onSurfaceVariant
-                        )
-                    }
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 280.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 900.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(serverModpacks, key = { it.id.toHexString() }) { modpack ->
-                            ModpackSelectCard(
-                                modpack = modpack,
-                                selected = modpack.id.toHexString() == modpackIdText,
-                                onClick = if (isEditMode()) {
-                                    null
-                                } else {
-                                    {
-                                        currentMcVersion = null
-                                        modpackIdText = modpack.id.toHexString()
-                                        if (levelChoice == 2) {
-                                            levelType = skyblockLevelType(null)
-                                        }
-                                    }
-                                }
-                            )
-                        }
-                    }
-                }
+                            Text("整合包：${state.selectedPackTitle}", fontWeight = FontWeight.Bold)
+                            if (state.isLegacyCreate && state.selectedVersionName.isNotBlank()) {
+                                Text("版本：${state.selectedVersionName}", color = themeNow.onSurfaceVariant)
+                            }
 
-                1 -> {
-                    Text("注意：一个月没人玩的房间 会被随机删除")
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedTextField(
+                                label = { Text("房间名称") },
+                                value = state.hostName,
+                                onValueChange = viewModel::updateHostName,
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            OutlinedTextField(
+                                label = { Text("简介") },
+                                value = state.intro,
+                                onValueChange = viewModel::updateIntro,
+                                minLines = 3,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            RowV {
+                                Checkbox(state.whitelist, viewModel::updateWhitelist)
+                                SimpleTooltip("仅限受邀玩家游玩") {
+                                    Text("不允许陌生人游玩此房间")
+                                }
+                            }
+                        }
+                    } else {
+
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                        if (state.isLegacyCreate) {
+                            LegacyWorldModeSelection(state, viewModel)
+                            Space8h()
+                        }
                         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                             val compactTopLayout = maxWidth < 1280.dp
                             val basicSettingSectionModifier = if (compactTopLayout) {
@@ -475,25 +219,28 @@ fun HostNewCreateScreen(
                                     ) {
                                         OutlinedTextField(
                                             label = { Text("房间名称") },
-                                            value = hostName,
-                                            onValueChange = { hostName = it },
+                                            value = state.hostName,
+                                            onValueChange = viewModel::updateHostName,
                                             singleLine = true
                                         )
                                         RowV {
 
-                                            Checkbox(whitelist, { whitelist = it })
+                                            Checkbox(state.whitelist, viewModel::updateWhitelist)
                                             SimpleTooltip("仅限受邀玩家游玩") {
                                                 Text("不允许陌生人游玩此房间")
                                             }
                                         }
                                         RowV {
 
-                                            Checkbox(allowCheats, { allowCheats = it })
+                                            Checkbox(state.allowCheats, viewModel::updateAllowCheats)
                                             Text("允许作弊")
                                         }
                                         Space8w()
-                                        Button(onClick = { showRules = true }) {
-                                            Text("修改游戏规则(${overrideRules.size})")
+                                        Button(
+                                            onClick = { showRules = true },
+                                            enabled = !state.loading,
+                                        ) {
+                                            Text("修改游戏规则(${state.gameRules.size})")
                                         }
 
 
@@ -529,26 +276,26 @@ fun HostNewCreateScreen(
                                                     ImageCard(
                                                         title = "和平",
                                                         iconPath = "assets/icons/difficulty_peaceful.avif",
-                                                        selected = difficulty == 0,
-                                                        onClick = { difficulty = 0 }
+                                                        selected = state.difficulty == 0,
+                                                        onClick = { viewModel.updateDifficulty(0) }
                                                     )
                                                     ImageCard(
                                                         title = "简单",
                                                         iconPath = "assets/icons/difficulty_easy.avif",
-                                                        selected = difficulty == 1,
-                                                        onClick = { difficulty = 1 }
+                                                        selected = state.difficulty == 1,
+                                                        onClick = { viewModel.updateDifficulty(1) }
                                                     )
                                                     ImageCard(
                                                         title = "普通",
                                                         iconPath = "assets/icons/difficulty_normal.avif",
-                                                        selected = difficulty == 2,
-                                                        onClick = { difficulty = 2 }
+                                                        selected = state.difficulty == 2,
+                                                        onClick = { viewModel.updateDifficulty(2) }
                                                     )
                                                     ImageCard(
                                                         title = "困难",
                                                         iconPath = "assets/icons/difficulty_hard.avif",
-                                                        selected = difficulty == 3,
-                                                        onClick = { difficulty = 3 }
+                                                        selected = state.difficulty == 3,
+                                                        onClick = { viewModel.updateDifficulty(3) }
                                                     )
                                                 }
                                             }
@@ -562,14 +309,14 @@ fun HostNewCreateScreen(
                                                     ImageCard(
                                                         title = "生存",
                                                         iconPath = "assets/icons/gamemode_survival.avif",
-                                                        selected = gameMode == 0,
-                                                        onClick = { gameMode = 0 }
+                                                        selected = state.gameMode == 0,
+                                                        onClick = { viewModel.updateGameMode(0) }
                                                     )
                                                     ImageCard(
                                                         title = "创造",
                                                         iconPath = "assets/icons/gamemode_creative.avif",
-                                                        selected = gameMode == 1,
-                                                        onClick = { gameMode = 1 }
+                                                        selected = state.gameMode == 1,
+                                                        onClick = { viewModel.updateGameMode(1) }
                                                     )
                                                 }
                                             }
@@ -583,41 +330,27 @@ fun HostNewCreateScreen(
                                                     ImageCard(
                                                         title = "普通",
                                                         iconPath = "assets/icons/worldtype_normal.avif",
-                                                        selected = levelChoice == 0,
-                                                        onClick = {
-                                                            levelChoice = 0
-                                                            levelType = "minecraft:normal"
-                                                        }
+                                                        selected = state.levelChoice == 0,
+                                                        onClick = { viewModel.selectLevelChoice(0) }
                                                     )
                                                     ImageCard(
                                                         title = "超平坦",
                                                         iconPath = "assets/icons/worldtype_flat.avif",
-                                                        selected = levelChoice == 1,
-                                                        onClick = {
-                                                            levelChoice = 1
-                                                            levelType = "minecraft:flat"
-                                                        }
+                                                        selected = state.levelChoice == 1,
+                                                        onClick = { viewModel.selectLevelChoice(1) }
                                                     )
                                                     ImageCard(
                                                         title = "空岛",
                                                         iconPath = "assets/icons/worldtype_skyblock.avif",
-                                                        selected = levelChoice == 2,
-                                                        onClick = {
-                                                            levelChoice = 2
-                                                            levelType = skyblockLevelType(currentMcVersion)
-                                                        }
+                                                        selected = state.levelChoice == 2,
+                                                        onClick = { viewModel.selectLevelChoice(2) }
                                                     )
                                                     ImageCard(
                                                         title = "自定义",
                                                         iconPath = "assets/icons/worldtype_normal.avif",
-                                                        selected = levelChoice == 3,
+                                                        selected = state.levelChoice == 3,
                                                         onClick = {
-                                                            customLevelTypeText = if (levelChoice == 3) {
-                                                                levelType
-                                                            } else {
-                                                                customLevelTypeText
-                                                            }
-                                                            customLevelTypeError = null
+                                                            viewModel.beginCustomLevelType()
                                                             showCustomLevelTypeDialog = true
                                                         }
                                                     )
@@ -628,85 +361,8 @@ fun HostNewCreateScreen(
                                 }
                             }
                         }
-                        Space8h()
-
-                        if (!isEditMode()) {
-                            Space8h()
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                                    val compactOptions = maxWidth < 920.dp
-                                    FlowRow(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                                        maxItemsInEachRow = if (compactOptions) 1 else 4
-                                    ) {
-                                        RowV {
-                                            Text("存档", fontWeight = FontWeight.Bold)
-                                            if (worlds.size < 5) {
-                                                RadioButton(
-                                                    selected = selectedWorldId == null && !noSave,
-                                                    onClick = {
-                                                        noSave = false
-                                                        selectedWorldId = null
-                                                    }
-                                                )
-                                                Text("创建新存档")
-                                            }
-                                            RadioButton(
-                                                selected = selectedWorldId == null && noSave,
-                                                onClick = {
-                                                    selectedWorldId = null
-                                                    noSave = true
-                                                }
-                                            )
-                                            Text("不保存任何数据")
-                                            if (noSave) {
-                                                Space8w()
-                                                Text("仅限测试整合包使用 谨慎选择", color = MaterialTheme.colorScheme.error)
-                                            }
-                                        }
-                                    }
-                                }
-                                /*Space8h()
-                                LazyVerticalGrid(
-                                    columns = GridCells.Adaptive(minSize = 260.dp),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(max = 520.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    items(worlds) { world ->
-                                        Box(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .border(
-                                                    width = if (world.id == selectedWorldId) 2.dp else 1.dp,
-                                                    color = if (world.id == selectedWorldId) {
-                                                        themeNow.primary
-                                                    } else {
-                                                        themeNow.outlineVariant
-                                                    },
-                                                    shape = RoundedCornerShape(16.dp)
-                                                )
-                                                .padding(2.dp)
-                                        ) {
-                                            world.WorldCard(
-                                                modifier = Modifier.fillMaxWidth(),
-                                                onClick = {
-                                                    selectedWorldId = world.id
-                                                    noSave = false
-                                                }
-                                            )
-                                        }
-                                    }
-                                }*/
-                            }
-                        }
                     }
-                }
-            }
+                    }
             }
         }
     }
@@ -714,26 +370,20 @@ fun HostNewCreateScreen(
     if (showRules) {
         GameRuleModal(
             show = true,
-            overrideRules = overrideRules,
-            onClose = { showRules = false }
+            initialOverrideRules = state.gameRules,
+            onSave = viewModel::updateGameRules,
+            onClose = { showRules = false },
         )
     }
 
     if (showUpdateConfirm) {
-        val currentHost = editHost
+        val currentHost = state.editHost
         ConfirmDialog(
             title = "确认更新",
             message = "将更新房间当前的整合包《${currentHost?.modpack?.name.orEmpty()}》到最新版本。所有修改过的配置都会丢失。",
             onConfirm = {
                 showUpdateConfirm = false
-                currentHost?.let { host ->
-                    scope.rdiRequestU(
-                        path = "host/${host._id}/update",
-                        method = HttpMethod.Post,
-                        onOk = { updateMessage = "已提交更新" },
-                        onErr = { errorMessage = it.message ?: "更新失败" }
-                    )
-                }
+                viewModel.requestHostPackUpdate()
             },
             onDismiss = { showUpdateConfirm = false }
         )
@@ -742,20 +392,51 @@ fun HostNewCreateScreen(
     showResult?.let { message ->
         AlertDialog(
             onDismissRequest = { showResult = null },
-            title = { Text(if (isEditMode()) "设置已保存" else "创建请求已提交") },
+            title = { Text(if (state.isEditMode) "设置已保存" else "房间创建中") },
             text = { Text(message) },
             confirmButton = {
                 TextButton(onClick = {
                     showResult = null
-                    if (isEditMode()) {
-                        onBack()
-                    } else {
-                        onNavigateProfile()
-                    }
+                    onBack()
                 }) {
                     Text("确定")
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun LegacyWorldModeSelection(
+    state: calebxzau.rdi.client.ui.viewmodel.HostCreateUiState,
+    viewModel: HostCreateViewModel,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+
+        Row(
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        ) {
+            Text("存档", fontWeight = FontWeight.Bold)
+            RadioButton(
+                selected = !state.noSave,
+                onClick = { viewModel.updateNoSave(false) },
+            )
+            Text("使用存档")
+            RadioButton(
+                selected = state.noSave,
+                onClick = { viewModel.updateNoSave(true) },
+            )
+            Column {
+                Text("测试一下，不存档")
+                Text(
+                    "房间停止后不会保留任何数据，请谨慎选择",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
     }
 }

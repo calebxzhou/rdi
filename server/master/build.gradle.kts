@@ -3,6 +3,7 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.gradle.api.file.DuplicatesStrategy
 import org.gradle.api.tasks.testing.Test
+import sun.jvmstat.monitor.MonitoredVmUtil.mainClass
 
 plugins {
     application
@@ -64,6 +65,9 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.testcontainers.postgresql)
+    testImplementation(libs.testcontainers.junit.jupiter)
+    testRuntimeOnly(libs.junit.jupiter.engine)
 }
 
 val shadowJar = tasks.named<ShadowJar>("shadowJar") {
@@ -94,12 +98,61 @@ tasks.named<Test>("test") {
 }
 
 tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin") {
-    enabled = false
+    enabled = true
 }
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
 }
+//
+//tasks.register<Test>("accountMirrorTest") {
+//    group = "verification"
+//    description = "Runs the focused PostgreSQL account mirror tests."
+//    dependsOn(tasks.named("testClasses"))
+//    testClassesDirs = sourceSets["test"].output.classesDirs
+//    classpath = sourceSets["test"].runtimeClasspath
+//    include("**/calebxzau/rdi/master/account/**/*Test.class")
+//    systemProperty("net.bytebuddy.experimental", "true")
+//    useJUnitPlatform()
+//}
+//
+// tasks.register<Test>("modpack2RepositoryIntegrationTest") {
+//    group = "verification"
+//    description = "Runs the PostgreSQL18 Modpack2 repository integration tests."
+//    dependsOn(tasks.named("testClasses"))
+//    testClassesDirs = sourceSets["test"].output.classesDirs
+//    classpath = sourceSets["test"].runtimeClasspath
+//    include("**/calebxzau/rdi/server/modpack2/Modpack2RepoIntegrationTest.class")
+//    useJUnitPlatform()
+//}
+//
+//tasks.register<Test>("friendSystemTest") {
+//    group = "verification"
+//    description = "Runs focused friend/mail persistence contract tests."
+//    dependsOn(tasks.named("testClasses"))
+//    testClassesDirs = sourceSets["test"].output.classesDirs
+//    classpath = sourceSets["test"].runtimeClasspath
+//    include("**/calebxzau/rdi/server/friend/FriendPersistenceContractTest.class")
+//    include("**/calebxzau/rdi/server/friend/FriendMailRepositoryIntegrationTest.class")
+//    useJUnitPlatform()
+//}
+//
+//tasks.register<Test>("modpack2ApiTest") {
+//    group = "verification"
+//    description = "Runs focused Modpack2 archive, storage, upload, and host download tests."
+//    dependsOn(tasks.named("testClasses"))
+//    testClassesDirs = sourceSets["test"].output.classesDirs
+//    classpath = sourceSets["test"].runtimeClasspath
+//    include("**/calebxzau/rdi/server/modpack2/Modpack2ArchiveIOTest.class")
+//    include("**/calebxzau/rdi/server/modpack2/Modpack2ContentValidatorTest.class")
+//    include("**/calebxzau/rdi/server/modpack2/Modpack2ManifestValidatorTest.class")
+//    include("**/calebxzau/rdi/server/modpack2/Modpack2VersionStorageTest.class")
+//    include("**/calebxzau/rdi/server/modpack/Modpack2RouteTest.class")
+//    include("**/calebxzhou/rdi/master/service/ModpackParallelUploadServiceTest.class")
+//    include("**/calebxzhou/rdi/master/service/host2/Host2ModDownloadServiceTest.class")
+//    include("**/calebxzhou/rdi/master/service/host2/Host2ContentRulesTest.class")
+//    useJUnitPlatform()
+//}
 
 tasks.register("出core") {
     // Uses Project APIs in the action; mark as not CC-compatible to avoid serialization errors.

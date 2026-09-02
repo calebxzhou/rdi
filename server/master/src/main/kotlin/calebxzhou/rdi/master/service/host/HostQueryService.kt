@@ -7,6 +7,7 @@ import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.master.service.ModpackService
 import calebxzhou.rdi.master.service.ModpackService.toBriefVo
 import calebxzhou.rdi.master.service.host.HostControlService.status
+import calebxzhou.rdi.master.service.host.HostControlService.statusSnapshot
 import calebxzhou.rdi.master.service.host.HostPresenceService.getOnlinePlayers
 import calebxzhou.rdi.model.Role
 import com.mongodb.client.model.Filters.and
@@ -21,6 +22,14 @@ import org.bson.types.ObjectId
 
 object HostQueryService {
     private val dbcl get() = HostService.dbcl
+
+    internal data class HostListingCandidate(
+        val host: Host,
+        val status: HostStatus,
+        val isMember: Boolean,
+        val role: Role?,
+        val playable: Boolean,
+    )
 
     suspend fun getById(id: ObjectId): Host? = dbcl.find(eq("_id", id)).firstOrNull()
 
@@ -56,10 +65,12 @@ object HostQueryService {
     suspend fun RAccount.ownHosts() = getByOwner(_id)
 
     suspend fun RAccount.getBriefHost(id: ObjectId): Host.BriefVo? =
-        getById(id)?.toBriefVo(_id)
+        getById(id)?.let { host ->
+            host.toListingCandidate(_id, host.status).toBriefVo()
+        }
 
     suspend fun RAccount.listAllHosts(
-        page: Int,
+        page: Int = 0,
         myOnly: Boolean,
         pageSize: Int = HostService.HOSTS_PER_PAGE
     ): List<Host.BriefVo> {
@@ -67,56 +78,74 @@ object HostQueryService {
         val safeSize = pageSize.coerceIn(1, 100)
         val hosts = dbcl.find()
             .sort(Sorts.descending("_id"))
-            .skip(safePage * safeSize)
-            .limit(safeSize)
             .toList()
 
         if (hosts.isEmpty()) return emptyList()
 
         val requesterId = _id
-        val (memberHosts, otherHosts) = hosts.partition { host ->
-            host.ownerId == requesterId ||
-                    host.members.any { it.id == requesterId }
+        val statuses = hosts.statusSnapshot()
+        val candidates = hosts.map { host ->
+            host.toListingCandidate(requesterId, statuses.getValue(host._id))
         }
-        val visibleHosts = if (myOnly) {
-            memberHosts + otherHosts.filter { it.isPublic }
-        } else {
-            memberHosts + otherHosts
-        }
+        val visibleHosts = selectLegacyHosts(candidates, myOnly, safePage, safeSize)
 
         return coroutineScope {
-            visibleHosts.map { host ->
+            visibleHosts.map { candidate ->
                 async {
-                    host.toBriefVo(requesterId)
+                    candidate.toBriefVo()
                 }
             }.awaitAll()
         }
     }
 
-    private suspend fun Host.toBriefVo(requesterId: ObjectId): Host.BriefVo {
-        val modpack = ModpackService.getById(modpackId)
-        val onlinePlayers = getOnlinePlayers()
+    internal fun Host.isPlayableFor(requesterId: ObjectId, status: HostStatus): Boolean {
+        val isMember = ownerId == requesterId || members.any { it.id == requesterId }
+        return isMember || isPublic || status == HostStatus.PLAYABLE && !whitelist
+    }
+
+    private fun Host.toListingCandidate(requesterId: ObjectId, status: HostStatus): HostListingCandidate {
         val isMember = ownerId == requesterId || members.any { it.id == requesterId }
         val role = if (ownerId == requesterId) {
             Role.OWNER
         } else {
             members.firstOrNull { it.id == requesterId }?.role
         }
-        val playable = when {
-            isMember -> true
-            isPublic -> true
-            status == HostStatus.PLAYABLE && !whitelist -> true
-            else -> false
-        }
+        return HostListingCandidate(
+            host = this,
+            status = status,
+            isMember = isMember,
+            role = role,
+            playable = isPlayableFor(requesterId, status),
+        )
+    }
+
+    internal fun selectLegacyHosts(
+        candidates: List<HostListingCandidate>,
+        myOnly: Boolean,
+        page: Int,
+        pageSize: Int,
+    ): List<HostListingCandidate> {
+        val filtered = candidates.filter { it.playable == myOnly }
+        if (myOnly) return filtered
+
+        val safePage = page.coerceAtLeast(0)
+        val safeSize = pageSize.coerceIn(1, 100)
+        return filtered.drop(safePage * safeSize).take(safeSize)
+    }
+
+    private suspend fun HostListingCandidate.toBriefVo(): Host.BriefVo {
+        val host = host
+        val modpack = ModpackService.getById(host.modpackId)
+        val onlinePlayers = host.getOnlinePlayers(status)
         return Host.BriefVo(
-            _id = _id,
-            intro = intro,
-            name = name,
-            ownerId = ownerId,
+            _id = host._id,
+            intro = host.intro,
+            name = host.name,
+            ownerId = host.ownerId,
             modpackName = modpack?.name ?: "未知整合包",
             iconUrl = modpack?.iconUrl,
-            packVer = packVer,
-            port = port,
+            packVer = host.packVer,
+            port = host.port,
             playable = playable,
             isMember = isMember,
             role = role,

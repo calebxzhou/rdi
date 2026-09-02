@@ -12,6 +12,7 @@ repositories {
 }
 
 dependencies {
+    implementation(project(":misc"))
     implementation(libs.commons.compress)
     compileOnly(libs.zstd.jni)
     testImplementation(kotlin("test"))

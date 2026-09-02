@@ -27,9 +27,16 @@ include(
     ":pack-proc",
     ":mod-catalog",
     ":mod-catalog-tools",
-    ":webview2",
+  //  ":webview2",
     ":forgeguard",
     ":mclaunch",
+    ":mc-install",
+    ":modpack-test",
+    ":player-info",
+    ":player-model",
+    ":player-model-core",
+    ":render-core",
+    ":bg-renderer",
     ":early-display",
     ":local-mc-proxy",
     ":mc-proxy"
@@ -49,9 +56,16 @@ project(":mediaproc").projectDir = file("../mediaproc")
 project(":pack-proc").projectDir = file("../pack-proc")
 project(":mod-catalog").projectDir = file("mod-catalog")
 project(":mod-catalog-tools").projectDir = file("mod-catalog-tools")
-project(":webview2").projectDir = file("webview2")
+//project(":webview2").projectDir = file("webview2")
 project(":forgeguard").projectDir = file("../../mc/forgeguard")
 project(":mclaunch").projectDir = file("../mclaunch")
+project(":mc-install").projectDir = file("../mc-install")
+project(":modpack-test").projectDir = file("../modpack-test")
+project(":player-info").projectDir = file("../player-info")
+project(":player-model").projectDir = file("../player-model")
+project(":player-model-core").projectDir = file("../player-model-core")
+project(":render-core").projectDir = file("../render-core")
+project(":bg-renderer").projectDir = file("../bg-renderer")
 project(":early-display").projectDir = file("../early-display")
 project(":local-mc-proxy").projectDir = file("../local-mc-proxy")
 project(":mc-proxy").projectDir = file("../../mc/proxy")

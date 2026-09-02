@@ -1,0 +1,104 @@
+package calebxzau.rdi.client.packproc
+
+import calebxzhou.rdi.common.isExcludedConfigPath
+import calebxzau.rdi.common.model.Modpack2RawFileRoot
+import calebxzau.rdi.common.model.ContentSide
+
+/** The single filtering policy used by the Modpack2 scanner and archive writer. */
+object Modpack2ArchivePolicy {
+    private val rootSharedPrefixes = setOf(
+        "config",
+        "kubejs",
+        "scripts",
+        "defaultconfigs",
+        "datapacks",
+    )
+    private val rootClientPrefixes = setOf(
+        "resourcepacks",
+        "shaderpacks",
+    )
+    private val runtimeDirectories = setOf(
+        "cache",
+        "logs",
+        "crash-reports",
+        "libraries",
+        "saves",
+        "world",
+        "playerdata",
+        "screenshots",
+        ".rdi",
+        ".minecraft",
+    )
+    private val runtimeFiles = setOf(
+        "options.txt",
+        "servers.dat",
+        "server.properties",
+        "eula.txt",
+        ".ds_store",
+        "desktop.ini",
+    )
+    private val host2Markers = setOf(
+        ".rdi-host2-content-paths",
+        ".rdi-host2-paths",
+        ".rdi-host2",
+        "host2-content-paths",
+        "host2-paths",
+    )
+    private val legacyPrivatePathKeywords = setOf(
+        "yes_steve_model",
+        "史蒂夫模型",
+        "touhou_little_maid",
+    )
+    private val privateMediaExtensions = setOf(
+        "mp4",
+        "mov",
+        "mca",
+        "psd",
+    )
+
+    /**
+     * Include-all is the default. This method only removes user/runtime state;
+     * platform-recognized files are removed separately by the classifier.
+     */
+    fun shouldExclude(path: String, insideJar: Boolean = false): Boolean {
+        val normalized = normalizePackPath(path).lowercase()
+        if (normalized.isBlank()) return true
+        val segments = normalized.split('/')
+        val name = segments.last()
+        if (!insideJar && segments.any { it in runtimeDirectories }) return true
+        if (name in runtimeFiles || name in host2Markers) return true
+        if (segments.any { it in host2Markers }) return true
+        if (name == "installing" || name.startsWith("installing.") || name.endsWith(".installing")) return true
+        if (name.startsWith(".rdi-") || name.endsWith(".journal") || name.endsWith(".part") || name.endsWith(".partial")) {
+            return true
+        }
+        // A mod JAR may legitimately carry an internal cache/database. Keep
+        // the JAR-internal tree intact; runtime databases are only excluded at
+        // the pack root.
+        if (!insideJar && (name.endsWith(".db") || name.endsWith(".sqlite") || name.endsWith(".sqlite3"))) return true
+        if (!insideJar && privateMediaExtensions.any { name.endsWith(".$it") }) return true
+        if (legacyPrivatePathKeywords.any { normalized.contains(it) }) return true
+        if (normalized.startsWith("config/") && normalized.removePrefix("config/").isExcludedConfigPath()) return true
+        return false
+    }
+
+    fun rootFor(
+        path: String,
+        side: ContentSide = ContentSide.Both,
+        serverOnly: Boolean = false,
+    ): Modpack2RawFileRoot {
+        if (serverOnly) return Modpack2RawFileRoot.Server
+        val normalized = normalizePackPath(path)
+        val first = normalized.substringBefore('/')
+        return when {
+            first.lowercase() in rootSharedPrefixes -> Modpack2RawFileRoot.Shared
+            first.lowercase() in rootClientPrefixes -> Modpack2RawFileRoot.Client
+            side == ContentSide.Client -> Modpack2RawFileRoot.Client
+            side == ContentSide.Server -> Modpack2RawFileRoot.Server
+            else -> Modpack2RawFileRoot.Shared
+        }
+    }
+
+    fun isSharedPath(path: String): Boolean =
+        normalizePackPath(path).substringBefore('/').lowercase() in rootSharedPrefixes
+}

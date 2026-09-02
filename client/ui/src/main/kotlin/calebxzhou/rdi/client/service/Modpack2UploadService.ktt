@@ -1,0 +1,439 @@
+package calebxzhou.rdi.client.service
+
+import calebxzau.rdi.client.packproc.Modpack2Processor
+import calebxzau.rdi.client.packproc.Modpack2ProcessingResult
+import calebxzau.rdi.common.model.Modpack2CreateDto
+import calebxzau.rdi.common.model.Modpack2CreateModpackDto
+import calebxzau.rdi.common.model.Modpack2CreateVersionDto
+import calebxzau.rdi.common.model.Modpack2CreateResult
+import calebxzau.rdi.common.model.Modpack2VersionCreateFromUploadDto
+import calebxzau.rdi.common.model.Modpack2ContentBindingDto
+import calebxzau.rdi.common.model.Modpack2ContentKeyDto
+import calebxzau.rdi.common.model.Modpack2ContentSourceDto
+import calebxzau.rdi.common.model.Modpack2Loader
+import calebxzau.rdi.common.model.Modpack2ManifestFormat
+import calebxzau.rdi.common.model.Modpack2VersionManifestDto
+import calebxzau.rdi.common.model.Modpack2ServerMode
+import calebxzau.rdi.common.model.Modpack2VersionStatus
+import calebxzau.rdi.common.model.Modpack2OwnedVo
+import calebxzhou.rdi.common.model.Task2
+import calebxzhou.rdi.common.model.Task2Context
+import calebxzhou.rdi.common.model.Task2Progress
+import calebxzau.rdi.common.model.ModpackCategory
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.util.validateHttpUrl
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.model.supportsModpackUpload
+import calebxzhou.rdi.common.util.openChineseZip
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.util.UUID
+import kotlin.uuid.toKotlinUuid
+
+sealed interface Modpack2UploadTarget {
+    data object Create : Modpack2UploadTarget
+    data class Update(val owned: Modpack2OwnedVo) : Modpack2UploadTarget
+}
+
+sealed interface Modpack2UploadWorkflowEvent {
+    data class UploadFailed(val message: String) : Modpack2UploadWorkflowEvent
+    data class RemoteReady(val result: Modpack2CreateResult) : Modpack2UploadWorkflowEvent
+    data class InstallStarted(val result: Modpack2CreateResult) : Modpack2UploadWorkflowEvent
+    data class InstallSucceeded(val result: Modpack2CreateResult) : Modpack2UploadWorkflowEvent
+    data class InstallFailed(val result: Modpack2CreateResult, val message: String) : Modpack2UploadWorkflowEvent
+}
+
+data class Modpack2DirectUploadRequest(
+    val source: Modpack2UploadArchive,
+    val target: Modpack2UploadTarget = Modpack2UploadTarget.Create,
+    val name: String,
+    val version: String,
+    val changelog: String = "",
+    val intro: String,
+    val iconUrl: String,
+    val sourceUrl: String? = null,
+    val categories: List<ModpackCategory> = listOf(ModpackCategory.Other),
+    val serverPack: Modpack2SelectedServerPack? = null,
+    val manualSideOverrides: Map<String, calebxzau.rdi.common.model.ContentSide> = emptyMap(),
+)
+
+data class Modpack2SelectedServerPack(val path: Path, val size: Long, val modifiedAt: Long)
+
+internal fun snapshotModpack2ServerPack(selected: Modpack2SelectedServerPack, workRoot: Path): Path {
+    val source = selected.path
+    require(Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS) &&
+        Files.size(source) == selected.size && Files.getLastModifiedTime(source).toMillis() == selected.modifiedAt) {
+        "服务端整合包在确认后发生了变化，请重新选择"
+    }
+    val copy = workRoot.resolve("server.zip")
+    Files.copy(source, copy)
+    require(Files.size(source) == selected.size && Files.getLastModifiedTime(source).toMillis() == selected.modifiedAt) {
+        "服务端整合包在复制期间发生了变化，请重新选择"
+    }
+    require(Files.size(copy) == selected.size) { "服务端整合包复制不完整" }
+    return copy
+}
+
+/** Narrow UI seam; tests can submit a fake Task2 without constructing the network pipeline. */
+interface Modpack2UploadGateway {
+    suspend fun loadOwned(): Result<List<Modpack2OwnedVo>> = Result.success(emptyList())
+    fun uploadTask(
+        request: Modpack2DirectUploadRequest,
+        onEvent: (Modpack2UploadWorkflowEvent) -> Unit = {},
+    ): Task2
+    fun retryInstallTask(
+        remoteResult: Modpack2CreateResult,
+        onEvent: (Modpack2UploadWorkflowEvent) -> Unit = {},
+    ): Task2 = Task2.Leaf("安装整合包") { context ->
+        onEvent(Modpack2UploadWorkflowEvent.InstallStarted(remoteResult))
+        throw UnsupportedOperationException("当前上传服务不支持重新安装")
+    }
+}
+
+/** Direct Modpack2 publication and remote-first installation workflow. */
+class Modpack2UploadService(
+    private val gateway: Modpack2Gateway,
+    private val materializer: ModpackArchiveMaterializer,
+    private val processor: Modpack2Processor,
+    private val packProcessingDirectory: Path = ClientDirs.packProcDir.toPath(),
+    private val pollDelayMillis: Long = 1_000L,
+    private val maxBuildPolls: Int = 600,
+    private val localService: Modpack2LocalService? = null,
+) : Modpack2UploadGateway {
+    override suspend fun loadOwned(): Result<List<Modpack2OwnedVo>> = runCatching {
+        val pageSize = 50
+        var offset = 0L
+        val result = linkedMapOf<UUID, Modpack2OwnedVo>()
+        while (true) {
+            val page = gateway.listOwned(offset, pageSize).getOrThrow()
+            page.items.forEach { result.putIfAbsent(it.id, it) }
+            if (page.items.isEmpty() || !page.hasMore) break
+            val next = offset + page.items.size
+            if (next <= offset) break
+            offset = next
+        }
+        result.values.toList()
+    }
+
+    override fun uploadTask(
+        request: Modpack2DirectUploadRequest,
+        onEvent: (Modpack2UploadWorkflowEvent) -> Unit,
+    ): Task2 = Task2.Leaf("上传整合包") { context ->
+        val remote = try {
+            upload(request, context).getOrThrow()
+        } catch (cancelled: CancellationException) {
+            onEvent(Modpack2UploadWorkflowEvent.UploadFailed(cancelled.message ?: "上传已取消"))
+            throw cancelled
+        } catch (error: Throwable) {
+            onEvent(Modpack2UploadWorkflowEvent.UploadFailed(error.message ?: "上传失败"))
+            throw error
+        }
+        onEvent(Modpack2UploadWorkflowEvent.RemoteReady(remote))
+        onEvent(Modpack2UploadWorkflowEvent.InstallStarted(remote))
+        try {
+            requireNotNull(localService) { "未配置整合包安装服务" }
+                .install(Modpack2InstallRequest(remote.modpackId.toKotlinUuid(), remote.versionId.toKotlinUuid()), context)
+                .getOrThrow()
+            onEvent(Modpack2UploadWorkflowEvent.InstallSucceeded(remote))
+            remote
+        } catch (cancelled: CancellationException) {
+            onEvent(Modpack2UploadWorkflowEvent.InstallFailed(remote, cancelled.message ?: "本地安装已取消"))
+            throw cancelled
+        } catch (error: Throwable) {
+            onEvent(Modpack2UploadWorkflowEvent.InstallFailed(remote, error.message ?: "本地安装失败"))
+            throw error
+        }
+    }
+
+    override fun retryInstallTask(
+        remoteResult: Modpack2CreateResult,
+        onEvent: (Modpack2UploadWorkflowEvent) -> Unit,
+    ): Task2 = Task2.Leaf("安装整合包") { context ->
+        onEvent(Modpack2UploadWorkflowEvent.InstallStarted(remoteResult))
+        try {
+            requireNotNull(localService) { "未配置整合包安装服务" }
+                .install(Modpack2InstallRequest(remoteResult.modpackId.toKotlinUuid(), remoteResult.versionId.toKotlinUuid()), context)
+                .getOrThrow()
+            onEvent(Modpack2UploadWorkflowEvent.InstallSucceeded(remoteResult))
+            remoteResult
+        } catch (cancelled: CancellationException) {
+            onEvent(Modpack2UploadWorkflowEvent.InstallFailed(remoteResult, cancelled.message ?: "本地安装已取消"))
+            throw cancelled
+        } catch (error: Throwable) {
+            onEvent(Modpack2UploadWorkflowEvent.InstallFailed(remoteResult, error.message ?: "本地安装失败"))
+            throw error
+        }
+    }
+
+    suspend fun upload(request: Modpack2DirectUploadRequest): Result<Modpack2CreateResult> =
+        upload(request, null)
+
+    suspend fun upload(
+        request: Modpack2DirectUploadRequest,
+        context: Task2Context?,
+    ): Result<Modpack2CreateResult> = try {
+        validate(request)
+        val updateTarget = request.target as? Modpack2UploadTarget.Update
+        val preflight = updateTarget?.let { target ->
+            gateway.appendPreflight(target.owned.id.toKotlinUuid(), target.owned.currentVersionId!!.toKotlinUuid()).getOrThrow()
+        }
+        if (updateTarget != null) {
+            require(preflight!!.canAppend) { "整合包当前版本已变化，无法追加版本" }
+            require(preflight.currentVersionId?.toString() == updateTarget.owned.currentVersionId.toString()) {
+                "整合包当前版本已变化，请重新选择"
+            }
+        }
+        val workRoot = withContext(Dispatchers.IO) {
+            Files.createDirectories(packProcessingDirectory)
+            Files.createTempDirectory(packProcessingDirectory, "modpack2-upload-")
+        }
+        var clientRoot: Path? = null
+        var processing: Modpack2ProcessingResult? = null
+        var archive: Path? = null
+        var serverPackCopy: Path? = null
+        try {
+            context?.emit(Task2Progress("准备上传整合包", 0f))
+            serverPackCopy = request.serverPack?.let { selected ->
+                withContext(Dispatchers.IO) { snapshotModpack2ServerPack(selected, workRoot) }
+            }
+            clientRoot = withContext(Dispatchers.IO) {
+                Files.createDirectories(workRoot.resolve("client"))
+                workRoot.resolve("client")
+            }
+            materializer.materializeUploadRaw(request.source, clientRoot, context).getOrThrow()
+            context?.ensureActive()
+            context?.emit(Task2Progress("识别整合包内容", 0.2f))
+            processing = processor.process(
+                source = clientRoot.toFile(),
+                serverMode = if (serverPackCopy == null) Modpack2ServerMode.Generated else Modpack2ServerMode.Provided,
+                providedServerPack = serverPackCopy?.toFile(),
+                manualSideOverrides = request.manualSideOverrides,
+                predeclaredContents = request.source.preview.files
+                    .filter { it.required || it.key in request.source.selectedOptionalFiles }
+                    .mapNotNull { it.content },
+                rawOnly = true,
+            ).getOrThrow()
+            context?.ensureActive()
+            context?.emit(Task2Progress("生成上传归档", 0.35f))
+            val processingResult = processing!!
+            val allContents = processingResult.contents + processingResult.rawShadowedContents
+            val manifestName = when (request.source.preview.format) {
+                ModpackArchiveFormat.CURSEFORGE -> "manifest.json"
+                ModpackArchiveFormat.MODRINTH -> "modrinth.index.json"
+            }
+            val built = processor.buildArchive(
+                result = processingResult,
+                baseName = request.name,
+                manifestName = manifestName,
+                manifestJson = request.source.preview.manifestJson,
+            ).getOrThrow()
+            archive = built.archive.toPath()
+            val manifest = buildManifest(
+                preview = request.source.preview,
+                contents = allContents,
+                rawFiles = built.rawFiles,
+                shadowedContents = processingResult.rawShadowedContents,
+            )
+            val uploadReceipt = Modpack2ParallelUploader(gateway).upload(
+                file = built.archive,
+                onProgress = { progress ->
+                    context?.emit(
+                        Task2Progress(
+                            "上传整合包归档",
+                            fraction = 0.35f + 0.4f * (progress.uploadedBytes.toFloat() / progress.totalBytes.coerceAtLeast(1L)),
+                            completedBytes = progress.uploadedBytes,
+                            totalBytes = progress.totalBytes,
+                        )
+                    )
+                },
+            ).getOrThrow()
+            context?.emit(Task2Progress("创建整合包", 0.8f))
+            val create = when (val target = request.target) {
+                Modpack2UploadTarget.Create -> gateway.create(
+                    Modpack2CreateDto(
+                    uploadId = uploadReceipt.session.id,
+                    modpack = Modpack2CreateModpackDto(
+                        name = request.name.trim(),
+                        intro = request.intro.trim(),
+                        mc = request.source.preview.mcVersion.vMinor.toInt(),
+                        loader = request.source.preview.modLoader.toModpack2Loader(),
+                        iconUrl = request.iconUrl.trim(),
+                        sourceUrl = request.sourceUrl?.trim()?.ifEmpty { null },
+                        categories = request.categories.distinct(),
+                    ),
+                    version = Modpack2CreateVersionDto(
+                        name = request.version.trim(),
+                        manifest = manifest,
+                        changelog = request.changelog.trim(),
+                        contents = allContents.map { it.content },
+                        serverMode = processing!!.serverMode,
+                        rawFiles = built.rawFiles,
+                        inheritedServerFiles = processing!!.inheritedServerFiles,
+                    ),
+                ))
+                is Modpack2UploadTarget.Update -> gateway.createVersion(
+                    target.owned.id.toKotlinUuid(),
+                    Modpack2VersionCreateFromUploadDto(
+                        uploadId = uploadReceipt.session.id,
+                        baseVersionId = target.owned.currentVersionId,
+                        name = request.version.trim(),
+                        manifest = manifest,
+                        changelog = request.changelog.trim(),
+                        serverMode = processing!!.serverMode,
+                        contents = allContents.map { it.content },
+                        rawFiles = built.rawFiles,
+                        inheritedServerFiles = processing!!.inheritedServerFiles,
+                        modpack = null,
+                    ),
+                )
+            }.getOrThrow()
+            awaitBuild(create, context)
+            context?.emit(Task2Progress("整合包上传完成", 1f))
+            Result.success(create)
+        } finally {
+            withContext(NonCancellable + Dispatchers.IO) {
+                processing?.providedServerSnapshot?.close()
+                processing?.snapshot?.close()
+                archive?.let { Files.deleteIfExists(it) }
+                workRoot.toFile().deleteRecursivelyNoSymlink()
+            }
+        }
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+    private suspend fun awaitBuild(
+        result: Modpack2CreateResult,
+        context: Task2Context?,
+    ) {
+        if (result.status != Modpack2VersionStatus.Building) {
+            require(result.status == Modpack2VersionStatus.Ok) { "服务器构建失败" }
+            return
+        }
+        repeat(maxBuildPolls) { index ->
+            context?.ensureActive()
+            val version = gateway.listVersions(result.modpackId.toKotlinUuid()).getOrThrow()
+                .firstOrNull { it.id == result.versionId }
+                ?: error("服务器未找到新版本")
+            when (version.status) {
+                Modpack2VersionStatus.Ok -> return
+                Modpack2VersionStatus.Fail -> error("服务器构建失败")
+                Modpack2VersionStatus.Building -> {
+                    context?.emit(Task2Progress("等待服务器完成构建", 0.8f + 0.19f * (index + 1) / maxBuildPolls))
+                    if (index + 1 < maxBuildPolls) delay(pollDelayMillis)
+                }
+            }
+        }
+        error("等待服务器构建超时")
+    }
+
+    private fun validate(request: Modpack2DirectUploadRequest) {
+        val preview = request.source.preview
+        require(preview.mcVersion.supportsModpackUpload()) { "目前只支持上传MC1.20.1和MC1.21.1整合包" }
+        require(
+            (preview.mcVersion == McVersion.V201 && preview.modLoader == ModLoader.forge) ||
+                (preview.mcVersion == McVersion.V211 && preview.modLoader == ModLoader.neoforge)
+        ) { "整合包的Minecraft版本与加载器不兼容" }
+        require(Files.isRegularFile(preview.archive, LinkOption.NOFOLLOW_LINKS)) { "找不到整合包安装包" }
+        require(Files.size(preview.archive) == preview.archiveSize && Files.getLastModifiedTime(preview.archive).toMillis() == preview.archiveModifiedAt) {
+            "整合包安装包在确认后发生了变化，请重新选择"
+        }
+        require(preview.manifestJson.isNotBlank()) { "整合包清单内容为空，请重新读取整合包" }
+        when (val target = request.target) {
+            Modpack2UploadTarget.Create -> calebxzau.rdi.client.ui.viewmodel.validateModpack2CreateMetadata(
+                request.intro, request.iconUrl, request.categories, request.name, request.version,
+            ).getOrThrow()
+            is Modpack2UploadTarget.Update -> {
+                require(target.owned.currentVersionId != null) { "整合包没有可更新的当前版本" }
+                require(target.owned.currentVersionStatus == Modpack2VersionStatus.Ok) { "只能更新已完成的整合包版本" }
+                require(target.owned.mc == preview.mcVersion.vMinor.toInt()) { "安装包Minecraft版本与整合包不兼容" }
+                require(target.owned.loader == preview.modLoader.toModpack2Loader()) { "安装包加载器与整合包不兼容" }
+                require(request.version.trim().isNotEmpty() && request.version.trim().length <= 100) { "版本名称长度不正确" }
+                require(request.changelog.length <= 20_000) { "更新说明过长" }
+            }
+        }
+        request.sourceUrl?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            val source = it.validateHttpUrl().getOrThrow()
+            require(source.scheme.equals("https", true)) { "原帖链接必须是HTTPS网络地址" }
+        }
+        require(request.categories.distinct().isNotEmpty()) { "至少选择1个分类" }
+        request.serverPack?.let { selected ->
+            val it = selected.path
+            require(Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) && it.fileName.toString().endsWith(".zip", true)) {
+                "服务端整合包必须是ZIP文件"
+            }
+            require(Files.size(it) == selected.size && Files.getLastModifiedTime(it).toMillis() == selected.modifiedAt) {
+                "服务端整合包在确认后发生了变化，请重新选择"
+            }
+            it.toFile().openChineseZip().use { }
+        }
+    }
+
+    private fun buildManifest(
+        preview: ModpackArchivePreview,
+        contents: List<calebxzau.rdi.client.packproc.Modpack2ResolvedContent>,
+        rawFiles: List<calebxzau.rdi.common.model.Modpack2RawFile>,
+        shadowedContents: List<calebxzau.rdi.client.packproc.Modpack2ResolvedContent>,
+    ): Modpack2VersionManifestDto {
+        val bindings = contents.map { resolved ->
+            val content = resolved.content
+            val file = preview.files.firstOrNull { candidate ->
+                val declared = candidate.content ?: return@firstOrNull false
+                declared.platform == content.platform &&
+                    declared.type == content.type &&
+                    declared.projectId == content.projectId &&
+                    declared.fileId == content.fileId &&
+                    declared.hash.equals(content.hash, ignoreCase = true) &&
+                    declared.targetPath.equals(content.targetPath, ignoreCase = true)
+            } ?: error("找不到清单内容来源：${content.projectId}/${content.fileId}")
+            val source = if (resolved in shadowedContents) {
+                val raw = rawFiles.firstOrNull {
+                    it.path.equals(resolved.sourcePath.replace('\\', '/'), ignoreCase = true) &&
+                        when (content.side) {
+                            calebxzau.rdi.common.model.ContentSide.Client -> it.root == calebxzau.rdi.common.model.Modpack2RawFileRoot.Client
+                            calebxzau.rdi.common.model.ContentSide.Server -> it.root == calebxzau.rdi.common.model.Modpack2RawFileRoot.Server
+                            calebxzau.rdi.common.model.ContentSide.Both -> it.root == calebxzau.rdi.common.model.Modpack2RawFileRoot.Shared
+                        }
+                } ?: error("找不到覆盖文件来源：${resolved.sourcePath}")
+                Modpack2ContentSourceDto.RawSource(raw.root, raw.path, raw.sha1, raw.size)
+            } else {
+                file.manifestSource ?: error("清单内容缺少来源绑定：${content.targetPath}")
+            }
+            Modpack2ContentBindingDto(
+                contentKey = Modpack2ContentKeyDto(
+                    platform = content.platform,
+                    type = content.type,
+                    projectId = content.projectId,
+                    fileId = content.fileId,
+                    hash = content.hash,
+                    targetPath = content.targetPath,
+                    side = content.side,
+                ),
+                source = source,
+            )
+        }
+        return Modpack2VersionManifestDto(
+            format = when (preview.format) {
+                ModpackArchiveFormat.CURSEFORGE -> Modpack2ManifestFormat.CurseForge
+                ModpackArchiveFormat.MODRINTH -> Modpack2ManifestFormat.Modrinth
+            },
+            manifestJson = preview.manifestJson,
+            bindings = bindings,
+        )
+    }
+
+    private fun ModLoader.toModpack2Loader() = when (this) {
+        ModLoader.neoforge -> Modpack2Loader.NeoForge
+        ModLoader.forge -> Modpack2Loader.Forge
+        ModLoader.cleanroom -> error("Modpack2不支持Cleanroom加载器")
+    }
+}

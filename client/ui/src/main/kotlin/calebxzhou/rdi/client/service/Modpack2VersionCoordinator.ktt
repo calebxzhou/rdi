@@ -1,0 +1,20 @@
+package calebxzhou.rdi.client.service
+
+import kotlinx.coroutines.sync.Mutex
+import java.util.concurrent.ConcurrentHashMap
+import kotlin.uuid.Uuid
+
+/** Serializes mutations and snapshot capture for one local Modpack2 version. */
+class Modpack2VersionCoordinator {
+    private val locks = ConcurrentHashMap<Uuid, Mutex>()
+
+    suspend fun <T> withLock(versionId: Uuid, block: suspend () -> T): T {
+        val mutex = locks.computeIfAbsent(versionId) { Mutex() }
+        mutex.lock()
+        return try {
+            block()
+        } finally {
+            mutex.unlock()
+        }
+    }
+}

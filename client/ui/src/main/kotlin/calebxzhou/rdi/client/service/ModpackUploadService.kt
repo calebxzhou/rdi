@@ -4,10 +4,12 @@ import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.util.*
 import calebxzau.rdi.client.packproc.*
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.toClientContentRequest
+import calebxzhou.rdi.client.service.content.toClientContentRequests
 import calebxzhou.rdi.common.exception.ModpackError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
-import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.runInline
 import io.ktor.client.plugins.*
 import io.ktor.client.request.*
@@ -182,15 +184,19 @@ fun createUploadModpackTask2(
     }
     val downloadMissingModsTask = Task2.Leaf("下载剩余客户端Mod") { ctx ->
         val missingMods = withContext(Dispatchers.IO) {
-            processedMods
-                .filter(::isUploadClientInstallableMod)
-                .filterNot(ModService::isDownloadedModFileValid)
+            buildList {
+                processedMods
+                    .filter(::isUploadClientInstallableMod)
+                    .forEach { mod ->
+                        if (!isUploadClientContentAvailable(mod)) add(mod)
+                    }
+            }
         }
         if (missingMods.isEmpty()) {
             ctx.emit(Task2Progress("客户端Mod已齐全", 1f))
         } else {
             ctx.emit(Task2Progress("开始下载剩余客户端Mod，共${missingMods.size}个", 0f))
-            ModService.downloadModsTask2(missingMods).runInline(ctx)
+            createUploadClientModDownloadTask2(missingMods).runInline(ctx)
         }
     }
     val installTask = Task2.Leaf("本地安装整合包") { ctx ->
@@ -220,6 +226,24 @@ fun createUploadModpackTask2(
 
 private fun isUploadClientInstallableMod(mod: Mod): Boolean =
     mod.side != Mod.Side.SERVER && mod.side != Mod.Side.UNKNOWN
+
+private fun Mod.toUploadClientContentRequest() = toClientContentRequest()
+
+internal fun List<Mod>.toUploadClientContentRequests() = toClientContentRequests()
+
+internal suspend fun isUploadClientContentAvailable(mod: Mod): Boolean =
+    ClientContentStore.shared.use(
+        requests = listOf(mod.toUploadClientContentRequest().copy(allowNetwork = false))
+    ) { }.isSuccess
+
+internal fun createUploadClientModDownloadTask2(mods: List<Mod>): Task2 =
+    Task2.Leaf("下载${mods.size}个Mod") { ctx ->
+        ClientContentStore.shared.use(
+            requests = mods.toUploadClientContentRequests(),
+            onProgress = ctx::emit
+        ) { }
+            .getOrThrow()
+    }
 
 fun modpackUploadTaskKey(
     updateModpackId: ObjectId?,

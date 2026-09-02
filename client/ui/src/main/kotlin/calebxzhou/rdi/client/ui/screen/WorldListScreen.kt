@@ -39,14 +39,14 @@ import io.ktor.http.*
 
 @Composable
 fun WorldListScreen(
-    onBack: (() -> Unit)? = null,
+    onBack: () -> Unit,
     /*
     onOpenBirdView: (String) -> Unit = {},
     onOpenLocalBirdView: (() -> Unit)? = null
     */
 ) {
     MainColumn {
-        TitleRow("存档", onBack = { onBack?.invoke() ?: Unit })
+        TitleRow("存档", onBack = onBack)
         Spacer(modifier = Modifier.height(8.dp))
         WorldListPane(
             /*

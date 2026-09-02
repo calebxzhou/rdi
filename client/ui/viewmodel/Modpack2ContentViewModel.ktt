@@ -1,0 +1,229 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import calebxzau.rdi.client.modcatalog.CatalogDigestAlgorithm
+import calebxzau.rdi.client.modcatalog.CatalogFile
+import calebxzau.rdi.client.modcatalog.CatalogFileRef
+import calebxzau.rdi.client.modcatalog.CatalogTarget
+import calebxzau.rdi.client.modcatalog.InstalledCatalogFile
+import calebxzau.rdi.client.modcatalog.ModCatalog
+import calebxzau.rdi.client.modcatalog.UpdateRequest
+import calebxzhou.rdi.client.database.LocalModpack2ContentOrigin
+import calebxzhou.rdi.client.database.LocalModpack2ContentRecord
+import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.Modpack2ContentRequest
+import calebxzhou.rdi.client.service.Modpack2ContentScanProgress
+import calebxzhou.rdi.client.service.Modpack2ContentService
+import calebxzhou.rdi.client.service.Modpack2DiskContentUnit
+import calebxzhou.rdi.client.service.content.ContentDigest
+import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm as ContentHashAlgorithm
+import calebxzhou.rdi.client.service.content.ContentRequest
+import calebxzhou.rdi.client.service.content.ContentSource
+import calebxzhou.rdi.common.model.Task2Entry
+import calebxzhou.rdi.common.model.Task2Status
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlin.uuid.Uuid
+
+data class Modpack2ContentUpdate(
+    val content: LocalModpack2ContentRecord,
+    val file: CatalogFile,
+)
+
+data class Modpack2ContentUiState(
+    val loading: Boolean = true,
+    val state: calebxzhou.rdi.client.service.Modpack2ContentState? = null,
+    val taskStates: Map<String, Task2Status> = emptyMap(),
+    val updates: List<Modpack2ContentUpdate> = emptyList(),
+    val checkingUpdates: Boolean = false,
+    val scanning: Boolean = false,
+    val scanProgress: Modpack2ContentScanProgress? = null,
+    val enriching: Boolean = false,
+    val skippedUpdateCount: Int = 0,
+    val errorMessage: String? = null,
+)
+
+/** UI orchestration only. The directory snapshot remains the content authority. */
+class Modpack2ContentViewModel(
+    private val versionId: Uuid,
+    private val service: Modpack2ContentService,
+    private val catalog: ModCatalog,
+) : ViewModel() {
+    private val _uiState = MutableStateFlow(Modpack2ContentUiState())
+    val uiState: StateFlow<Modpack2ContentUiState> = _uiState.asStateFlow()
+    private var scanJob: Job? = null
+    private val refreshedTerminalRuns = mutableSetOf<String>()
+
+    init {
+        rescan()
+        viewModelScope.launch { ClientTaskManager.entries.collectLatest(::updateTaskStates) }
+    }
+
+    fun refresh(clearError: Boolean = true) = rescan(clearError)
+
+    fun rescan(clearError: Boolean = true) {
+        scanJob?.cancel()
+        _uiState.update {
+            it.copy(
+                loading = true,
+                scanning = true,
+                scanProgress = null,
+                errorMessage = if (clearError) null else it.errorMessage,
+            )
+        }
+        scanJob = viewModelScope.launch(Dispatchers.IO) {
+            service.scan(versionId) { progress ->
+                _uiState.update { it.copy(scanProgress = progress) }
+            }.onSuccess { loaded ->
+                _uiState.update { it.copy(loading = false, scanning = false, state = loaded) }
+                if (loaded.snapshot?.isComplete == true) {
+                    _uiState.update { it.copy(enriching = true) }
+                    service.enrich(versionId, ::updateScanProgress)
+                        .onSuccess { service.scan(versionId).onSuccess { refreshed -> _uiState.update { it.copy(state = refreshed) } } }
+                        .onFailure(::showError)
+                    _uiState.update { it.copy(enriching = false) }
+                }
+            }.onFailure(::showError)
+        }
+    }
+
+    fun cancelScan() {
+        scanJob?.cancel()
+        _uiState.update { it.copy(scanning = false, loading = false) }
+    }
+
+    private fun updateScanProgress(progress: Modpack2ContentScanProgress) =
+        _uiState.update { it.copy(scanProgress = progress) }
+
+    fun clearError() = _uiState.update { it.copy(errorMessage = null) }
+
+    fun delete(item: Modpack2DiskContentUnit): String = service.submitDelete(item)
+
+    fun enable(item: Modpack2DiskContentUnit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            service.submitEnable(item)
+            rescan(clearError = false)
+        }
+    }
+
+    fun disable(item: Modpack2DiskContentUnit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            service.submitDisable(item)
+            rescan(clearError = false)
+        }
+    }
+
+    fun checkUpdates() {
+        val current = _uiState.value.state ?: return
+        _uiState.update { it.copy(checkingUpdates = true, errorMessage = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                service.enrich(versionId).getOrThrow()
+                val refreshed = service.scan(versionId).getOrThrow()
+                _uiState.update { it.copy(state = refreshed) }
+                val enabled = refreshed.contents.filter { it.enabled }
+                val byRef = enabled.mapNotNull { record ->
+                    record.catalogRefOrNull()?.let { ref -> ref to record }
+                }.toMap()
+                val skipped = refreshed.snapshot.orEmptyItems().count { !it.enabled } +
+                    refreshed.unknownFiles.count { file -> refreshed.snapshot?.items?.any { it.physicalRelativePath == file.path } == true }
+                val files = catalog.getFiles(byRef.keys).getOrThrow().value
+                val installed = files.values.map { file ->
+                    InstalledCatalogFile(file, CatalogTarget(current.instance.mcVersion, current.instance.modLoader))
+                }
+                val report = catalog.findUpdates(UpdateRequest(installed)).getOrThrow().value
+                Triple(report.updates.mapNotNull { candidate ->
+                    byRef[candidate.installed.ref]?.let { Modpack2ContentUpdate(it, candidate.latest) }
+                }, skipped, refreshed)
+            }.onSuccess { (updates, skipped, _) ->
+                _uiState.update { it.copy(checkingUpdates = false, updates = updates, skippedUpdateCount = skipped) }
+            }.onFailure(::showError)
+        }
+    }
+
+    fun clearUpdates() = _uiState.update { it.copy(updates = emptyList()) }
+
+    fun applyUpdates(selected: List<Modpack2ContentUpdate>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val requests = selected.map { update ->
+                    val download = catalog.resolveDownload(update.file).getOrThrow()
+                    update.toRequest(download.url, download.headers, download.digests, LocalModpack2ContentOrigin.Local)
+                }
+                if (requests.isNotEmpty()) service.submitPlan(requests, confirmReplace = true)
+            }.onFailure(::showError)
+        }
+    }
+
+    private fun updateTaskStates(entries: List<Task2Entry>) {
+        val prefix = "modpack2-content:${versionId}:"
+        val relevant = entries.filter { it.dedupeKey?.startsWith(prefix) == true }
+        _uiState.update { state ->
+            state.copy(taskStates = relevant.mapNotNull { entry ->
+                entry.dedupeKey?.removePrefix(prefix)?.let { it to entry.status }
+            }.toMap())
+        }
+        relevant.filter { it.status.isTerminal && refreshedTerminalRuns.add(it.runId) }.forEach { entry ->
+            if (entry.status == Task2Status.FAILED) {
+                entry.snapshot.errorMessage?.takeIf(String::isNotBlank)?.let { message ->
+                    _uiState.update { it.copy(errorMessage = message) }
+                }
+            }
+            rescan(clearError = false)
+        }
+    }
+
+    private fun showError(error: Throwable) = _uiState.update {
+        it.copy(loading = false, scanning = false, enriching = false, checkingUpdates = false,
+            errorMessage = error.message ?: "内容操作失败")
+    }
+}
+
+private fun calebxzhou.rdi.client.service.Modpack2ContentState.orEmptyItems(): List<Modpack2DiskContentUnit> =
+    snapshot?.items.orEmpty()
+
+private fun LocalModpack2ContentRecord.catalogRefOrNull(): CatalogFileRef? = when (platform.name) {
+    "CurseForge" -> CatalogFileRef(calebxzau.rdi.client.modcatalog.ModPlatform.CURSEFORGE, fileId)
+    "Modrinth" -> CatalogFileRef(calebxzau.rdi.client.modcatalog.ModPlatform.MODRINTH, fileId)
+    else -> null
+}
+
+private fun Modpack2ContentUpdate.toRequest(
+    url: String,
+    headers: Map<String, String>,
+    digests: Set<calebxzau.rdi.client.modcatalog.CatalogDigest>,
+    origin: LocalModpack2ContentOrigin,
+): Modpack2ContentRequest {
+    val relative = content.targetPath.orEmpty().substringBeforeLast('/', missingDelimiterValue = "").let { directory ->
+        if (directory.isBlank()) file.fileName else "${directory}/${file.fileName}"
+    }
+    val contentDigests = digests.mapNotNull { digest ->
+        when (digest.algorithm) {
+            CatalogDigestAlgorithm.SHA1 -> ContentDigest(ContentHashAlgorithm.SHA1, digest.value)
+            CatalogDigestAlgorithm.CURSEFORGE_MURMUR2 -> ContentDigest(ContentHashAlgorithm.MURMUR2, digest.value)
+            else -> null
+        }
+    }
+    val hash = contentDigests.firstOrNull { it.algorithm == ContentHashAlgorithm.SHA1 }?.value
+        ?: contentDigests.firstOrNull()?.value ?: error("更新文件缺少校验信息")
+    return Modpack2ContentRequest(
+        ContentRequest(
+            id = "catalog:${file.ref.platform}:${file.project.projectId}:${file.ref.fileId}",
+            relativePath = relative,
+            size = file.fileSize,
+            digests = contentDigests,
+            sources = listOf(ContentSource(url, headers, file.fileSize, name = "catalog")),
+            displayName = content.slug,
+        ),
+        content.copy(fileId = file.ref.fileId, hash = hash, targetPath = relative, origin = origin),
+    )
+}

@@ -12,35 +12,47 @@ import java.security.MessageDigest
 internal data class LocalFileHashes(
     val path: Path,
     val sha1: String,
-    val curseForgeFingerprint: Long
+    val curseForgeFingerprint: Long?
 )
 
 internal suspend fun hashLocalFile(path: Path, dispatcher: CoroutineDispatcher): LocalFileHashes =
     withContext(dispatcher) {
-        val context = currentCoroutineContext()
-        val sha1 = MessageDigest.getInstance("SHA-1")
-        val fingerprintInput = ByteArrayOutputStream()
-        Files.newInputStream(path).use { input ->
-            val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-            while (true) {
-                context.ensureActive()
-                val read = input.read(buffer)
-                if (read < 0) break
-                sha1.update(buffer, 0, read)
-                for (index in 0 until read) {
-                    val value = buffer[index].toInt() and 0xFF
-                    if (value != 9 && value != 10 && value != 13 && value != 32) {
-                        fingerprintInput.write(value)
-                    }
+        val hashes = hashCatalogFile(path.toString()) { Files.newInputStream(path) }.getOrThrow()
+        LocalFileHashes(
+            path = path,
+            sha1 = hashes.sha1,
+            curseForgeFingerprint = hashes.curseForgeFingerprint
+        )
+    }
+
+suspend fun hashCatalogFile(
+    key: String,
+    openStream: () -> java.io.InputStream
+): Result<CatalogFileHashes> = try {
+    val context = currentCoroutineContext()
+    val sha1 = MessageDigest.getInstance("SHA-1")
+    val fingerprintInput = ByteArrayOutputStream()
+    openStream().use { input ->
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        while (true) {
+            context.ensureActive()
+            val read = input.read(buffer)
+            if (read < 0) break
+            sha1.update(buffer, 0, read)
+            for (index in 0 until read) {
+                val value = buffer[index].toInt() and 0xFF
+                if (value != 9 && value != 10 && value != 13 && value != 32) {
+                    fingerprintInput.write(value)
                 }
             }
         }
-        LocalFileHashes(
-            path = path,
-            sha1 = sha1.digest().toHex(),
-            curseForgeFingerprint = murmur2(fingerprintInput.toByteArray()).toUInt().toLong()
-        )
     }
+    Result.success(CatalogFileHashes(key, sha1.digest().toHex(), murmur2(fingerprintInput.toByteArray()).toUInt().toLong()))
+} catch (cause: kotlinx.coroutines.CancellationException) {
+    throw cause
+} catch (cause: Throwable) {
+    Result.failure(cause)
+}
 
 private fun murmur2(data: ByteArray): Int {
     val multiplier = 0x5bd1e995

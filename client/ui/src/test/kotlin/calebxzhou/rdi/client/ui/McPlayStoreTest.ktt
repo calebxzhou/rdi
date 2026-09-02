@@ -1,0 +1,61 @@
+package calebxzhou.rdi.client.ui
+
+import calebxzhou.rdi.client.service.Host2PlayCleanupResult
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class McPlayStoreTest {
+    @Test
+    fun `session cleanup runs once on exit and remains observable`() {
+        val cleanupCalls = AtomicInteger()
+        val args = McPlayArgs(
+            title = "Host2测试",
+            mcVer = McVersion.V211,
+            modLoader = ModLoader.neoforge,
+            versionId = "host2-cleanup-${UUID.randomUUID()}",
+            playArg = "",
+            cleanup = McPlayCleanup {
+                cleanupCalls.incrementAndGet()
+                Host2PlayCleanupResult.Success
+            },
+        )
+        val session = McPlayStore.createSession(args)
+        try {
+            McPlayStore.markExited(session.id, "测试退出")
+            McPlayStore.markExited(session.id, "重复退出")
+
+            assertEquals(1, cleanupCalls.get())
+            assertTrue(session.cleanupResult?.restored == true)
+        } finally {
+            McPlayStore.closeStoppedSession(session.id)
+        }
+    }
+
+    @Test
+    fun `cleanup failure remains observable after exit`() {
+        val args = McPlayArgs(
+            title = "Host2恢复失败测试",
+            mcVer = McVersion.V211,
+            modLoader = ModLoader.neoforge,
+            versionId = "host2-cleanup-failure-${UUID.randomUUID()}",
+            playArg = "",
+            cleanup = McPlayCleanup {
+                Host2PlayCleanupResult(restored = false, message = "journal remains")
+            },
+        )
+        val session = McPlayStore.createSession(args)
+        try {
+            McPlayStore.markExited(session.id)
+            assertFalse(session.cleanupResult?.restored == true)
+            assertEquals("journal remains", session.cleanupResult?.message)
+        } finally {
+            McPlayStore.closeStoppedSession(session.id)
+        }
+    }
+}

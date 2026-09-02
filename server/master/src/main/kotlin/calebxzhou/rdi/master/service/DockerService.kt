@@ -54,6 +54,28 @@ object DockerService {
         client.listContainersCmd()
             .withShowAll(includeStopped)
             .exec()
+
+    fun getContainerStatusSnapshot(): Map<String, HostStatus>? {
+        return try {
+            listContainers(includeStopped = true)
+                .mapNotNull { container ->
+                    val name = container.names?.firstOrNull()?.removePrefix("/") ?: return@mapNotNull null
+                    name to parseContainerStatus(container.state)
+                }
+                .toMap()
+        } catch (e: Exception) {
+            lgr.warn { "Error getting container status snapshot: ${e.message}" }
+            null
+        }
+    }
+
+    internal fun parseContainerStatus(state: String?): HostStatus = when (state?.lowercase()) {
+        "running" -> HostStatus.STARTED
+        "paused" -> HostStatus.PAUSED
+        "exited", "created", "dead", "removing", "stopped" -> HostStatus.STOPPED
+        null -> HostStatus.UNKNOWN
+        else -> HostStatus.UNKNOWN
+    }
     /**
      * Limit CPU after container has started
      * @param cpuQuota CPU quota in microseconds (100000 = 1 CPU core)
@@ -271,13 +293,7 @@ object DockerService {
     fun getContainerStatus(containerName: String): HostStatus {
         return try {
             val container = findContainer(containerName) ?: return HostStatus.STOPPED
-            val state = container.state?.lowercase() ?: return HostStatus.UNKNOWN
-            when (state) {
-                "running" -> HostStatus.STARTED
-                "paused" -> HostStatus.PAUSED
-                "exited", "created", "dead", "removing", "stopped" -> HostStatus.STOPPED
-                else -> HostStatus.UNKNOWN
-            }
+            parseContainerStatus(container.state)
         } catch (e: Exception) {
             lgr.warn { "Error getting status for container $containerName: ${e.message}" }
             HostStatus.UNKNOWN

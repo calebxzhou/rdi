@@ -2,7 +2,7 @@ package calebxzau.rdi.client.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import calebxzau.rdi.client.lgr
+import calebxzau.rdi.common.logging.Loggers
 import calebxzau.rdi.client.modcatalog.CatalogMod
 import calebxzau.rdi.client.modcatalog.CatalogSearchCursor
 import calebxzau.rdi.client.modcatalog.CatalogSearchRequest
@@ -22,11 +22,11 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+private val lgr by Loggers
+
 data class RemoteModUiState(
     val searchText: String = "",
     val query: String = "",
-    val selectedMcVersion: McVersion = McVersion.V211,
-    val selectedLoader: ModLoader = McVersion.V211.loaderVersions.keys.first(),
     val mods: List<CatalogMod> = emptyList(),
     val nextCursor: CatalogSearchCursor? = null,
     val loading: Boolean = true,
@@ -34,26 +34,34 @@ data class RemoteModUiState(
     val errorMessage: String? = null,
 )
 
+internal fun RemoteModRoute.toCatalogTarget(): CatalogTarget {
+    val minecraftVersion = requireNotNull(McVersion.from(requiredMcVer)) {
+        "Unknown Minecraft version: ${requiredMcVer}"
+    }
+    val loader = requireNotNull(ModLoader.from(requiredLoader)) {
+        "Unknown mod loader: ${requiredLoader}"
+    }
+    require(loader in minecraftVersion.loaderVersions) {
+        "${minecraftVersion.mcVer} does not support ${loader.name}"
+    }
+    return CatalogTarget(minecraftVersion, loader)
+}
+
+internal fun RemoteModUiState.toSearchRequest(target: CatalogTarget, cursor: CatalogSearchCursor?) =
+    CatalogSearchRequest(
+        query = query,
+        target = target,
+        sort = if (query.isBlank()) CatalogSort.DOWNLOADS else CatalogSort.RELEVANCE,
+        cursor = cursor,
+    )
+
 class RemoteModViewModel(
     private val route: RemoteModRoute,
     private val catalog: ModCatalog,
 ) : ViewModel() {
-    private val requiredMcVersion = route.requiredMcVer?.let(McVersion::from)
-    private val requiredLoader = route.requiredLoader?.let(ModLoader::from)
-    private val initialMcVersion = requiredMcVersion
-        ?: McVersion.entries.firstOrNull { version ->
-            version.enabled && (requiredLoader == null || requiredLoader in version.loaderVersions)
-        }
-        ?: McVersion.V211
-    private val initialLoader = requiredLoader?.takeIf { it in initialMcVersion.loaderVersions }
-        ?: initialMcVersion.loaderVersions.keys.first()
+    private val target = route.toCatalogTarget()
 
-    private val _uiState = MutableStateFlow(
-        RemoteModUiState(
-            selectedMcVersion = initialMcVersion,
-            selectedLoader = initialLoader,
-        )
-    )
+    private val _uiState = MutableStateFlow(RemoteModUiState())
     val uiState: StateFlow<RemoteModUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
@@ -72,34 +80,9 @@ class RemoteModViewModel(
         load(reset = true)
     }
 
-    fun selectMcVersion(version: McVersion) {
-        if (requiredMcVersion != null) return
-        if (_uiState.value.selectedMcVersion == version) return
-        val loader = _uiState.value.selectedLoader
-            .takeIf { it in availableLoadersFor(version) }
-            ?: availableLoadersFor(version).first()
-        _uiState.update {
-            it.copy(
-                selectedMcVersion = version,
-                selectedLoader = loader,
-            )
-        }
-        load(reset = true)
-    }
-
-    fun selectLoader(loader: ModLoader) {
-        if (requiredLoader != null || loader !in availableLoadersFor(_uiState.value.selectedMcVersion)) return
-        if (_uiState.value.selectedLoader == loader) return
-        _uiState.update { it.copy(selectedLoader = loader) }
-        load(reset = true)
-    }
-
     fun loadMore() {
         load(reset = false)
     }
-
-    private fun availableLoadersFor(version: McVersion): List<ModLoader> =
-        requiredLoader?.let(::listOf) ?: version.loaderVersions.keys.toList()
 
     private fun load(reset: Boolean) {
         val state = _uiState.value
@@ -107,12 +90,7 @@ class RemoteModViewModel(
         if (!reset && (state.loadingMore || searchJob?.isActive == true)) return
         if (reset) searchJob?.cancel()
 
-        val request = CatalogSearchRequest(
-            query = state.query,
-            target = CatalogTarget(state.selectedMcVersion, state.selectedLoader),
-            sort = if (state.query.isBlank()) CatalogSort.DOWNLOADS else CatalogSort.RELEVANCE,
-            cursor = cursor,
-        )
+        val request = state.toSearchRequest(target, cursor)
         _uiState.update {
             it.copy(
                 loading = reset,

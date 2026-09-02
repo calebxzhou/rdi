@@ -1,0 +1,87 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import calebxzau.rdi.common.model.ModpackCategory
+import calebxzhou.rdi.client.service.Modpack2UploadArchive
+import calebxzhou.rdi.client.service.ModpackArchiveFormat
+import calebxzhou.rdi.client.service.ModpackArchivePreview
+import calebxzhou.rdi.client.service.Modpack2SelectedServerPack
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzau.rdi.common.model.Modpack2CreateResult
+import calebxzau.rdi.common.model.Modpack2VersionStatus
+import calebxzhou.rdi.client.service.Modpack2UploadWorkflowEvent
+import java.nio.file.Path
+import java.util.UUID
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class Modpack2UploadViewModelTest {
+    @Test
+    fun workflowReducerKeepsRemoteIdsWhenInstallFails() {
+        val result = Modpack2CreateResult(UUID.randomUUID(), UUID.randomUUID(), Modpack2VersionStatus.Ok)
+        val initial = Modpack2UploadUiState(submitting = true)
+        val ready = reduceModpack2UploadWorkflowState(initial, Modpack2UploadWorkflowEvent.RemoteReady(result))
+        val started = reduceModpack2UploadWorkflowState(ready, Modpack2UploadWorkflowEvent.InstallStarted(result))
+        val failed = reduceModpack2UploadWorkflowState(started, Modpack2UploadWorkflowEvent.InstallFailed(result, "disk full"))
+        assertTrue(failed.remoteResult == result)
+        assertTrue(failed.installStatus == Modpack2InstallStatus.FAILED)
+        assertFalse(failed.submitting)
+        assertTrue(failed.installError == "disk full")
+    }
+    @Test
+    fun generatedUploadRequiresBothTests() {
+        val state = Modpack2UploadUiState(
+            archive = emptyArchive(),
+            name = "Pack",
+            version = "1.0.0",
+            intro = "This is a valid modpack description.",
+            iconUrl = "https://example.com/icon.png",
+            categories = listOf(ModpackCategory.Other),
+        )
+        assertFalse(state.canSubmit)
+        assertTrue(state.disabledReason!!.contains("客户端测试"))
+        assertFalse(state.copy(clientTestStatus = Modpack2UploadTestStatus.PASSED).canSubmit)
+        assertFalse(state.copy(serverTestStatus = Modpack2UploadTestStatus.PASSED).canSubmit)
+        assertTrue(state.copy(clientTestStatus = Modpack2UploadTestStatus.PASSED, serverTestStatus = Modpack2UploadTestStatus.PASSED).canSubmit)
+    }
+
+    @Test
+    fun bypassAndProvidedPackDoNotRequireTestStatus() {
+        val base = Modpack2UploadUiState(
+            archive = emptyArchive(),
+            name = "Pack",
+            version = "1.0.0",
+            intro = "This is a valid modpack description.",
+            iconUrl = "https://example.com/icon.png",
+            categories = listOf(ModpackCategory.Other),
+        )
+        assertFalse(base.canSubmit)
+        assertTrue(base.copy(ignoreModpackTest = true).canSubmit)
+        assertTrue(base.copy(serverPack = Modpack2SelectedServerPack(Path.of("server.zip"), 1, 1)).canSubmit)
+        assertFalse(base.copy(serverPack = Modpack2SelectedServerPack(Path.of("server.zip"), 1, 1), loading = true).canSubmit)
+        assertFalse(base.copy(serverPack = Modpack2SelectedServerPack(Path.of("server.zip"), 1, 1), submitting = true).canSubmit)
+        assertFalse(base.copy(serverPack = Modpack2SelectedServerPack(Path.of("server.zip"), 1, 1), name = "").canSubmit)
+    }
+
+    @Test
+    fun unsupportedVersionOrLoaderIsRejectedBeforeSubmit() {
+        val state = Modpack2UploadUiState(
+            archive = emptyArchive(), name = "Pack", version = "1.0.0",
+            intro = "This is a valid modpack description.", iconUrl = "https://example.com/icon.png",
+            compatibilityError = "目前只支持上传MC1.20.1和MC1.21.1整合包",
+        )
+        assertFalse(state.canSubmit)
+    }
+
+    private fun emptyArchive() = Modpack2UploadArchive(
+        archive = Path.of("pack.zip"),
+        preview = ModpackArchivePreview(
+            archive = Path.of("pack.zip"), archiveSize = 1, archiveModifiedAt = 1,
+            format = ModpackArchiveFormat.CURSEFORGE, name = "Pack", summary = "A pack",
+            mcVersion = McVersion.V201, modLoader = ModLoader.forge,
+            files = emptyList(), embeddedMods = emptyList(), overrides = emptyList(),
+        ),
+        selectedOptionalFiles = emptySet(),
+    )
+}

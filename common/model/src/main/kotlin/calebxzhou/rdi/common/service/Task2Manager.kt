@@ -53,27 +53,43 @@ class Task2Controller(
                 status = Task2Status.RUNNING,
                 currentMessage = "准备中",
                 currentFraction = null,
+                currentProgress = Task2Progress("准备中"),
                 errorMessage = null
             )
-            job = scope.launch {
+            val startedJob = scope.launch {
                 execute()
+            }
+            job = startedJob
+            startedJob.invokeOnCompletion {
+                synchronized(lock) {
+                    if (job === startedJob) job = null
+                }
             }
         }
     }
 
     fun terminate(message: String = "任务已取消") {
-        synchronized(lock) {
-            job?.cancel(CancellationException(message))
-            job = null
-            _state.update {
-                it.copy(
-                    currentMessage = message,
-                    currentFraction = it.currentFraction,
-                    errorMessage = message,
-                    status = Task2Status.CANCELLED
-                )
-            }
+        requestTermination(message)
+    }
+
+    suspend fun terminateAndJoin(message: String = "任务已取消") {
+        requestTermination(message)?.join()
+    }
+
+    private fun requestTermination(message: String): Job? = synchronized(lock) {
+        val currentJob = job
+        currentJob?.cancel(CancellationException(message))
+        _state.update {
+            it.copy(
+                currentMessage = message,
+                currentFraction = it.currentFraction,
+                currentProgress = it.currentProgress?.copy(message = message)
+                    ?: Task2Progress(message, it.currentFraction),
+                errorMessage = message,
+                status = Task2Status.CANCELLED
+            )
         }
+        currentJob
     }
 
     private suspend fun execute() {
@@ -85,7 +101,8 @@ class Task2Controller(
                     _state.update {
                         it.copy(
                             currentMessage = progress.message,
-                            currentFraction = progress.fraction
+                            currentFraction = progress.fraction,
+                            currentProgress = progress
                         )
                     }
                 },
@@ -101,7 +118,12 @@ class Task2Controller(
                     val key = task2PathKey(path)
                     _state.update {
                         val nextProgress = HashMap(it.progressByPath)
-                        nextProgress[key] = Task2Progress("完成", 1f)
+                        val progress = nextProgress[key] ?: Task2Progress("完成", 1f)
+                        nextProgress[key] = progress.copy(
+                            message = "完成",
+                            fraction = 1f,
+                            bytesPerSecond = null
+                        )
                         val nextDone = HashSet(it.donePaths)
                         nextDone += key
                         it.copy(progressByPath = nextProgress, donePaths = nextDone)
@@ -112,25 +134,37 @@ class Task2Controller(
         }.onSuccess {
             _state.update {
                 if (it.status == Task2Status.CANCELLED) it
-                else it.copy(
-                    currentMessage = "完成",
-                    currentFraction = 1f,
-                    errorMessage = null,
-                    status = Task2Status.DONE
-                )
+                else {
+                    val lastProgress = it.currentProgress
+                    val completionMessage = lastProgress
+                        ?.takeIf { progress -> progress.fraction != null && progress.fraction >= 1f }
+                        ?.message
+                        ?: "完成"
+                    it.copy(
+                        currentMessage = completionMessage,
+                        currentFraction = 1f,
+                        currentProgress = (lastProgress ?: Task2Progress("完成", 1f)).copy(
+                            message = completionMessage,
+                            fraction = 1f,
+                            bytesPerSecond = null
+                        ),
+                        errorMessage = null,
+                        status = Task2Status.DONE
+                    )
+                }
             }
         }.onFailure { error ->
             if (error is CancellationException || error is Task2CancelledException) return@onFailure
             _state.update {
                 it.copy(
                     currentMessage = it.currentMessage.ifBlank { "任务失败" },
+                    currentProgress = (it.currentProgress ?: Task2Progress(it.currentMessage)).copy(
+                        message = it.currentMessage.ifBlank { "任务失败" },
+                        bytesPerSecond = null
+                    ),
                     errorMessage = error.message ?: "任务失败",
                     status = Task2Status.FAILED
                 )
-            }
-        }.also {
-            synchronized(lock) {
-                job = null
             }
         }
     }
@@ -216,6 +250,12 @@ open class Task2Manager(
     fun cancel(runId: String, message: String = "任务已取消") {
         val controller = controller(runId) ?: return
         controller.terminate(message)
+        updateEntrySnapshot(runId, controller.state.value)
+    }
+
+    suspend fun cancelAndJoin(runId: String, message: String = "任务已取消") {
+        val controller = controller(runId) ?: return
+        controller.terminateAndJoin(message)
         updateEntrySnapshot(runId, controller.state.value)
     }
 

@@ -7,8 +7,11 @@ object ClientDirs {
     val logsDir: File = File(System.getenv("LOCALAPPDATA") ?: System.getProperty("user.home"))
         .resolve(".rdi/logs")
         .also { it.mkdirs() }
-    val dlPacksDir: File = RDIClient.DIR.resolve("dl-packs").also { it.mkdirs() }
-    val dlModsDir: File = RDIClient.DIR.resolve("dl-mods").also { it.mkdirs() }
+    /** Historical cache path; kept as a read-only candidate for migration. */
+    val dlPacksDir: File = RDIClient.DIR.resolve("dl-packs")
+    /** Historical cache path. The startup content migrator is its only client reader. */
+    val dlModsDir: File = RDIClient.DIR.resolve("dl-mods")
+    val dlcDir: File = RDIClient.DIR.resolve("dlc").also { it.mkdirs() }
     val packProcDir: File = RDIClient.DIR.resolve("pack-proc").also { it.mkdirs() }
     val mcDir: File = RDIClient.DIR.resolve("mc").also { it.mkdirs() }
     val versionsDir: File = mcDir.resolve("versions").also { it.mkdirs() }

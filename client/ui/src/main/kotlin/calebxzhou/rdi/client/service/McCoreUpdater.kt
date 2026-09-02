@@ -1,25 +1,58 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.rdi.common.util.sha1
+import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.ContentDigest
+import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
+import calebxzhou.rdi.client.service.content.ContentRequest
+import calebxzhou.rdi.client.service.content.ContentSource
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
-import calebxzhou.rdi.common.net.downloadFileFrom
+import calebxzhou.rdi.common.model.Task2Progress
+import calebxzhou.rdi.common.util.sha1
+import io.ktor.http.HttpHeaders
 import java.io.File
-import java.io.FileInputStream
-import java.io.FileOutputStream
+import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 
-data class McCoreUpdateResult(val updated: Boolean)
+data class McCoreUpdateResult(
+    val updated: Boolean,
+    internal val contentRequest: ContentRequest? = null,
+)
 
 object McCoreUpdater {
     fun slug(mcVersion: McVersion, modLoader: ModLoader) =
         "${mcVersion.mcVer}-${modLoader.name.lowercase()}"
 
-    fun cacheFile(mcVersion: McVersion, modLoader: ModLoader) =
-        ClientDirs.dlModsDir.resolve("rdi-5-mc-client-${slug(mcVersion, modLoader)}.jar").absoluteFile
+    internal fun contentRequest(
+        mcVersion: McVersion,
+        modLoader: ModLoader,
+        expectedSha1: String,
+    ): ContentRequest {
+        val slug = slug(mcVersion, modLoader)
+        val fixedFileName = "rdi-5-mc-client-$slug.jar"
+        return ContentRequest(
+            id = "rdi-mc-core:$slug",
+            relativePath = fixedFileName,
+            digests = listOf(
+                ContentDigest(ContentDigestAlgorithm.SHA1, expectedSha1.trim().lowercase())
+            ),
+            sources = listOf(
+                ContentSource(
+                    url = "${server.hqUrl}/update/mc/$slug",
+                    headers = mapOf(
+                        HttpHeaders.Authorization to "Bearer ${loggedAccount.jwt.orEmpty()}"
+                    ),
+                    name = "rdi-core:$slug"
+                )
+            ),
+            displayName = fixedFileName,
+        )
+    }
 
     suspend fun update(
         mcVersion: McVersion,
@@ -28,96 +61,97 @@ object McCoreUpdater {
         onDetail: (String) -> Unit
     ): Result<McCoreUpdateResult> = runCatching {
         val slug = slug(mcVersion, modLoader)
-        val targetFile = cacheFile(mcVersion, modLoader)
         onStatus("检查RDI核心版本...")
         val expectedSha1 = server.makeRequest<String>("update/mc/$slug/hash").data
             ?.trim()
             ?.takeIf { it.matches(Regex("^[0-9a-fA-F]{40}$")) }
             ?: throw RequestError("获取MC核心版本信息失败: $slug")
-        if (targetFile.exists() && targetFile.sha1.equals(expectedSha1, true)) {
-            return@runCatching McCoreUpdateResult(updated = false)
-        }
-
-        onStatus("准备下载${targetFile.name}...")
-        downloadAndReplace(
-            targetFile = targetFile,
-            downloadUrl = "${server.hqUrl}/update/mc/$slug",
-            expectedSha1 = expectedSha1,
-            onDetail = onDetail
-        ).getOrThrow()
-        onStatus("${targetFile.name}更新完成")
-        McCoreUpdateResult(updated = true)
+        onStatus("准备下载rdi-5-mc-client-$slug.jar...")
+        // The request is resolved by materializeCore, where the resulting
+        // path is consumed before ClientContentStore.use can clean a
+        // non-cacheable temporary source.
+        McCoreUpdateResult(
+            updated = true,
+            contentRequest = contentRequest(mcVersion, modLoader, expectedSha1),
+        )
     }
 
-    private suspend fun downloadAndReplace(
-        targetFile: File,
-        downloadUrl: String,
+    /**
+     * Resolves a core through the content cache and atomically installs the
+     * fixed filename in one Minecraft instance's mods directory.
+     */
+    internal suspend fun materializeCore(
+        update: McCoreUpdateResult,
+        modsDir: File,
+        onDetail: (String) -> Unit,
+        onProgress: (Task2Progress) -> Unit = {},
+        contentStore: ClientContentStore = ClientContentStore.shared,
+    ): Result<Boolean> = runCatching {
+        val request = update.contentRequest ?: error("RDI核心内容请求缺失")
+        val expectedSha1 = request.digests
+            .firstOrNull { it.algorithm == ContentDigestAlgorithm.SHA1 }
+            ?.normalizedValue
+            ?: error("RDI核心SHA-1缺失")
+        val target = modsDir.toPath().resolve(request.relativePath)
+        if (Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS) &&
+            target.toFile().sha1.equals(expectedSha1, ignoreCase = true)
+        ) {
+            return@runCatching false
+        }
+
+        contentStore.use(
+            requests = listOf(request),
+            onProgress = { progress ->
+                onProgress(progress)
+            }
+        ) { paths ->
+            replaceInstalledCore(
+                source = paths.getValue(request.id),
+                target = target,
+                expectedSha1 = expectedSha1,
+            ).getOrThrow()
+        }.getOrThrow()
+        onDetail("${target.fileName}已同步")
+        true
+    }
+
+    internal fun replaceInstalledCore(
+        source: java.nio.file.Path,
+        target: java.nio.file.Path,
         expectedSha1: String,
-        onDetail: (String) -> Unit
-    ): Result<Unit> {
-        val parentDir = targetFile.absoluteFile.parentFile ?: File(".")
-        if (!parentDir.exists()) parentDir.mkdirs()
-        val tempFile = File(parentDir, "${targetFile.name}.downloading.${System.currentTimeMillis()}")
-
-        return runCatching {
-            tempFile.toPath().downloadFileFrom(
-                url = downloadUrl,
-                validator = { path ->
-                    if (path.toFile().sha1.equals(expectedSha1, true)) Result.success(Unit)
-                    else Result.failure(IllegalStateException("文件损坏了，请重下"))
-                }
-            ) { onDetail(it.detailText(targetFile.name)) }.getOrThrow()
-            replaceCoreContents(tempFile, targetFile, expectedSha1).getOrThrow()
-            onDetail("核心文件已更新至最新版本")
-        }.onFailure {
-            tempFile.delete()
-            onDetail(it.message ?: "下载失败，请检查网络后重试")
-        }
-    }
-
-    internal fun replaceCoreContents(
-        downloadedFile: File,
-        targetFile: File,
-        expectedSha1: String
-    ): Result<Unit> {
-        if (!targetFile.exists()) {
-            return runCatching {
-                Files.move(downloadedFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                check(targetFile.sha1.equals(expectedSha1, true)) { "核心文件替换后校验失败" }
-            }.onFailure {
-                targetFile.delete()
+    ): Result<Unit> = runCatching {
+        require(Files.isRegularFile(source, LinkOption.NOFOLLOW_LINKS)) { "核心源文件不存在: $source" }
+        check(source.toFile().sha1.equals(expectedSha1, ignoreCase = true)) { "核心源文件校验失败" }
+        //check(!Files.isSymbolicLink(target)) { "核心目标不能是符号链接: $target" }
+        val parent = target.toAbsolutePath().normalize().parent ?: error("核心目标目录缺失: $target")
+        Files.createDirectories(parent)
+        val staging = Files.createTempFile(parent, "${target.fileName}.install-", ".tmp")
+        try {
+            Files.deleteIfExists(staging)
+            try {
+                Files.createLink(staging, source)
+            } catch (_: Throwable) {
+                Files.copy(source, staging, StandardCopyOption.COPY_ATTRIBUTES)
             }
-        }
-
-        val backupFile = targetFile.parentFile.resolve("${targetFile.name}.replacing-backup")
-        return runCatching {
-            targetFile.copyTo(backupFile, overwrite = true)
-            overwriteFileContents(downloadedFile, targetFile)
-            check(targetFile.sha1.equals(expectedSha1, true)) { "核心文件替换后校验失败" }
-            downloadedFile.delete()
-            Unit
-        }.recoverCatching { replaceError ->
-            runCatching { overwriteFileContents(backupFile, targetFile) }
-                .onFailure(replaceError::addSuppressed)
-            backupFile.delete()
-            throw replaceError
-        }.onSuccess {
-            backupFile.delete()
-        }
-    }
-
-    private fun overwriteFileContents(source: File, target: File) {
-        FileInputStream(source).channel.use { input ->
-            FileOutputStream(target, false).channel.use { output ->
-                output.truncate(0)
-                var position = 0L
-                while (position < input.size()) {
-                    val transferred = input.transferTo(position, 1024 * 1024, output)
-                    check(transferred > 0) { "核心文件写入不完整" }
-                    position += transferred
-                }
-                output.force(true)
+            check(staging.toFile().sha1.equals(expectedSha1, ignoreCase = true)) {
+                "核心暂存文件校验失败"
             }
+            try {
+                Files.move(
+                    staging,
+                    target,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE,
+                )
+            } catch (_: AtomicMoveNotSupportedException) {
+                Files.move(staging, target, StandardCopyOption.REPLACE_EXISTING)
+            }
+            check(Files.isRegularFile(target, LinkOption.NOFOLLOW_LINKS)) { "核心目标文件不存在" }
+            check(target.toFile().sha1.equals(expectedSha1, ignoreCase = true)) {
+                "核心文件替换后校验失败"
+            }
+        } finally {
+            Files.deleteIfExists(staging)
         }
     }
 }

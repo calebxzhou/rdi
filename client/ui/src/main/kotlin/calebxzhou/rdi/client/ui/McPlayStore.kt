@@ -30,6 +30,8 @@ data class McPlayArgs(
     val manageHostBaseMods: Boolean = false,
     val extraMods: List<Mod> = emptyList(),
     val manageHostExtraMods: Boolean = false,
+    val startupWarnings: List<String> = emptyList(),
+    val cleanup: (() -> Unit)? = null,
 )
 
 class McGameSession(
@@ -62,6 +64,8 @@ class McGameSession(
         exitMessage = message
         if (!cleanedUp) {
             cleanedUp = true
+            runCatching { args.cleanup?.invoke() }
+                .onFailure { error -> consoleState.append("[RDI] 清理房间内容失败: ${error.message ?: error.javaClass.simpleName}") }
             cleanup()
         }
     }
@@ -131,7 +135,7 @@ object McPlayStore {
     fun hasAliveSessions(): Boolean = sessions.any { it.isAlive() || it.preparing }
 
     fun aliveCount(versionId: String): Int =
-        sessions.count { it.versionId == versionId && it.isAlive() }
+        sessions.count { it.versionId == versionId && (it.preparing || it.isAlive()) }
 
     fun markExited(sessionId: String, message: String? = null) {
         sessions.firstOrNull { it.id == sessionId }?.markExited(message)

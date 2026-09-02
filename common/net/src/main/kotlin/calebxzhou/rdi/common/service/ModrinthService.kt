@@ -149,7 +149,9 @@ object ModrinthService {
                 ?.takeIf { it.isNotBlank() }
                 ?.let { mrProjectBySlug[it.trim().lowercase()] }
                 ?: mrProjectBySlug[slug.trim().lowercase()]
-            val side = mrProject?.toModSide() ?: Mod.Side.UNKNOWN
+            val side = cfFile.gameVersions.toCurseForgeModSide()
+                ?: mrProject?.toModSide()
+                ?: Mod.Side.UNKNOWN
             Mod(
                 platform = "cf",
                 projectId = modInfo.id.toString(),
@@ -338,23 +340,27 @@ object ModrinthService {
     }
 
     suspend fun getMultipleProjects(idSlugs: List<String>): List<ModrinthProject> {
+        return fetchMultipleProjects(idSlugs) { normalizedIds ->
+            mrreq("projects", params = mapOf("ids" to Json.encodeToString(normalizedIds)))
+                .body()
+        }
+    }
+
+    internal suspend fun fetchMultipleProjects(
+        idSlugs: List<String>,
+        fetcher: suspend (List<String>) -> List<ModrinthProject>,
+    ): List<ModrinthProject> {
         val normalizedIds = idSlugs.asSequence()
             .distinct()
             .toList()
 
-        val chunkSize = 100
-        val projects = mutableListOf<ModrinthProject>()
+        if (normalizedIds.isEmpty()) return emptyList()
 
-        normalizedIds.chunked(chunkSize).forEach { chunk ->
-            val response = mrreq("projects", params = mapOf("ids" to Json.encodeToString(chunk)))
-                .body<List<ModrinthProject>>()
-            projects += response
-
-            if (response.size != chunk.size) {
-                val missing = chunk.toSet() - response.map { it.id }.toSet() - response.map { it.slug }.toSet()
-                if (missing.isNotEmpty()) {
-                    lgr.debug { "Modrinth: ${missing.size} ids from chunk unmatched: ${missing.joinToString()}" }
-                }
+        val projects = fetcher(normalizedIds)
+        if (projects.size != normalizedIds.size) {
+            val missing = normalizedIds.toSet() - projects.map { it.id }.toSet() - projects.map { it.slug }.toSet()
+            if (missing.isNotEmpty()) {
+                lgr.debug { "Modrinth: ${missing.size} ids unmatched: ${missing.joinToString()}" }
             }
         }
 

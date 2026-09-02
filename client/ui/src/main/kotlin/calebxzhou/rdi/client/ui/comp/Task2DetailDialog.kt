@@ -36,6 +36,7 @@ import calebxzhou.rdi.common.model.Task2Entry
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.model.Task2Snapshot
 import calebxzhou.rdi.common.model.Task2Status
+import calebxzhou.rdi.common.model.compactText
 import calebxzhou.rdi.common.model.task2ChildPathSegment
 import calebxzhou.rdi.common.model.task2PathKey
 
@@ -52,7 +53,8 @@ fun Task2DetailDialog(
         task = entry.task,
         path = listOf(entry.task.id),
         level = 0,
-        expandState = expandState
+        expandState = expandState,
+        includeRoot = false
     )
     val listState = rememberLazyListState()
     Box(
@@ -104,7 +106,9 @@ fun Task2DetailDialog(
                         }
                     }
                     Space8h()
-                    entry.snapshot.currentFraction?.coerceIn(0f, 1f)?.let {
+                    val rootProgress = entry.snapshot.currentProgress
+                        ?: Task2Progress(entry.snapshot.currentMessage, entry.snapshot.currentFraction)
+                    rootProgress.fraction?.coerceIn(0f, 1f)?.let {
                         LinearProgressIndicator(
                             progress = { it },
                             color = MaterialTheme.colorScheme.primary,
@@ -114,9 +118,18 @@ fun Task2DetailDialog(
                         Space8h()
                     }
                     Text(
-                        text = entry.snapshot.currentMessage.ifBlank { "准备中" },
+                        text = rootProgress.message.ifBlank { "准备中" },
                         style = MaterialTheme.typography.bodyMedium
                     )
+                    rootProgress.compactText()
+                        .takeUnless { it == rootProgress.message }
+                        ?.let {
+                            Text(
+                                text = it,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     entry.snapshot.errorMessage?.let {
                         Space8h()
                         Text(
@@ -125,39 +138,41 @@ fun Task2DetailDialog(
                             style = MaterialTheme.typography.bodyMedium
                         )
                     }
-                    Space8h()
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                    ) {
-                        LazyColumn(
-                            state = listState,
+                    if (rows.isNotEmpty()) {
+                        Space8h()
+                        Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .padding(end = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                                .fillMaxWidth()
+                                .weight(1f)
                         ) {
-                            items(rows, key = { task2PathKey(it.path) }) { row ->
-                                Task2DetailRow(
-                                    row = row,
-                                    snapshot = entry.snapshot,
-                                    expanded = expandState[row.key] ?: row.defaultExpanded,
-                                    onToggle = {
-                                        if (row.isGroup) {
-                                            val current = expandState[row.key] ?: row.defaultExpanded
-                                            expandState[row.key] = !current
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(end = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(rows, key = { task2PathKey(it.path) }) { row ->
+                                    Task2DetailRow(
+                                        row = row,
+                                        snapshot = entry.snapshot,
+                                        expanded = expandState[row.key] ?: row.defaultExpanded,
+                                        onToggle = {
+                                            if (row.isGroup) {
+                                                val current = expandState[row.key] ?: row.defaultExpanded
+                                                expandState[row.key] = !current
+                                            }
                                         }
-                                    }
-                                )
+                                    )
+                                }
                             }
+                            SharedRVerticalScrollbar(
+                                listState = listState,
+                                modifier = Modifier
+                                    .align(Alignment.CenterEnd)
+                                    .fillMaxHeight()
+                            )
                         }
-                        SharedRVerticalScrollbar(
-                            listState = listState,
-                            modifier = Modifier
-                                .align(Alignment.CenterEnd)
-                                .fillMaxHeight()
-                        )
                     }
                 }
             }
@@ -165,7 +180,7 @@ fun Task2DetailDialog(
     }
 }
 
-private data class Task2RowState(
+internal data class Task2RowState(
     val path: List<String>,
     val key: String,
     val title: String,
@@ -174,11 +189,12 @@ private data class Task2RowState(
     val defaultExpanded: Boolean
 )
 
-private fun buildTask2Rows(
+internal fun buildTask2Rows(
     task: Task2,
     path: List<String>,
     level: Int,
     expandState: Map<String, Boolean>,
+    includeRoot: Boolean = true,
     rows: MutableList<Task2RowState> = mutableListOf()
 ): List<Task2RowState> {
     val key = task2PathKey(path)
@@ -188,16 +204,18 @@ private fun buildTask2Rows(
         is Task2.Sequence -> task.defaultExpanded
         else -> true
     }
-    rows += Task2RowState(
-        path = path,
-        key = key,
-        title = task.title,
-        level = level,
-        isGroup = isGroup,
-        defaultExpanded = defaultExpanded
-    )
+    if (includeRoot) {
+        rows += Task2RowState(
+            path = path,
+            key = key,
+            title = task.title,
+            level = level,
+            isGroup = isGroup,
+            defaultExpanded = defaultExpanded
+        )
+    }
     if (!isGroup) return rows
-    val expanded = expandState[key] ?: defaultExpanded
+    val expanded = if (includeRoot) expandState[key] ?: defaultExpanded else true
     if (!expanded) return rows
     val children = when (task) {
         is Task2.Group -> task.children
@@ -210,6 +228,7 @@ private fun buildTask2Rows(
             path = path + task2ChildPathSegment(child, index),
             level = level + 1,
             expandState = expandState,
+            includeRoot = true,
             rows = rows
         )
     }
@@ -227,8 +246,8 @@ private fun Task2DetailRow(
     val status = when {
         row.key in snapshot.donePaths -> Task2Status.DONE
         progress != null -> Task2Status.RUNNING
-        snapshot.status == Task2Status.FAILED && row.level == 0 -> Task2Status.FAILED
-        snapshot.status == Task2Status.CANCELLED && row.level == 0 -> Task2Status.CANCELLED
+        snapshot.status == Task2Status.FAILED && row.level == 1 -> Task2Status.FAILED
+        snapshot.status == Task2Status.CANCELLED && row.level == 1 -> Task2Status.CANCELLED
         else -> Task2Status.QUEUED
     }
     Column(
@@ -274,8 +293,8 @@ private fun Task2DetailRow(
 
 private fun Task2Progress?.detailText(status: Task2Status): String = when {
     this == null -> status.text
-    fraction != null -> "${message} ${(fraction!!.coerceIn(0f, 1f) * 100).toInt()}%"
-    else -> message
+    compactText() == message -> message
+    else -> "$message · ${compactText()}"
 }
 
 private val Task2Status.text: String

@@ -1,0 +1,482 @@
+package calebxzau.rdi.client.packproc
+
+import calebxzhou.rdi.common.exception.ModpackError
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import calebxzau.rdi.common.model.Modpack2ContentDto
+import calebxzau.rdi.common.model.Modpack2InheritedRawFile
+import calebxzau.rdi.common.model.Modpack2RawFile
+import calebxzau.rdi.common.model.Modpack2RawFileRoot
+import calebxzau.rdi.common.model.Modpack2ServerMode
+import calebxzhou.rdi.common.service.ModService
+import calebxzhou.rdi.common.service.ModService.readModMeta
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.nio.file.Files
+import java.util.jar.JarFile
+
+/**
+ * Modpack2-only processing pipeline. The existing [ModpackProcessor] remains
+ * the legacy upload implementation and deliberately keeps its old filters.
+ */
+class Modpack2Processor(
+    private val paths: PackProcessingPaths,
+    private val resolver: Modpack2ContentResolver = EmptyModpack2ContentResolver,
+) {
+    suspend fun buildArchive(
+        result: Modpack2ProcessingResult,
+        baseName: String = result.snapshot.sourceName,
+        manifestName: String? = null,
+        manifestJson: String? = null,
+    ): Result<Modpack2ArchiveResult> = Modpack2ArchiveBuilder(paths).build(result, baseName, manifestName, manifestJson)
+
+    fun preview(source: File): Result<Modpack2PackPreview> = runCatching {
+        paths.workDir.mkdirs()
+        val previewDir = Files.createTempDirectory(paths.workDir.toPath(), "modpack2-preview-").toFile()
+        try {
+            Modpack2SnapshotHasher.materialize(source, previewDir, processingWorkDir(source))
+            Modpack2SnapshotHasher.scan(previewDir, sourceName(source))
+        } finally {
+            runCatching { previewDir.deleteRecursivelyNoSymlink() }
+        }
+    }
+
+    fun previewFingerprint(source: File): Result<String> = preview(source).map { it.fingerprint }
+
+    /** Freeze an import and, when supplied, compare it with the editor preview. */
+    fun freeze(
+        source: File,
+        preview: Modpack2PackPreview? = null,
+    ): Result<Modpack2FrozenSnapshot> = runCatching {
+        paths.workDir.mkdirs()
+        val frozenDir = Files.createTempDirectory(paths.workDir.toPath(), "modpack2-frozen-").toFile()
+        try {
+            Modpack2SnapshotHasher.materialize(source, frozenDir, processingWorkDir(source))
+            val scanned = Modpack2SnapshotHasher.scan(frozenDir, sourceName(source))
+            if (preview != null && preview.fingerprint != scanned.fingerprint) {
+                throw Modpack2PreviewMismatchException(preview.fingerprint, scanned.fingerprint)
+            }
+            Modpack2FrozenSnapshot(
+                rootDir = frozenDir,
+                sourceName = scanned.sourceName,
+                fingerprint = scanned.fingerprint,
+                files = scanned.files,
+            )
+        } catch (error: Throwable) {
+            runCatching { frozenDir.deleteRecursivelyNoSymlink() }
+            throw error
+        }
+    }
+
+    suspend fun process(
+        source: File,
+        serverMode: Modpack2ServerMode = Modpack2ServerMode.Generated,
+        preview: Modpack2PackPreview? = null,
+        providedServerPack: File? = null,
+        manualSideOverrides: Map<String, ContentSide> = emptyMap(),
+        explicitGithubSources: List<Modpack2ExplicitGithubSource> = emptyList(),
+        serverOnlyPaths: Set<String> = emptySet(),
+        generatedInheritance: Modpack2GeneratedInheritance = Modpack2GeneratedInheritance(),
+        predeclaredContents: List<Modpack2ContentDto> = emptyList(),
+        rawOnly: Boolean = false,
+    ): Result<Modpack2ProcessingResult> = withContext(Dispatchers.IO) {
+        val frozen = freeze(source, preview).getOrElse { return@withContext Result.failure(it) }
+        process(
+            snapshot = frozen,
+            serverMode = serverMode,
+            providedServerPack = providedServerPack,
+            manualSideOverrides = manualSideOverrides,
+            explicitGithubSources = explicitGithubSources,
+            serverOnlyPaths = serverOnlyPaths,
+            generatedInheritance = generatedInheritance,
+            predeclaredContents = predeclaredContents,
+            rawOnly = rawOnly,
+        ).onFailure { frozen.close() }
+    }
+
+    suspend fun process(
+        snapshot: Modpack2FrozenSnapshot,
+        serverMode: Modpack2ServerMode = Modpack2ServerMode.Generated,
+        providedServerPack: File? = null,
+        manualSideOverrides: Map<String, ContentSide> = emptyMap(),
+        explicitGithubSources: List<Modpack2ExplicitGithubSource> = emptyList(),
+        serverOnlyPaths: Set<String> = emptySet(),
+        generatedInheritance: Modpack2GeneratedInheritance = Modpack2GeneratedInheritance(),
+        predeclaredContents: List<Modpack2ContentDto> = emptyList(),
+        rawOnly: Boolean = false,
+    ): Result<Modpack2ProcessingResult> = withContext(Dispatchers.IO) {
+        var providedSnapshot: Modpack2FrozenSnapshot? = null
+        runCatching {
+            snapshot.requireUnchanged()
+            val normalizedOverrides = manualSideOverrides.mapKeys { normalizeSideOverrideKey(it.key) }
+            val clientContents = mutableListOf<Modpack2ResolvedContent>()
+            val rawShadowedContents = mutableListOf<Modpack2ResolvedContent>()
+            val unmatchedContents = mutableListOf<Modpack2UnmatchedContent>()
+            val rawFiles = mutableListOf<Modpack2RawFile>()
+            val rawSources = linkedMapOf<String, File>()
+            if (rawOnly || predeclaredContents.isNotEmpty()) {
+                processPredeclaredClient(
+                    snapshot = snapshot,
+                    predeclaredContents = predeclaredContents,
+                    normalizedOverrides = normalizedOverrides,
+                    serverOnlyPaths = serverOnlyPaths,
+                    clientContents = clientContents,
+                    rawShadowedContents = rawShadowedContents,
+                    unmatchedContents = unmatchedContents,
+                    rawFiles = rawFiles,
+                    rawSources = rawSources,
+                )
+            } else {
+                val catalogContents = resolver.resolveBatch(
+                    snapshot.files
+                        .filterNot { Modpack2ArchivePolicy.shouldExclude(it.relativePath) }
+                        .map { Modpack2ContentCandidate(it.file, it.relativePath, it.sha1) },
+                )
+                snapshot.files.forEach { snapshotFile ->
+                    if (Modpack2ArchivePolicy.shouldExclude(snapshotFile.relativePath)) return@forEach
+                    val content = resolveContent(snapshotFile, explicitGithubSources, catalogContents)
+                        ?: run {
+                            val pathKey = snapshotFile.relativePath.lowercase()
+                            val unmatchedSide = normalizedOverrides["path:$pathKey"]
+                                ?: normalizedOverrides[pathKey]
+                            unmatchedContents += Modpack2UnmatchedContent(
+                                sourcePath = snapshotFile.relativePath,
+                                sha1 = snapshotFile.sha1,
+                                size = snapshotFile.size,
+                                side = unmatchedSide ?: ContentSide.Both,
+                            )
+                            addRaw(
+                                snapshotFile = snapshotFile,
+                                root = Modpack2ArchivePolicy.rootFor(
+                                    snapshotFile.relativePath,
+                                    side = unmatchedSide ?: ContentSide.Both,
+                                    serverOnly = normalizePathSet(serverOnlyPaths).contains(pathKey),
+                                ),
+                                rawFiles = rawFiles,
+                                rawSources = rawSources,
+                            )
+                            return@forEach
+                        }
+                    val side = normalizedOverrides["path:${snapshotFile.relativePath.lowercase()}"]
+                        ?: normalizedOverrides[snapshotFile.relativePath.lowercase()]
+                        ?: normalizedOverrides[modpack2LogicalIdentity(content)]
+                        ?: normalizedOverrides[content.projectId.trim().lowercase()]
+                    clientContents += Modpack2ResolvedContent(
+                        sourcePath = snapshotFile.relativePath,
+                        sourceSha1 = snapshotFile.sha1,
+                        content = content.copy(side = side ?: content.side),
+                        serverArtifact = false,
+                    )
+                }
+            }
+
+            val allContents = when (serverMode) {
+                Modpack2ServerMode.Provided -> {
+                    val serverPack = providedServerPack ?: throw ModpackError("Provided模式需要服务端整合包")
+                    val serverSnapshot = freeze(serverPack).getOrThrow()
+                    providedSnapshot = serverSnapshot
+                    mergeProvidedServerPack(
+                        clientSnapshot = snapshot,
+                        clientContents = clientContents,
+                        serverSnapshot = serverSnapshot,
+                        explicitGithubSources = explicitGithubSources,
+                        catalogContents = resolver.resolveBatch(
+                            serverSnapshot.files
+                                .filterNot { Modpack2ArchivePolicy.shouldExclude(it.relativePath) }
+                                .map { Modpack2ContentCandidate(it.file, it.relativePath, it.sha1) },
+                        ),
+                        rawFiles = rawFiles,
+                        rawSources = rawSources,
+                        manifestOnly = rawOnly || predeclaredContents.isNotEmpty(),
+                    )
+                }
+
+                Modpack2ServerMode.Generated -> {
+                    val inherited = generatedInheritance.serverContents
+                        .filter { it.side == ContentSide.Server }
+                        .map { content ->
+                            Modpack2ResolvedContent(
+                                sourcePath = "@base-server:${modpack2LogicalIdentity(content)}",
+                                sourceSha1 = content.hash,
+                                content = content.copy(side = ContentSide.Server),
+                                serverArtifact = true,
+                            )
+                        }
+                    clientContents + inherited
+                }
+            }
+            val inheritedFiles = if (serverMode == Modpack2ServerMode.Generated) {
+                generatedInheritance.serverFiles
+            } else {
+                emptyList()
+            }
+            Modpack2ProcessingResult(
+                snapshot = snapshot,
+                serverMode = serverMode,
+                contents = distinctResolvedContents(allContents),
+                rawShadowedContents = distinctResolvedContents(rawShadowedContents),
+                unmatchedContents = unmatchedContents,
+                rawFiles = rawFiles.distinctBy { rawFileKey(it.root, it.path) },
+                rawFileSources = rawSources.toMap(),
+                inheritedServerFiles = inheritedFiles,
+                providedServerSnapshot = providedSnapshot,
+            )
+        }.onFailure {
+            providedSnapshot?.close()
+        }
+    }
+
+    private fun processPredeclaredClient(
+        snapshot: Modpack2FrozenSnapshot,
+        predeclaredContents: List<Modpack2ContentDto>,
+        normalizedOverrides: Map<String, ContentSide>,
+        serverOnlyPaths: Set<String>,
+        clientContents: MutableList<Modpack2ResolvedContent>,
+        rawShadowedContents: MutableList<Modpack2ResolvedContent>,
+        unmatchedContents: MutableList<Modpack2UnmatchedContent>,
+        rawFiles: MutableList<Modpack2RawFile>,
+        rawSources: MutableMap<String, File>,
+    ) {
+        val normalizedServerOnly = normalizePathSet(serverOnlyPaths)
+        val rawSnapshotPaths = snapshot.files.asSequence()
+            .filterNot { Modpack2ArchivePolicy.shouldExclude(it.relativePath) }
+            .map { normalizePackPath(it.relativePath).lowercase() }
+            .toSet()
+        val declarationsByPath = predeclaredContents.mapNotNull { declaration ->
+            declaration.targetPath?.let { normalizePackPath(it).lowercase() to declaration }
+        }.toMap()
+        snapshot.files.forEach { snapshotFile ->
+            if (Modpack2ArchivePolicy.shouldExclude(snapshotFile.relativePath)) return@forEach
+            val pathKey = normalizePackPath(snapshotFile.relativePath).lowercase()
+            val shadowed = declarationsByPath[pathKey]
+            val side = shadowed?.let { declaration ->
+                normalizedOverrides["path:$pathKey"]
+                    ?: normalizedOverrides[pathKey]
+                    ?: normalizedOverrides[modpack2LogicalIdentity(declaration)]
+                    ?: normalizedOverrides[declaration.projectId.trim().lowercase()]
+                    ?: declaration.side
+            } ?: (normalizedOverrides["path:$pathKey"] ?: normalizedOverrides[pathKey] ?: ContentSide.Both)
+            unmatchedContents += Modpack2UnmatchedContent(snapshotFile.relativePath, snapshotFile.sha1, snapshotFile.size, side)
+            val root = if (shadowed != null) {
+                when (side) {
+                    ContentSide.Client -> Modpack2RawFileRoot.Client
+                    ContentSide.Server -> Modpack2RawFileRoot.Server
+                    ContentSide.Both -> Modpack2RawFileRoot.Shared
+                }
+            } else {
+                Modpack2ArchivePolicy.rootFor(snapshotFile.relativePath, side, pathKey in normalizedServerOnly)
+            }
+            addRaw(snapshotFile, root, rawFiles, rawSources)
+            if (shadowed != null) {
+                rawShadowedContents += Modpack2ResolvedContent(
+                    sourcePath = snapshotFile.relativePath,
+                    sourceSha1 = snapshotFile.sha1,
+                    content = shadowed.copy(side = side),
+                )
+            }
+        }
+        predeclaredContents.forEach { declared ->
+            val declaredPath = normalizePackPath(declared.targetPath.orEmpty()).lowercase()
+            if (declaredPath.isBlank() || declaredPath in rawSnapshotPaths) return@forEach
+            val side = normalizedOverrides["path:$declaredPath"]
+                ?: normalizedOverrides[declaredPath]
+                ?: normalizedOverrides[modpack2LogicalIdentity(declared)]
+                ?: normalizedOverrides[declared.projectId.trim().lowercase()]
+            clientContents += Modpack2ResolvedContent(
+                sourcePath = "@manifest:$declaredPath",
+                sourceSha1 = declared.hash,
+                content = declared.copy(side = side ?: declared.side),
+            )
+        }
+    }
+
+    private fun resolveContent(
+        snapshotFile: Modpack2SnapshotFile,
+        explicitGithubSources: List<Modpack2ExplicitGithubSource>,
+        catalogContents: Map<String, Modpack2ContentDto>,
+    ): Modpack2ContentDto? {
+        val path = snapshotFile.relativePath
+        catalogContents[normalizePackPath(path)]?.let { content ->
+            require(content.platform == ContentPlatform.Modrinth || content.platform == ContentPlatform.CurseForge) {
+                "目录解析器返回了错误的平台"
+            }
+            return content
+        }
+        // Never infer GitHub from a URL, file name, or an arbitrary hash.
+        return explicitGithubSources.firstOrNull { it.matches(path, snapshotFile.sha1) }?.content
+    }
+
+    private suspend fun mergeProvidedServerPack(
+        clientSnapshot: Modpack2FrozenSnapshot,
+        clientContents: MutableList<Modpack2ResolvedContent>,
+        serverSnapshot: Modpack2FrozenSnapshot,
+        explicitGithubSources: List<Modpack2ExplicitGithubSource>,
+        catalogContents: Map<String, Modpack2ContentDto>,
+        rawFiles: MutableList<Modpack2RawFile>,
+        rawSources: MutableMap<String, File>,
+        manifestOnly: Boolean = false,
+    ): List<Modpack2ResolvedContent> {
+        if (manifestOnly) {
+            val declared = clientContents.toList()
+            serverSnapshot.files.forEach { serverFile ->
+                if (Modpack2ArchivePolicy.shouldExclude(serverFile.relativePath)) return@forEach
+                val serverContent = resolveContent(serverFile, explicitGithubSources, catalogContents)
+                val matching = serverContent?.let { server ->
+                    declared.firstOrNull { samePlatformArtifact(server, it.content) }
+                }
+                if (matching != null) {
+                    val index = clientContents.indexOf(matching)
+                    clientContents[index] = matching.copy(content = matching.content.copy(side = ContentSide.Both))
+                } else {
+                    addRaw(serverFile, Modpack2RawFileRoot.Server, rawFiles, rawSources)
+                }
+            }
+            return clientContents
+        }
+        val clientArtifacts = clientSnapshot.files
+            .filter { it.relativePath.substringBefore('/').equals("mods", ignoreCase = true) }
+            .filterNot { Modpack2ArchivePolicy.shouldExclude(it.relativePath) }
+            .mapNotNull { file -> readPrimaryModId(file.file)?.let { it to file } }
+            .groupBy({ it.first }, { it.second })
+        serverSnapshot.files.forEach { serverFile ->
+            if (Modpack2ArchivePolicy.shouldExclude(serverFile.relativePath)) return@forEach
+            val isMod = serverFile.relativePath.substringBefore('/').equals("mods", ignoreCase = true) &&
+                serverFile.file.extension.equals("jar", ignoreCase = true)
+            val serverContent = resolveContent(serverFile, explicitGithubSources, catalogContents)
+            val serverModId = if (isMod) readPrimaryModId(serverFile.file) else null
+            val clientArtifact = serverModId?.let { clientArtifacts[it].orEmpty().firstOrNull() }
+            val clientContentIndex = clientArtifact?.let { artifact ->
+                clientContents.indexOfFirst { it.sourcePath == artifact.relativePath }
+            } ?: -1
+            if (clientArtifact != null && clientContentIndex >= 0) {
+                val sameBytes = clientArtifact.sha1.equals(serverFile.sha1, ignoreCase = true)
+                val sameArtifact = serverContent != null && samePlatformArtifact(
+                    serverContent,
+                    clientContents[clientContentIndex].content,
+                )
+                if (sameBytes || sameArtifact) {
+                    val current = clientContents[clientContentIndex]
+                    clientContents[clientContentIndex] = current.copy(
+                        content = current.content.copy(side = ContentSide.Both),
+                    )
+                    return@forEach
+                }
+                // The same primary modId with a different actual artifact is
+                // represented by independent client and server records.
+                clientContents[clientContentIndex] = clientContents[clientContentIndex].copy(
+                    content = clientContents[clientContentIndex].content.copy(side = ContentSide.Client),
+                )
+            }
+            if (serverContent != null) {
+                clientContents += Modpack2ResolvedContent(
+                    sourcePath = serverFile.relativePath,
+                    sourceSha1 = serverFile.sha1,
+                    content = serverContent.copy(side = ContentSide.Server),
+                    serverArtifact = true,
+                )
+                return@forEach
+            }
+            // A changed/unrecognized server artifact remains a real server raw file.
+            addRaw(
+                snapshotFile = serverFile,
+                root = Modpack2RawFileRoot.Server,
+                rawFiles = rawFiles,
+                rawSources = rawSources,
+            )
+        }
+        return clientContents
+    }
+
+    private fun samePlatformArtifact(
+        left: Modpack2ContentDto,
+        right: Modpack2ContentDto,
+    ): Boolean = left.platform == right.platform &&
+        left.type == right.type &&
+        left.projectId == right.projectId &&
+        left.fileId == right.fileId &&
+        left.hash.equals(right.hash, ignoreCase = true)
+
+    private fun addRaw(
+        snapshotFile: Modpack2SnapshotFile,
+        root: Modpack2RawFileRoot,
+        rawFiles: MutableList<Modpack2RawFile>,
+        rawSources: MutableMap<String, File>,
+    ) {
+        val path = normalizePackPath(snapshotFile.relativePath)
+        if (path.isBlank() || Modpack2ArchivePolicy.shouldExclude(path)) return
+        val raw = Modpack2RawFile(
+            root = root,
+            path = path,
+            sha1 = snapshotFile.sha1,
+            size = snapshotFile.size,
+        )
+        val key = rawFileKey(root, path)
+        if (rawSources.putIfAbsent(key, snapshotFile.file) == null) {
+            rawFiles += raw
+        }
+    }
+
+    private fun distinctResolvedContents(contents: List<Modpack2ResolvedContent>): List<Modpack2ResolvedContent> =
+        contents.distinctBy {
+            listOf(
+                it.sourcePath,
+                it.content.platform.name,
+                it.content.type.name,
+                it.content.projectId,
+                it.content.fileId,
+                it.content.hash,
+                it.content.side.name,
+            )
+        }
+
+    private fun readPrimaryModId(file: File): String? = runCatching {
+        if (!file.isFile || !file.extension.equals("jar", ignoreCase = true)) return@runCatching null
+        ModService.run {
+            JarFile(file).use { jar ->
+                jar.readModMeta()?.primaryModId?.trim()?.lowercase()?.ifBlank { null }
+                    ?: readFabricModId(jar)
+            }
+        }
+    }.getOrNull()
+
+    private fun readFabricModId(jar: JarFile): String? {
+        val entry = jar.getJarEntry("fabric.mod.json") ?: return null
+        val text = jar.getInputStream(entry).bufferedReader().use { it.readText() }
+        return Regex("\\\"id\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"")
+            .find(text)
+            ?.groupValues
+            ?.getOrNull(1)
+            ?.trim()
+            ?.lowercase()
+            ?.ifBlank { null }
+    }
+
+    private fun sourceName(source: File): String =
+        if (source.isDirectory) source.name else source.nameWithoutExtension.removeSuffix(".tar")
+
+    /**
+     * The caller normally supplies a work directory outside the pack. Tests and
+     * embedded callers may place it below the source directory, however. In
+     * that case staging files are not pack content and must not be copied into
+     * the frozen snapshot (or recursively copied forever).
+     */
+    private fun processingWorkDir(source: File): File? {
+        if (!source.isDirectory) return null
+        val sourcePath = source.toPath().toAbsolutePath().normalize()
+        val workPath = paths.workDir.toPath().toAbsolutePath().normalize()
+        return workPath
+            .takeIf { it != sourcePath && it.startsWith(sourcePath) }
+            ?.toFile()
+    }
+
+    private fun normalizePathSet(paths: Set<String>): Set<String> =
+        paths.map { normalizePackPath(it).lowercase() }.toSet()
+
+    private fun normalizeSideOverrideKey(key: String): String =
+        key.trim().replace('\\', '/').lowercase()
+
+    private object EmptyModpack2ContentResolver : Modpack2ContentResolver
+}

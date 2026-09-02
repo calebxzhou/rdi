@@ -1,0 +1,178 @@
+package calebxzhou.rdi.client.service
+
+import kotlinx.coroutines.runBlocking
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class Host2PlayTransactionServiceTest {
+    @Test
+    fun `restore returns only touched paths and removes added files`() = runBlocking {
+        val root = Files.createTempDirectory("host2-play-transaction")
+        val transactionRoot = root.resolve("transactions")
+        val version = root.resolve("version").apply { Files.createDirectories(this) }
+        try {
+            val touched = version.resolve("config/settings.txt")
+            Files.createDirectories(touched.parent)
+            Files.writeString(touched, "old")
+            Files.writeString(version.resolve("untouched.txt"), "keep")
+
+            val service = Host2PlayTransactionService(transactionRoot)
+            val transaction = service.begin(
+                versionId = "019c9c18-778d-7000-8000-000000000001",
+                versionDirectory = version,
+                paths = setOf("config/settings.txt", "mods/extra.jar"),
+            ).getOrThrow()
+            transaction.removeDeclared("config/settings.txt")
+            Files.writeString(touched, "overlay")
+            val added = version.resolve("mods/extra.jar")
+            Files.createDirectories(added.parent)
+            Files.writeString(added, "extra")
+
+            assertEquals(Host2PlayCleanupResult.Success, transaction.restore())
+            assertEquals("old", Files.readString(touched))
+            assertFalse(Files.exists(added, LinkOption.NOFOLLOW_LINKS))
+            assertEquals("keep", Files.readString(version.resolve("untouched.txt")))
+            assertFalse(Files.exists(transactionRoot.resolve("019c9c18-778d-7000-8000-000000000001")))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `same version is locked while transaction is alive and stale transaction is recovered`() = runBlocking {
+        val root = Files.createTempDirectory("host2-play-lock")
+        val transactionRoot = root.resolve("transactions")
+        val version = root.resolve("version").apply { Files.createDirectories(this) }
+        val path = version.resolve("config/settings.txt")
+        Files.createDirectories(path.parent)
+        Files.writeString(path, "old")
+        try {
+            val first = Host2PlayTransactionService(transactionRoot)
+            val active = first.begin("version", version, setOf("config/settings.txt")).getOrThrow()
+            active.removeDeclared("config/settings.txt")
+            Files.writeString(path, "overlay")
+
+            assertTrue(first.begin("version", version, setOf("config/settings.txt")).isFailure)
+            val second = Host2PlayTransactionService(transactionRoot)
+            second.recoverInterrupted().getOrThrow()
+            assertEquals("old", Files.readString(path))
+            assertFalse(Files.exists(transactionRoot.resolve("version")))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `starting another version does not recover a live version journal`() = runBlocking {
+        val root = Files.createTempDirectory("host2-play-version-isolation")
+        val transactionRoot = root.resolve("transactions")
+        val firstVersion = root.resolve("first").apply { Files.createDirectories(this) }
+        val secondVersion = root.resolve("second").apply { Files.createDirectories(this) }
+        val firstPath = firstVersion.resolve("config/settings.txt")
+        Files.createDirectories(firstPath.parent)
+        Files.writeString(firstPath, "old")
+        try {
+            val service = Host2PlayTransactionService(transactionRoot)
+            val first = service.begin("first", firstVersion, setOf("config/settings.txt")).getOrThrow()
+            first.removeDeclared("config/settings.txt")
+            Files.writeString(firstPath, "overlay")
+
+            val second = service.begin("second", secondVersion, emptySet()).getOrThrow()
+            assertTrue(Files.exists(transactionRoot.resolve("first"), LinkOption.NOFOLLOW_LINKS))
+            assertEquals("overlay", Files.readString(firstPath))
+            assertEquals(Host2PlayCleanupResult.Success, second.restore())
+            assertEquals(Host2PlayCleanupResult.Success, first.restore())
+            assertEquals("old", Files.readString(firstPath))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `restore restores an expanded content directory byte for byte`() = runBlocking {
+        val root = Files.createTempDirectory("host2-play-expanded")
+        val transactionRoot = root.resolve("transactions")
+        val version = root.resolve("version").apply { Files.createDirectories(this) }
+        val target = version.resolve("resourcepacks/room-pack")
+        try {
+            Files.createDirectories(target.resolve("assets/example"))
+            Files.writeString(target.resolve("pack.mcmeta"), "original metadata")
+            Files.writeString(target.resolve("assets/example/texture.png"), "original bytes")
+
+            val transaction = Host2PlayTransactionService(transactionRoot)
+                .begin("version", version, setOf("resourcepacks/room-pack"))
+                .getOrThrow()
+            transaction.removeDeclared("resourcepacks/room-pack")
+            Files.createDirectories(target.resolve("assets/example"))
+            Files.writeString(target.resolve("pack.mcmeta"), "room metadata")
+            Files.writeString(target.resolve("assets/example/texture.png"), "room bytes")
+            Files.writeString(target.resolve("new.txt"), "temporary")
+
+            assertEquals(Host2PlayCleanupResult.Success, transaction.restore())
+            assertEquals("original metadata", Files.readString(target.resolve("pack.mcmeta")))
+            assertEquals("original bytes", Files.readString(target.resolve("assets/example/texture.png")))
+            assertFalse(Files.exists(target.resolve("new.txt"), LinkOption.NOFOLLOW_LINKS))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `failed interrupted recovery remains and blocks the next transaction`() = runBlocking {
+        val root = Files.createTempDirectory("host2-play-recovery-failure")
+        val transactionRoot = root.resolve("transactions")
+        val version = root.resolve("version").apply { Files.createDirectories(this) }
+        val transactionDirectory = transactionRoot.resolve("version")
+        try {
+            val marker = transactionDirectory.resolve("touched/config/settings.txt.entry")
+            Files.createDirectories(marker.parent)
+            Files.createFile(marker)
+
+            val service = Host2PlayTransactionService(transactionRoot)
+            assertTrue(service.recoverInterrupted().isFailure)
+            assertTrue(Files.exists(transactionDirectory, LinkOption.NOFOLLOW_LINKS))
+            assertTrue(service.begin("version", version, setOf("config/settings.txt")).isFailure)
+            assertTrue(Files.exists(transactionDirectory, LinkOption.NOFOLLOW_LINKS))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `partial backup without completion marker leaves original target and recovery failure observable`() = runBlocking {
+        val root = Files.createTempDirectory("host2-play-partial-backup")
+        val transactionRoot = root.resolve("transactions")
+        val version = root.resolve("version").apply { Files.createDirectories(this) }
+        val target = version.resolve("config/settings.txt")
+        val backup = transactionRoot.resolve("version/backup/config/settings.txt")
+        try {
+            Files.createDirectories(target.parent)
+            Files.writeString(target, "original")
+            Files.createDirectories(backup.parent)
+            Files.writeString(backup, "partial")
+
+            val result = Host2PlayTransactionService(transactionRoot).recoverInterrupted()
+
+            assertTrue(result.isFailure)
+            assertTrue(result.exceptionOrNull()?.message?.contains("完整提交") == true)
+            assertEquals("original", Files.readString(target))
+            assertEquals("partial", Files.readString(backup))
+            assertTrue(Files.exists(transactionRoot.resolve("version"), LinkOption.NOFOLLOW_LINKS))
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `prepared cache key includes version revision and local fingerprint`() {
+        val first = host2PreparedCacheKey("host-a", "version", 4, "a")
+        assertEquals(first, host2PreparedCacheKey("host-a", "version", 4, "a"))
+        assertTrue(first != host2PreparedCacheKey("host-a", "version", 5, "a"))
+        assertTrue(first != host2PreparedCacheKey("host-a", "version", 4, "b"))
+        assertTrue(first != host2PreparedCacheKey("host-b", "version", 4, "a"))
+    }
+}

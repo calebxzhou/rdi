@@ -67,6 +67,17 @@ data class EnvironmentCompatibility(
     val server: EnvironmentRequirement = EnvironmentRequirement.UNKNOWN
 )
 
+fun EnvironmentCompatibility.withFallback(
+    fallback: EnvironmentCompatibility?
+): EnvironmentCompatibility = EnvironmentCompatibility(
+    client = client.takeUnless { it == EnvironmentRequirement.UNKNOWN }
+        ?: fallback?.client
+        ?: EnvironmentRequirement.UNKNOWN,
+    server = server.takeUnless { it == EnvironmentRequirement.UNKNOWN }
+        ?: fallback?.server
+        ?: EnvironmentRequirement.UNKNOWN,
+)
+
 data class CatalogProjectSource(
     val ref: CatalogProjectRef,
     val slug: String,
@@ -75,8 +86,16 @@ data class CatalogProjectSource(
     val iconUrl: String?,
     val downloadCount: Long,
     val updatedAt: Instant,
-    val environment: EnvironmentCompatibility
+    val environment: EnvironmentCompatibility,
+    val contentType: CatalogContentType = CatalogContentType.MOD
 )
+
+enum class CatalogContentType {
+    MOD,
+    RESOURCE_PACK,
+    SHADER_PACK,
+    OTHER
+}
 
 data class CatalogMod(
     val identity: CatalogIdentity,
@@ -172,6 +191,12 @@ data class CatalogDigest(
     val value: String
 )
 
+data class CatalogFileHashes(
+    val key: String,
+    val sha1: String,
+    val curseForgeFingerprint: Long?
+)
+
 enum class CatalogDigestAlgorithm {
     SHA1,
     CURSEFORGE_MURMUR2
@@ -215,8 +240,12 @@ data class CatalogFile(
     val loaders: Set<ModLoader>,
     val environment: EnvironmentCompatibility,
     val digests: Set<CatalogDigest>,
-    val dependencies: List<CatalogDependency>
+    val dependencies: List<CatalogDependency>,
+    val downloadUrl: String? = null
 )
+
+fun CatalogFile.effectiveEnvironment(source: CatalogProjectSource?): EnvironmentCompatibility =
+    environment.withFallback(source?.environment)
 
 class CatalogFileCursor internal constructor(
     internal val platform: ModPlatform,
@@ -273,9 +302,10 @@ data class UpdateReport(
     val unresolved: Set<CatalogFileRef>
 )
 
-data class DependencyRequest(
+data class DependencyRequest @JvmOverloads constructor(
     val roots: List<CatalogFile>,
-    val target: CatalogTarget
+    val target: CatalogTarget,
+    val requirements: Set<DependencyRequirement> = DependencyRequirement.entries.toSet()
 )
 
 data class DependencyNode(

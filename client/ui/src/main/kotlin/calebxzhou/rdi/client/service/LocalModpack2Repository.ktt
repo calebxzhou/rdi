@@ -1,0 +1,75 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2ContentCacheRecord
+import calebxzhou.rdi.client.database.LocalModpack2ContentDependencyKey
+import calebxzhou.rdi.client.database.LocalModpack2ContentDependencyRecord
+import calebxzhou.rdi.client.database.LocalModpack2ContentOverrideKey
+import calebxzhou.rdi.client.database.LocalModpack2ContentOverrideRecord
+import calebxzhou.rdi.client.database.LocalModpack2ContentRecord
+import calebxzhou.rdi.client.database.LocalModpack2FileKey
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.database.LocalModpack2Mutation
+import calebxzhou.rdi.client.database.LocalModpack2Store
+import calebxzhou.rdi.client.database.LocalModpack2SubmissionRecord
+import calebxzhou.rdi.client.database.LocalModpack2UnknownFileRecord
+import kotlin.uuid.Uuid
+
+/** Result-returning repository for the remote-backed local Modpack2 model. */
+class LocalModpack2Repository(
+    private val store: LocalModpack2Store,
+) : AutoCloseable {
+    suspend fun list(): Result<List<LocalModpack2InstanceRecord>> = store.list()
+
+    suspend fun find(versionId: Uuid): Result<LocalModpack2InstanceRecord?> = store.find(versionId)
+
+    suspend fun upsert(record: LocalModpack2InstanceRecord): Result<Unit> = store.upsert(record)
+
+    suspend fun delete(versionId: Uuid): Result<Unit> = store.delete(versionId)
+
+    suspend fun contentCache(versionId: Uuid): Result<List<LocalModpack2ContentCacheRecord>> =
+        store.listContentCache(versionId)
+
+    suspend fun replaceContentCache(
+        versionId: Uuid,
+        records: List<LocalModpack2ContentCacheRecord>,
+    ): Result<Unit> = store.replaceContentCache(versionId, records)
+
+    @Deprecated("Content authority tables were removed")
+    suspend fun contents(versionId: Uuid): Result<List<LocalModpack2ContentRecord>> = store.listByVersion(versionId)
+    @Deprecated("Content authority tables were removed")
+    suspend fun upsertContent(record: LocalModpack2ContentRecord): Result<Unit> = store.upsertContent(record)
+    @Deprecated("Content authority tables were removed")
+    suspend fun deleteContent(contentId: Uuid): Result<Unit> = store.deleteContent(contentId)
+    @Deprecated("Content authority tables were removed")
+    suspend fun overrides(versionId: Uuid): Result<List<LocalModpack2ContentOverrideRecord>> = store.overrides(versionId)
+    @Deprecated("Content authority tables were removed")
+    suspend fun upsertOverride(record: LocalModpack2ContentOverrideRecord): Result<Unit> = store.upsertOverride(record)
+    @Deprecated("Content authority tables were removed")
+    suspend fun deleteOverride(key: LocalModpack2ContentOverrideKey): Result<Unit> = store.deleteOverride(key)
+    @Deprecated("Content authority tables were removed")
+    suspend fun dependencies(versionId: Uuid): Result<List<LocalModpack2ContentDependencyRecord>> = store.dependencies(versionId)
+    @Deprecated("Content authority tables were removed")
+    suspend fun upsertDependency(record: LocalModpack2ContentDependencyRecord): Result<Unit> = store.upsertDependency(record)
+    @Deprecated("Content authority tables were removed")
+    suspend fun deleteDependency(key: LocalModpack2ContentDependencyKey): Result<Unit> = store.deleteDependency(key)
+    @Deprecated("Content authority tables were removed")
+    suspend fun unknownFiles(versionId: Uuid): Result<List<LocalModpack2UnknownFileRecord>> = store.unknownFiles(versionId)
+    @Deprecated("Content authority tables were removed")
+    suspend fun upsertUnknownFile(record: LocalModpack2UnknownFileRecord): Result<Unit> = store.upsertUnknownFile(record)
+    @Deprecated("Content authority tables were removed")
+    suspend fun deleteUnknownFile(key: LocalModpack2FileKey): Result<Unit> = store.deleteUnknownFile(key)
+    @Deprecated("Submission journals were removed")
+    suspend fun submissions(): Result<List<LocalModpack2SubmissionRecord>> = store.listSubmissions()
+    @Deprecated("Submission journals were removed")
+    suspend fun submission(versionId: Uuid): Result<LocalModpack2SubmissionRecord?> = store.findSubmission(versionId)
+    @Deprecated("Submission journals were removed")
+    suspend fun writeSubmission(record: LocalModpack2SubmissionRecord): Result<Unit> = store.writeSubmission(record)
+    @Deprecated("Submission journals were removed")
+    suspend fun clearSubmission(versionId: Uuid): Result<Unit> = store.clearSubmission(versionId)
+    @Deprecated("Version remapping was removed")
+    suspend fun remapVersionId(oldVersionId: Uuid, newVersionId: Uuid): Result<Unit> = store.remapVersionId(oldVersionId, newVersionId)
+    @Deprecated("Atomic local content mutation was removed")
+    suspend fun mutate(mutation: LocalModpack2Mutation): Result<Unit> = Result.failure(UnsupportedOperationException("Removed Modpack2 mutation API"))
+
+    override fun close() = store.close()
+}

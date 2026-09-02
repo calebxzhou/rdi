@@ -1,0 +1,32 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class Modpack2UiContractTest {
+    @Test
+    fun `active navigation exposes upload only`() {
+        val root = sourceRoot()
+        val navigation = Files.readString(root.resolve("src/main/kotlin/calebxzhou/rdi/client/ui/AppNavigation.kt"))
+        val routes = Files.readString(root.resolve("src/main/kotlin/calebxzhou/rdi/client/ui/screen/Ui2Screens.kt"))
+        assertTrue(navigation.contains("onOpenUpload = { navController.navigate(ModpackUpload) }"))
+        assertFalse(navigation.contains("onOpenUpload = { navController.navigate(Modpack2Upload) }"))
+        assertTrue(routes.contains("object ModpackUpload"))
+        assertFalse(navigation.contains("Modpack2Workspace")); assertFalse(navigation.contains("Modpack2Publish"))
+        assertFalse(routes.contains("object Modpack2Workspace")); assertFalse(routes.contains("data class Modpack2Publish"))
+    }
+
+    @Test
+    fun `my modpack uses upload and unlinked folder-only wording`() {
+        val source = Files.readString(sourceRoot().resolve("src/main/kotlin/calebxzhou/rdi/client/ui/screen/MyModpackScreen.kt"))
+        assertFalse(source.contains("onOpenUpload"))
+        assertFalse(source.contains("上传第一个整合包"))
+        assertTrue(source.contains("未关联本地数据")); assertTrue(source.contains("不能直接上传")); assertTrue(source.contains("CurseForge或Modrinth安装包"))
+        assertFalse(source.contains("onImport")); assertFalse(source.contains("编辑与发布")); assertFalse(source.contains("处理失败发布"))
+    }
+
+    private fun sourceRoot(): Path = Path.of(System.getProperty("user.dir")).toAbsolutePath().normalize()
+}

@@ -32,7 +32,7 @@ internal object EarlyDisplayMount {
         modLoader: ModLoader,
         versionDir: File,
     ): Result<Boolean> {
-        if (mcVersion != McVersion.V211 || modLoader != ModLoader.neoforge) {
+        if (!isSupported(mcVersion, modLoader)) {
             return Result.success(false)
         }
         return runCatching {
@@ -54,7 +54,7 @@ internal object EarlyDisplayMount {
         modLoader: ModLoader,
         versionDir: File,
     ): Result<Boolean> {
-        if (mcVersion != McVersion.V211 || modLoader != ModLoader.neoforge) {
+        if (!isSupported(mcVersion, modLoader)) {
             return Result.success(false)
         }
         return runCatching {
@@ -87,4 +87,8 @@ internal object EarlyDisplayMount {
             true
         }
     }
+
+    private fun isSupported(mcVersion: McVersion, modLoader: ModLoader): Boolean =
+        (mcVersion == McVersion.V201 && modLoader == ModLoader.forge) ||
+            (mcVersion == McVersion.V211 && modLoader == ModLoader.neoforge)
 }

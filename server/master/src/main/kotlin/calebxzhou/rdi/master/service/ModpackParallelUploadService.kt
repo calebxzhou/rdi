@@ -128,11 +128,12 @@ internal class ModpackParallelUploadService(
     suspend fun complete(ownerId: ObjectId, id: UUID): Result<ModpackUploadSessionVo> = resultOf {
         val state = requireSession(ownerId, id)
         state.mutex.withLock {
+            if (state.metadata.ready) return@withLock state.toVo()
             requestCheck(state.activeParts.isEmpty(), "仍有分片正在上传")
-           /* requestCheck(
-                state.metadata.uploadedParts.keys.containsAll(0 until state.partCount),
+            requestCheck(
+                state.metadata.uploadedParts.keys == (0 until state.partCount).toSet(),
                 "还有分片未上传"
-            )*/
+            )
             val actualSha1 = withContext(Dispatchers.IO) { state.dataFile.sha1.lowercase() }
             requestCheck(actualSha1 == state.metadata.sha1, "完整文件SHA-1校验失败")
             state.metadata = state.metadata.copy(
@@ -147,6 +148,7 @@ internal class ModpackParallelUploadService(
     suspend fun cancel(ownerId: ObjectId, id: UUID): Result<Unit> = resultOf {
         val state = requireSession(ownerId, id)
         state.mutex.withLock {
+            requestCheck(!state.finalizing, "上传文件正在使用")
             requestCheck(state.activeParts.isEmpty(), "仍有分片正在上传")
             sessions.remove(id)
             check(state.dir.deleteRecursively()) { "无法删除上传会话" }
@@ -326,7 +328,8 @@ internal class ModpackParallelUploadService(
             partCount = partCount,
             uploadedParts = metadata.uploadedParts.keys.sorted(),
             ready = metadata.ready,
-            expiresAt = metadata.expiresAt
+            expiresAt = metadata.expiresAt,
+            maxParallelParts = MAX_CONNECTIONS
         )
     }
 
@@ -343,7 +346,7 @@ internal class ModpackParallelUploadService(
     )
 
     private companion object {
-        const val DEFAULT_PART_SIZE = 8 * 1024 * 1024
+        const val DEFAULT_PART_SIZE = 4 * 1024 * 1024
         const val BUFFER_SIZE = 128 * 1024
         const val MAX_CONNECTIONS = 8
         const val SESSION_TTL_MILLIS = 24 * 60 * 60 * 1000L

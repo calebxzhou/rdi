@@ -1,0 +1,328 @@
+package calebxzhou.rdi.client.service
+
+import calebxzau.rdi.common.model.ContentType
+import java.io.IOException
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import java.nio.file.FileVisitResult
+import java.nio.file.SimpleFileVisitor
+import java.nio.file.attribute.BasicFileAttributes
+import java.security.MessageDigest
+import java.util.Locale
+import kotlin.uuid.Uuid
+
+internal enum class Host2LocalPresenceKind {
+    File,
+    Directory,
+}
+
+internal enum class Host2LocalPresenceRootKind {
+    Missing,
+    Directory,
+    Other,
+}
+
+internal data class Host2LocalPresenceItem(
+    val type: ContentType,
+    val physicalRelativePath: String,
+    val targetPath: String,
+    val enabled: Boolean,
+    val fileSize: Long,
+    val lastModifiedMillis: Long,
+    val kind: Host2LocalPresenceKind,
+)
+
+internal data class Host2LocalPresenceSnapshot(
+    val versionDirectory: Path,
+    val items: List<Host2LocalPresenceItem>,
+    val errors: List<Modpack2ScanError>,
+    val fingerprint: String,
+    val versionId: Uuid? = null,
+    val rootStates: Map<String, Host2LocalPresenceRootKind> = emptyMap(),
+) {
+    val isComplete: Boolean get() = errors.isEmpty()
+}
+
+/** Reads only top-level filesystem metadata needed to prepare a Host2 overlay. */
+internal class Host2LocalPresenceScanner(
+    versionDirectory: Path,
+    private val versionId: Uuid? = null,
+) {
+    private val versionDirectory = versionDirectory.toAbsolutePath().normalize()
+
+    fun scan(): Host2LocalPresenceSnapshot {
+        val items = mutableListOf<Host2LocalPresenceItem>()
+        val errors = mutableListOf<Modpack2ScanError>()
+        val rootStates = linkedMapOf<String, Host2LocalPresenceRootKind>()
+
+        val versionAttributes = readAttributes(versionDirectory)
+        if (versionAttributes == null) {
+            errors += issue(Modpack2ScanErrorKind.Unreadable, versionDirectory, "无法读取整合包目录")
+            return snapshot(items, errors, rootStates)
+        }
+        if (versionAttributes.isSymbolicLink) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, versionDirectory, "不允许扫描符号链接")
+            return snapshot(items, errors, rootStates)
+        }
+        if (!versionAttributes.isDirectory) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, versionDirectory, "整合包路径必须是目录")
+            return snapshot(items, errors, rootStates)
+        }
+
+        ROOTS.forEach { root ->
+            scanRoot(root, enabled = true, items, errors, rootStates)
+            scanRoot(root, enabled = false, items, errors, rootStates)
+        }
+        return snapshot(items, errors, rootStates)
+    }
+
+    private fun scanRoot(
+        root: String,
+        enabled: Boolean,
+        items: MutableList<Host2LocalPresenceItem>,
+        errors: MutableList<Modpack2ScanError>,
+        rootStates: MutableMap<String, Host2LocalPresenceRootKind>,
+    ) {
+        val rootPath = if (enabled) versionDirectory.resolve(root)
+        else versionDirectory.resolve(".rdi").resolve("disabled").resolve(root)
+        val stateKey = if (enabled) root else ".rdi/disabled/$root"
+
+        val parentState = validateParents(rootPath.parent, errors)
+        if (parentState == ParentState.Missing) {
+            rootStates[stateKey] = Host2LocalPresenceRootKind.Missing
+            return
+        }
+        if (parentState == ParentState.Invalid) {
+            rootStates[stateKey] = Host2LocalPresenceRootKind.Other
+            return
+        }
+
+        val rootAttributes = readAttributes(rootPath)
+        if (rootAttributes == null) {
+            if (Files.exists(rootPath, LinkOption.NOFOLLOW_LINKS)) {
+                errors += issue(Modpack2ScanErrorKind.Unreadable, rootPath, "无法读取整合包目录")
+                rootStates[stateKey] = Host2LocalPresenceRootKind.Other
+            } else {
+                rootStates[stateKey] = Host2LocalPresenceRootKind.Missing
+            }
+            return
+        }
+        if (rootAttributes.isSymbolicLink) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, rootPath, "不允许扫描符号链接")
+            rootStates[stateKey] = Host2LocalPresenceRootKind.Other
+            return
+        }
+        if (!rootAttributes.isDirectory) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, rootPath, "内容根必须是目录")
+            rootStates[stateKey] = Host2LocalPresenceRootKind.Other
+            return
+        }
+        rootStates[stateKey] = Host2LocalPresenceRootKind.Directory
+
+        val children = try {
+            Files.newDirectoryStream(rootPath).use { stream ->
+                stream.toList().sortedBy { it.fileName.toString().lowercase(Locale.ROOT) }
+            }
+        } catch (cause: Exception) {
+            errors += issue(Modpack2ScanErrorKind.Unreadable, rootPath, "无法读取整合包目录", cause)
+            return
+        }
+        children.forEach { child ->
+            val attributes = readAttributes(child)
+            if (attributes == null) {
+                errors += issue(Modpack2ScanErrorKind.Unreadable, child, "无法读取内容")
+                return@forEach
+            }
+            if (attributes.isSymbolicLink) {
+                errors += issue(Modpack2ScanErrorKind.UnsafePath, child, "不允许扫描符号链接")
+                return@forEach
+            }
+            if (!attributes.isRegularFile && !attributes.isDirectory) {
+                errors += issue(Modpack2ScanErrorKind.UnsafePath, child, "内容必须是普通文件或目录")
+                return@forEach
+            }
+            val childName = child.fileName.toString()
+            val type = contentType(root)
+            val isDirectory = attributes.isDirectory
+            val isArchive = !isDirectory && if (root == "mods") {
+                childName.endsWith(".jar", ignoreCase = true)
+            } else {
+                childName.endsWith(".zip", ignoreCase = true)
+            }
+            val isPackDirectory = isDirectory && hasPackMetadata(child, errors) && validatePackDirectoryTree(child, errors)
+            if (!isArchive && !isPackDirectory) return@forEach
+
+            val physicalRelativePath = if (enabled) "$root/$childName" else ".rdi/disabled/$root/$childName"
+            val targetPath = "$root/$childName"
+            items += Host2LocalPresenceItem(
+                type = type,
+                physicalRelativePath = physicalRelativePath,
+                targetPath = targetPath,
+                enabled = enabled,
+                fileSize = if (isDirectory) 0L else attributes.size(),
+                lastModifiedMillis = attributes.lastModifiedTime().toMillis(),
+                kind = if (isDirectory) Host2LocalPresenceKind.Directory else Host2LocalPresenceKind.File,
+            )
+        }
+    }
+
+    private fun hasPackMetadata(directory: Path, errors: MutableList<Modpack2ScanError>): Boolean {
+        val marker = directory.resolve("pack.mcmeta")
+        val attributes = readAttributes(marker)
+        if (attributes == null) {
+            if (Files.exists(marker, LinkOption.NOFOLLOW_LINKS)) {
+                errors += issue(Modpack2ScanErrorKind.Unreadable, marker, "无法读取资源包元数据")
+            }
+            return false
+        }
+        if (attributes.isSymbolicLink) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, marker, "不允许扫描符号链接")
+            return false
+        }
+        if (!attributes.isRegularFile) {
+            errors += issue(Modpack2ScanErrorKind.UnsafePath, marker, "资源包元数据必须是普通文件")
+            return false
+        }
+        return true
+    }
+
+    private fun validatePackDirectoryTree(directory: Path, errors: MutableList<Modpack2ScanError>): Boolean {
+        var valid = true
+        try {
+            Files.walkFileTree(directory, setOf(), Int.MAX_VALUE, object : SimpleFileVisitor<Path>() {
+                override fun preVisitDirectory(path: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (attrs.isSymbolicLink) {
+                        errors += issue(Modpack2ScanErrorKind.UnsafePath, path, "不允许扫描符号链接")
+                        valid = false
+                        return FileVisitResult.SKIP_SUBTREE
+                    }
+                    if (!attrs.isDirectory) {
+                        errors += issue(Modpack2ScanErrorKind.UnsafePath, path, "内容必须是普通文件或目录")
+                        valid = false
+                        return FileVisitResult.SKIP_SUBTREE
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFile(path: Path, attrs: BasicFileAttributes): FileVisitResult {
+                    if (attrs.isSymbolicLink || !attrs.isRegularFile) {
+                        errors += issue(Modpack2ScanErrorKind.UnsafePath, path, "内容必须是普通文件或目录")
+                        valid = false
+                    }
+                    return FileVisitResult.CONTINUE
+                }
+
+                override fun visitFileFailed(path: Path, exc: IOException): FileVisitResult {
+                    errors += issue(Modpack2ScanErrorKind.Unreadable, path, "无法读取目录内容", exc)
+                    valid = false
+                    return FileVisitResult.TERMINATE
+                }
+            })
+        } catch (cause: IOException) {
+            errors += issue(Modpack2ScanErrorKind.Unreadable, directory, "无法读取目录内容", cause)
+            valid = false
+        }
+        return valid
+    }
+
+    private fun validateParents(parent: Path?, errors: MutableList<Modpack2ScanError>): ParentState {
+        if (parent == null) return ParentState.Invalid
+        val relative = runCatching { versionDirectory.relativize(parent.toAbsolutePath().normalize()) }
+            .getOrElse {
+                errors += issue(Modpack2ScanErrorKind.UnsafePath, parent, "内容路径越界")
+                return ParentState.Invalid
+            }
+        var current = versionDirectory
+        for (component in relative) {
+            current = current.resolve(component)
+            val attributes = readAttributes(current)
+            if (attributes == null) {
+                if (Files.exists(current, LinkOption.NOFOLLOW_LINKS)) {
+                    errors += issue(Modpack2ScanErrorKind.Unreadable, current, "无法读取整合包目录")
+                    return ParentState.Invalid
+                }
+                return ParentState.Missing
+            }
+            if (attributes.isSymbolicLink) {
+                errors += issue(Modpack2ScanErrorKind.UnsafePath, current, "不允许扫描符号链接")
+                return ParentState.Invalid
+            }
+            if (!attributes.isDirectory) {
+                errors += issue(Modpack2ScanErrorKind.UnsafePath, current, "内容路径父级必须是目录")
+                return ParentState.Invalid
+            }
+        }
+        return ParentState.Valid
+    }
+
+    private fun snapshot(
+        items: List<Host2LocalPresenceItem>,
+        errors: List<Modpack2ScanError>,
+        rootStates: Map<String, Host2LocalPresenceRootKind>,
+    ): Host2LocalPresenceSnapshot {
+        val digest = MessageDigest.getInstance("SHA-256")
+        rootStates.toSortedMap().forEach { (path, state) ->
+            update(digest, "root", path, state.name)
+        }
+        items.sortedWith(compareBy({ it.physicalRelativePath }, { it.type.name })).forEach { item ->
+            update(
+                digest,
+                item.type.name,
+                item.physicalRelativePath,
+                item.targetPath,
+                item.enabled.toString(),
+                item.kind.name,
+                item.fileSize.toString(),
+                item.lastModifiedMillis.toString(),
+            )
+        }
+        errors.sortedWith(compareBy({ it.path }, { it.kind.name })).forEach { error ->
+            update(digest, "error", error.kind.name, error.path, error.message)
+        }
+        return Host2LocalPresenceSnapshot(
+            versionDirectory = versionDirectory,
+            items = items.sortedBy { it.physicalRelativePath },
+            errors = errors.toList(),
+            fingerprint = digest.digest().toHex(),
+            versionId = versionId,
+            rootStates = rootStates.toMap(),
+        )
+    }
+
+    private fun update(digest: MessageDigest, vararg values: String) {
+        values.forEach { value ->
+            digest.update(value.toByteArray(StandardCharsets.UTF_8))
+            digest.update(0)
+        }
+    }
+
+    private fun readAttributes(path: Path): BasicFileAttributes? = runCatching {
+        Files.readAttributes(path, BasicFileAttributes::class.java, LinkOption.NOFOLLOW_LINKS)
+    }.getOrNull()
+
+    private fun issue(kind: Modpack2ScanErrorKind, path: Path, message: String, cause: Throwable? = null) =
+        Modpack2ScanError(
+            kind,
+            runCatching { versionDirectory.relativize(path.toAbsolutePath().normalize()).toString() }
+                .getOrDefault(path.toString()).replace('\\', '/'),
+            message,
+            cause,
+        )
+
+    private enum class ParentState { Valid, Missing, Invalid }
+
+    private companion object {
+        val ROOTS = listOf("mods", "resourcepacks", "shaderpacks")
+
+        fun contentType(root: String): ContentType = when (root) {
+            "mods" -> ContentType.Mod
+            "resourcepacks" -> ContentType.ResPack
+            "shaderpacks" -> ContentType.ShaderPack
+            else -> error("Unsupported Host2 content root: $root")
+        }
+
+        fun ByteArray.toHex(): String = joinToString("") { byte -> "%02x".format(byte) }
+    }
+}

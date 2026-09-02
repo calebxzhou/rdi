@@ -19,12 +19,17 @@ kotlin {
 }
 
 dependencies {
+    implementation(project(":misc"))
     api(project(":model"))
     api(project(":mod-catalog"))
     implementation(project(":net"))
     implementation(project(":archive"))
     implementation(project(":mediaproc"))
     implementation(project(":assets"))
+    // Modpack2ArchiveBuilder writes tar.zst directly. The archive module keeps
+    // zstd compile-only for consumers that do not need writing, so this module
+    // must carry the runtime dependency for its own archive and test paths.
+    implementation(libs.zstd.jni)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlin.logging.jvm)
 

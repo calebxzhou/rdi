@@ -34,7 +34,7 @@ fun TitleRow(
             }
             Text(
                 text = title,
-                style = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp),
+                style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -55,6 +55,8 @@ private fun BackButton(onClick: () -> Unit) {
         label = "返回",
         size = 36.dp,
         showText = false,
+        bgColor = themeNow.surface,
+        iconColor = themeNow.primary,
         onClick = onClick
     )
 }

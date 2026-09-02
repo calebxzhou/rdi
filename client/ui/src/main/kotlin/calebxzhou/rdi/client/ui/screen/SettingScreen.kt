@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
@@ -26,18 +27,16 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.common.util.humanFileSize
-import calebxzhou.rdi.client.*
 import calebxzhou.rdi.client.net.RServer
-import calebxzhou.rdi.client.net.server
-import calebxzhou.rdi.client.service.NodeRefreshCoordinator
 // import calebxzhou.rdi.client.service.LocalMinecraftReuseService
 // import calebxzhou.rdi.client.service.LocalMinecraftScanState
-import calebxzhou.rdi.client.service.SettingsService
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.common.model.DownloadQuota
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import calebxzau.rdi.client.ui.viewmodel.SettingsDraft
+import calebxzau.rdi.client.ui.viewmodel.SettingsEvent
+import calebxzau.rdi.client.ui.viewmodel.SettingsViewModel
+import kotlinx.coroutines.flow.collect
+import org.koin.compose.viewmodel.koinViewModel
 
 /**
  * calebxzhou @ 2026-01-24 18:36
@@ -48,64 +47,18 @@ private const val SETTING_PAGE_FADE_DURATION_MS = 120
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 @Composable
 fun SettingScreen(
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    viewModel: SettingsViewModel = koinViewModel(),
 ) {
-    val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
     var category by remember { mutableStateOf(SettingCategory.General) }
-    var errorMessage by remember { mutableStateOf<String?>(null) }
-    var saving by remember { mutableStateOf(false) }
-    var switchingNode by remember { mutableStateOf(false) }
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val draft = uiState.draft
 
-    // Launcher settings state
-    var preferModMirror by remember { mutableStateOf(false) }
-    var preferMcMirror by remember { mutableStateOf(false) }
-    var maxMemoryText by remember { mutableStateOf("") }
-    var proxyEnabled by remember { mutableStateOf(false) }
-    var proxySystem by remember { mutableStateOf(false) }
-    var proxyHost by remember { mutableStateOf("127.0.0.1") }
-    var proxyPortText by remember { mutableStateOf("10808") }
-    var proxyUsr by remember { mutableStateOf("") }
-    var proxyPwd by remember { mutableStateOf("") }
-    var solidWindow by remember { mutableStateOf(false) }
-    var totalMemoryMb by remember { mutableStateOf(0) }
-    // Load config on all platforms
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            runCatching {
-                val config = AppConfig.load()
-                preferModMirror = config.preferModMirror
-                preferMcMirror = config.preferMcMirror
-                maxMemoryText = if (config.maxMemory <= 0) "" else config.maxMemory.toString()
-                proxyEnabled = config.proxyConfig?.enabled ?: false
-                proxySystem = config.proxyConfig?.systemProxy ?: false
-                proxyHost = config.proxyConfig?.host ?: "127.0.0.1"
-                proxyPortText = (config.proxyConfig?.port ?: 10808).toString()
-                proxyUsr = config.proxyConfig?.usr.orEmpty()
-                proxyPwd = config.proxyConfig?.pwd.orEmpty()
-                solidWindow = config.solidWindow
-                totalMemoryMb = calebxzhou.rdi.client.service.SettingsService.getTotalPhysicalMemoryMb()
-            }
-        }
-    }
-
-    fun switchNode(
-        gameBackup: Boolean = false,
-        forceMain: Boolean = false
-    ) {
-        if (!switchingNode) {
-            switchingNode = true
-            scope.launch {
-                NodeRefreshCoordinator.refreshCurrent(gameBackup, forceMain)
-                    .onSuccess {
-                        snackbarHostState.showSnackbar("已临时切换到${it.nodeName}")
-                    }
-                    .onFailure {
-                        snackbarHostState.showSnackbar(
-                            it.message ?: "备用节点刷新失败"
-                        )
-                    }
-                switchingNode = false
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is SettingsEvent.ShowSnackbar -> snackbarHostState.showSnackbar(event.message)
             }
         }
     }
@@ -113,7 +66,7 @@ fun SettingScreen(
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.LARGE) {
             TitleRow("设置", onBack) {
-                if (saving) {
+                if (uiState.saving) {
                     CircularProgressIndicator(
                         modifier = Modifier.size(28.dp),
                         strokeWidth = 3.dp,
@@ -125,45 +78,9 @@ fun SettingScreen(
                     icon = "\uF0C7",
                     label = "保存",
                     bgColor = themeNow.primary,
-                    enabled = !saving
+                    enabled = !uiState.saving
                 ) {
-                    if (saving) return@CircleIconButton
-                    saving = true
-                    scope.launch {
-                        val svc = SettingsService
-
-                        val memoryValidation = svc.validateMemory(maxMemoryText, totalMemoryMb)
-                        if (!memoryValidation.success) {
-                            errorMessage = memoryValidation.errorMessage
-                            saving = false
-                            return@launch
-                        }
-                        val proxyValidation = svc.validateProxyPort(proxyPortText)
-                        if (!proxyValidation.success) {
-                            errorMessage = proxyValidation.errorMessage
-                            saving = false
-                            return@launch
-                        }
-                        svc.saveSettings(
-                            preferModMirror = preferModMirror,
-                            preferMcMirror = preferMcMirror,
-                            maxMemoryText = maxMemoryText,
-                            proxyEnabled = proxyEnabled,
-                            proxySystem = proxySystem,
-                            proxyHost = proxyHost,
-                            proxyPortText = proxyPortText,
-                            proxyUsr = proxyUsr,
-                            proxyPwd = proxyPwd,
-                            solidWindow = solidWindow
-                        ).onSuccess {
-                            errorMessage = null
-                            saving = false
-                            snackbarHostState.showSnackbar("设置已保存")
-                        }.onFailure {
-                            errorMessage = "保存失败: ${it.message}"
-                        }
-                        saving = false
-                    }
+                    viewModel.save()
                 }
             }
             ContentBody {
@@ -202,48 +119,42 @@ fun SettingScreen(
                                 when (activeCategory) {
                                     SettingCategory.General -> {
                                         GeneralSettings(
-                                            solidWindow = solidWindow,
-                                            onSolidWindowChange = { solidWindow = it }
+                                            solidWindow = draft.solidWindow,
+                                            onSolidWindowChange = {
+                                                viewModel.updateDraft(draft.copy(solidWindow = it))
+                                            }
                                         )
                                     }
 
                                     SettingCategory.Java -> {
                                         JavaSettings(
-                                            totalMemoryMb = totalMemoryMb,
-                                            maxMemoryText = maxMemoryText,
-                                            onMaxMemoryChange = { maxMemoryText = it.trim() }
+                                            totalMemoryMb = uiState.totalMemoryMb,
+                                            maxMemoryText = draft.maxMemoryText,
+                                            onMaxMemoryChange = {
+                                                viewModel.updateDraft(draft.copy(maxMemoryText = it.trim()))
+                                            }
                                         )
                                     }
 
                                     SettingCategory.Network -> {
                                         NetworkSettings(
-                                            preferModMirror = preferModMirror,
-                                            onPreferModMirrorChange = { preferModMirror = it },
-                                            preferMcMirror = preferMcMirror,
-                                            onPreferMcMirrorChange = { preferMcMirror = it },
-                                            proxyEnabled = proxyEnabled,
-                                            proxySystem = proxySystem,
-                                            proxyHost = proxyHost,
-                                            proxyPort = proxyPortText,
-                                            proxyUsr = proxyUsr,
-                                            proxyPwd = proxyPwd,
-                                            onProxyEnabledChange = { proxyEnabled = it },
-                                            onProxySystemChange = { proxySystem = it },
-                                            onProxyHostChange = { proxyHost = it },
-                                            onProxyPortChange = { proxyPortText = it },
-                                            onProxyUsrChange = { proxyUsr = it },
-                                            onProxyPwdChange = { proxyPwd = it },
-                                            switchingNode = switchingNode,
-                                            onAutoSwitchFastestNode = { switchNode() },
-                                            onUseGameBackupNode = { switchNode(true) },
-                                            onUseMainNode = { switchNode(gameBackup = false, forceMain = true) }
+                                            draft = draft,
+                                            onDraftChange = viewModel::updateDraft,
+                                            switchingNode = uiState.switchingNode,
+                                            downloadQuota = uiState.downloadQuota,
+                                            downloadQuotaLoading = uiState.downloadQuotaLoading,
+                                            downloadQuotaError = uiState.downloadQuotaError,
+                                            onRefreshDownloadQuota = viewModel::refreshDownloadQuota,
+                                            onAutoSwitchFastestNode = { viewModel.switchNode() },
+                                            onUseGameBackupNode = { viewModel.switchNode(gameBackup = true) },
+                                            onUseMainNode = { viewModel.switchNode(forceMain = true) }
                                         )
                                     }
 
                                     //SettingCategory.Minecraft -> LocalMinecraftSettings()
 
                                 }
-                                errorMessage?.let {
+                                uiState.errorMessage?.let {
                                     Text(
                                         it,
                                         color = MaterialTheme.colorScheme.error,
@@ -386,84 +297,54 @@ fun SettingScreen(
     
     @Composable
     private fun NetworkSettings(
-        preferModMirror: Boolean,
-        onPreferModMirrorChange: (Boolean) -> Unit,
-        preferMcMirror: Boolean,
-        onPreferMcMirrorChange: (Boolean) -> Unit,
-        proxyEnabled: Boolean,
-        proxySystem: Boolean,
-        proxyHost: String,
-        proxyPort: String,
-        proxyUsr: String,
-        proxyPwd: String,
-        onProxyEnabledChange: (Boolean) -> Unit,
-        onProxySystemChange: (Boolean) -> Unit,
-        onProxyHostChange: (String) -> Unit,
-        onProxyPortChange: (String) -> Unit,
-        onProxyUsrChange: (String) -> Unit,
-        onProxyPwdChange: (String) -> Unit,
+        draft: SettingsDraft,
+        onDraftChange: (SettingsDraft) -> Unit,
         switchingNode: Boolean,
+        downloadQuota: DownloadQuota.Vo?,
+        downloadQuotaLoading: Boolean,
+        downloadQuotaError: String?,
+        onRefreshDownloadQuota: () -> Unit,
         onAutoSwitchFastestNode: () -> Unit,
         onUseGameBackupNode: () -> Unit,
         onUseMainNode: () -> Unit,
     ) {
-        val scope = rememberCoroutineScope()
-        var dlQuota by remember { mutableStateOf<DownloadQuota.Vo?>(null) }
-        var dlQuotaLoading by remember { mutableStateOf(false) }
-        var dlQuotaError by remember { mutableStateOf<String?>(null) }
-
-        fun loadDlQuota() {
-            if (dlQuotaLoading) return
-            dlQuotaLoading = true
-            dlQuotaError = null
-            scope.launch {
-                val result = withContext(Dispatchers.IO) {
-                    runCatching { server.makeRequest<DownloadQuota.Vo>("download/quota") }
-                }
-                dlQuotaLoading = false
-                result.onSuccess { response ->
-                    if (response.ok) {
-                        dlQuota = response.data
-                    } else {
-                        dlQuotaError = response.msg.ifBlank { "下载额度读取失败" }
-                    }
-                }.onFailure { error ->
-                    dlQuotaError = error.message ?: "下载额度读取失败"
-                }
-            }
-        }
-
-        LaunchedEffect(Unit) {
-            loadDlQuota()
-        }
-
         RColumn {
             RRow {
                 Text("使用BMCL-API国内镜像")
-                RSwitch(checked = preferMcMirror, onCheckedChange = onPreferMcMirrorChange)
+                RSwitch(
+                    checked = draft.preferMcMirror,
+                    onCheckedChange = { onDraftChange(draft.copy(preferMcMirror = it)) }
+                )
                 Text("下载MC资源")
-                RSwitch(checked = preferModMirror, onCheckedChange = onPreferModMirrorChange)
+                RSwitch(
+                    checked = draft.preferModMirror,
+                    onCheckedChange = { onDraftChange(draft.copy(preferModMirror = it)) }
+                )
                 Text("下载Mod")
             }
             RRow {
                 Text("RDI CDN下载额度")
                 val quotaText = when {
-                    dlQuotaLoading && dlQuota == null -> "读取中"
-                    dlQuotaError != null && dlQuota == null -> "读取失败"
-                    else -> dlQuota?.let {
+                    downloadQuotaLoading && downloadQuota == null -> "读取中"
+                    downloadQuotaError != null && downloadQuota == null -> "读取失败"
+                    else -> downloadQuota?.let {
                         "今日剩余${it.remainingBytes.humanFileSize}/${it.limitBytes.humanFileSize}"
                     } ?: "--"
                 }
                 Text(
                     text = quotaText,
-                    color = if (dlQuotaError != null && dlQuota == null) MaterialTheme.colorScheme.error else Color.Unspecified
+                    color = if (downloadQuotaError != null && downloadQuota == null) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        Color.Unspecified
+                    }
                 )
                 CircleIconButton(
                     icon = "\uF021",
-                    tooltip = if (dlQuotaLoading) "刷新中" else "刷新下载额度",
+                    tooltip = if (downloadQuotaLoading) "刷新中" else "刷新下载额度",
                     showText = false,
-                    enabled = !dlQuotaLoading,
-                    onClick = ::loadDlQuota
+                    enabled = !downloadQuotaLoading,
+                    onClick = onRefreshDownloadQuota
                 )
             }
             AutoRouteStatus(
@@ -473,25 +354,22 @@ fun SettingScreen(
                 onUseMainNode
             )
             val mode = when {
-                !proxyEnabled -> 0
-                proxySystem -> 1
+                !draft.proxyEnabled -> 0
+                draft.proxySystem -> 1
                 else -> 2
             }
             RRow {
                 Text("代理")
                 RadioButton(selected = mode == 0, onClick = {
-                    onProxyEnabledChange(false)
-                    onProxySystemChange(false)
+                    onDraftChange(draft.copy(proxyEnabled = false, proxySystem = false))
                 })
                 Text("无代理")
                 RadioButton(selected = mode == 1, onClick = {
-                    onProxyEnabledChange(true)
-                    onProxySystemChange(true)
+                    onDraftChange(draft.copy(proxyEnabled = true, proxySystem = true))
                 })
                 Text("系统代理")
                 RadioButton(selected = mode == 2, onClick = {
-                    onProxyEnabledChange(true)
-                    onProxySystemChange(false)
+                    onDraftChange(draft.copy(proxyEnabled = true, proxySystem = false))
                 })
                 Text("自定义代理")
             }
@@ -500,26 +378,26 @@ fun SettingScreen(
 
                     RTextField(
                         "主机",
-                        value = proxyHost,
-                        onValueChange = onProxyHostChange,
+                        value = draft.proxyHost,
+                        onValueChange = { onDraftChange(draft.copy(proxyHost = it)) },
                         modifier = Modifier.width(240.dp)
                     )
                     RTextField(
                         "端口",
-                        value = proxyPort,
-                        onValueChange = onProxyPortChange,
+                        value = draft.proxyPortText,
+                        onValueChange = { onDraftChange(draft.copy(proxyPortText = it)) },
                         modifier = Modifier.width(120.dp)
                     )
                     RTextField(
                         label = "用户名（可选）",
-                        value = proxyUsr,
-                        onValueChange = onProxyUsrChange,
+                        value = draft.proxyUsr,
+                        onValueChange = { onDraftChange(draft.copy(proxyUsr = it)) },
                         modifier = Modifier.width(240.dp)
                     )
                     RTextField(
                         label = "密码（可选）",
-                        value = proxyPwd,
-                        onValueChange = onProxyPwdChange,
+                        value = draft.proxyPwd,
+                        onValueChange = { onDraftChange(draft.copy(proxyPwd = it)) },
                         modifier = Modifier.width(240.dp)
                     )
                 }

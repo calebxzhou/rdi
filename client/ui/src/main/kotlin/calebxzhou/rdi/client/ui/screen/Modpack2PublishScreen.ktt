@@ -1,0 +1,322 @@
+package calebxzhou.rdi.client.ui.screen
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import calebxzau.rdi.client.ui.AlertErr
+import calebxzau.rdi.client.ui.AlertWarn
+import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.ContentBody
+import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.ScreenContentSize
+import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.Space8h
+import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.pickLocalDirectory
+import calebxzau.rdi.client.ui.viewmodel.Modpack2PublishViewModel
+import calebxzhou.rdi.client.ui.comp.ContentGrid
+import calebxzau.rdi.common.model.ModpackCategory
+import calebxzau.rdi.common.model.Modpack2ServerMode
+import calebxzau.rdi.common.model.ContentSide
+import calebxzhou.rdi.client.database.LocalModpack2SubmissionPhase
+import kotlinx.coroutines.launch
+import org.koin.compose.viewmodel.koinViewModel
+import kotlin.uuid.Uuid
+
+@Composable
+fun Modpack2PublishScreen(
+    versionId: String,
+    onBack: () -> Unit,
+    onOpenTask: (String) -> Unit,
+    viewModel: Modpack2PublishViewModel = koinViewModel(key = versionId),
+) {
+    val parsedVersionId = remember(versionId) { runCatching { Uuid.parse(versionId) }.getOrNull() }
+    val state by viewModel.uiState.collectAsStateWithLifecycle()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var selectedSection by rememberSaveable { mutableStateOf(0) }
+    var showConfirm by remember { mutableStateOf(false) }
+
+    LaunchedEffect(parsedVersionId) {
+        parsedVersionId?.let(viewModel::load)
+    }
+    LaunchedEffect(state.submittedRunId) {
+        state.submittedRunId?.let(onOpenTask)
+    }
+
+    MaxBox {
+        ScreenContentSurface(
+            size = ScreenContentSize.LARGE,
+            modifier = Modifier.onPreviewKeyEvent { event ->
+                viewModel.handleKey(event.type, event.key)
+            },
+        ) {
+            TitleRow("发布整合包", onBack)
+            ContentBody {
+                Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                    state.errorMessage?.let { AlertErr(it) }
+                    if (state.loading) {
+                        Text("正在读取整合包…")
+                    } else if (state.local == null) {
+                        Text("找不到要发布的整合包", color = MaterialTheme.colorScheme.error)
+                    } else {
+                        TabRow(selectedTabIndex = selectedSection) {
+                            listOf("元数据", "内容识别", "服务端模式", "确认发布").forEachIndexed { index, title ->
+                                Tab(
+                                    selected = selectedSection == index,
+                                    onClick = { selectedSection = index },
+                                    text = { Text(title) },
+                                )
+                            }
+                        }
+                        Space8h()
+                        when (selectedSection) {
+                            0 -> MetadataSection(state, viewModel)
+                            1 -> ContentSection(
+                                state = state,
+                                onRescan = viewModel::rescan,
+                                onSideChange = viewModel::setContentSide,
+                            )
+                            2 -> ServerModeSection(state, viewModel, scope)
+                            else -> ConfirmSection(
+                                state = state,
+                                onConfirm = { showConfirm = true },
+                                onRetry = { viewModel.retry()?.let(onOpenTask) },
+                                onAbandon = viewModel::abandon,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (showConfirm) {
+        AlertDialog(
+            onDismissRequest = { showConfirm = false },
+            title = { Text("确认发布") },
+            text = { Text("发布会先冻结当前内容快照；快照完成后可继续编辑整合包。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showConfirm = false
+                    viewModel.submit()
+                }) { Text("发布") }
+            },
+            dismissButton = { TextButton(onClick = { showConfirm = false }) { Text("取消") } },
+        )
+    }
+}
+
+@Composable
+private fun MetadataSection(
+    state: calebxzau.rdi.client.ui.viewmodel.Modpack2PublishUiState,
+    viewModel: Modpack2PublishViewModel,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        OutlinedTextField(
+            value = state.versionName,
+            onValueChange = viewModel::setVersionName,
+            label = { Text("版本名称") },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = state.intro,
+            onValueChange = viewModel::setIntro,
+            label = { Text("整合包简介") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
+        )
+        OutlinedTextField(
+            value = state.iconUrl,
+            onValueChange = viewModel::setIconUrl,
+            label = { Text("图标URL") },
+            placeholder = { Text("https://example.com/icon.png") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text("分类（至少1项，最多4项，当前${state.categories.size}项）")
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            ModpackCategory.entries.forEach { category ->
+                FilterChip(
+                    selected = category in state.categories,
+                    onClick = { viewModel.toggleCategory(category) },
+                    label = { Text(category.label) },
+                )
+            }
+        }
+        OutlinedTextField(
+            value = state.changelog,
+            onValueChange = viewModel::setChangelog,
+            label = { Text("更新说明") },
+            modifier = Modifier.fillMaxWidth(),
+            minLines = 3,
+        )
+    }
+}
+
+@Composable
+private fun ContentSection(
+    state: calebxzau.rdi.client.ui.viewmodel.Modpack2PublishUiState,
+    onRescan: () -> Unit,
+    onSideChange: (String, ContentSide) -> Unit,
+) {
+    var selectedContentPath by rememberSaveable { mutableStateOf<String?>(null) }
+    val selectedContent = state.diskItems.firstOrNull { it.targetPath == selectedContentPath }
+    Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                text = "已扫描${state.contentItems.size}项内容；未知内容也会保留。",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            CircleIconButton(
+                icon = "\uF021",
+                label = "重新扫描",
+                enabled = !state.contentEditingFrozen,
+                onClick = onRescan,
+            )
+        }
+        if (state.contentEditingFrozen) {
+            Text("内容已冻结，运行侧调整已锁定。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        selectedContent?.let { content ->
+            Text("调整${content.displayName}的运行侧")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ContentSide.entries.forEach { side ->
+                    FilterChip(
+                        selected = state.manualSideOverrides["path:${content.targetPath}"] == side,
+                        enabled = !state.contentEditingFrozen,
+                        onClick = { onSideChange(content.targetPath, side) },
+                        label = { Text(side.publishLabel()) },
+                    )
+                }
+            }
+        }
+        ContentGrid(
+            items = state.contentItems,
+            modifier = Modifier.weight(1f).fillMaxWidth(),
+            stateKey = "modpack2-publish-content",
+            onItemClick = { selectedContentPath = it.targetPath },
+        )
+    }
+}
+
+private fun ContentSide.publishLabel(): String = when (this) {
+    ContentSide.Client -> "客户端"
+    ContentSide.Server -> "服务端"
+    ContentSide.Both -> "双方"
+}
+
+@Composable
+private fun ServerModeSection(
+    state: calebxzau.rdi.client.ui.viewmodel.Modpack2PublishUiState,
+    viewModel: Modpack2PublishViewModel,
+    scope: kotlinx.coroutines.CoroutineScope,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        ModeChoice(
+            title = "Generated",
+            description = "根据识别内容生成服务端包，并继承基础版本服务端内容。",
+            selected = state.serverMode == Modpack2ServerMode.Generated,
+            onClick = { viewModel.setServerMode(Modpack2ServerMode.Generated) },
+        )
+        ModeChoice(
+            title = "Provided",
+            description = "使用你提供的服务端目录。",
+            selected = state.serverMode == Modpack2ServerMode.Provided,
+            onClick = { viewModel.setServerMode(Modpack2ServerMode.Provided) },
+        )
+        if (state.serverMode == Modpack2ServerMode.Provided) {
+            Button(onClick = {
+                scope.launch {
+                    pickLocalDirectory("选择服务端目录")?.let { viewModel.setProvidedServerPack(it.toPath()) }
+                }
+            }) { Text("选择服务端目录") }
+            state.providedServerPack?.let { Text(it.toString()) }
+        }
+        state.baseVersionId?.let {
+            Text("基础版本：${it}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("服务端模式为Generated时将继承该基础版本的服务端内容。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ModeChoice(title: String, description: String, selected: Boolean, onClick: () -> Unit) {
+    Row(modifier = Modifier.fillMaxWidth()) {
+        RadioButton(selected = selected, onClick = onClick)
+        Column(modifier = Modifier.padding(top = 10.dp)) {
+            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(description, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun ConfirmSection(
+    state: calebxzau.rdi.client.ui.viewmodel.Modpack2PublishUiState,
+    onConfirm: () -> Unit,
+    onRetry: () -> Unit,
+    onAbandon: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        AlertWarn("发布会先冻结当前内容快照；快照完成后可继续编辑整合包。")
+        if (state.submission?.phase == LocalModpack2SubmissionPhase.Failed) {
+            AlertWarn(state.submission.lastError ?: "上一次发布失败，冻结快照仍可重试。")
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onRetry) { Text("重试发布") }
+                TextButton(onClick = onAbandon) { Text("放弃失败发布") }
+            }
+        }
+        if (state.ignoreModpackTest) {
+            AlertWarn("已启用rdi.ignoreModpackTest=true，仅按精确Home键触发。")
+        }
+        Text("版本：${state.versionName}")
+        Text("内容：${state.contentItems.size}项")
+        Text("服务端模式：${state.serverMode.name}")
+        state.baseVersionId?.let { Text("继承基础版本：${it}") }
+        if (state.submission?.phase != LocalModpack2SubmissionPhase.Failed) {
+            Button(onClick = onConfirm, enabled = state.versionName.isNotBlank()) { Text("确认发布") }
+        }
+    }
+}

@@ -10,16 +10,13 @@ import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.model.McVersion
 import calebxzau.rdi.mclaunch.MinecraftAccount
-import calebxzau.rdi.mclaunch.MinecraftArtifactDownloader
 import calebxzau.rdi.mclaunch.MinecraftDirectories
-import calebxzau.rdi.mclaunch.MinecraftDownloadProgress
 import calebxzau.rdi.mclaunch.MinecraftJava25Config
 import calebxzau.rdi.mclaunch.MinecraftLaunchEnvironment
 import calebxzau.rdi.mclaunch.MinecraftLaunchOverrides
 import calebxzau.rdi.mclaunch.MinecraftLaunchRequest
 import calebxzau.rdi.mclaunch.MinecraftLauncher
 import calebxzau.rdi.mclaunch.MinecraftManifestPair
-import calebxzau.rdi.mclaunch.MinecraftManifestProvider
 import calebxzau.rdi.mclaunch.MinecraftWindowSize
 import java.awt.GraphicsEnvironment
 import java.io.File
@@ -46,17 +43,7 @@ internal fun createMinecraftLauncher(): MinecraftLauncher {
             manifestProvider = { mcVersion, _, _ ->
                 runCatching { MinecraftManifestPair(mcVersion.manifest, mcVersion.loaderManifest) }
             },
-            artifactDownloader = { label, artifact, target, onProgress ->
-                GameService.downloadArtifact(label, artifact, target) { progress ->
-                    onProgress(
-                        MinecraftDownloadProgress(
-                            bytesDownloaded = progress.bytesDownloaded,
-                            totalBytes = progress.totalBytes,
-                            fraction = progress.fraction,
-                        )
-                    )
-                }
-            },
+            artifactDownloader = mcInstall.artifactDownloader,
         )
     )
 }

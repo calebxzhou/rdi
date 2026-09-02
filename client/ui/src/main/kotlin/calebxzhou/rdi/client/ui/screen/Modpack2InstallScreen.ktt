@@ -1,0 +1,385 @@
+package calebxzhou.rdi.client.ui.screen
+
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import calebxzau.rdi.client.ui.CircleIconButton
+import calebxzau.rdi.client.ui.ContentBody
+import calebxzau.rdi.client.ui.FlowRowV
+import calebxzau.rdi.client.ui.RVerticalScrollbar
+import calebxzau.rdi.client.ui.ScreenContentSize
+import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.SimpleTooltip
+import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.loadImageBitmap
+import calebxzau.rdi.client.ui.pickLocalModpackFile
+import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.Modpack2WorkspaceSource
+import calebxzhou.rdi.client.service.ModpackArchiveEmbeddedMod
+import calebxzhou.rdi.client.service.ModpackArchiveFile
+import calebxzhou.rdi.client.service.ModpackArchiveReadProgress
+import calebxzhou.rdi.client.service.toContentGridItems
+import calebxzhou.rdi.client.ui.comp.ContentGrid
+import calebxzau.rdi.client.ui.viewmodel.Modpack2InstallEditorState
+import calebxzau.rdi.client.ui.viewmodel.Modpack2InstallViewModel
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.util.humanFileSize
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import org.koin.compose.viewmodel.koinViewModel
+
+@Composable
+fun Modpack2InstallScreen(
+    onBack: () -> Unit,
+    onOpenTask: (String) -> Unit,
+    viewModel: Modpack2InstallViewModel = koinViewModel(),
+) {
+    val state by viewModel.state.collectAsState()
+    val expandedDirectories = remember { mutableStateMapOf<String, Boolean>() }
+    val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
+    var importingRdiModpack by remember { mutableStateOf(false) }
+    var importError by remember { mutableStateOf<String?>(null) }
+
+    fun importRdiModpack() {
+        if (importingRdiModpack) return
+        importingRdiModpack = true
+        importError = null
+        scope.launch {
+            val taskResult = withContext(Dispatchers.IO) {
+                runCatching { importRdiModpackTask2 {} }
+            }
+            taskResult.onSuccess { task ->
+                runCatching { ClientTaskManager.submit(task) }
+                    .onSuccess(onOpenTask)
+                    .onFailure { importError = it.message ?: "导入失败" }
+            }.onFailure { importError = it.message ?: "导入失败" }
+            importingRdiModpack = false
+        }
+    }
+
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { onOpenTask(it.runId) }
+    }
+
+    Box(Modifier.fillMaxSize()) {
+        val editor = state.editor
+        if (editor == null) {
+            ScreenContentSurface(size = ScreenContentSize.LARGE) {
+                TitleRow("导入/安装整合包", onBack) {
+                    if (importingRdiModpack) {
+                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    }
+                    CircleIconButton(
+                        "\uDB82\uDD5D",
+                        "导入.rdimodpack",
+                        enabled = !importingRdiModpack,
+                        onClick = ::importRdiModpack,
+                    )
+                }
+                ContentBody(contentPadding = PaddingValues(0.dp)) {
+                    val groups = state.candidates.groupBy { it.minecraftInstallation.toString() }
+                        .entries.sortedBy { it.key.lowercase() }
+                    Box(Modifier.fillMaxSize().padding(24.dp)) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize().padding(end = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            item(key = "title") { Text("选择一种安装方式") }
+                            item(key = "archive") {
+                                FlowRowV(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("\uDB81\uDF34 整合包的安装包")
+                                    CircleIconButton("\uEAEF", "选取...") {
+                                        scope.launch {
+                                            pickLocalModpackFile()?.let { viewModel.openArchive(it.toPath()) }
+                                        }
+                                    }
+                                    if (state.archiveLoading) {
+                                        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                                    }
+                                }
+                            }
+                            item(key = "empty") {
+                                FlowRowV(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("\uDB81\uDF34 创建空整合包")
+                                    McVersion.entries.filter{it.enabled && it.isModern}
+                                        .forEach { version ->
+                                            version.loaderVersions.keys.forEach { loader ->
+                                                CandidateCard(
+                                                    name = version.simpleVer,
+                                                    mcVersion = version,
+                                                    tooltip = "${version.mcVer}/${loader}",
+                                                    onInstall = { viewModel.openCreate(version, loader) },
+                                                )
+                                            }
+                                        }
+                                }
+                            }
+                            item(key = "existing-title") { Text("\uDB81\uDF34 导入电脑里之前装过的包") }
+                            when {
+                                state.scanning -> item(key = "scanning") {
+                                    CenterMessage { CircularProgressIndicator() }
+                                }
+                                state.candidates.isEmpty() -> item(key = "empty-candidates") {
+                                    CenterMessage { Text("之前没有装过包") }
+                                }
+                            }
+                            groups.forEach { (directory, candidates) ->
+                                val expanded = expandedDirectories[directory] ?: true
+                                item(key = "directory:$directory") {
+                                    GameDirectoryHeader(
+                                        path = directory,
+                                        candidateCount = candidates.size,
+                                        expanded = expanded,
+                                        onToggle = { expandedDirectories[directory] = !expanded },
+                                    )
+                                }
+                                if (expanded) {
+                                    item(key = "candidates:$directory") {
+                                        FlowRowV(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            candidates.forEach { candidate ->
+                                                CandidateCard(
+                                                    name = candidate.name,
+                                                    mcVersion = candidate.mcVersion,
+                                                    tooltip = "${candidate.mcVersion.mcVer}/${candidate.modLoader} 点击导入",
+                                                    onInstall = { viewModel.openInstall(candidate) },
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        RVerticalScrollbar(listState, Modifier.align(Alignment.CenterEnd))
+                    }
+                }
+            }
+        } else {
+            Modpack2InstallEditor(
+                state = editor,
+                onNameChange = viewModel::updateName,
+                onCommentChange = viewModel::updateComment,
+                onIconUrlChange = viewModel::updateIconUrl,
+                onToggleOptional = viewModel::toggleOptionalFile,
+                onBack = viewModel::closeEditor,
+                onConfirm = viewModel::submitInstall,
+            )
+        }
+
+        (editor?.error ?: state.archiveError ?: state.scanError)?.let { error ->
+            AlertDialog(
+                onDismissRequest = viewModel::dismissError,
+                title = { Text("发生错误") },
+                text = { Text(error) },
+                confirmButton = { TextButton(viewModel::dismissError) { Text("知道了") } },
+            )
+        }
+        importError?.let { error ->
+            AlertDialog(
+                onDismissRequest = { importError = null },
+                title = { Text("发生错误") },
+                text = { Text(error) },
+                confirmButton = {
+                    TextButton(onClick = { importError = null }) { Text("知道了") }
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.Modpack2InstallEditor(
+    state: Modpack2InstallEditorState,
+    onNameChange: (String) -> Unit,
+    onCommentChange: (String) -> Unit,
+    onIconUrlChange: (String) -> Unit,
+    onToggleOptional: (String) -> Unit,
+    onBack: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    val creating = state.source == Modpack2WorkspaceSource.Empty
+    val archive = state.source as? Modpack2WorkspaceSource.Archive
+    val selectedSize = archive?.let { source ->
+        val preview = source.preview
+        preview.requiredFiles.sumOf(ModpackArchiveFile::size) +
+            preview.optionalFiles.filter { it.key in source.selectedOptionalFiles }
+                .sumOf(ModpackArchiveFile::size) +
+            preview.embeddedMods.sumOf(ModpackArchiveEmbeddedMod::size)
+    } ?: 0L
+    ScreenContentSurface(size = ScreenContentSize.LARGE) {
+        TitleRow(if (creating) "创建整合包" else "导入整合包", onBack) {
+            if (state.submitting) {
+                CircularProgressIndicator(Modifier.size(18.dp).padding(end = 4.dp), strokeWidth = 2.dp)
+            }
+            Text(selectedSize.humanFileSize)
+            CircleIconButton(
+                "\uDB82\uDE50",
+                if (state.submitting) "验证中" else if (creating) "创建" else "导入",
+                enabled = state.canSubmit,
+            ) { onConfirm() }
+        }
+        ContentBody(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            FlowRowV(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                OutlinedTextField(
+                    value = state.name,
+                    onValueChange = onNameChange,
+                    label = { Text("包名与版本") },
+                    singleLine = true,
+                    enabled = !state.submitting,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = state.comment,
+                    onValueChange = onCommentChange,
+                    label = { Text("简介") },
+                    singleLine = true,
+                    enabled = !state.submitting,
+                    modifier = Modifier.weight(1f),
+                )
+                OutlinedTextField(
+                    value = state.iconUrl,
+                    onValueChange = onIconUrlChange,
+                    label = { Text("图标链接 可选") },
+                    singleLine = true,
+                    enabled = !state.submitting,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Text("${state.mcVersion.mcVer}/${state.modLoader}", style = MaterialTheme.typography.labelLarge)
+            state.archiveProgress?.let { progress -> ArchiveLoadProgress(progress) }
+            if (archive != null) {
+                val preview = archive.preview
+                val gridItems = remember(preview, state.resolvedMods, archive.selectedOptionalFiles) {
+                    preview.toContentGridItems(state.resolvedMods, archive.selectedOptionalFiles)
+                }
+                ContentGrid(
+                    items = gridItems,
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                    onSelectionChange = { item, _ ->
+                        if (!state.submitting && !item.required) onToggleOptional(item.key)
+                    },
+                    stateKey = preview.archive.toString(),
+                    isResolving = state.contentResolving,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ArchiveLoadProgress(progress: ModpackArchiveReadProgress) {
+    val fraction = progress.fraction
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (fraction == null) {
+            LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        } else {
+            LinearProgressIndicator(
+                progress = { fraction },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        Text(
+            buildString {
+                append(progress.stage.displayName)
+                if (progress.completed != null && progress.total != null) {
+                    append(" ${progress.completed}/${progress.total}")
+                }
+            },
+            style = MaterialTheme.typography.labelSmall,
+        )
+    }
+}
+
+@Composable
+private fun CandidateCard(
+    name: String,
+    mcVersion: McVersion,
+    tooltip: String,
+    onInstall: () -> Unit,
+) {
+    val icon = remember(mcVersion) { loadImageBitmap(mcVersion.icon).getOrNull() }
+    SimpleTooltip(tooltip) {
+        Card(onClick = onInstall, modifier = Modifier.widthIn(max = 260.dp)) {
+            Row(
+                modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                icon?.let { Image(it, null, Modifier.size(24.dp)) }
+                Text(name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+@Composable
+private fun GameDirectoryHeader(
+    path: String,
+    candidateCount: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+) {
+    Card(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(if (expanded) "\uF103" else "\uEB70", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "${candidateCount}个包 · $path",
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CenterMessage(content: @Composable () -> Unit) {
+    Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) { content() }
+}

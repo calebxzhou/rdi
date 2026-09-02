@@ -10,10 +10,11 @@ import java.time.Instant
 internal class MemoryCatalogCache<K : Any, V : Any>(
     private val clock: Clock,
     private val positiveTtl: Duration,
-    private val negativeTtl: Duration
+    private val negativeTtl: Duration,
+    private val maxSize: Int = Int.MAX_VALUE
 ) {
     private val mutex = Mutex()
-    private val values = mutableMapOf<K, Entry<V>>()
+    private val values = LinkedHashMap<K, Entry<V>>(16, 0.75f, true)
     private val inFlight = mutableMapOf<K, CompletableDeferred<V?>>()
 
     suspend fun get(key: K): CachedCatalogValue<V>? = mutex.withLock {
@@ -32,6 +33,7 @@ internal class MemoryCatalogCache<K : Any, V : Any>(
                 value = value,
                 expiresAt = clock.instant().plus(if (value == null) negativeTtl else positiveTtl)
             )
+            trimToSize()
         }
     }
 
@@ -55,6 +57,7 @@ internal class MemoryCatalogCache<K : Any, V : Any>(
                     value = loaded,
                     expiresAt = clock.instant().plus(if (loaded == null) negativeTtl else positiveTtl)
                 )
+                trimToSize()
                 inFlight.remove(key)
             }
             pending.complete(loaded)
@@ -63,6 +66,14 @@ internal class MemoryCatalogCache<K : Any, V : Any>(
             mutex.withLock { inFlight.remove(key) }
             pending.completeExceptionally(cause)
             throw cause
+        }
+    }
+
+    private fun trimToSize() {
+        while (values.size > maxSize) {
+            val iterator = values.entries.iterator()
+            iterator.next()
+            iterator.remove()
         }
     }
 

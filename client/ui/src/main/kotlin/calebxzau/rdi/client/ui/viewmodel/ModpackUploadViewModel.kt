@@ -15,19 +15,22 @@ import calebxzau.rdi.client.ui.currentJavaMajor
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientDirs
-import calebxzhou.rdi.client.service.ClientModpackTester
 import calebxzhou.rdi.client.service.ClientTaskManager
-import calebxzhou.rdi.client.service.GameService
-import calebxzhou.rdi.client.service.ModpackTester
-import calebxzhou.rdi.client.service.TestStatus
+import calebxzhou.rdi.client.service.createUploadClientModDownloadTask2
+import calebxzhou.rdi.client.service.isUploadClientContentAvailable
+import calebxzhou.rdi.client.service.mcInstall
+import calebxzhou.rdi.client.service.modpackTestEnvironment
+import calebxzhou.rdi.client.service.modpackTestModSourceResolver
 import calebxzhou.rdi.client.service.createUploadModpackTask2
 import calebxzhou.rdi.client.service.hydrateToUiMods
 import calebxzhou.rdi.client.service.hydrateToUiModsInBatches
 import calebxzhou.rdi.client.service.modpackUploadTaskKey
 import calebxzhou.rdi.client.service.toUiMods
+import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.commitEmbeddedModSources
+import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.common.DEBUG
-import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.IGNORE_MODPACK_TEST
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.LoadProgress
@@ -42,6 +45,9 @@ import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.validateIconUrl
 import calebxzhou.rdi.common.service.validateIconUrlAddress
 import calebxzhou.rdi.common.model.modpackInfoCharacterCount
+import calebxzau.rdi.modpacktest.ModpackTestSession
+import calebxzau.rdi.modpacktest.ModpackTestStatus
+import calebxzau.rdi.modpacktest.ModpackTestTarget
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -59,6 +65,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
 import java.io.File
+import java.nio.file.Files
 import java.util.jar.JarFile
 
 enum class ModpackUploadMode { CREATE, UPDATE }
@@ -161,9 +168,9 @@ data class ModpackUploadUiState(
     val selectedUpdateTarget: Modpack.BriefVo? = null,
     val pendingMissingModDownload: PendingMissingModDownload? = null,
     val ignoreModpackTest: Boolean = false,
-    val clientTestStatus: TestStatus = TestStatus.NOT_RUN,
+    val clientTestStatus: ModpackTestStatus = ModpackTestStatus.NOT_RUN,
     val clientTestPassSeconds: String? = null,
-    val serverTestStatus: TestStatus = TestStatus.NOT_RUN,
+    val serverTestStatus: ModpackTestStatus = ModpackTestStatus.NOT_RUN,
     val serverTestPassSeconds: String? = null,
     val mcVersionText: String = "",
     val modloaderText: String = "",
@@ -181,8 +188,8 @@ data class ModpackUploadUiState(
                 loading -> "正在处理整合包"
                 uiModsLoading -> "正在补充Mod详细信息"
                 downloadTaskRunId != null -> "正在下载测试服务端"
-                serverTestStatus == TestStatus.RUNNING -> "服务端测试进行中"
-                clientTestStatus == TestStatus.RUNNING -> "客户端测试进行中"
+                serverTestStatus == ModpackTestStatus.RUNNING -> "服务端测试进行中"
+                clientTestStatus == ModpackTestStatus.RUNNING -> "客户端测试进行中"
                 uploadMode == ModpackUploadMode.UPDATE && selectedUpdateTarget == null ->
                     "请选择要更新的已有整合包"
                 else -> null
@@ -197,8 +204,8 @@ data class ModpackUploadUiState(
             !loading &&
             !uiModsLoading &&
             downloadTaskRunId == null &&
-            serverTestStatus != TestStatus.RUNNING &&
-            clientTestStatus != TestStatus.RUNNING
+            serverTestStatus != ModpackTestStatus.RUNNING &&
+            clientTestStatus != ModpackTestStatus.RUNNING
 }
 
 sealed interface ModpackUploadEvent {
@@ -245,10 +252,14 @@ interface ModpackUploadGateway {
 class RdiModpackUploadGateway(
     private val modCatalog: ModCatalog,
 ) : ModpackUploadGateway {
+    private val workDir = Files.createTempDirectory(
+        ClientDirs.packProcDir.toPath(),
+        "legacy-upload-",
+    ).toFile()
+    private var submittedRunId: String? = null
     private val processor = ModpackProcessor(
         PackProcessingPaths(
-            workDir = ClientDirs.packProcDir,
-            modCacheDir = DL_MOD_DIR,
+            workDir = workDir,
         )
     )
 
@@ -275,6 +286,7 @@ class RdiModpackUploadGateway(
             modCatalog = modCatalog,
             onProgress = onProgress,
         ).getOrThrow()
+        commitEmbeddedModSources(pack.embeddedModSources).getOrThrow()
         val initialUiMods = defaultCurseForgeUnknownMods(pack.mods.toUiMods())
         val processedUiMods = processUiMods(initialUiMods).getOrThrow()
         PreparedClientPack(
@@ -291,14 +303,46 @@ class RdiModpackUploadGateway(
         clientUiMods: List<UiMod>,
         onProgress: (LoadProgress) -> Unit,
     ): Result<PreparedServerPack> = resultOf {
-        val serverPack = processor.loadServerPack(
-            file = directory,
-            clientMods = clientUiMods.map(UiMod::toMod),
-            onProgress = onProgress,
-        ).getOrThrow()
+        val clientMods = clientUiMods.map(UiMod::toMod)
+        val serverPack = withStagedClientModSources(clientMods) { clientModSources ->
+            processor.loadServerPack(
+                file = directory,
+                clientMods = clientMods,
+                clientModSources = clientModSources,
+                onProgress = onProgress,
+            ).getOrThrow()
+        }
+        commitEmbeddedModSources(serverPack.embeddedModSources).getOrThrow()
         val serverUiMods = serverPack.mods.hydrateToUiMods(modCatalog)
         val mergedUiMods = mergeClientAndServerMods(clientUiMods, serverUiMods)
         PreparedServerPack(serverPack, processUiMods(mergedUiMods).getOrThrow())
+    }
+
+    private suspend fun <T> withStagedClientModSources(
+        mods: List<Mod>,
+        block: suspend (Map<Mod, File>) -> T,
+    ): T {
+        val stagingDir = Files.createTempDirectory(
+            ClientDirs.packProcDir.toPath(),
+            "server-client-mods-",
+        ).toFile()
+        return try {
+            val requests = mods.map { mod ->
+                mod to mod.toClientContentRequest(
+                    targetRelativePath = mod.fileName,
+                )
+            }
+            val paths = ClientContentStore.shared.materialize(
+                requests = requests.map { it.second },
+                targetRoot = stagingDir.toPath(),
+            ).getOrThrow()
+            val sources = requests.zip(paths).associate { (entry, path) ->
+                entry.first to path.toFile()
+            }
+            block(sources)
+        } finally {
+            stagingDir.deleteRecursivelyNoSymlink()
+        }
     }
 
     override suspend fun validateRuntime(mcVersion: McVersion): Result<Unit> = resultOf {
@@ -309,7 +353,11 @@ class RdiModpackUploadGateway(
     }
 
     override suspend fun findMissingMods(mods: List<Mod>): Result<List<Mod>> = resultOf {
-        mods.filterNot(ModService::isDownloadedModFileValid)
+        buildList {
+            mods.forEach { mod ->
+                if (!isUploadClientContentAvailable(mod)) add(mod)
+            }
+        }
     }
 
     private fun processUiMods(mods: List<UiMod>): Result<List<UiMod>> = runCatching {
@@ -320,11 +368,11 @@ class RdiModpackUploadGateway(
     }
 
     override fun queueMissingModDownload(mods: List<Mod>): Result<String> = runCatching {
-        ClientTaskManager.submit(ModService.downloadModsTask2(mods))
+        ClientTaskManager.submit(createUploadClientModDownloadTask2(mods))
     }
 
     override fun queueTestServer(pack: LoadedLocalModpack): Result<String> = runCatching {
-        ClientTaskManager.submit(GameService.downloadTestServerTask2(pack.mcVersion, pack.modloader))
+        ClientTaskManager.submit(mcInstall.downloadTestServerTask2(pack.mcVersion, pack.modloader))
     }
 
     override fun queueUpload(submission: ModpackUploadSubmission): Result<String> = runCatching {
@@ -335,25 +383,30 @@ class RdiModpackUploadGateway(
             packVersion = draft.versionName,
             mods = processedUiMods.map(UiMod::toMod),
         ).toUploadPayload()
-        ClientTaskManager.submit(
-            task = createUploadModpackTask2(
-                processor = processor,
-                payload = payload,
-                mods = payload.mods,
-                modpackName = draft.name,
-                versionName = draft.versionName,
-                iconUrl = draft.iconUrl.trim().ifBlank { null },
-                sourceUrl = draft.sourceUrl.trim().ifBlank { null },
-                info = draft.info.trim().ifBlank { null },
-                categories = Modpack.normalizeCategories(draft.categories),
-                updateModpackId = submission.updateModpackId,
-            ),
+        val task = createUploadModpackTask2(
+            processor = processor,
+            payload = payload,
+            mods = payload.mods,
+            modpackName = draft.name,
+            versionName = draft.versionName,
+            iconUrl = draft.iconUrl.trim().ifBlank { null },
+            sourceUrl = draft.sourceUrl.trim().ifBlank { null },
+            info = draft.info.trim().ifBlank { null },
+            categories = Modpack.normalizeCategories(draft.categories),
+            updateModpackId = submission.updateModpackId,
+        )
+        val runId = ClientTaskManager.submit(
+            task = task,
             dedupeKey = modpackUploadTaskKey(
                 updateModpackId = submission.updateModpackId,
                 modpackName = draft.name,
                 versionName = draft.versionName,
             ),
         )
+        if (ClientTaskManager.entry(runId)?.task === task) {
+            submittedRunId = runId
+        }
+        runId
     }
 
     override fun enableIgnoreModpackTest(): Result<Unit> = runCatching {
@@ -361,8 +414,10 @@ class RdiModpackUploadGateway(
     }
 
     override suspend fun cleanup(): Result<Unit> = resultOf {
-        ClientDirs.packProcDir.deleteRecursivelyNoSymlink()
-        ClientDirs.packProcDir.mkdirs()
+        val runId = submittedRunId
+        if (runId == null || ClientTaskManager.entry(runId)?.status?.isTerminal == true) {
+            workDir.deleteRecursivelyNoSymlink()
+        }
     }
 }
 
@@ -381,8 +436,8 @@ class ModpackUploadViewModel(
     val clientTestConsoleState = ConsoleState()
     val serverTestConsoleState = ConsoleState()
 
-    private var clientTester: ClientModpackTester? = null
-    private var serverTester: ModpackTester? = null
+    private var clientTester: ModpackTestSession? = null
+    private var serverTester: ModpackTestSession? = null
     private val testerObservationJobs = mutableListOf<Job>()
 
     init {
@@ -508,8 +563,9 @@ class ModpackUploadViewModel(
         _uiState.update {
             it.copy(uiMods = updateModSide(it.uiMods, modStableKey(uiMod.mod), newSide))
         }
-        clientTester?.onModsChangedAfterManualEdit()
-        serverTester?.onModsChangedAfterManualEdit()
+        val mods = _uiState.value.uiMods.map(UiMod::toMod)
+        clientTester?.onModsChanged(mods)
+        serverTester?.onModsChanged(mods)
     }
 
     fun chooseCreateMode() {
@@ -579,10 +635,7 @@ class ModpackUploadViewModel(
     }
 
     fun stopClientTest() {
-        clientTester?.stop(
-            uiScope = viewModelScope,
-            appendLog = clientTestConsoleState::append,
-        )
+        clientTester?.stop()?.onFailure { reportError("停止客户端测试失败", it) }
     }
 
     fun startServerTest() {
@@ -596,10 +649,7 @@ class ModpackUploadViewModel(
     }
 
     fun stopServerTest() {
-        serverTester?.stop(
-            uiScope = viewModelScope,
-            appendLog = serverTestConsoleState::append,
-        )
+        serverTester?.stop()?.onFailure { reportError("停止服务端测试失败", it) }
     }
 
     fun dismissMissingModDownload() {
@@ -666,11 +716,11 @@ class ModpackUploadViewModel(
             return
         }
         if (state.serverPackName == null && !state.allowUploadWithoutTests) {
-            if (state.clientTestStatus != TestStatus.PASSED) {
+            if (state.clientTestStatus != ModpackTestStatus.PASSED) {
                 _uiState.update { it.copy(errorMessage = "请先完成客户端测试并通过") }
                 return
             }
-            if (state.serverTestStatus != TestStatus.PASSED) {
+            if (state.serverTestStatus != ModpackTestStatus.PASSED) {
                 _uiState.update { it.copy(errorMessage = "请先完成服务端测试并通过") }
                 return
             }
@@ -814,29 +864,18 @@ class ModpackUploadViewModel(
         }
     }
 
-    private fun startClientTestAfterModsReady(tester: ClientModpackTester) {
+    private fun startClientTestAfterModsReady(tester: ModpackTestSession) {
         clientTestConsoleState.clear()
-        tester.start(
-            uiScope = viewModelScope,
-            getMods = { _uiState.value.uiMods.map(UiMod::toMod) },
-            onError = { message -> _uiState.update { it.copy(errorMessage = message) } },
-            appendLog = clientTestConsoleState::append,
-        )
+        _uiState.update { it.copy(errorMessage = null) }
+        tester.start(_uiState.value.uiMods.map(UiMod::toMod))
+            .onFailure { reportError("启动客户端测试失败", it) }
     }
 
-    private fun startServerTestAfterModsReady(tester: ModpackTester) {
+    private fun startServerTestAfterModsReady(tester: ModpackTestSession) {
         serverTestConsoleState.clear()
-        tester.startWithAutoFix(
-            uiScope = viewModelScope,
-            getMods = { _uiState.value.uiMods.map(UiMod::toMod) },
-            setMods = { mods ->
-                _uiState.update {
-                    it.copy(uiMods = preserveUiMods(it.uiMods, mods))
-                }
-            },
-            onError = { message -> _uiState.update { it.copy(errorMessage = message) } },
-            appendLog = serverTestConsoleState::append,
-        )
+        _uiState.update { it.copy(errorMessage = null) }
+        tester.start(_uiState.value.uiMods.map(UiMod::toMod))
+            .onFailure { reportError("启动服务端测试失败", it) }
     }
 
     private fun applyServerPack(prepared: PreparedServerPack) {
@@ -862,14 +901,25 @@ class ModpackUploadViewModel(
         serverTestConsoleState.clear()
         _uiState.update {
             it.copy(
-                clientTestStatus = TestStatus.NOT_RUN,
+                clientTestStatus = ModpackTestStatus.NOT_RUN,
                 clientTestPassSeconds = null,
-                serverTestStatus = TestStatus.NOT_RUN,
+                serverTestStatus = ModpackTestStatus.NOT_RUN,
                 serverTestPassSeconds = null,
             )
         }
-        clientTester = ClientModpackTester(pack.copy(mods = uiMods.map(UiMod::toMod)))
-        serverTester = ModpackTester(pack.copy(mods = uiMods.map(UiMod::toMod)))
+        val testPack = pack.copy(mods = uiMods.map(UiMod::toMod))
+        clientTester = ModpackTestSession(
+            loadedModpack = testPack,
+            target = ModpackTestTarget.CLIENT,
+            environment = modpackTestEnvironment,
+            modSourceResolver = modpackTestModSourceResolver,
+        )
+        serverTester = ModpackTestSession(
+            loadedModpack = testPack,
+            target = ModpackTestTarget.SERVER,
+            environment = modpackTestEnvironment,
+            modSourceResolver = modpackTestModSourceResolver,
+        )
         observeTesters()
     }
 
@@ -877,24 +927,32 @@ class ModpackUploadViewModel(
         val client = clientTester ?: return
         val server = serverTester ?: return
         testerObservationJobs += viewModelScope.launch {
-            client.status.collectLatest { status ->
-                _uiState.update { it.copy(clientTestStatus = status) }
+            client.state.collectLatest { state ->
+                _uiState.update {
+                    it.copy(
+                        clientTestStatus = state.status,
+                        clientTestPassSeconds = state.passSeconds,
+                        errorMessage = state.errorMessage ?: it.errorMessage,
+                    )
+                }
             }
         }
         testerObservationJobs += viewModelScope.launch {
-            client.passSeconds.collectLatest { seconds ->
-                _uiState.update { it.copy(clientTestPassSeconds = seconds) }
+            client.logs.collect(clientTestConsoleState::append)
+        }
+        testerObservationJobs += viewModelScope.launch {
+            server.state.collectLatest { state ->
+                _uiState.update {
+                    it.copy(
+                        serverTestStatus = state.status,
+                        serverTestPassSeconds = state.passSeconds,
+                        errorMessage = state.errorMessage ?: it.errorMessage,
+                    )
+                }
             }
         }
         testerObservationJobs += viewModelScope.launch {
-            server.status.collectLatest { status ->
-                _uiState.update { it.copy(serverTestStatus = status) }
-            }
-        }
-        testerObservationJobs += viewModelScope.launch {
-            server.passSeconds.collectLatest { seconds ->
-                _uiState.update { it.copy(serverTestPassSeconds = seconds) }
-            }
+            server.logs.collect(serverTestConsoleState::append)
         }
     }
 
@@ -939,8 +997,8 @@ class ModpackUploadViewModel(
     private fun disposeTesters() {
         testerObservationJobs.forEach { it.cancel() }
         testerObservationJobs.clear()
-        clientTester?.dispose(viewModelScope)
-        serverTester?.dispose(viewModelScope)
+        clientTester?.close()
+        serverTester?.close()
         clientTester = null
         serverTester = null
     }
@@ -1056,7 +1114,7 @@ private data class ModMergeEntry(
         get() = uiMod.mod
 }
 
-private fun strictModMergeKey(
+private suspend fun strictModMergeKey(
     mod: Mod,
     installedModIdCache: MutableMap<String, String?>,
 ): String {
@@ -1072,7 +1130,7 @@ private fun strictModMergeKey(
 private fun slugModMergeKey(mod: Mod): String? =
     mod.slug.trim().lowercase().takeIf(String::isNotBlank)?.let { "slug:$it" }
 
-private fun UiMod.asMergeEntry(installedModIdCache: MutableMap<String, String?>): ModMergeEntry =
+private suspend fun UiMod.asMergeEntry(installedModIdCache: MutableMap<String, String?>): ModMergeEntry =
     ModMergeEntry(
         uiMod = this,
         strictKey = strictModMergeKey(mod, installedModIdCache),
@@ -1088,7 +1146,7 @@ private fun mergeAsBoth(clientMod: UiMod, serverMod: UiMod): UiMod {
     )
 }
 
-private fun mergeClientAndServerMods(
+private suspend fun mergeClientAndServerMods(
     clientMods: List<UiMod>,
     serverMods: List<UiMod>,
 ): List<UiMod> {
@@ -1135,29 +1193,42 @@ private fun mergeClientAndServerMods(
             merged += serverEntry.uiMod.withSide(Mod.Side.SERVER)
         }
     }
-    return merged.distinctBy { strictModMergeKey(it.mod, installedModIdCache) }
-        .sortedBy { it.slug.lowercase() }
+    val distinctMerged = buildList {
+        val seenKeys = mutableSetOf<String>()
+        merged.forEach { uiMod ->
+            val key = strictModMergeKey(uiMod.mod, installedModIdCache)
+            if (seenKeys.add(key)) add(uiMod)
+        }
+    }
+    return distinctMerged.sortedBy { it.slug.lowercase() }
 }
 
-private fun readInstalledModId(
+private suspend fun readInstalledModId(
     mod: Mod,
     installedModIdCache: MutableMap<String, String?>,
 ): String? {
-    val cacheKey = mod.targetPath.toString()
-    return installedModIdCache.getOrPut(cacheKey) {
-        runCatching {
-            val file = mod.targetPath.toFile().takeIf { it.exists() && it.isFile }
-                ?: return@getOrPut null
-            ModService.run {
-                JarFile(file).use { jar ->
-                    jar.readModMeta()?.primaryModId?.trim()?.lowercase()?.ifBlank { null }
+    val cacheKey = modStableKey(mod)
+    if (installedModIdCache.containsKey(cacheKey)) return installedModIdCache[cacheKey]
+
+    val request = mod.toClientContentRequest().copy(allowNetwork = false)
+    val modId = ClientContentStore.shared.use(listOf(request)) { paths ->
+        paths[request.id]?.toFile()?.takeIf { it.exists() && it.isFile }?.let { file ->
+            runCatching {
+                ModService.run {
+                    JarFile(file).use { jar ->
+                        jar.readModMeta()?.primaryModId?.trim()?.lowercase()?.ifBlank { null }
+                    }
                 }
+            }.getOrElse { cause ->
+                lgr.warn(cause) { "读取Mod元数据失败:${mod.fileName}" }
+                null
             }
-        }.getOrElse { cause ->
-            lgr.warn(cause) { "读取Mod元数据失败:${mod.fileName}" }
-            null
         }
-    }
+    }.onFailure { cause ->
+        lgr.debug(cause) { "读取Mod源文件失败:${mod.fileName}" }
+    }.getOrNull()
+    installedModIdCache[cacheKey] = modId
+    return modId
 }
 
 private suspend fun <T> resultOf(block: suspend () -> T): Result<T> = try {

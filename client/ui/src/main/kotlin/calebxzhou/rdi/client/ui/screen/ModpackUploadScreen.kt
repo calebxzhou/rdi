@@ -36,8 +36,8 @@ import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.themeNow
-import calebxzhou.rdi.client.service.CLIENT_TEST_SUCCESS_MARKER
-import calebxzhou.rdi.client.service.TestStatus
+import calebxzau.rdi.modpacktest.CLIENT_TEST_SUCCESS_MARKER
+import calebxzau.rdi.modpacktest.ModpackTestStatus
 import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.client.ui.comp.ModGrid
@@ -508,10 +508,10 @@ private fun TestConsolePane(
     }
 }
 
-private fun testStatusText(status: TestStatus, passSeconds: String?): String = when (status) {
-    TestStatus.NOT_RUN -> "未测试"
-    TestStatus.RUNNING -> "测试中"
-    TestStatus.PASSED -> "通过${passSeconds?.let { "(${it}s)" } ?: ""}"
-    TestStatus.FAILED -> "失败"
-    TestStatus.STOPPED -> "已停止"
+private fun testStatusText(status: ModpackTestStatus, passSeconds: String?): String = when (status) {
+    ModpackTestStatus.NOT_RUN -> "未测试"
+    ModpackTestStatus.RUNNING -> "测试中"
+    ModpackTestStatus.PASSED -> "通过${passSeconds?.let { "(${it}s)" } ?: ""}"
+    ModpackTestStatus.FAILED -> "失败"
+    ModpackTestStatus.STOPPED -> "已停止"
 }

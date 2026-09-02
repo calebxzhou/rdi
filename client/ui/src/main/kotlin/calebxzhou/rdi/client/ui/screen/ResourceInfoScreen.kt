@@ -86,21 +86,31 @@ fun ResourceInfoScreen(
     onTargetUnavailable: () -> Unit = {},
     onBack: () -> Unit
 ) {
-    var targetPack by remember(route.targetLocalVersionId) { mutableStateOf<ModpackLocalDir?>(null) }
-    var resolvingTarget by remember(route.targetLocalVersionId) {
-        mutableStateOf(route.targetLocalVersionId != null)
+    val disabledTarget = route.hasDisabledCatalogLocalTargetKind()
+    val localTarget = route.localCatalogTarget()
+    var targetPack by remember(localTarget) { mutableStateOf<ModpackLocalDir?>(null) }
+    var resolvingTarget by remember(localTarget) {
+        mutableStateOf(localTarget != null)
     }
 
-    LaunchedEffect(route.targetLocalVersionId) {
-        val versionId = route.targetLocalVersionId
-        if (versionId == null) {
+    LaunchedEffect(disabledTarget, localTarget) {
+        if (disabledTarget) {
+            resolvingTarget = false
+            onTargetUnavailable()
+            return@LaunchedEffect
+        }
+        if (localTarget == null) {
             resolvingTarget = false
             return@LaunchedEffect
         }
-        targetPack = ModpackService.getLocalPackDirs().firstOrNull { it.versionId == versionId }
+        when (localTarget.kind) {
+            CatalogLocalTargetKind.Legacy -> targetPack = ModpackService.getLocalPackDirs().firstOrNull { it.versionId == localTarget.id }
+        }
         resolvingTarget = false
         if (targetPack == null) onTargetUnavailable()
     }
+
+    if (disabledTarget) return
 
     val type = ResourceInfoType.valueOf(route.type)
     val projectDisplayName = when (type) {
@@ -116,7 +126,7 @@ fun ResourceInfoScreen(
         ScreenContentSurface(size = ScreenContentSize.LARGE) {
             if (resolvingTarget) {
                 MainColumn { CircularProgressIndicator() }
-            } else if (route.targetLocalVersionId == null || targetPack != null) {
+            } else if (localTarget == null || targetPack != null) {
                 ModrinthProjectInfoContent(
                     modCatalog = modCatalog,
                     projectId = route.projectId,
@@ -224,9 +234,10 @@ private fun ModrinthProjectInfoContent(
             project?.let { loadedProject ->
                 ShaderDownloadVersionRow(
                     project = loadedProject,
-                    requiredMcVersion = targetPack?.vo?.mcVer?.mcVer,
+                    requiredMcVersion = targetPack?.mcVersion?.mcVer,
                     includeAlpha = includeAlpha,
                     targetPack = targetPack,
+                    targetAvailable = targetPack != null,
                     installRecord = installRecord,
                     taskEntries = taskEntries,
                     projectId = projectId,
@@ -237,19 +248,20 @@ private fun ModrinthProjectInfoContent(
                         val file = version.primaryFile
                         when {
                             pack == null -> errorMessage = "请先从已安装整合包中选择目标"
-                            !pack.dir.isDirectory -> onTargetUnavailable()
+                            pack != null && !pack.dir.isDirectory -> onTargetUnavailable()
                             file == null -> errorMessage = "该版本没有可安装文件"
                             else -> {
+                                val legacyPack = requireNotNull(pack)
                                 taskRunId = ClientTaskManager.submit(
                                     task = ModrinthProjectDownloadService.downloadProjectFileTask2(
                                         file = file,
-                                        packdir = pack,
+                                        packdir = legacyPack,
                                         projectId = projectId,
                                         versionId = version.id,
                                         projectDisplayName = projectDisplayName,
                                         targetDirName = targetDirName
                                     ),
-                                    dedupeKey = "modrinth-project-file:$targetDirName:${pack.versionId}:$projectId"
+                                    dedupeKey = "modrinth-project-file:$targetDirName:${legacyPack.versionId}:$projectId"
                                 )
                                 okMessage = "已加入任务列表"
                             }
@@ -285,6 +297,7 @@ private fun ShaderDownloadVersionRow(
     requiredMcVersion: String? = null,
     includeAlpha: Boolean,
     targetPack: ModpackLocalDir?,
+    targetAvailable: Boolean,
     installRecord: LocalContentInstallRecord?,
     taskEntries: List<Task2Entry>,
     projectId: String,
@@ -323,7 +336,7 @@ private fun ShaderDownloadVersionRow(
                 compatibleVersions.forEach { version ->
                     Card(
                         onClick = { onDownload(version) },
-                        enabled = targetPack != null && installRecord == null &&
+                        enabled = targetAvailable && (targetPack == null || installRecord == null) &&
                                 taskStatus != "下载中" && version.primaryFile != null,
                         shape = RoundedCornerShape(14.dp)
                     ) {

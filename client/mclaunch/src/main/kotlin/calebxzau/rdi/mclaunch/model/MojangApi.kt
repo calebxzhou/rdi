@@ -12,6 +12,7 @@ data class MojangVersionManifest(
     val time: String? = null,
     val releaseTime: String? = null,
     val mainClass: String? = null,
+    val clientVersion: String? = null,
     val downloads: MojangVersionDownloads? = null,
     val assetIndex: MojangAssetIndex? = null,
     val assets: String? = null,

@@ -1,0 +1,32 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import kotlin.test.Test
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
+
+class Host2MatchingTest {
+    @Test
+    fun `host matching requires remote identity and pack compatibility`() {
+        val versionId = Uuid.parse("019f2d68-6b7e-7ec8-98d1-0b8483c39875")
+        val modpackId = Uuid.parse("019f2d68-6b7e-7ec8-98d1-0b8483c39877")
+        val record = LocalModpack2InstanceRecord(
+            versionId = versionId,
+            remoteModpackId = modpackId,
+            remoteVersionId = versionId,
+            name = "pack",
+            mcVersion = McVersion.V211,
+            modLoader = ModLoader.neoforge,
+            updatedAt = 1L,
+        )
+
+        assertTrue(record.isMatchingInstalled(modpackId, versionId, McVersion.V211, ModLoader.neoforge))
+        assertFalse(record.isMatchingInstalled(modpackId, versionId, McVersion.V201, ModLoader.neoforge))
+        assertFalse(record.isMatchingInstalled(modpackId, versionId, McVersion.V211, ModLoader.forge))
+        assertFalse(record.isMatchingInstalled(Uuid.generateV7(), versionId, McVersion.V211, ModLoader.neoforge))
+        assertFalse(record.isMatchingInstalled(modpackId, Uuid.generateV7(), McVersion.V211, ModLoader.neoforge))
+    }
+}

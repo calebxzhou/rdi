@@ -1,0 +1,196 @@
+package calebxzhou.rdi.client.service
+
+import calebxzhou.rdi.client.database.LocalModpack2ContentCacheRecord
+import calebxzau.rdi.common.model.ClientContentVo
+import calebxzau.rdi.common.model.ContentOrigin
+import calebxzau.rdi.common.model.ContentPlatform
+import calebxzau.rdi.common.model.ContentSide
+import calebxzau.rdi.common.model.ContentType
+import java.nio.file.Files
+import java.nio.file.Path
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlin.uuid.Uuid
+
+class Host2PlayPlanTest {
+    @Test
+    fun `plan uses presence snapshot, replaces path conflicts, and preserves extras`() {
+        val root = Files.createTempDirectory("host2-play-plan")
+        val versionId = Uuid.parse("019c9c18-778d-7000-8000-000000000001")
+        try {
+            val pathConflict = presenceUnit("mods/room.jar")
+            val identityConflict = presenceUnit("mods/old-room.jar")
+            val duplicate = presenceUnit("mods/duplicate.jar")
+            val extra = presenceUnit("mods/extra.jar")
+            val disabled = presenceUnit(".rdi/disabled/mods/disabled-room.jar", enabled = false)
+            val remote = clientContent("room", "mods/room.jar")
+            val disabledRemote = clientContent("disabled-room", "mods/disabled-room.jar")
+            val serverOnly = remote.copy(projectId = "server-only", side = ContentSide.Server)
+            val cache = listOf(
+                cache(identityConflict, projectId = "room", modIds = listOf("room")),
+                cache(duplicate, projectId = "room", modIds = listOf("room")),
+                cache(disabled, projectId = "disabled-room"),
+            )
+
+            val plan = buildHost2PreparedPlan(
+                key = host2PreparedCacheKey("host-a", versionId.toString(), 7, "disk-a"),
+                snapshot = snapshot(root, versionId, pathConflict, identityConflict, duplicate, extra, disabled),
+                remoteContents = listOf(remote, disabledRemote, serverOnly),
+                cacheEnrichment = cache,
+            )
+
+            assertEquals(listOf("mods/room.jar", "mods/disabled-room.jar"), plan.remoteRequests.map { it.relativePath })
+            assertEquals(setOf("mods/room.jar"), plan.removedLocalPaths)
+            assertEquals(plan.remoteRequests.map { it.relativePath }.toSet() + plan.removedLocalPaths, plan.touchedPaths)
+            assertTrue(plan.startupWarnings.any { it.contains("重复启用") && it.contains("room") })
+            assertTrue(plan.startupWarnings.none { it.contains("server-only") })
+            assertFalse(plan.startupWarnings.any { it.contains("extra") && it.contains("同时") })
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `cache enrichment requires exact physical path but not matching hash`() {
+        val root = Files.createTempDirectory("host2-play-plan-cache")
+        val unit = presenceUnit("mods/local.jar")
+        val remote = clientContent("project", "mods/remote.jar")
+        try {
+            val plan = buildHost2PreparedPlan(
+                key = host2PreparedCacheKey("host-a", "version", 2, "disk"),
+                snapshot = snapshot(root, null, unit),
+                remoteContents = listOf(remote),
+                cacheEnrichment = listOf(
+                    cache(unit, projectId = "project", hash = "old-hash"),
+                    cache(unit, projectId = "project", physicalPath = "mods/other.jar"),
+                ),
+            )
+
+            assertTrue(plan.removedLocalPaths.isEmpty())
+            assertEquals(listOf("mods/remote.jar"), plan.remoteRequests.map { it.relativePath })
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `server-only hint is excluded with cache while both remains warned and disabled match is materialized`() {
+        val root = Files.createTempDirectory("host2-play-plan-side-hints")
+        val serverOnly = presenceUnit("mods/server-only.jar")
+        val both = presenceUnit("mods/both.jar")
+        val disabled = presenceUnit(".rdi/disabled/mods/room.jar", enabled = false)
+        try {
+            val serverTarget = clientContent("server-room", "mods/server-only.jar")
+            val bothTarget = clientContent("both-room", "mods/both.jar")
+            val disabledTarget = clientContent("disabled-room", "mods/room.jar")
+            val plan = buildHost2PreparedPlan(
+                key = host2PreparedCacheKey("host-a", "version", 3, "disk-side-hints"),
+                snapshot = snapshot(root, null, serverOnly, both, disabled),
+                remoteContents = listOf(serverTarget, bothTarget, disabledTarget),
+                cacheEnrichment = listOf(
+                    cache(serverOnly, "server-room", sideHints = setOf(ContentSide.Server)),
+                    cache(both, "both-room", sideHints = setOf(ContentSide.Both)),
+                ),
+            )
+
+            assertEquals(setOf("mods/both.jar"), plan.removedLocalPaths)
+            assertTrue(plan.startupWarnings.any { it.contains("本地内容mods/both.jar") && it.contains("同时") })
+            assertTrue(plan.remoteRequests.map { it.relativePath }.contains("mods/room.jar"))
+            assertTrue(plan.removedLocalPaths.none { it.startsWith(".rdi/disabled/") })
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `stale cache row without presence is ignored`() {
+        val root = Files.createTempDirectory("host2-play-plan-stale-cache")
+        val stale = presenceUnit("mods/missing.jar")
+        val remote = clientContent("project", "mods/remote.jar")
+        try {
+            val plan = buildHost2PreparedPlan(
+                key = host2PreparedCacheKey("host-a", "version", 4, "disk-stale"),
+                snapshot = snapshot(root, null),
+                remoteContents = listOf(remote),
+                cacheEnrichment = listOf(cache(stale, "project")),
+            )
+            assertTrue(plan.removedLocalPaths.isEmpty())
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `enrichment fingerprint is stable for ordering and changes with plan metadata`() {
+        val unit = presenceUnit("mods/local.jar")
+        val first = cache(unit, "project", modIds = listOf("z", "a"), sideHints = setOf(ContentSide.Both))
+        val reordered = first.copy(modIds = listOf("a", "z"))
+        val changed = first.copy(name = "changed")
+
+        assertEquals(
+            host2PreparedPlanFingerprint("presence", listOf(first)),
+            host2PreparedPlanFingerprint("presence", listOf(reordered)),
+        )
+        assertTrue(
+            host2PreparedPlanFingerprint("presence", listOf(first)) !=
+                host2PreparedPlanFingerprint("presence", listOf(changed)),
+        )
+        assertTrue(
+            host2PreparedPlanFingerprint("presence", listOf(first)) !=
+                host2PreparedPlanFingerprint("other-presence", listOf(first)),
+        )
+    }
+
+    private fun snapshot(root: Path, versionId: Uuid?, vararg units: Host2LocalPresenceItem) =
+        Host2LocalPresenceSnapshot(root, units.toList(), emptyList(), "disk-fingerprint", versionId)
+
+    private fun presenceUnit(relativePath: String, enabled: Boolean = true) = Host2LocalPresenceItem(
+        type = ContentType.Mod,
+        physicalRelativePath = relativePath,
+        targetPath = if (enabled) relativePath else relativePath.removePrefix(".rdi/disabled/"),
+        enabled = enabled,
+        fileSize = 1,
+        lastModifiedMillis = 1,
+        kind = Host2LocalPresenceKind.File,
+    )
+
+    private fun cache(
+        unit: Host2LocalPresenceItem,
+        projectId: String,
+        physicalPath: String = unit.physicalRelativePath,
+        hash: String = "cache-hash",
+        modIds: List<String> = emptyList(),
+        sideHints: Set<ContentSide> = emptySet(),
+    ) = LocalModpack2ContentCacheRecord(
+        versionId = Uuid.parse("019c9c18-778d-7000-8000-000000000010"),
+        contentType = unit.type,
+        physicalPath = physicalPath,
+        targetPath = unit.targetPath,
+        enabled = unit.enabled,
+        hash = hash,
+        fileSize = unit.fileSize,
+        modIds = modIds,
+        sideHints = sideHints,
+        platform = ContentPlatform.Modrinth,
+        projectId = projectId,
+        fileId = "$projectId-file",
+        slug = projectId,
+        side = ContentSide.Client,
+        updatedAt = 1,
+    )
+
+    private fun clientContent(projectId: String, targetPath: String) = ClientContentVo(
+        origin = ContentOrigin.Pack,
+        platform = ContentPlatform.Modrinth,
+        type = ContentType.Mod,
+        projectId = projectId,
+        fileId = "$projectId-file",
+        slug = projectId,
+        hash = "a".repeat(40),
+        targetPath = targetPath,
+        side = ContentSide.Client,
+        fileSize = 1,
+    )
+}

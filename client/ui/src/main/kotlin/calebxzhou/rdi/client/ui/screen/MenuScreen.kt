@@ -2,29 +2,27 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.hoverable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.IconMarqueeCard
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.MarqueeIcon
-import calebxzau.rdi.client.ui.RowV
-import calebxzau.rdi.client.ui.ScreenContentSize
-import calebxzau.rdi.client.ui.ScreenContentSurface
-import calebxzau.rdi.client.ui.Space8w
+import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.RDIClient
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.baseRoundCornerShape
@@ -37,6 +35,7 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.HttpImageState
 import calebxzhou.rdi.client.service.StartPlayResult
+import calebxzhou.rdi.client.service.content.isClientModMigrationInProgress
 import calebxzhou.rdi.client.service.rememberPlayerInfoPrefetch
 import calebxzhou.rdi.client.service.startHostPlay
 import calebxzhou.rdi.client.ui.McPlayArgs
@@ -46,9 +45,7 @@ import calebxzhou.rdi.client.ui.comp.ModpackDownloadMethodDialog
 import calebxzhou.rdi.client.ui.comp.PlayerModel
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host
-import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.util.periodOfDay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import org.bson.types.ObjectId
@@ -59,12 +56,9 @@ import org.bson.types.ObjectId
 
 @Composable
 fun MenuScreen(
-    onOpenResources: () -> Unit,
+    onOpenModpacks: () -> Unit,
     onOpenHostLobby: () -> Unit,
-    onOpenHost2Lobby: () -> Unit,
-    onOpenWardrobe: () -> Unit,
     onOpenMcPlay: (McPlayArgs) -> Unit,
-    onOpenMcVersions: (McVersion?) -> Unit,
     onOpenTaskList: (String) -> Unit
 ) {
     val lastPlayHost = remember { LocalCredentials.read().lastPlayHost }
@@ -75,13 +69,16 @@ fun MenuScreen(
     var launchingHostId by remember { mutableStateOf<String?>(null) }
     var installConfirmTask by remember { mutableStateOf<StartPlayResult.NeedInstall?>(null) }
     var playError by remember { mutableStateOf<String?>(null) }
-    var onlinePlayerIds by remember { mutableStateOf<List<ObjectId>>(emptyList()) }
     var showOldMainWarning by remember { mutableStateOf(RDIClient.OLD_MAIN) }
     val sponsorBitmap = remember {
         loadImageBitmap("assets/sponsor.avif")
             .onFailure { lgr.warn(it) { "加载赞助图片失败" } }
             .getOrNull()
     }
+    val menuActionInteractionSource = remember { MutableInteractionSource() }
+    val menuActionsHovered by menuActionInteractionSource.collectIsHoveredAsState()
+    val taskEntries by ClientTaskManager.entries.collectAsState()
+    val modMigrationInProgress = isClientModMigrationInProgress(taskEntries)
 
     LaunchedEffect(lastPlayHost?.id) {
         lastPlayHostBrief = null
@@ -98,19 +95,12 @@ fun MenuScreen(
         }
     }
 
-    LaunchedEffect(Unit) {
-        runCatching {
-            server.makeRequest<List<ObjectId>>("host/online-player-ids").data ?: emptyList()
-        }.onSuccess { ids ->
-            onlinePlayerIds = ids.distinct()
-        }
-    }
 
     LaunchedEffect(Unit) {
         menuModpackBriefs = runCatching {
             loadMenuModpackBriefs()
         }.onFailure { error ->
-            lgr.warn(error) { "加载整合广场失败" }
+            lgr.warn(error) { "加载整合包推荐失败" }
         }.getOrDefault(emptyList())
     }
 
@@ -144,10 +134,6 @@ fun MenuScreen(
                             playError = "整合包正在下载，请等待下载完成后再启动"
                             onOpenTaskList(result.runId)
                         }
-                        is StartPlayResult.NeedMc -> {
-                            playError = "请更新MC${result.ver.mcVer}版本资源"
-                            onOpenMcVersions(result.ver)
-                        }
                     }
                 }
                 .onFailure { playError = it.message ?: "无法开始游玩" }
@@ -178,70 +164,63 @@ fun MenuScreen(
     }
 
     MaxBox {
-        ScreenContentSurface(size = ScreenContentSize.MEDIUM) {
-            Box(modifier = Modifier.fillMaxSize()) {
-                Row(
-                    modifier = Modifier.align(Alignment.Center),
-                    horizontalArrangement = Arrangement.spacedBy(72.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        MenuAccountSummary(onlinePlayerIds = onlinePlayerIds)
-                        PlayerPreviewCard(
-                            modifier = Modifier.size(320.dp),
-                            onClick = onOpenWardrobe
-                        )
-                        lastPlayHostBrief?.let { host ->
-                            Column(
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                host.copy(name = "继续游玩·${host.name}").HostCard(
-                                    modifier = Modifier.width(320.dp),
-                                    onDirectClick = ::startHost,
-                                    playEnabled = launchingHostId == null,
-                                    playLoading = launchingHostId == host._id.toHexString()
-                                )
-                            }
-                        }
-                    }
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(20.dp)
-                    ) {
-                        MenuActionButtons(
-                            modifier = Modifier.widthIn(min = 220.dp),
-                            modpackBriefs = menuModpackBriefs,
-                            skinHeads = menuSkinHeads,
-                            onOpenResources = onOpenResources,
-                            onOpenHostLobby = onOpenHostLobby,
-                            onOpenHost2Lobby = onOpenHost2Lobby,
-                        )
-
-                    }
-                }
-            }
-        }
-        sponsorBitmap?.let { bitmap ->
-            Column(
+        /* PlayerPreviewCard(
+             modifier = Modifier
+                 .align(Alignment.BottomStart)
+                 .padding(start = 24.dp, bottom = 24.dp)
+                 .size(320.dp),
+             onClick = onOpenWardrobe
+         )*/
+        Box(
+            modifier = Modifier
+                .align(Alignment.CenterEnd)
+                .fillMaxHeight()
+                .fillMaxWidth(1f / 3f),
+            contentAlignment = Alignment.CenterStart
+        ) {
+            MenuActionButtons(
                 modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                    Text("支持rdi继续走下去~", color = Color.White,style = MaterialTheme.typography.bodyMedium)
+                    .widthIn(min = 220.dp)
+                    .alpha(
+                        if (modMigrationInProgress) 0.38f
+                        else if (menuActionsHovered) 1f else 0.6f
+                    )
+                    .hoverable(menuActionInteractionSource),
+                enabled = !modMigrationInProgress,
+                modpackBriefs = menuModpackBriefs,
+                skinHeads = menuSkinHeads,
+                onOpenModpacks = onOpenModpacks,
+                onOpenHostLobby = onOpenHostLobby,
+                lastPlayHostBrief = lastPlayHostBrief,
+                launchingHostId = launchingHostId,
+                onStartHost = ::startHost
+            )
+        }
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            if (menuActionsHovered) {
+                sponsorBitmap?.let { bitmap ->
+                    Text(
+                        "支持rdi继续走下去",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
                     Image(
                         bitmap = bitmap,
                         contentDescription = null,
-                        modifier = Modifier.size(128.dp).clip(baseRoundCornerShape),
+                        modifier = Modifier
+                            .size(112.dp)
+                            .alpha(0.85f)
+                            .clip(baseRoundCornerShape),
                         contentScale = ContentScale.Fit
                     )
-
+                }
             }
         }
     }
@@ -319,46 +298,18 @@ private suspend fun loadMenuSkinHeads(
     }
 }
 
-@Composable
-private fun MenuAccountSummary(
-    onlinePlayerIds: List<ObjectId>,
-    modifier: Modifier = Modifier
-) {
-    val playerIds = remember(onlinePlayerIds) {
-        listOf(loggedAccount._id) + onlinePlayerIds
-    }
-    rememberPlayerInfoPrefetch(playerIds)
-
-
-    Column(
-        modifier = modifier,
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-            Text("${periodOfDay}好，${loggedAccount.name}")
-
-        FlowRowV(
-            modifier = Modifier.widthIn(max = 320.dp),
-            horizontalArrangement = Arrangement.spacedBy(2.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text("\uEC17 ${onlinePlayerIds.size} ")
-            onlinePlayerIds.forEach {
-                HeadButton(it, showName = false, avatarSize = 12.dp)
-            }
-        }
-    }
-
-}
 
 @Composable
 private fun MenuActionButtons(
     modifier: Modifier = Modifier,
+    enabled: Boolean,
     modpackBriefs: List<Modpack.ListSimpleVo>,
     skinHeads: List<MarqueeIcon.SkinHead>,
-    onOpenResources: () -> Unit,
+    onOpenModpacks: () -> Unit,
     onOpenHostLobby: () -> Unit,
-    onOpenHost2Lobby: () -> Unit,
+    lastPlayHostBrief: Host.BriefVo?,
+    launchingHostId: String?,
+    onStartHost: (Host.BriefVo) -> Unit,
 ) {
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -378,39 +329,107 @@ private fun MenuActionButtons(
                     }
             }
         }
-        IconMarqueeCard(
-            title = "整合广场",
-            subtitle = "浏览大家喜欢玩的整合包",
+        ModpackMenuActionCard(
+            enabled = enabled,
             icons = marqueeIcons,
-            modifier = Modifier
-                .width(320.dp)
-                .clip(baseRoundCornerShape)
-                .clickable(onClick = onOpenResources)
+            onClick = onOpenModpacks,
         )
-        IconMarqueeCard(
-            title = "多人房间",
-            subtitle = "选择创建房间跟大家一起玩",
+        HostLobbyMenuActionCard(
+            enabled = enabled,
             icons = skinHeads,
+            onClick = onOpenHostLobby,
+        )
+        lastPlayHostBrief?.let { host ->
+            RecentHostMenuActionCard(
+                enabled = enabled,
+                host = host,
+                launchingHostId = launchingHostId,
+                onStartHost = onStartHost,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ModpackMenuActionCard(
+    enabled: Boolean,
+    icons: List<MarqueeIcon>,
+    onClick: () -> Unit,
+) {
+    MenuActionCardTooltip(enabled) {
+        IconMarqueeCard(
+            title = "整合包",
+            subtitle = "管理和安装你的整合包",
+            icons = icons,
             Brush.linearGradient(
                 colors = listOf(
                     MaterialTheme.colorScheme.surfaceVariant,
-                    MaterialTheme.colorScheme.tertiary
+                    MaterialTheme.colorScheme.surfaceVariant
                 )
             ),
             modifier = Modifier
+                .height(80.dp)
                 .width(320.dp)
                 .clip(baseRoundCornerShape)
-                .clickable(onClick = onOpenHostLobby)
+                .clickable(enabled = enabled, onClick = onClick)
         )
-        /*if(DEBUG){
+    }
+}
 
-            CircleIconButton(
-                icon = "\uF1B3",
-                label = "新版房间"
-            ) {
-                onOpenHost2Lobby()
-            }
-        }*/
+@Composable
+private fun HostLobbyMenuActionCard(
+    enabled: Boolean,
+    icons: List<MarqueeIcon>,
+    onClick: () -> Unit,
+) {
+    MenuActionCardTooltip(enabled) {
+        IconMarqueeCard(
+            title = "多人房间",
+            subtitle = "选择创建房间跟大家一起玩",
+            icons = icons,
+            Brush.linearGradient(
+                colors = listOf(
+                    MaterialTheme.colorScheme.surfaceVariant,
+                    MaterialTheme.colorScheme.surfaceVariant
+                )
+            ),
+            modifier = Modifier
+                .height(80.dp)
+                .width(320.dp)
+                .clip(baseRoundCornerShape)
+                .clickable(enabled = enabled, onClick = onClick)
+        )
+    }
+}
+
+@Composable
+private fun RecentHostMenuActionCard(
+    enabled: Boolean,
+    host: Host.BriefVo,
+    launchingHostId: String?,
+    onStartHost: (Host.BriefVo) -> Unit,
+) {
+    MenuActionCardTooltip(enabled) {
+        host.copy(name = "继续游玩·${host.name}").HostCard(
+            modifier = Modifier.width(320.dp),
+            onDirectClick = if (enabled) onStartHost else null,
+            playEnabled = enabled && launchingHostId == null,
+            playLoading = launchingHostId == host._id.toHexString()
+        )
+    }
+}
+
+@Composable
+private fun MenuActionCardTooltip(
+    enabled: Boolean,
+    content: @Composable () -> Unit,
+) {
+    if (enabled) {
+        content()
+    } else {
+        SimpleTooltip("正在迁移mod文件") {
+            content()
+        }
     }
 }
 

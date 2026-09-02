@@ -79,3 +79,59 @@ fun HostFilesScreen(
         }
     }
 }
+
+@Composable
+fun HostFilesScreen(
+    target: HostTarget,
+    onBack: () -> Unit,
+    onOpenTaskList: ((String) -> Unit)? = null,
+) {
+    if (target.kind == HostKind.Legacy) {
+        val objectId = target.objectIdOrNull()
+        if (objectId == null) HostDetailRouteError("房间ID格式错误", onBack)
+        else HostFilesScreen(objectId, onBack, onOpenTaskList)
+    } else {
+        HostDetailRouteError("该房间类型暂不可用", onBack)
+    }
+}
+
+/* @Composable
+private fun UnifiedHost2FilesScreen(
+    target: HostTarget,
+    onBack: () -> Unit,
+    onOpenTaskList: ((String) -> Unit)?,
+) {
+    val id = target.id
+    val scope = rememberCoroutineScope()
+    var detail by remember(id) { mutableStateOf<calebxzhou.rdi.common.model.Host2.DetailVo?>(null) }
+    var error by remember(id) { mutableStateOf<String?>(null) }
+    var loading by remember(id) { mutableStateOf(true) }
+    LaunchedEffect(id) {
+        scope.rdiRequest<calebxzhou.rdi.common.model.Host2.DetailVo>(
+            path = "host2/$id",
+            onOk = { response -> detail = response.data },
+            onErr = { error = it.message ?: "无法加载房间信息" },
+            onDone = { loading = false },
+        )
+    }
+    val current = detail
+    MaxBox {
+        ScreenContentSurface(ScreenContentSize.LARGE) {
+            TitleRow(current?.let { "${it.name} - 文件" } ?: "房间文件", onBack)
+            ContentBody {
+                when {
+                    loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+                    current == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(error ?: "无法加载房间信息") }
+                    current.role !in setOf(calebxzhou.rdi.model.Role.OWNER, calebxzhou.rdi.model.Role.ADMIN) && !loggedAccount.isDav ->
+                        Text("仅房间管理员可查看文件")
+                    else -> HostFileExplorer(
+                        hostId = id,
+                        apiRoot = "host2",
+                        modifier = Modifier.fillMaxSize(),
+                        onOpenTaskList = onOpenTaskList,
+                    )
+                }
+            }
+        }
+    }
+} */

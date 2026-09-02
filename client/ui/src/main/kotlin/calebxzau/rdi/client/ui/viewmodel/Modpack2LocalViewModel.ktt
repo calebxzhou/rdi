@@ -1,0 +1,102 @@
+package calebxzau.rdi.client.ui.viewmodel
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import calebxzhou.rdi.client.database.LocalModpack2InstanceRecord
+import calebxzhou.rdi.client.service.ClientDirs
+import calebxzhou.rdi.client.service.ClientTaskManager
+import calebxzhou.rdi.client.service.LocalModpack2Repository
+import calebxzhou.rdi.client.service.Modpack2InstallRequest
+import calebxzhou.rdi.client.service.Modpack2LocalService
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
+import kotlin.uuid.Uuid
+
+data class Modpack2LocalUiState(
+    val loading: Boolean = true,
+    val records: List<LocalModpack2InstanceRecord> = emptyList(),
+    /** Canonical UUID directories without an active remote instance row. */
+    val unlinkedDirectories: List<Path> = emptyList(),
+    val errorMessage: String? = null,
+) {
+}
+
+/** Loads remote-backed instances and reports unlinked local data without importing it. */
+class Modpack2LocalViewModel(
+    private val repository: LocalModpack2Repository,
+    private val service: Modpack2LocalService,
+    private val versionsDirectory: Path = ClientDirs.versionsDir.toPath(),
+) : ViewModel() {
+    private val _uiState = MutableStateFlow(Modpack2LocalUiState())
+    val uiState: StateFlow<Modpack2LocalUiState> = _uiState.asStateFlow()
+
+    init { refresh() }
+
+    fun refresh() {
+        _uiState.update { it.copy(loading = true, errorMessage = null) }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val records = repository.list().getOrThrow()
+                val registeredIds = records.mapTo(hashSetOf()) { it.versionId.toString() }
+                val unlinked = scanUnlinkedCanonicalDirectories(versionsDirectory, registeredIds)
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        records = records.sortedByDescending { record -> record.updatedAt },
+                        unlinkedDirectories = unlinked,
+                    )
+                }
+            }.onFailure { error ->
+                _uiState.update { it.copy(loading = false, errorMessage = error.message ?: "读取本地整合包失败") }
+            }
+        }
+    }
+
+    fun clearError() = _uiState.update { it.copy(errorMessage = null) }
+
+    fun installTask(record: LocalModpack2InstanceRecord, reinstall: Boolean): String =
+        ClientTaskManager.submit(
+            task = service.installTask(
+                Modpack2InstallRequest(
+                    modpackId = requireNotNull(record.remoteModpackId),
+                    versionId = requireNotNull(record.remoteVersionId),
+                    reinstall = reinstall,
+                    confirmReinstall = reinstall,
+                ),
+            ),
+            dedupeKey = "modpack2-install:${record.remoteModpackId}:${record.remoteVersionId}",
+        )
+
+    fun delete(record: LocalModpack2InstanceRecord) {
+        viewModelScope.launch(Dispatchers.IO) {
+            service.delete(record.versionId)
+                .onSuccess { refresh() }
+                .onFailure { error -> _uiState.update { it.copy(errorMessage = error.message ?: "删除整合包失败") } }
+        }
+    }
+}
+
+internal fun scanUnlinkedCanonicalDirectories(
+    versionsDirectory: Path,
+    registeredIds: Set<String>,
+): List<Path> {
+    if (!Files.isDirectory(versionsDirectory, LinkOption.NOFOLLOW_LINKS)) return emptyList()
+    return Files.list(versionsDirectory).use { paths ->
+        paths.filter { path ->
+            Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) &&
+                !Files.isSymbolicLink(path) &&
+                isCanonicalVersionDirectory(path.fileName.toString()) &&
+                path.fileName.toString() !in registeredIds
+        }.map { it.toAbsolutePath().normalize() }.sorted().toList()
+    }
+}
+
+private fun isCanonicalVersionDirectory(name: String): Boolean =
+    runCatching { Uuid.parse(name).toString() == name }.getOrDefault(false)

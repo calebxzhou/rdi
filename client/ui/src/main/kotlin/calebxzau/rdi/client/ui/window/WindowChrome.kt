@@ -1,5 +1,6 @@
 package calebxzau.rdi.client.ui.window
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.hoverable
@@ -84,11 +85,14 @@ fun FrameWindowScope.WindowChrome(
     onLogout: () -> Unit,
     onOpenPlayerInfo: () -> Unit,
     onOpenWardrobe: () -> Unit,
-    content: @Composable () -> Unit
+    content: @Composable (onOpenTask: (String) -> Unit) -> Unit
 ) {
     val account by AccountSessionStore.account.collectAsState()
     val taskEntries by ClientTaskManager.entries.collectAsState()
     var selectedTaskRunId by remember { mutableStateOf<String?>(null) }
+    val openTask: (String) -> Unit = remember {
+        { runId: String -> selectedTaskRunId = runId }
+    }
     val selectedTaskEntry = taskEntries.firstOrNull { it.runId == selectedTaskRunId }
     val windowShape = if (windowState.placement == WindowPlacement.Floating) {
         RoundedCornerShape(baseShapeRadius.dp)
@@ -117,7 +121,7 @@ fun FrameWindowScope.WindowChrome(
                 onOpenMail = onOpenMail,
                 onOpenSettings = onOpenSettings,
                 onOpenMcSession = onOpenMcSession,
-                onOpenTask = { selectedTaskRunId = it },
+                onOpenTask = openTask,
                 onLogin = onLogin,
                 onLogout = onLogout,
                 onOpenPlayerInfo = onOpenPlayerInfo,
@@ -128,7 +132,7 @@ fun FrameWindowScope.WindowChrome(
                     .fillMaxWidth()
                     .weight(1f)
             ) {
-                content()
+                content(openTask)
             }
         }
 
@@ -189,7 +193,7 @@ private fun TitleBar(
                 ) {
                     Text(
                         text = buildAnnotatedString {
-                            append("start")
+                            //append("start")
                             withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append("rdi") }
                         },
                         color = titleTextColor,
@@ -208,14 +212,10 @@ private fun TitleBar(
             }
 
             if (loggedIn) {
-                ImageIconButton(
-                    icon = "mcmod",
-                    tooltip = "MC百科",
-                    size = 28,
-                    bgColor = Color.Transparent,
-                    showText = false,
-                    contentPadding = PaddingValues(4.dp),
-                    onClick = { openUrl(MCMOD_BROWSER_URL) }
+                ChromeIconButton(
+                    icon = "m",
+                    "MC百科",
+                    { openUrl(MCMOD_BROWSER_URL) }
                 )
                 Spacer(Modifier.width(8.dp))
                 ChromeIconButton("\uF0E0", "邮件", onOpenMail)
@@ -350,6 +350,7 @@ private fun AccountMenu(
                     onOpenWardrobe()
                 }
             )
+            // 好友系统已归档，菜单入口暂时停用。
             RDropdownMenuItem(
                 text = "退出登录",
                 icon = "\uF2F5",
@@ -373,6 +374,7 @@ internal fun ChromeIconButton(
             onClick = onClick,
             modifier = Modifier.size(chromeIconButtonSize),
             shape = CircleShape,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             color = Color.Transparent,
             contentColor = Color.Black
         ) {

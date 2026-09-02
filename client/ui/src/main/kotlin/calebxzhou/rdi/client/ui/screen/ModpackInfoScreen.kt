@@ -46,6 +46,7 @@ fun ModpackInfoScreen(
     onBack: () -> Unit,
     onOpenTaskList: ((String) -> Unit)? = null,
     onOpenVersionEdit: ((String) -> Unit)? = null,
+    onCreateHost: ((Modpack.DetailVo, Modpack.Version) -> Unit)? = null,
     viewModel: ModpackInfoViewModel = koinViewModel(key = modpackId) {
         parametersOf(modpackId)
     },
@@ -167,6 +168,9 @@ fun ModpackInfoScreen(
                         pack = pack,
                         isAuthor = isAuthor,
                         onOpenVersionEdit = onOpenVersionEdit,
+                        onCreateHost = onCreateHost?.let { createHost ->
+                            { version -> createHost(pack, version) }
+                        },
                         onDeleteVersion = { confirmDeleteVersion = it },
                         onRebuildVersion = { confirmRebuildVersion = it },
                         onDownloadVersion = viewModel::requestDownload,
@@ -369,6 +373,7 @@ private fun ModpackDownloadVersions(
     pack: Modpack.DetailVo,
     isAuthor: Boolean,
     onOpenVersionEdit: ((String) -> Unit)?,
+    onCreateHost: ((Modpack.Version) -> Unit)?,
     onDeleteVersion: (Modpack.Version) -> Unit,
     onRebuildVersion: (Modpack.Version) -> Unit,
     onDownloadVersion: (String) -> Unit,
@@ -404,32 +409,55 @@ private fun ModpackDownloadVersions(
                 )
                 Text(statusText.asIconText, color = statusColor)
                 Space8w()
+                var hasAction = false
+                if (version.status == Modpack.Status.OK) {
+                    onCreateHost?.let { createHost ->
+                        CircleIconButton(
+                            icon = "\uF04B",
+                            label = "创建多人房间",
+                            showText = true,
+                        ) { createHost(version) }
+                        hasAction = true
+                    }
+                }
                 if (isAuthor) {
+                    if (hasAction) {
+                        Space8w()
+                    }
                     onOpenVersionEdit?.let { openVersionEdit ->
                         CircleIconButton(
                             icon = "\uF044",
                             label = "编辑版本Mod",
-                            bgColor = themeNow.secondary
+                            bgColor = themeNow.secondary,
+                            showText = false,
                         ) { openVersionEdit(version.name) }
                         Space8w()
+                        hasAction = true
                     }
                     CircleIconButton(
                         icon = "\uEA81",
                         label = "删除版本",
+                        showText = false,
                         bgColor = MaterialTheme.colorScheme.error
                     ) { onDeleteVersion(version) }
                     Space8w()
                     CircleIconButton(
                         icon = "\uF0AD",
                         label = "重构",
-                        bgColor = MaterialTheme.colorScheme.primary
+                        showText = false,
+                        bgColor = MaterialTheme.colorScheme.tertiary
                     ) { onRebuildVersion(version) }
+                    hasAction = true
                 }
                 if (version.status == Modpack.Status.OK) {
-                    Space8w()
+                    if (hasAction) {
+                        Space8w()
+                    }
                     CircleIconButton(
                         icon = "\uF019",
+                        showText = false,
                         label = "下载整合包"
+
                     ) { onDownloadVersion(version.name) }
                 }
             }
@@ -459,3 +487,141 @@ private fun ModpackIntroContent(
         }
     }
 }
+
+/* The unpublished Modpack2 details entry point is retained for later re-enable.
+@Composable
+private fun Modpack2InfoContent(
+    modpackId: String,
+    onBack: () -> Unit,
+    onOpenTaskList: ((String) -> Unit)?,
+) {
+    val gateway: Modpack2Gateway = koinInject()
+    val service: Modpack2LocalService = koinInject()
+    val scope = rememberCoroutineScope()
+    val parsedId = remember(modpackId) { runCatching { Uuid.parse(modpackId) }.getOrNull() }
+    val targetId = parsedId
+    var brief by remember(modpackId) { mutableStateOf<Modpack2BriefVo?>(null) }
+    var versions by remember(modpackId) { mutableStateOf<List<Modpack2VersionDetailVo>>(emptyList()) }
+    var loading by remember(modpackId) { mutableStateOf(true) }
+    var errorMessage by remember(modpackId) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(parsedId) {
+        if (parsedId == null) {
+            errorMessage = "整合包链接无效"
+            loading = false
+            return@LaunchedEffect
+        }
+        val id = parsedId
+        runCatching {
+            val loadedBrief = findModpack2PublicBrief(id)
+            val loadedVersions = gateway.listVersions(id).getOrThrow()
+            loadedBrief to loadedVersions
+        }.onSuccess { (loadedBrief, loadedVersions) ->
+            brief = loadedBrief
+            versions = loadedVersions
+            errorMessage = null
+        }.onFailure { error ->
+            errorMessage = error.message ?: "加载整合包信息失败"
+        }
+        loading = false
+    }
+
+    MaxBox {
+        ScreenContentSurface(size = ScreenContentSize.LARGE) {
+            TitleRow(brief?.name ?: "整合包详情", onBack)
+            ContentBody {
+                when {
+                    loading -> Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                    ) { CircularProgressIndicator() }
+
+                    errorMessage != null -> Text(
+                        errorMessage.orEmpty(),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+
+                    brief != null -> Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        brief?.intro?.takeIf(String::isNotBlank)?.let { Text(it) }
+                        Text("版本", style = MaterialTheme.typography.titleMedium)
+                        if (versions.isEmpty()) {
+                            Text("暂无可用版本", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        } else {
+                            versions.forEach { version ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(version.name, style = MaterialTheme.typography.bodyLarge)
+                                        Text(
+                                            version.status.toPlayerLabel(),
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                    if (version.status == Modpack2VersionStatus.Ok) {
+                                        TextButton(onClick = {
+                                            targetId?.let { installId ->
+                                                scope.launch {
+                                                    runCatching {
+                                                        ClientTaskManager.submit(
+                                                            service.installTask(
+                                                                Modpack2InstallRequest(
+                                                                    modpackId = installId,
+                                                                    versionId = version.id.toKotlinUuid(),
+                                                                )
+                                                            ),
+                                                            dedupeKey = "modpack-install:$installId:${version.id}",
+                                                        )
+                                                    }.onSuccess { runId ->
+                                                        onOpenTaskList?.invoke(runId)
+                                                    }.onFailure { error ->
+                                                        errorMessage = error.message ?: "安装失败"
+                                                    }
+                                                }
+                                            }
+                                        }) { Text("安装") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private const val MODPACK2_PUBLIC_PAGE_SIZE = 100
+private const val MAX_MODPACK2_PUBLIC_PAGES = 100
+
+/**
+ * The public endpoint is paged and deliberately exposes only the brief DTO. Keep walking pages
+ * until the target is found, a short page proves there is no more data, or the safety cap is hit.
+ */
+private suspend fun findModpack2PublicBrief(
+    modpackId: Uuid,
+): Modpack2BriefVo {
+    for (page in 0 until MAX_MODPACK2_PUBLIC_PAGES) {
+        val response = server.makeRequest<List<Modpack2BriefVo>>(
+            path = "modpack2/list",
+            params = mapOf("page" to page),
+        )
+        require(response.ok) { response.msg.ifBlank { "加载整合包信息失败" } }
+        val entries = response.data.orEmpty()
+        entries.firstOrNull { it.id == modpackId }?.let { return it }
+        if (entries.size < MODPACK2_PUBLIC_PAGE_SIZE) {
+            break
+        }
+    }
+    error("未找到整合包信息")
+}
+
+private fun Modpack2VersionStatus.toPlayerLabel(): String = when (this) {
+    Modpack2VersionStatus.Ok -> "可用"
+    Modpack2VersionStatus.Building -> "构建中"
+    Modpack2VersionStatus.Fail -> "构建失败"
+} */

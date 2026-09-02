@@ -1,0 +1,130 @@
+package calebxzhou.rdi.client.service
+
+import calebxzau.rdi.common.model.ContentSide
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.jar.JarEntry
+import java.util.jar.JarOutputStream
+import kotlinx.coroutines.CancellationException
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
+
+class Modpack2DiskScannerTest {
+    @Test
+    fun `scan cancellation seam stops before traversing the pack`() {
+        val version = Files.createTempDirectory("rdi-modpack2-scanner-cancel")
+        assertFailsWith<CancellationException> {
+            Modpack2DiskScanner(version, isCancelled = { true }).scan()
+        }
+    }
+
+    @Test
+    fun `scan indexes enabled and disabled top-level units and ignores unrelated files`() {
+        val version = Files.createTempDirectory("rdi-modpack2-scanner")
+        Files.createDirectories(version.resolve("mods"))
+        Files.createDirectories(version.resolve("resourcepacks/expanded/assets"))
+        Files.createDirectories(version.resolve("shaderpacks/not-a-pack"))
+        Files.createDirectories(version.resolve(".rdi/disabled/mods"))
+        writeJar(version.resolve("mods/first.jar"), "first")
+        writeJar(version.resolve(".rdi/disabled/mods/second.jar"), "second")
+        Files.writeString(version.resolve("resourcepacks/expanded/pack.mcmeta"), "{}")
+        Files.writeString(version.resolve("mods/readme.txt"), "ignored")
+        Files.writeString(version.resolve("resourcepacks/ignored.txt"), "ignored")
+
+        val snapshot = Modpack2DiskScanner(version).scan()
+
+        assertTrue(snapshot.isComplete)
+        assertEquals(
+            setOf("mods/first.jar", ".rdi/disabled/mods/second.jar", "resourcepacks/expanded"),
+            snapshot.items.map { it.physicalRelativePath }.toSet(),
+        )
+        assertEquals(setOf(true, false), snapshot.items.filter { it.type.name == "Mod" }.map { it.enabled }.toSet())
+        assertEquals("mods/second.jar", snapshot.items.single { !it.enabled }.targetPath)
+        assertEquals(listOf("first"), snapshot.items.single { it.type.name == "Mod" && it.enabled }.modIds)
+    }
+
+    @Test
+    fun `directory fingerprint is deterministic and changes with nested bytes`() {
+        val first = Files.createTempDirectory("rdi-modpack2-fingerprint-a")
+        val second = Files.createTempDirectory("rdi-modpack2-fingerprint-b")
+        listOf(first, second).forEach { root ->
+            Files.createDirectories(root.resolve("resourcepacks/pack/assets"))
+            Files.writeString(root.resolve("resourcepacks/pack/pack.mcmeta"), "{}")
+            Files.writeString(root.resolve("resourcepacks/pack/assets/a.txt"), "same")
+        }
+
+        val firstSnapshot = Modpack2DiskScanner(first).scan()
+        val secondSnapshot = Modpack2DiskScanner(second).scan()
+        assertEquals(firstSnapshot.items.single().hash, secondSnapshot.items.single().hash)
+        Files.writeString(second.resolve("resourcepacks/pack/assets/a.txt"), "changed")
+        assertTrue(firstSnapshot.items.single().hash != Modpack2DiskScanner(second).scan().items.single().hash)
+    }
+
+    @Test
+    fun `scan accepts zip packs and fabric metadata while ignoring invalid units`() {
+        val version = Files.createTempDirectory("rdi-modpack2-scanner-types")
+        Files.createDirectories(version.resolve("mods"))
+        Files.createDirectories(version.resolve("resourcepacks"))
+        Files.createDirectories(version.resolve("shaderpacks/invalid"))
+        writeFabricJar(version.resolve("mods/fabric.jar"))
+        Files.write(version.resolve("resourcepacks/pack.zip"), byteArrayOf(1, 2, 3))
+        Files.writeString(version.resolve("mods/not-a-mod.zip"), "ignored")
+        Files.writeString(version.resolve("resourcepacks/not-a-pack.txt"), "ignored")
+        Files.writeString(version.resolve("shaderpacks/invalid/readme.txt"), "ignored")
+
+        val snapshot = Modpack2DiskScanner(version).scan()
+
+        assertTrue(snapshot.isComplete)
+        assertEquals(
+            setOf("mods/fabric.jar", "resourcepacks/pack.zip"),
+            snapshot.items.map { it.physicalRelativePath }.toSet(),
+        )
+        val fabric = snapshot.items.single { it.physicalRelativePath == "mods/fabric.jar" }
+        assertEquals(listOf("fabric-example"), fabric.modIds)
+        assertEquals(setOf(ContentSide.Client), fabric.sideHints)
+    }
+
+    @Test
+    fun `scan reports symlink in a parent path without following it`() {
+        val version = Files.createTempDirectory("rdi-modpack2-scanner-symlink")
+        val outside = Files.createTempDirectory("rdi-modpack2-scanner-outside")
+        Files.createDirectories(outside.resolve("mods"))
+        writeJar(outside.resolve("mods/escaped.jar"), "escaped")
+        try {
+            Files.createSymbolicLink(version.resolve(".rdi"), outside)
+        } catch (_: UnsupportedOperationException) {
+            return
+        } catch (_: java.nio.file.FileSystemException) {
+            return
+        } catch (_: SecurityException) {
+            return
+        }
+
+        val snapshot = Modpack2DiskScanner(version).scan()
+
+        assertTrue(snapshot.errors.any { it.kind == Modpack2ScanErrorKind.UnsafePath && it.path == ".rdi" })
+        assertTrue(snapshot.items.none { it.modIds.contains("escaped") })
+    }
+
+    private fun writeJar(path: java.nio.file.Path, modId: String) {
+        Files.newOutputStream(path).use { output ->
+            JarOutputStream(output).use { jar ->
+                jar.putNextEntry(JarEntry("META-INF/mods.toml"))
+                jar.write("[[mods]]\nmodId=\"$modId\"\n".toByteArray())
+                jar.closeEntry()
+            }
+        }
+    }
+
+    private fun writeFabricJar(path: Path) {
+        Files.newOutputStream(path).use { output ->
+            JarOutputStream(output).use { jar ->
+                jar.putNextEntry(JarEntry("fabric.mod.json"))
+                jar.write("{\"id\":\"fabric-example\",\"environment\":\"client\"}".toByteArray())
+                jar.closeEntry()
+            }
+        }
+    }
+}

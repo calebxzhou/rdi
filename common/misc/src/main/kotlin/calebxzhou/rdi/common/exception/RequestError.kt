@@ -1,4 +1,8 @@
 package calebxzhou.rdi.common.exception
 
-class RequestError(msg:String?, cause: Throwable?=null): Exception(msg,cause) {
-}
+open class RequestError(
+    msg: String?,
+    cause: Throwable? = null,
+    val errorCode: String? = null,
+    val currentRevision: Long? = null,
+) : Exception(msg, cause)

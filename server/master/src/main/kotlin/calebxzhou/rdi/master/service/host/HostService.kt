@@ -31,6 +31,21 @@ import kotlin.time.Duration.Companion.minutes
 import kotlin.time.Duration.Companion.seconds
 import kotlinx.coroutines.CancellationException as KxCancellationException
 
+/*
+com.github.dockerjava.api.exception.InternalServerErrorException: Status 500: {"message":"driver failed programming external connectivity on endpoint 6a43ea18847459061c7822b9 (4c4d8b7f258dea97065144416cda3145e7e5b47c8a275b10371cd877f02d7939): Error starting userland proxy: listen tcp4 0.0.0.0:57752: bind: address already in use"}
+
+        at com.github.dockerjava.core.DefaultInvocationBuilder.execute(DefaultInvocationBuilder.java:247)
+        at com.github.dockerjava.core.DefaultInvocationBuilder.post(DefaultInvocationBuilder.java:102)
+        at com.github.dockerjava.core.exec.StartContainerCmdExec.execute(StartContainerCmdExec.java:31)
+        at com.github.dockerjava.core.exec.StartContainerCmdExec.execute(StartContainerCmdExec.java:13)
+        at com.github.dockerjava.core.exec.AbstrSyncDockerCmdExec.exec(AbstrSyncDockerCmdExec.java:21)
+        at com.github.dockerjava.core.command.AbstrDockerCmd.exec(AbstrDockerCmd.java:33)
+        at com.github.dockerjava.core.command.StartContainerCmdImpl.exec(StartContainerCmdImpl.java:42)
+        at calebxzhou.rdi.master.service.DockerService.start(DockerService.kt:141)
+        at calebxzhou.rdi.master.service.host.HostControlService.start(HostControlService.kt:87)
+        at calebxzhou.rdi.master.service.host.HostControlService$start$1.invokeSuspend(HostControlService.kt)
+        at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+ */
 val Host.dir get() = HOSTS_DIR.resolve(_id.str)
 
 data class HostContext(
