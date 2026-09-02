@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -28,7 +29,9 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TooltipDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -41,23 +44,31 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.isPrimaryPressed
 import androidx.compose.ui.input.pointer.isSecondaryPressed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.RVerticalScrollbar as SharedRVerticalScrollbar
 import calebxzau.rdi.client.ui.SearchField
-import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.common.model.Mod
 import java.util.Locale
+import kotlin.math.roundToInt
 
 enum class ContentGridType(
     val displayName: String,
@@ -140,6 +151,31 @@ data class ContentCardPresentation(
     val iconUrls: List<String>,
 )
 
+private data class ContentGridTooltipAnchor(
+    val key: String,
+    val text: String,
+    val boundsInWindow: Rect,
+)
+
+internal fun contentGridTooltipPosition(
+    anchorBounds: Rect,
+    tooltipSize: IntSize,
+    containerSize: IntSize,
+    gapPx: Int,
+): IntOffset {
+    val maxX = (containerSize.width - tooltipSize.width).coerceAtLeast(0)
+    val maxY = (containerSize.height - tooltipSize.height).coerceAtLeast(0)
+    val x = (anchorBounds.center.x - tooltipSize.width / 2f)
+        .roundToInt()
+        .coerceIn(0, maxX)
+    val aboveY = anchorBounds.top - gapPx - tooltipSize.height
+    val belowY = anchorBounds.bottom + gapPx
+    val y = (if (aboveY >= 0f) aboveY else belowY)
+        .roundToInt()
+        .coerceIn(0, maxY)
+    return IntOffset(x, y)
+}
+
 internal fun ContentGridItem.ContentItem.toCardPresentation(): ContentCardPresentation {
     val displayName = card?.nameCn?.takeIf(String::isNotBlank)
         ?: card?.name?.takeIf(String::isNotBlank)
@@ -211,8 +247,18 @@ fun ContentGrid(
     var showSearch by rememberSaveable(stateKey) { mutableStateOf(false) }
     var iconOnly by rememberSaveable(stateKey, initialIconOnly) { mutableStateOf(initialIconOnly) }
     var selectedType by rememberSaveable(stateKey) { mutableStateOf<ContentGridType?>(null) }
+    var tooltipAnchor by remember { mutableStateOf<ContentGridTooltipAnchor?>(null) }
+    var gridBoundsInWindow by remember { mutableStateOf<Rect?>(null) }
     val clipboard = LocalClipboardManager.current
     val currentDragEvent by rememberUpdatedState(onDragEvent)
+
+    val publishTooltip: (String, String, Rect) -> Unit = { key, text, boundsInWindow ->
+        val next = ContentGridTooltipAnchor(key, text, boundsInWindow)
+        if (tooltipAnchor != next) tooltipAnchor = next
+    }
+    val clearTooltip: (String) -> Unit = { key ->
+        if (tooltipAnchor?.key == key) tooltipAnchor = null
+    }
 
     LaunchedEffect(iconOnly) { onIconOnlyChange?.invoke(iconOnly) }
 
@@ -236,11 +282,20 @@ fun ContentGrid(
         }
     }
 
+    val visibleKeys = remember(visible) { visible.mapTo(mutableSetOf(), ContentGridItem::key) }
+    LaunchedEffect(iconOnly, visibleKeys) {
+        if (!iconOnly || tooltipAnchor?.key !in visibleKeys) tooltipAnchor = null
+    }
+
     LaunchedEffect(query, selectedType) {
         gridState.scrollToItem(0)
     }
 
-    Box(modifier = modifier.fillMaxWidth()) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .onGloballyPositioned { gridBoundsInWindow = it.boundsInWindow() },
+    ) {
         LazyVerticalGrid(
             state = gridState,
             columns = GridCells.Adaptive(if (iconOnly) 64.dp else 320.dp),
@@ -275,6 +330,8 @@ fun ContentGrid(
                     onDragEvent = currentDragEvent,
                     clipboard = { value -> clipboard.setText(AnnotatedString(value)) },
                     legacySelected = legacySelectedHighlight && item.key in legacySelectedKeys,
+                    onTooltipEnter = publishTooltip,
+                    onTooltipExit = clearTooltip,
                 )
             }
         }
@@ -378,6 +435,70 @@ fun ContentGrid(
                 showText = false,
             ) { iconOnly = !iconOnly }
         }
+        val anchor = tooltipAnchor?.takeIf { iconOnly && it.key in visibleKeys }
+        val gridBounds = gridBoundsInWindow
+        if (anchor != null && gridBounds != null) {
+            ContentGridInlineTooltip(
+                text = anchor.text,
+                anchorBounds = Rect(
+                    left = anchor.boundsInWindow.left - gridBounds.left,
+                    top = anchor.boundsInWindow.top - gridBounds.top,
+                    right = anchor.boundsInWindow.right - gridBounds.left,
+                    bottom = anchor.boundsInWindow.bottom - gridBounds.top,
+                ),
+                gap = 4.dp,
+                modifier = Modifier.fillMaxSize().zIndex(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContentGridInlineTooltip(
+    text: String,
+    anchorBounds: Rect,
+    gap: androidx.compose.ui.unit.Dp,
+    modifier: Modifier = Modifier,
+) {
+    Layout(
+        modifier = modifier,
+        content = {
+            Box(
+                modifier = Modifier.background(
+                    MaterialTheme.colorScheme.surfaceContainerHighest,
+                    TooltipDefaults.plainTooltipContainerShape,
+                ),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .sizeIn(
+                            minWidth = 40.dp,
+                            maxWidth = 200.dp,
+                            minHeight = 24.dp,
+                        )
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    Text(
+                        text = text,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        fontSize = 12.sp,
+                    )
+                }
+            }
+        },
+    ) { measurables, constraints ->
+        val placeable = measurables.single().measure(
+            constraints.copy(minWidth = 0, minHeight = 0),
+        )
+        val position = contentGridTooltipPosition(
+            anchorBounds = anchorBounds,
+            tooltipSize = IntSize(placeable.width, placeable.height),
+            containerSize = IntSize(constraints.maxWidth, constraints.maxHeight),
+            gapPx = gap.roundToPx(),
+        )
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            placeable.place(position)
+        }
     }
 }
 
@@ -414,11 +535,18 @@ private fun ContentGridEntry(
     onDragEvent: ((ContentGridDragEvent) -> Unit)?,
     clipboard: (String) -> Unit,
     legacySelected: Boolean,
+    onTooltipEnter: (String, String, Rect) -> Unit,
+    onTooltipExit: (String) -> Unit,
 ) {
     var showContextMenu by remember(item.key) { mutableStateOf(false) }
     var primaryPressed by remember(item.key) { mutableStateOf(false) }
+    var hovered by remember(item.key) { mutableStateOf(false) }
+    var iconBoundsInWindow by remember(item.key) { mutableStateOf<Rect?>(null) }
     var coordinates by remember(item.key) { mutableStateOf<LayoutCoordinates?>(null) }
     val currentOnDragEvent by rememberUpdatedState(onDragEvent)
+    val currentTooltipEnter by rememberUpdatedState(onTooltipEnter)
+    val currentTooltipExit by rememberUpdatedState(onTooltipExit)
+    val tooltipText = itemTooltip(item)
     val selectable = item.selectionState == ContentSelectionState.SELECTED ||
         item.selectionState == ContentSelectionState.UNSELECTED
     val outerClick = when {
@@ -434,8 +562,36 @@ private fun ContentGridEntry(
                 val event = awaitPointerEvent()
                 primaryPressed = event.buttons.isPrimaryPressed
                 if (event.buttons.isSecondaryPressed) showContextMenu = true
+                when (event.type) {
+                    PointerEventType.Enter -> if (iconOnly) {
+                        hovered = true
+                        iconBoundsInWindow?.let { bounds ->
+                            currentTooltipEnter(item.key, tooltipText, bounds)
+                        }
+                    }
+                    PointerEventType.Exit -> {
+                        hovered = false
+                        currentTooltipExit(item.key)
+                    }
+                }
             }
         }
+    }
+    LaunchedEffect(item.key, iconOnly, hovered, tooltipText, iconBoundsInWindow) {
+        if (iconOnly && hovered) {
+            iconBoundsInWindow?.let { bounds ->
+                currentTooltipEnter(item.key, tooltipText, bounds)
+            }
+        }
+    }
+    LaunchedEffect(iconOnly) {
+        if (!iconOnly) {
+            hovered = false
+            currentTooltipExit(item.key)
+        }
+    }
+    DisposableEffect(item.key) {
+        onDispose { currentTooltipExit(item.key) }
     }
     val dragModifier = if (onDragEvent == null) Modifier else Modifier
         .onGloballyPositioned { coordinates = it }
@@ -494,26 +650,25 @@ private fun ContentGridEntry(
             .then(dragModifier),
     ) {
         if (iconOnly) {
-            SimpleTooltip(itemTooltip(item)) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .size(64.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    when (item) {
-                        is ContentGridItem.ModItem -> UiModIcon(item.mod, Modifier.fillMaxSize())
-                        is ContentGridItem.ContentItem -> ContentIcon(item, Modifier.fillMaxSize())
-                    }
-                    Text(
-                        text = item.type.icon,
-                        modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.labelSmall,
-                    )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .size(64.dp)
+                    .onGloballyPositioned { iconBoundsInWindow = it.boundsInWindow() }
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
+                contentAlignment = Alignment.Center,
+            ) {
+                when (item) {
+                    is ContentGridItem.ModItem -> UiModIcon(item.mod, Modifier.fillMaxSize())
+                    is ContentGridItem.ContentItem -> ContentIcon(item, Modifier.fillMaxSize())
                 }
+                Text(
+                    text = item.type.icon,
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(3.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                )
             }
         } else {
             when (item) {
