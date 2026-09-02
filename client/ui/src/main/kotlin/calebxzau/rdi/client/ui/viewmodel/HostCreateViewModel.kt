@@ -65,6 +65,8 @@ sealed interface HostCreateEvent {
     data class EditSaved(val message: String) : HostCreateEvent
 
     data class HostPackUpdateSubmitted(val message: String) : HostCreateEvent
+
+    data class WorldReset(val message: String) : HostCreateEvent
 }
 
 data class HostCreateUiState(
@@ -73,13 +75,12 @@ data class HostCreateUiState(
     val editHostId: ObjectId? = null,
     val title: String = "创建新房间",
     val hostName: String,
-    val intro: String = "",
+    val intro: String? = null,
     val selectedModpackId: String = "",
     val hostKind: HostKind = HostKind.Legacy,
     val packSourceId: String? = null,
     val packDisplayName: String = "",
     val selectedVersionName: String = "",
-    val noSave: Boolean = false,
     val difficulty: Int = 3,
     val gameMode: Int = 0,
     val currentMcVersion: McVersion? = null,
@@ -107,6 +108,9 @@ interface HostCreateGateway {
     suspend fun createOrUpdate(submission: HostCreateSubmission): Result<Unit>
 
     suspend fun requestHostPackUpdate(hostId: ObjectId): Result<Unit>
+
+    suspend fun resetWorld(hostId: ObjectId): Result<Unit> =
+        Result.failure(UnsupportedOperationException("世界重置暂不可用"))
 }
 
 class RdiHostCreateGateway : HostCreateGateway {
@@ -124,6 +128,11 @@ class RdiHostCreateGateway : HostCreateGateway {
             host = loadedHost,
             issues = issues,
         )
+    }
+
+    override suspend fun resetWorld(hostId: ObjectId): Result<Unit> = resultOf {
+        val response = server.makeRequest<Unit>("host/${hostId.toHexString()}/reset-world", io.ktor.http.HttpMethod.Post)
+        if (!response.ok) throw RequestError(response.msg)
     }
 
     override suspend fun createOrUpdate(submission: HostCreateSubmission): Result<Unit> = resultOf {
@@ -197,6 +206,15 @@ class HostCreateViewModel(
 
     private val eventChannel = Channel<HostCreateEvent>(Channel.BUFFERED)
     val events: Flow<HostCreateEvent> = eventChannel.receiveAsFlow()
+
+    fun clearStatusMessage() {
+        _uiState.update { it.copy(statusMessage = null) }
+    }
+
+    fun clearErrorMessage() {
+        _uiState.update { it.copy(errorMessage = null) }
+    }
+
     init {
         loadInitial()
     }
@@ -207,10 +225,6 @@ class HostCreateViewModel(
 
     fun updateIntro(intro: String) {
         _uiState.update { it.copy(intro = intro) }
-    }
-
-    fun updateNoSave(noSave: Boolean) {
-        _uiState.update { it.copy(noSave = noSave) }
     }
 
     fun updateDifficulty(difficulty: Int) {
@@ -355,6 +369,19 @@ class HostCreateViewModel(
         }
     }
 
+    fun resetWorld() {
+        val hostId = _uiState.value.editHostId ?: return
+        viewModelScope.launch {
+            val result = gateway.resetWorld(hostId)
+            if (result.isSuccess) {
+                eventChannel.send(HostCreateEvent.WorldReset("世界已重置"))
+            } else {
+                val error = result.exceptionOrNull()
+                _uiState.update { it.copy(errorMessage = error?.message ?: "重置存档失败") }
+            }
+        }
+    }
+
     private fun loadInitial() {
         viewModelScope.launch {
             try {
@@ -437,8 +464,6 @@ class HostCreateViewModel(
                         name = trimmedName,
                         modpackId = ObjectId(sourceId),
                         packVer = state.selectedVersionName.trim(),
-                        saveWorld = !state.noSave,
-                        worldId = null,
                         difficulty = state.difficulty,
                         gameMode = state.gameMode,
                         levelType = state.levelType.trim(),

@@ -1348,7 +1348,8 @@ object ModpackService {
             version.fullPackFile,
             hostDir,
             includeClientOnlyMarkedMods = false,
-            skipHostAssetFiles = true
+            skipHostAssetFiles = true,
+            skipRootWorld = host.realVersion == 2
         )
         hostDir.resolve("mods").listFiles()
             ?.filter { it.isFile && it.name.startsWith(CLIENT_ONLY_MARK_PREFIX) && it.extension.equals("jar", true) }
@@ -1384,12 +1385,16 @@ object ModpackService {
         archiveFile: File,
         targetDir: File,
         includeClientOnlyMarkedMods: Boolean = true,
-        skipHostAssetFiles: Boolean = false
+        skipHostAssetFiles: Boolean = false,
+        skipRootWorld: Boolean = false
     ) {
         val archiveRoot = resolveServerInstallArchiveRoot(archiveFile)
         val versionDirPath = targetDir.toPath()
         forEachArchiveEntry(archiveFile) { entry ->
             val relativePath = extractServerInstallRelativePath(entry.path, archiveRoot) ?: return@forEachArchiveEntry
+            if (skipRootWorld && shouldSkipRootWorld(relativePath)) {
+                return@forEachArchiveEntry
+            }
             if (!includeClientOnlyMarkedMods && isClientOnlyMarkedModPath(relativePath)) {
                 return@forEachArchiveEntry
             }
@@ -1423,6 +1428,9 @@ object ModpackService {
         val extension = relativePath.substringAfterLast('.', "").lowercase()
         return extension in hostSkippedAssetExtensions
     }
+
+    internal fun shouldSkipRootWorld(relativePath: String): Boolean =
+        relativePath == "world" || relativePath.startsWith("world/")
 
     private fun cleanupDisabledInstalledMods(host: Host, version: Modpack.Version, modsDir: File) {
         if (!modsDir.exists() || !modsDir.isDirectory || host.disabledMods.isEmpty()) return

@@ -7,6 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -22,6 +23,8 @@ import calebxzau.rdi.client.ui.SimpleTooltip
 import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
+import calebxzau.rdi.client.ui.AlertErr
+import calebxzau.rdi.client.ui.AlertOk
 import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.viewmodel.HostCreateEvent
 import calebxzau.rdi.client.ui.viewmodel.HostCreateViewModel
@@ -64,20 +67,23 @@ fun HostNewCreateScreen(
     }
     val state by viewModel.uiState.collectAsState()
     var showRules by remember { mutableStateOf(false) }
-    var showResult by remember { mutableStateOf<String?>(null) }
+    var returnSuccessMessage by remember { mutableStateOf<String?>(null) }
+    var staySuccessMessage by remember { mutableStateOf<String?>(null) }
     var showUpdateConfirm by remember { mutableStateOf(false) }
-    var updateMessage by remember { mutableStateOf<String?>(null) }
+    var showResetConfirm by remember { mutableStateOf(false) }
+    var resetName by remember { mutableStateOf("") }
     var showCustomLevelTypeDialog by remember { mutableStateOf(false) }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 is HostCreateEvent.LegacyCreateSubmitted -> {
-                    showResult = event.message
+                    returnSuccessMessage = event.message
                 }
                 is HostCreateEvent.EditSaved -> {
-                    showResult = event.message
+                    returnSuccessMessage = event.message
                 }
-                is HostCreateEvent.HostPackUpdateSubmitted -> updateMessage = event.message
+                is HostCreateEvent.HostPackUpdateSubmitted -> staySuccessMessage = event.message
+                is HostCreateEvent.WorldReset -> staySuccessMessage = event.message
             }
         }
     }
@@ -120,40 +126,71 @@ fun HostNewCreateScreen(
         )
     }
 
+    if (showResetConfirm) {
+        val currentHost = state.editHost
+        AlertDialog(
+            onDismissRequest = { showResetConfirm = false },
+            title = { Text("重置存档") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("这会删除房间存档且不可恢复。下次启动时将生成新存档。请输入房间名称确认。")
+                    OutlinedTextField(
+                        value = resetName,
+                        onValueChange = { resetName = it },
+                        label = { Text(currentHost?.name ?: "") },
+                        singleLine = true,
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = currentHost != null && resetName == currentHost.name,
+                    onClick = {
+                        showResetConfirm = false
+                        resetName = ""
+                        viewModel.resetWorld()
+                    },
+                ) { Text("重置") }
+            },
+            dismissButton = { TextButton(onClick = { showResetConfirm = false }) { Text("取消") } },
+        )
+    }
+
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.MEDIUM) {
-            TitleRow(state.title+" · ${state.selectedPackTitle} v${state.selectedVersionName}", onBack) {
+            TitleRow(state.title, onBack) {
                 if (state.loading) {
                     CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
                 }
-                Text("注意，一个月没人玩房间就自动删了")
                 if (state.editHost != null) {
+                    if (state.editHost?.version == 2) {
+                        CircleIconButton(
+                            icon = "\uDB85\uDC5E",
+                            label = "重置存档",
+                            bgColor = MaterialTheme.colorScheme.error,
+                            showText = true,
+                        ) {
+                            resetName = ""
+                            showResetConfirm = true
+                        }
+                    }
                     CircleIconButton(
                         icon = "\uDB80\uDFD5",
-                        tooltip = "更新整合包",
+                        label = "更新整合包",
+                        showText = true,
                     ) {
                         showUpdateConfirm = true
                     }
                 }
-                CircleIconButton("\uDB82\uDE50", bgColor = themeNow.primary) {
+                CircleIconButton("\uDB82\uDE50","提交", bgColor = themeNow.primary) {
                     viewModel.submit()
                 }
             }
             ScrollableContentBody {
-                updateMessage?.let {
-                    Text(it, color = MaterialTheme.colorScheme.primary)
-                    Space8h()
-                }
-                state.statusMessage?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                    Space8h()
-                }
-                state.errorMessage?.let {
-                    Text(it, color = MaterialTheme.colorScheme.error)
-                    Space8h()
-                }
+                Text("${state.selectedPackTitle} v${state.selectedVersionName}")
+                Space8h()
 
-            if (false) { // Host2 creation is disabled for this release.
+            /*if (false) { // Host2 creation is disabled for this release.
                         Column(
                             modifier = Modifier.fillMaxWidth(),
                             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -184,11 +221,10 @@ fun HostNewCreateScreen(
                                 }
                             }
                         }
-                    } else {
+                    } else */
 
                         Column(modifier = Modifier.fillMaxWidth()) {
                         if (state.isLegacyCreate) {
-                            LegacyWorldModeSelection(state, viewModel)
                             Space8h()
                         }
                         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
@@ -362,8 +398,14 @@ fun HostNewCreateScreen(
                             }
                         }
                     }
-                    }
+
             }
+            Text(
+                "注意，一个月没人玩房间就自动删了",
+                modifier = Modifier
+                    .align(Alignment.End)
+                    .padding(end = 12.dp, bottom = 8.dp),
+            )
         }
     }
 
@@ -389,54 +431,15 @@ fun HostNewCreateScreen(
         )
     }
 
-    showResult?.let { message ->
-        AlertDialog(
-            onDismissRequest = { showResult = null },
-            title = { Text(if (state.isEditMode) "设置已保存" else "房间创建中") },
-            text = { Text(message) },
-            confirmButton = {
-                TextButton(onClick = {
-                    showResult = null
-                    onBack()
-                }) {
-                    Text("确定")
-                }
-            }
-        )
-    }
-}
-
-@Composable
-private fun LegacyWorldModeSelection(
-    state: calebxzau.rdi.client.ui.viewmodel.HostCreateUiState,
-    viewModel: HostCreateViewModel,
-) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-
-        Row(
-            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-        ) {
-            Text("存档", fontWeight = FontWeight.Bold)
-            RadioButton(
-                selected = !state.noSave,
-                onClick = { viewModel.updateNoSave(false) },
-            )
-            Text("使用存档")
-            RadioButton(
-                selected = state.noSave,
-                onClick = { viewModel.updateNoSave(true) },
-            )
-            Column {
-                Text("测试一下，不存档")
-                Text(
-                    "房间停止后不会保留任何数据，请谨慎选择",
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
+    when {
+        state.errorMessage != null -> AlertErr(state.errorMessage!!, viewModel::clearErrorMessage)
+        state.statusMessage != null -> AlertErr(state.statusMessage!!, viewModel::clearStatusMessage)
+        returnSuccessMessage != null -> AlertOk(returnSuccessMessage!!) {
+            returnSuccessMessage = null
+            onBack()
+        }
+        staySuccessMessage != null -> AlertOk(staySuccessMessage!!) {
+            staySuccessMessage = null
         }
     }
 }

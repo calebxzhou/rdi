@@ -95,7 +95,7 @@ private fun storageDir(path: String?, defaultName: String): File {
 val CRASH_REPORT_DIR = storageDir(CONF.storage.crashReportDir, "crash-report")
 val MODPACK_DATA_DIR = storageDir(CONF.storage.modpackDir, "modpack")
 val HOSTS_DIR = storageDir(CONF.storage.hostsDir, "hosts")
-// val HOST2_DIR = storageDir(CONF.storage.host2Dir, "host2")
+val Host2Dir = storageDir(CONF.storage.host2Dir, "host2")
 val GAME_LIBS_DIR = storageDir(CONF.storage.gameLibsDir, "game-libs")
 val WORLDS_DIR = storageDir(CONF.storage.worldsDir, "worlds")
 val WORLD_CACHE_DIR = storageDir(CONF.storage.worldCacheDir, "world-cache")

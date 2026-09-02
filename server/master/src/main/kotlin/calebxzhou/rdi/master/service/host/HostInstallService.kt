@@ -15,7 +15,6 @@ import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.service.*
 import calebxzhou.rdi.master.service.ModpackService.installToHost
-import calebxzhou.rdi.master.service.WorldService.createWorld
 import calebxzhou.rdi.master.service.WorldService.updateWorldSize
 import calebxzhou.rdi.master.service.host.HostContainerService.makeContainer
 import calebxzhou.rdi.master.service.host.HostRuntimeService.listenCrashOnStart
@@ -75,14 +74,19 @@ object HostInstallService {
             val defaultProps = Properties().apply {
                 defaultPropsFile.inputStream().use { load(it) }
             }
-            defaultProps.forEach { key, value ->
-                if (key.toString() != "server-port" && key.toString() != "online-mode") {
-                    lgr.info { "apply prop $key = $value" }
-                    serverProps.setProperty(key.toString(), value.toString())
-                }
-            }
+            applyDefaultServerProperties(serverProps, defaultProps)
             serverPropsFile.outputStream().use { serverProps.store(it, null) }
         }
+    }
+
+    internal fun applyDefaultServerProperties(serverProps: Properties, defaultProps: Properties) {
+        defaultProps.forEach { key, value ->
+            if (key.toString() != "server-port" && key.toString() != "online-mode") {
+                lgr.info { "apply prop $key = $value" }
+                serverProps.setProperty(key.toString(), value.toString())
+            }
+        }
+        serverProps.setProperty("level-name", "world")
     }
 
     fun Host.deleteTransientStartupDirs() {
@@ -130,27 +134,6 @@ object HostInstallService {
         return candidates.random()
     }
 
-    suspend fun RAccount.resolveWorld(
-        saveWorld: Boolean,
-        worldId: ObjectId?,
-        modpackId: ObjectId,
-        currentHostId: ObjectId? = null
-    ): World? {
-        if (!saveWorld) return null
-        if (worldId == null) {
-            return createWorld(_id, null, modpackId)
-        }
-        val occupyHost = HostQueryService.findByWorld(worldId)
-        if (occupyHost != null && occupyHost._id != currentHostId) {
-            throw RequestError("此存档数据已被房间“${occupyHost.name}”占用")
-        }
-        val world = WorldService.getById(worldId) ?: throw RequestError("无此存档")
-        if (world.ownerId != _id) {
-            throw RequestError("不是你的存档")
-        }
-        return world
-    }
-
     internal fun resolveHostCreateVersion(modpack: Modpack, packVer: String): Modpack.Version {
         return if (packVer == "latest") {
             modpack.versions.lastOrNull() ?: throw RequestError("此整合包没有可用版本")
@@ -173,14 +156,13 @@ object HostInstallService {
         if (version.status != Modpack.Status.OK) {
             throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
         }
-        val world = resolveWorld(host.saveWorld, host.worldId, host.modpackId)
         val port = allocateRoomPort()
         val createdHost = Host(
             name = host.name,
             ownerId = playerId,
             modpackId = host.modpackId,
             packVer = version.name,
-            worldId = world?._id,
+            worldId = null,
             port = port,
             difficulty = host.difficulty,
             allowCheats = host.allowCheats,
@@ -188,12 +170,26 @@ object HostInstallService {
             gameMode = host.gameMode,
             levelType = host.levelType,
             members = listOf(Host.Member(id = playerId, role = Role.OWNER)),
-            gameRules = host.gameRules
+            gameRules = host.gameRules,
+            version = 2
         )
         val mailId =
             MailService.sendSystemMail(playerId, "房间创建中", "${createdHost.name}正在创建中，请稍等几分钟...")._id
-        HostService.dbcl.insertOne(createdHost)
-        startCreateHost(createdHost, modpack, version, mailId)
+        var inserted = false
+        try {
+            HostService.dbcl.insertOne(createdHost)
+            inserted = true
+            startCreateHost(createdHost, modpack, version, mailId, newHost = true)
+        } catch (error: Throwable) {
+            if (inserted) {
+                runCatching { HostService.dbcl.deleteOne(com.mongodb.client.model.Filters.eq("_id", createdHost._id)) }
+                    .onFailure { cleanupError -> lgr.error(cleanupError) { "提交创建任务失败时删除房间记录失败: ${createdHost._id}" } }
+            }
+            runCatching {
+                MailService.changeMail(mailId, "房间创建失败", newContent = "无法创建房间，错误：$error")
+            }.onFailure { mailError -> lgr.error(mailError) { "更新房间创建失败通知失败: ${createdHost._id}" } }
+            throw error
+        }
     }
 
     fun startCreateHost(
@@ -204,53 +200,102 @@ object HostInstallService {
         runningTitle: String = "房间创建中",
         successTitle: String = "房间创建成功",
         successContent: String = "可以玩了",
-        failureTitle: String = "房间创建失败"
+        failureTitle: String = "房间创建失败",
+        newHost: Boolean = false,
+        persistPackVersion: Boolean = false,
     ) {
         ServerTaskManager.submit(
             task = Task2.Leaf("创建房间 ${host.name}") { ctx ->
+                HostLifecycleLock.withLock(host._id) {
+                val currentHost = HostQueryService.getById(host._id) ?: run {
+                    val error = RequestError("房间不存在")
+                    MailService.changeMail(mailId, failureTitle, newContent = "无法创建房间，错误：$error")
+                    throw error
+                }
+                val installHost = currentHost.copy(packVer = host.packVer)
                 runCatching {
                     ctx.emit(LoadProgress.Phase("准备房间目录"))
                     MailService.changeMail(mailId, runningTitle, newContent = "准备房间目录")
-                    if (host.dir.exists()) {
-                        host.dir.deleteRecursivelyNoSymlink()
+                    if (installHost.realVersion == 2) {
+                        cleanForV2Install(installHost.dir)
+                    } else {
+                        if (installHost.dir.exists()) installHost.dir.deleteRecursivelyNoSymlink()
                     }
-                    host.dir.mkdir()
+                    installHost.dir.mkdirs()
 
-                    modpack.installToHost(host.packVer, host) {
+                    modpack.installToHost(installHost.packVer, installHost) {
                         MailService.changeMail(mailId, runningTitle, newContent = it)
                         ctx.emit(LoadProgress.Phase(it))
                     }
 
                     ctx.emit(LoadProgress.Phase("写入房间配置"))
                     MailService.changeMail(mailId, runningTitle, newContent = "写入房间配置")
-                    host.writeServerProperties()
+                    installHost.writeServerProperties()
 
                     ctx.emit(LoadProgress.Phase("清理启动前缓存"))
                     MailService.changeMail(mailId, runningTitle, newContent = "清理启动前缓存")
-                    host.deleteTransientStartupDirs()
+                    installHost.deleteTransientStartupDirs()
 
                     ctx.emit(LoadProgress.Phase("准备运行库"))
                     MailService.changeMail(mailId, runningTitle, newContent = "准备运行库")
-                    host.makeContainer(host.worldId, modpack, version)
+                    installHost.makeContainer(installHost.worldId, modpack, version)
 
-                    lgr.info { "installToHost returned. Proceeding to start Docker container for host ${host._id} (Logic Error Tracing)." }
+                    lgr.info { "installToHost returned. Proceeding to start Docker container for host ${installHost._id} (Logic Error Tracing)." }
                     ctx.emit(LoadProgress.Phase("启动房间"))
                     MailService.changeMail(mailId, runningTitle, newContent = "启动房间")
-                    DockerService.start(host._id.str)
-                    host.listenCrashOnStart()
+                    DockerService.start(installHost._id.str)
+                    installHost.listenCrashOnStart()
 
-                    HostControlService.clearShutFlag(host._id)
+                    HostControlService.clearShutFlag(installHost._id)
+                    if (persistPackVersion) {
+                        HostService.dbcl.updateOne(
+                            com.mongodb.client.model.Filters.eq("_id", installHost._id),
+                            com.mongodb.client.model.Updates.set(Host::packVer.name, installHost.packVer)
+                        )
+                    }
                 }.onFailure {
                     lgr.error { it }
                     it.printStackTrace()
+                    if (newHost) {
+                        runCatching { DockerService.deleteContainer(installHost._id.str) }
+                            .onFailure { cleanupError -> lgr.error(cleanupError) { "创建失败时删除房间容器失败: ${installHost._id}" } }
+                        runCatching { installHost.dir.takeIf(File::exists)?.deleteRecursivelyNoSymlink() }
+                            .onFailure { cleanupError -> lgr.error(cleanupError) { "创建失败时删除房间目录失败: ${installHost.dir}" } }
+                        runCatching { HostService.dbcl.deleteOne(com.mongodb.client.model.Filters.eq("_id", installHost._id)) }
+                            .onFailure { cleanupError -> lgr.error(cleanupError) { "创建失败时删除房间记录失败: ${installHost._id}" } }
+                    }
                     MailService.changeMail(mailId, failureTitle, newContent = "无法创建房间，错误：${it}")
                     throw it
                 }.onSuccess {
                     MailService.changeMail(mailId, successTitle, newContent = successContent)
                 }
+                }
             },
             dedupeKey = HostService.createHostTaskKey(host._id)
         )
+    }
+
+    internal fun cleanForV2Install(hostDir: File) {
+        if (!hostDir.exists()) {
+            if (!hostDir.mkdirs() && !hostDir.exists()) {
+                throw RequestError("创建房间目录失败: ${hostDir.absolutePath}")
+            }
+            return
+        }
+        val children = hostDir.listFiles() ?: throw RequestError("无法读取房间目录: ${hostDir.absolutePath}")
+        children.filterNot { it.name == "world" }.forEach(::deleteStrictNoSymlink)
+        val remaining = hostDir.listFiles()?.filterNot { it.name == "world" }
+            ?: throw RequestError("无法读取房间目录: ${hostDir.absolutePath}")
+        if (remaining.isNotEmpty()) {
+            throw RequestError("清理房间目录失败，仍有文件未删除: ${remaining.joinToString { it.name }}")
+        }
+    }
+
+    internal fun deleteStrictNoSymlink(target: File) {
+        target.deleteRecursivelyNoSymlink()
+        if (target.exists() || Files.isSymbolicLink(target.toPath())) {
+            throw RequestError("删除文件失败: ${target.absolutePath}")
+        }
     }
 
     fun Host.refreshWorldSizeAfterStop(waitForStop: Boolean) {

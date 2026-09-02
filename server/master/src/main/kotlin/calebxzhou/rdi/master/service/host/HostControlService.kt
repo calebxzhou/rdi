@@ -65,7 +65,7 @@ object HostControlService {
         lgr.debug { "保持在线 $hostId" }
     }
 
-    fun Host.stop(reason: String) {
+    suspend fun Host.stop(reason: String) = HostLifecycleLock.withLock(_id) {
         runCatching {
             DockerService.stop(_id.str)
             lgr.info { "Stopped host $name ($reason)" }
@@ -77,6 +77,10 @@ object HostControlService {
     }
 
     suspend fun HostContext.start() {
+        HostLifecycleLock.withLock(host._id) { fresh().startLocked() }
+    }
+
+    private suspend fun HostContext.startLocked() {
         val current = host
         val isMember = member.role != Role.GUEST
         if (current.whitelist && !isMember && !player.isDav) {
@@ -99,18 +103,30 @@ object HostControlService {
     }
 
     suspend fun HostContext.graceStop() {
+        HostLifecycleLock.withLock(host._id) { graceStopLocked() }
+    }
+
+    private suspend fun HostContext.graceStopLocked() {
         sendCommand("stop")
         clearShutFlag(host._id)
         host.refreshWorldSizeAfterStop(waitForStop = true)
     }
 
     suspend fun HostContext.forceStop() {
+        HostLifecycleLock.withLock(host._id) { forceStopLocked() }
+    }
+
+    private fun HostContext.forceStopLocked() {
         clearShutFlag(host._id)
         DockerService.forceStop(host._id.str)
         host.refreshWorldSizeAfterStop(waitForStop = false)
     }
 
     suspend fun HostContext.restart() {
+        HostLifecycleLock.withLock(host._id) { restartLocked() }
+    }
+
+    private suspend fun HostContext.restartLocked() {
         sendCommand("stop")
         clearShutFlag(host._id)
         DockerService.restart(host._id.str)

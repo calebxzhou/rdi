@@ -40,6 +40,7 @@ import calebxzhou.rdi.master.service.host.HostModsService.deleteExtraMods
 import calebxzhou.rdi.master.service.host.HostLifecycleService.changeOptions
 import calebxzhou.rdi.master.service.host.HostLifecycleService.changeVersion
 import calebxzhou.rdi.master.service.host.HostLifecycleService.delete
+import calebxzhou.rdi.master.service.host.HostLifecycleService.resetWorld
 import calebxzhou.rdi.master.service.host.HostService.hostContext
 import calebxzhou.rdi.master.service.host.HostService.listenLogs
 import calebxzhou.rdi.master.service.host.HostService.needAdmin
@@ -145,6 +146,10 @@ fun Route.hostRoutes() = route("/host") {
             HostQueryService.getById(idParam("hostId"))?.let {
                 response(data = it)
             } ?: err("无此房间")
+        }
+        post("/reset-world") {
+            call.hostContext().needOwner.resetWorld()
+            ok()
         }
         get("/brief") {
             call.player().getBriefHost(idParam("hostId"))?.let {

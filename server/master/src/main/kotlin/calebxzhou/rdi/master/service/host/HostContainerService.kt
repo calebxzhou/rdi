@@ -101,6 +101,12 @@ object HostContainerService {
         modpack: Modpack,
         version: Modpack.Version
     ) {
+        if (realVersion == 2 && worldId != null) {
+            throw RequestError("v2房间不能使用外置存档")
+        }
+        if (realVersion != 1 && realVersion != 2) {
+            throw RequestError("无效房间版本")
+        }
         DockerService.deleteContainer(_id.str)
         ensureWorkdirQuota()
         cleanupDisabledModFilesBeforeContainerCreate(version)
@@ -176,7 +182,9 @@ object HostContainerService {
                     .withSource(serverJar.absolutePath)
                     .withTarget("/opt/server/${serverJar.name}")
             }
-            if (worldId != null) {
+            if (realVersion == 2) {
+                // v2 worlds live below the host root bind at /opt/server/world.
+            } else if (worldId != null) {
                 val worldCacheDir = prepareWorldCacheDir(worldId)
                 this += Mount()
                     .withType(MountType.BIND)

@@ -6,6 +6,7 @@ import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.master.DB
 import calebxzhou.rdi.master.HOSTS_DIR
+import calebxzhou.rdi.master.Host2Dir
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.idPathParam
 import calebxzhou.rdi.master.net.isClientDisconnect
@@ -46,7 +47,12 @@ com.github.dockerjava.api.exception.InternalServerErrorException: Status 500: {"
         at calebxzhou.rdi.master.service.host.HostControlService$start$1.invokeSuspend(HostControlService.kt)
         at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
  */
-val Host.dir get() = HOSTS_DIR.resolve(_id.str)
+val Host.dir get() =
+    when (realVersion) {
+        2 -> Host2Dir.resolve(_id.str)
+        1 -> HOSTS_DIR.resolve(_id.str)
+        else -> throw RequestError("无效房间版本")
+    }
 
 data class HostContext(
     val host: Host,
@@ -57,6 +63,16 @@ data class HostContext(
     val targetMember get() = targetMemberNull ?: throw ParamError("玩家${player.name}不是此房间的受邀成员")
     suspend fun getTargetPlayer() =
         PlayerService.getById(targetMember.id) ?: throw ParamError("玩家${player.name}不存在")
+
+    suspend fun fresh(): HostContext {
+        val current = HostQueryService.getById(host._id) ?: throw RequestError("无此房间")
+        val freshMember = current.members.firstOrNull { it.id == player._id }
+            ?: if (player.isDav) Host.Member(player._id, Role.ADMIN)
+            else if (!current.whitelist) Host.Member(player._id, Role.GUEST)
+            else throw RequestError("不是房间受邀成员")
+        val freshTarget = targetMemberNull?.let { target -> current.members.firstOrNull { it.id == target.id } }
+        return HostContext(current, player, freshMember, freshTarget)
+    }
 }
 
 object HostService {

@@ -18,6 +18,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -108,6 +109,7 @@ fun HostListScreen(
                 var installConfirmTask by remember<MutableState<StartPlayResult.NeedInstall?>> { mutableStateOf(null) }
                 var deleteHost by remember<MutableState<UnifiedHostBrief?>> { mutableStateOf(null) }
                 var deleteWorld by remember { mutableStateOf(true) }
+                var deleteName by remember { mutableStateOf("") }
                 val gridState = rememberLazyGridState()
                 LaunchedEffect(key1 = viewModel) {
                     viewModel.events.collect { event ->
@@ -166,7 +168,7 @@ fun HostListScreen(
                                             onOpenFiles = onOpenHostFiles1,
                                             onOpenBackend = onOpenHostBackend1,
                                             onOpenSettings = onOpenHostSettings1,
-                                            onDelete = { deleteHost = it; deleteWorld = false },
+                                            onDelete = { deleteHost = it; deleteWorld = false; deleteName = "" },
                                             playEnabled = state.launchingHost == null,
                                             playLoading = state.launchingHost == host.target,
                                         )
@@ -196,7 +198,7 @@ fun HostListScreen(
                                             onOpenFiles = onOpenHostFiles1,
                                             onOpenBackend = onOpenHostBackend1,
                                             onOpenSettings = onOpenHostSettings1,
-                                            onDelete = { deleteHost = it; deleteWorld = false },
+                                            onDelete = { deleteHost = it; deleteWorld = false; deleteName = "" },
                                             playEnabled = state.launchingHost == null,
                                             playLoading = state.launchingHost == host.target,
                                         )
@@ -240,17 +242,29 @@ fun HostListScreen(
                             title = { Text("确认删除") },
                             text = {
                                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                    Text("确认删除房间吗？所有的数据都会丢失（不可恢复）")
+                                    Text("确认删除房间吗？所有的数据，包括存档都会丢失（不可恢复）")
                                     if (host.target.kind == HostKind.Legacy) {
-                                        Checkbox(checked = deleteWorld, onCheckedChange = { deleteWorld = it })
-                                        Text("同时删除关联存档")
+                                        if (host.version >= 2) {
+                                            Text("请输入房间名称确认。")
+                                            OutlinedTextField(
+                                                value = deleteName,
+                                                onValueChange = { deleteName = it },
+                                                label = { Text(host.name) },
+                                                singleLine = true,
+                                            )
+                                        } else {
+                                            Checkbox(checked = deleteWorld, onCheckedChange = { deleteWorld = it })
+                                            Text("同时删除关联存档")
+                                        }
                                     }
                                 }
                             },
                             confirmButton = {
                                 TextButton(
-                                    enabled = state.deletingHost == null &&
-                                            (host.target.kind != HostKind.Legacy || loggedAccount.isDav || deleteWorld),
+                                            enabled = state.deletingHost == null &&
+                                            (host.target.kind != HostKind.Legacy ||
+                                                    (host.version >= 2 && deleteName == host.name) ||
+                                                    host.version < 2),
                                     onClick = { viewModel.deleteHost(host, deleteWorld) },
                                 ) { Text("删除") }
                             },

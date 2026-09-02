@@ -257,6 +257,7 @@ class HostViewModelsTest {
                 modloader = ModLoader.neoforge,
             ),
             packVer = "1.0",
+            version = 1,
             port = 25565,
             difficulty = 2,
             gameMode = 0,

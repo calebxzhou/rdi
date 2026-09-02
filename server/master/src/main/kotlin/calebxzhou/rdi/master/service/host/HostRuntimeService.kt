@@ -107,8 +107,20 @@ object HostRuntimeService {
                         return@launch
                     }
 
-                    runCatching { DockerService.stop(hostId.str) }
-                        .onSuccess {
+                    runCatching {
+                        HostLifecycleLock.withLock(hostId) {
+                            // Re-check after waiting: a new gameplay connection may have
+                            // arrived while this delayed stop was queued behind another
+                            // lifecycle operation.
+                            if (hostStates[hostId] !== state || state.session != null) return@withLock false
+                            if (HostQueryService.getById(hostId) == null) return@withLock false
+                            if (!DockerService.isStarted(hostId.str)) return@withLock false
+                            DockerService.stop(hostId.str)
+                            true
+                        }
+                    }
+                        .onSuccess { stopped ->
+                            if (!stopped) return@onSuccess
                             lgr.info { "Host $hostId 容器因通道断开已停止" }
                             HostQueryService.getById(hostId)?.refreshWorldSizeAfterStop(waitForStop = false)
                         }
@@ -248,7 +260,9 @@ object HostRuntimeService {
                         ioScope.launch {
                             lgr.warn { "Host ${_id} 启动失败，停止房间" }
                             HostService.markSkipWorldSizeUpdate(_id)
-                            runCatching { DockerService.forceStop(_id.str) }
+                            runCatching {
+                                HostLifecycleLock.withLock(_id) { DockerService.forceStop(_id.str) }
+                            }
                                 .onFailure { err ->
                                     lgr.warn(err) { "Host ${name} 停止失败" }
                                 }

@@ -17,7 +17,7 @@ data class Host(
     @Contextual
     val _id: ObjectId = ObjectId(),
     val name: String,
-    val intro: String = "暂无简介",
+    val intro: String? = null,
     @Contextual
     val ownerId: ObjectId,
     @Contextual
@@ -39,8 +39,10 @@ data class Host(
     val banlist: List<@Contextual ObjectId> = arrayListOf(),
     //整合包外的附加mod
     var extraMods: List<Mod> = arrayListOf(),
-    var disabledMods: List<Mod> = arrayListOf()
+    var disabledMods: List<Mod> = arrayListOf(),
+    private var version: Int? = null,
 ) {
+    val realVersion get() = version?:1
     companion object {
         var portNow: Int = 0
         fun getGameModeText(modeId: Int): String {
@@ -63,9 +65,6 @@ data class Host(
         }
 
     }
-    //所有人都能玩 无论是否启动
-    val isPublic get() = name.contains("公共")
-
     @Serializable
     data class Member(
         @Contextual
@@ -78,12 +77,13 @@ data class Host(
         @Contextual
         val _id: ObjectId = ObjectId(),
         val name: String,
-        val intro: String = "暂无简介",
+        val intro: String? = null,
         val iconUrl: String? = null,
         @Contextual
         val ownerId: ObjectId = ObjectId(),
         val modpackName: String,
         val packVer: String,
+        val version: Int,
         var port: Int,
         val playable: Boolean = true,
         val isMember: Boolean = false,
@@ -96,6 +96,7 @@ data class Host(
                 intro = "都是大大实打实大苏打实打实的得分风格风格风格非官方",
                 modpackName = "测试测试测试测试测试",
                 packVer = "1.0.0",
+                version = 2,
                 port = 55555,
                 onlinePlayerIds = arrayListOf(
                     ObjectId(), ObjectId(), ObjectId(), ObjectId(), ObjectId(), ObjectId(), ObjectId(), ObjectId(),
@@ -109,12 +110,13 @@ data class Host(
         @Contextual
         val _id: ObjectId = ObjectId(),
         val name: String,
-        val intro: String = "暂无简介",
+        val intro: String? = null,
         val iconUrl: String? = null,
         @Contextual
         val ownerId: ObjectId = ObjectId(),
         val modpack: Modpack.BriefVo,
         val packVer: String,
+        val version: Int,
         @Contextual
         val worldId: ObjectId? = null,
         var port: Int,
@@ -136,11 +138,6 @@ data class Host(
         @Contextual
         val modpackId: ObjectId,
         val packVer: String,
-        //是否存档 false不保存任何数据
-        val saveWorld: Boolean,
-        //已有存档id 新建存档=null
-        @Contextual
-        val worldId: ObjectId?,
         val difficulty: Int,
         val gameMode: Int,
         val levelType: String,

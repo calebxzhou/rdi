@@ -42,7 +42,7 @@ data class HostTarget(
 data class UnifiedHostBrief(
     val target: HostTarget,
     val name: String,
-    val intro: String,
+    val intro: String?,
     val iconUrl: String?,
     val ownerId: ObjectId?,
     val onlinePlayerIds: List<ObjectId>,
@@ -52,6 +52,7 @@ data class UnifiedHostBrief(
     val isMember: Boolean,
     val role: Role?,
     val status: HostStatus,
+    val version: Int = 1,
 ) {
     val canUseMemberFeatures: Boolean get() = isMember || role in setOf(Role.OWNER, Role.ADMIN)
     val canManage: Boolean get() = role in setOf(Role.OWNER, Role.ADMIN)
@@ -71,6 +72,7 @@ data class UnifiedHostBrief(
                 isMember = host.isMember,
                 role = host.role,
                 status = if (host.playable) HostStatus.PLAYABLE else HostStatus.UNKNOWN,
+                version = host.version,
             )
 
     }

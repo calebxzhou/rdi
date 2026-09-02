@@ -92,52 +92,7 @@ class HostCreateViewModelTest {
         val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
         assertEquals(ObjectId(PACK_ID), create.modpackId)
         assertEquals("2.0.0", create.packVer)
-        assertTrue(create.saveWorld)
-        assertNull(create.worldId)
         assertFalse(create.whitelist)
-    }
-
-    @Test
-    fun `legacy create no-save clears world and sends saveWorld false`() = runBlocking {
-        val gateway = FakeHostCreateGateway(submissionResult = Result.success(Unit))
-        val viewModel = createViewModel(
-            gateway,
-            kind = HostKind.Legacy,
-            sourceId = PACK_ID,
-            legacyVersionName = "2.0.0",
-        )
-        awaitLoaded(viewModel)
-
-        viewModel.updateHostName("无存档房间")
-        viewModel.updateNoSave(true)
-        viewModel.submit()
-
-        assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
-        val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
-        assertFalse(create.saveWorld)
-        assertNull(create.worldId)
-    }
-
-    @Test
-    fun `legacy create can switch from no-save back to new world`() = runBlocking {
-        val gateway = FakeHostCreateGateway(submissionResult = Result.success(Unit))
-        val viewModel = createViewModel(
-            gateway,
-            kind = HostKind.Legacy,
-            sourceId = PACK_ID,
-            legacyVersionName = "2.0.0",
-        )
-        awaitLoaded(viewModel)
-
-        viewModel.updateHostName("持久世界房间")
-        viewModel.updateNoSave(true)
-        viewModel.updateNoSave(false)
-        viewModel.submit()
-
-        assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
-        val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
-        assertTrue(create.saveWorld)
-        assertNull(create.worldId)
     }
 
     @Test
@@ -283,6 +238,55 @@ class HostCreateViewModelTest {
         assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
     }
 
+    @Test
+    fun `reset success emits world reset event`() = runBlocking {
+        val viewModel = createViewModel(
+            gateway = FakeHostCreateGateway(
+                initial = HostCreateInitialData(host = testHostDetail()),
+                resetResult = Result.success(Unit),
+            ),
+            hostId = HOST_ID,
+        )
+        awaitLoaded(viewModel)
+
+        viewModel.resetWorld()
+
+        val event = assertIs<HostCreateEvent.WorldReset>(viewModel.events.first())
+        assertEquals("世界已重置", event.message)
+        assertNull(viewModel.uiState.value.statusMessage)
+    }
+
+    @Test
+    fun `reset failure remains an error and error message can be cleared`() = runBlocking {
+        val viewModel = createViewModel(
+            gateway = FakeHostCreateGateway(
+                initial = HostCreateInitialData(host = testHostDetail()),
+                resetResult = Result.failure(IllegalStateException("重置失败")),
+            ),
+            hostId = HOST_ID,
+        )
+        awaitLoaded(viewModel)
+
+        viewModel.resetWorld()
+        withTimeout(5_000) { viewModel.uiState.filter { it.errorMessage != null }.first() }
+
+        assertEquals("重置失败", viewModel.uiState.value.errorMessage)
+        viewModel.clearErrorMessage()
+        assertNull(viewModel.uiState.value.errorMessage)
+    }
+
+    @Test
+    fun `status message can be cleared`() = runBlocking {
+        val viewModel = createViewModel(FakeHostCreateGateway())
+        awaitLoaded(viewModel)
+
+        viewModel.submit()
+
+        assertEquals("请输入房间名称", viewModel.uiState.value.statusMessage)
+        viewModel.clearStatusMessage()
+        assertNull(viewModel.uiState.value.statusMessage)
+    }
+
     private fun createViewModel(
         gateway: HostCreateGateway,
         hostId: String? = null,
@@ -311,6 +315,7 @@ class HostCreateViewModelTest {
         private val initial: HostCreateInitialData = HostCreateInitialData(),
         private val submissionResult: Result<Unit> = Result.success(Unit),
         private val submissionGate: CompletableDeferred<Result<Unit>>? = null,
+        private val resetResult: Result<Unit> = Result.success(Unit),
     ) : HostCreateGateway {
         var loadInitialCalls = 0
         val submissions = mutableListOf<HostCreateSubmission>()
@@ -328,6 +333,8 @@ class HostCreateViewModelTest {
         }
 
         override suspend fun requestHostPackUpdate(hostId: ObjectId): Result<Unit> = Result.success(Unit)
+
+        override suspend fun resetWorld(hostId: ObjectId): Result<Unit> = resetResult
     }
 
     private companion object {
@@ -359,6 +366,7 @@ class HostCreateViewModelTest {
                 modloader = ModLoader.forge,
             ),
             packVer = "latest",
+            version = 1,
             worldId = worldId,
             port = 25565,
             difficulty = 1,
