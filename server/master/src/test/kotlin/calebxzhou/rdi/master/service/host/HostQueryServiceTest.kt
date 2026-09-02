@@ -14,7 +14,7 @@ class HostQueryServiceTest {
     private val otherPlayerId = ObjectId("aabbccddeeff001122334455")
 
     @Test
-    fun `availability includes owners members and public hosts`() {
+    fun `availability includes owners and members regardless of status`() {
         assertTrue(isPlayable(host(ownerId = requesterId), HostStatus.STOPPED))
         assertTrue(
             isPlayable(
@@ -23,13 +23,14 @@ class HostQueryServiceTest {
                 otherPlayerId,
             )
         )
-        assertTrue(isPlayable(host(name = "公共房间"), HostStatus.STOPPED))
+        assertFalse(isPlayable(host(name = "公共房间"), HostStatus.STOPPED))
     }
 
     @Test
     fun `availability includes playable non-whitelist hosts only`() {
         assertTrue(isPlayable(host(), HostStatus.PLAYABLE))
         assertFalse(isPlayable(host(whitelist = true), HostStatus.PLAYABLE))
+        assertFalse(isPlayable(host(name = "公共房间", whitelist = true), HostStatus.PLAYABLE))
         assertFalse(isPlayable(host(), HostStatus.STOPPED))
     }
 

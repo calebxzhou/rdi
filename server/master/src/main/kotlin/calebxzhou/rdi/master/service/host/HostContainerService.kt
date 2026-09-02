@@ -73,18 +73,9 @@ object HostContainerService {
             if(modpack.mcVer == McVersion.V071 || modpack.mcVer == McVersion.V122){
                 this.add("-Dfml.queryResult=confirm")
             }
-            if (this@containerEnv.isPublic) {
-                this.add("-Drdi.firmSectionTotalMax=65536")
-                this.add("-Drdi.firmSectionPersonMax=512")
-            }else{
-                this.add("-Drdi.firmSectionTotalMax=512")
-                this.add("-Drdi.firmSectionPersonMax=512")
-            }
-            if (this@containerEnv._id == ObjectId("69da4ec7015319d405bbb3be")) {
-                this.add("-Xmx12G")
-            } else {
-                this.add("-Xmx8G")
-            }
+            this.add("-Drdi.firmSectionTotalMax=512")
+            this.add("-Drdi.firmSectionPersonMax=512")
+            this.add("-Xmx8G")
             if (modpack.mcVer.supportsForgeguard(modpack.modloader)) {
                 this.add("-javaagent:$FORGEGUARD_CONTAINER_PATH")
             }
@@ -207,8 +198,8 @@ object HostContainerService {
             McVersion.V071, McVersion.V122 -> 2
             else -> 4
         }
-        val memory = if(isPublic) 16*1024*1024*1024L else 8*1024*1024*1024L
-        val memorySwap = if(isPublic) 32*1024*1024*1024L else 16*1024*1024*1024L
+        val memory = 8 * 1024 * 1024 * 1024L
+        val memorySwap = 16 * 1024 * 1024 * 1024L
 
         modpack.mcVer.loaderVersions[modpack.modloader]?.let { modLoaderVersion ->
             DockerService.createContainer(

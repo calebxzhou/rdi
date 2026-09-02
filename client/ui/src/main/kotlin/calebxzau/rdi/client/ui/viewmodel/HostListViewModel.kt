@@ -178,7 +178,7 @@ class HostListViewModel(
                         currentSourceState.legacyUnavailablePage++
                     }
                 } else {
-                    showSourceError("加载公开房间失败", result.exceptionOrNull() ?: IllegalStateException("未知错误"))
+                    showSourceError("加载房间列表失败", result.exceptionOrNull() ?: IllegalStateException("未知错误"))
                 }
             }
             if (isCurrent(currentGeneration, currentSourceState)) {

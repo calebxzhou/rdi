@@ -79,8 +79,7 @@ object HostControlService {
     suspend fun HostContext.start() {
         val current = host
         val isMember = member.role != Role.GUEST
-        val isPublicHost = current.isPublic || !current.whitelist
-        if (!isPublicHost && !isMember && !player.isDav) {
+        if (current.whitelist && !isMember && !player.isDav) {
             throw RequestError("私有房间仅成员可启动")
         }
         if (DockerService.isStarted(current._id.str)) {

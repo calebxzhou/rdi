@@ -152,7 +152,7 @@ object HostService {
     fun HostContext.requireRole(level: Role): HostContext {
         member.let {
             var allowed = when (level) {
-                Role.MEMBER -> member.role != Role.GUEST || host.isPublic
+                Role.MEMBER -> member.role != Role.GUEST
                 Role.ADMIN -> member.role.level <= Role.ADMIN.level
                 Role.OWNER -> member.role == Role.OWNER
                 else -> false

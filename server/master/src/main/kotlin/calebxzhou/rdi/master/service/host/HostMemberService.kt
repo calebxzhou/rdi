@@ -79,7 +79,7 @@ object HostMemberService {
             if (current.members.any { it.id == target._id }) {
                 throw RequestError("该用户已是成员")
             }
-            if (!current.isPublic && current.members.size >= 10) {
+            if (current.members.size >= 10) {
                 throw RequestError("该房间最多只能有10名成员")
             }
             val joinedCount = dbcl.countDocuments(eq("${Host::members.name}.${Host.Member::id.name}", target._id))

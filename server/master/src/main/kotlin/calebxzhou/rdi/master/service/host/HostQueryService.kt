@@ -100,7 +100,7 @@ object HostQueryService {
 
     internal fun Host.isPlayableFor(requesterId: ObjectId, status: HostStatus): Boolean {
         val isMember = ownerId == requesterId || members.any { it.id == requesterId }
-        return isMember || isPublic || status == HostStatus.PLAYABLE && !whitelist
+        return isMember || status == HostStatus.PLAYABLE && !whitelist
     }
 
     private fun Host.toListingCandidate(requesterId: ObjectId, status: HostStatus): HostListingCandidate {
