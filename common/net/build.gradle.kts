@@ -31,6 +31,9 @@ dependencies {
     api(libs.ktor.client.okhttp)
     api(libs.ktor.client.content.negotiation)
     api(libs.ktor.client.encoding)
+    implementation(libs.ktor.encoding.zstd) {
+        exclude(group = "com.github.luben", module = "zstd-jni")
+    }
     api(libs.ktor.sse)
     api(libs.ktor.http)
     api(libs.ktor.serialization.kotlinx.json)
@@ -41,7 +44,9 @@ dependencies {
     implementation(libs.tomlkt)
     implementation(libs.kotlinx.io.core)
     implementation(libs.annotations)
+    compileOnly(libs.zstd.jni)
     testImplementation(kotlin("test"))
+    testImplementation(libs.zstd.jni)
 }
 base {
     archivesName.set("rdi-net")

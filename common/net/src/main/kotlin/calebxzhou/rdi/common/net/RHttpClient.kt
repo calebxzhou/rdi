@@ -13,14 +13,18 @@ import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.plugins.sse.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
+import io.ktor.encoding.zstd.ZstdEncoder
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import com.github.luben.zstd.ZstdInputStream
 import okhttp3.Cache
 import okhttp3.OkHttpClient
 import okhttp3.MediaType
 import okhttp3.Request
 import okhttp3.RequestBody
+import okhttp3.Response
 import okio.Buffer
+import java.io.InputStream
 import java.io.File
 import java.io.IOException
 import java.net.*
@@ -69,8 +73,9 @@ val ktorClient by lazy {
             bufferPolicy = SSEBufferPolicy.LastEvents(10)
         }
         install(ContentEncoding) {
-            deflate(1.0F)
-            gzip(0.9F)
+            customEncoder(ZstdEncoder(), 1.0F)
+            deflate(0.9F)
+            gzip(0.8F)
             identity()
         }
         install(HttpTimeout) {
@@ -93,9 +98,22 @@ internal fun OkHttpClient.Builder.configureDebugRequestLogging() {
                 "Request metadata Content-Type=${contentType ?: "<none>"} " +
                     "Content-Length=${contentLength ?: "<unknown>"}"
             }
-            httpLgr.info { "Body ${request.debugBodyForLogging(contentLength)}" }
+            httpLgr.info { "Request body ${request.debugBodyForLogging(contentLength)}" }
         }
-        chain.proceed(request)
+        val response = chain.proceed(request)
+        runCatching {
+            httpLgr.info { "Response HTTP ${response.code} ${request.method} ${request.url}" }
+            val responseBody = response.body
+            val contentType = responseBody?.contentType()
+            val contentLength = responseBody?.contentLength()
+            httpLgr.info {
+                "Response metadata Content-Type=${contentType ?: "<none>"} " +
+                    "Content-Length=${contentLength?.takeIf { it >= 0L } ?: "<unknown>"} " +
+                    "Content-Encoding=${response.header("Content-Encoding") ?: "<none>"}"
+            }
+            httpLgr.info { "Response body ${response.debugBodyForLogging()}" }
+        }
+        response
     }
 }
 
@@ -152,6 +170,54 @@ private fun Request.hasNonIdentityContentEncoding(): Boolean =
     headers("Content-Encoding")
         .flatMap { it.split(',') }
         .any { !it.trim().equals("identity", ignoreCase = true) }
+
+internal fun Response.debugBodyForLogging(): String {
+    val responseBody = body ?: return "<empty>"
+    return try {
+        val contentLength = responseBody.contentLength()
+        if (contentLength == 0L) return "<empty>"
+
+        val contentType = responseBody.contentType()
+            ?: return "<omitted: unknown>"
+        if (contentType.type.equals("multipart", ignoreCase = true)) {
+            return "<omitted: multipart>"
+        }
+        if (!contentType.isDebugTextType()) {
+            return "<omitted: binary>"
+        }
+        if (contentType.type.equals("text", ignoreCase = true) &&
+            contentType.subtype.equals("event-stream", ignoreCase = true)
+        ) {
+            return "<omitted: streaming>"
+        }
+        val encodings = contentEncodings()
+        val nonIdentityEncodings = encodings.filterNot { it.equals("identity", ignoreCase = true) }
+        val zstdEncoded = nonIdentityEncodings.size == 1 &&
+            nonIdentityEncodings.single().equals("zstd", ignoreCase = true)
+        if (nonIdentityEncodings.isNotEmpty() && !zstdEncoded) {
+            return "<omitted: encoded>"
+        }
+        val peekedSource = responseBody.source().peek()
+        val rawInput = peekedSource.inputStream()
+        val decodedInput: InputStream = if (zstdEncoded) ZstdInputStream(rawInput) else rawInput
+        decodedInput.use {
+            val bytes = it.readNBytes((MAX_DEBUG_TEXT_BODY_BYTES + 1L).toInt())
+            if (bytes.size.toLong() > MAX_DEBUG_TEXT_BODY_BYTES) {
+                "<omitted: too large>"
+            } else {
+                bytes.toString(contentType.charset(StandardCharsets.UTF_8) ?: StandardCharsets.UTF_8)
+                    .ifEmpty { "<empty>" }
+            }
+        }
+    } catch (_: Exception) {
+        "<omitted: unreadable>"
+    }
+}
+
+private fun Response.contentEncodings(): List<String> =
+    headers("Content-Encoding")
+        .flatMap { it.split(',') }
+        .map { it.trim() }
 
 internal fun OkHttpClient.Builder.configureDebugTlsForSelfSigned() {
     if (!DEBUG) return
