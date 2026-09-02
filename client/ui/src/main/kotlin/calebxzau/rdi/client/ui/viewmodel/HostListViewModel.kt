@@ -9,25 +9,17 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.StartPlayResult
 import calebxzhou.rdi.client.service.startHostPlay
 import calebxzhou.rdi.client.ui.McPlayArgs
-import calebxzhou.rdi.client.ui.screen.HostKind
-import calebxzhou.rdi.client.ui.screen.HostTarget
-import calebxzhou.rdi.client.ui.screen.UnifiedHostBrief
-import calebxzhou.rdi.client.ui.screen.allHostSourcesEnded
-import calebxzhou.rdi.client.ui.screen.mergeUnifiedHosts
+import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.serdesJson
-import io.ktor.client.request.setBody
-import io.ktor.http.HttpMethod
+import io.ktor.client.request.*
+import io.ktor.http.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 
 data class HostListUiState(
@@ -76,7 +68,8 @@ class RdiHostListGateway : HostListGateway {
         }
         val body = serdesJson.encodeToString(Host.DeleteDto(deleteWorld))
         val response = server.makeRequest<Unit>(path, HttpMethod.Delete) {
-            body?.let { setBody(it) }
+            json()
+            setBody(body)
         }
         if (!response.ok) throw RequestError(response.msg)
     }
