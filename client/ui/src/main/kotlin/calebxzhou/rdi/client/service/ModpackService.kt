@@ -1,9 +1,9 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
-import calebxzhou.mykotutils.std.humanFileSize
-import calebxzhou.mykotutils.std.sha1
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.humanFileSize
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2

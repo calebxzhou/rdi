@@ -16,7 +16,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import calebxzhou.mykotutils.std.millisToHumanDateTime
+import calebxzhou.rdi.common.util.millisToHumanDateTime
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzau.rdi.client.ui.DEFAULT_MODPACK_ICON
 

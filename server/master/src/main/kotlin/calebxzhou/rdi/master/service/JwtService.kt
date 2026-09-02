@@ -1,7 +1,7 @@
 package calebxzhou.rdi.master.service
 
 import calebxzhou.rdi.master.CONF
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
 import com.auth0.jwt.interfaces.JWTVerifier

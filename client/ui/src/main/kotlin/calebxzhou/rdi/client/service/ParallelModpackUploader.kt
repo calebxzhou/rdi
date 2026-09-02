@@ -3,7 +3,7 @@ package calebxzhou.rdi.client.service
 /*
  * 客户端暂时使用旧multipartAPI，保留分片上传实现以便后续重新启用。
  *
-import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.client.net.accountAuthHeader
 import calebxzhou.rdi.client.net.rdiResponse
 import calebxzhou.rdi.client.net.server

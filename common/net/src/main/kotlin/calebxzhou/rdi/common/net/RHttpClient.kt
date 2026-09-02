@@ -1,6 +1,6 @@
 package calebxzhou.rdi.common.net
 
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.DIR

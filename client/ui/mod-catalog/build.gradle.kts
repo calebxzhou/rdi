@@ -37,7 +37,6 @@ dependencies {
 
     testImplementation(kotlin("test"))
     testImplementation(libs.ktor.client.mock)
-    implementation(libs.mykotutils.log)
     testImplementation(libs.ktor.client.okhttp)
 }
 

@@ -1,4 +1,4 @@
-import calebxzhou.mykotutils.std.jarResource
+import calebxzhou.rdi.common.util.jarResource
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.PlayerService

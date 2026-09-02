@@ -15,7 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import calebxzhou.mykotutils.std.secondsToHumanDateTime
+import calebxzhou.rdi.common.util.secondsToHumanDateTime
 import calebxzhou.rdi.client.net.server
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody

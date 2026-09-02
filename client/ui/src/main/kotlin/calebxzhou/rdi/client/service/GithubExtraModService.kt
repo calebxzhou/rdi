@@ -1,6 +1,6 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.std.humanFileSize
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.common.DIR
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.net.downloadFileFrom

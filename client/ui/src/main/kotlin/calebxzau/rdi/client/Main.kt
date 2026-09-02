@@ -38,9 +38,9 @@ import androidx.navigation.compose.rememberNavController
 import calebxzau.rdi.client.ui.AppBackgroundProvider
 import calebxzau.rdi.client.ui.LocalAppBackgroundPainter
 import calebxzau.rdi.client.di.appModule
-import calebxzhou.mykotutils.std.decodeBase64
-import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
-import calebxzhou.mykotutils.std.jarResource
+import calebxzhou.rdi.common.util.decodeBase64
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.jarResource
 import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.database.MinecraftInstallationDatabase

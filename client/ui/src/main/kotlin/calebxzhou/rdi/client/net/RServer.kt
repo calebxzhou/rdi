@@ -1,6 +1,6 @@
 package calebxzhou.rdi.client.net
 
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.exception.RequestError

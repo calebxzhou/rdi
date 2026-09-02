@@ -1,6 +1,6 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.std.javaExePath
+import calebxzhou.rdi.common.util.javaExePath
 import calebxzhou.rdi.client.Const
 import calebxzau.rdi.client.CONF
 import calebxzau.rdi.client.ScreenSize

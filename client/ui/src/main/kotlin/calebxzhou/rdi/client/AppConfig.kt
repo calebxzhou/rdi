@@ -1,6 +1,6 @@
 package calebxzhou.rdi.client
 
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzau.rdi.client.CONF
 import calebxzhou.rdi.common.CommonConfig
 import calebxzhou.rdi.common.ProxyConfig

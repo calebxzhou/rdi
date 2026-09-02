@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.sha1
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.common.net.LocalArtifactHashAlgorithm
 import calebxzhou.rdi.common.net.LocalArtifactRequest
 import calebxzhou.rdi.common.net.LocalArtifactReuser

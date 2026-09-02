@@ -1,7 +1,7 @@
 package calebxzau.rdi.client.packproc
 
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.*
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.*
 import calebxzau.rdi.client.modcatalog.CatalogSlugRef
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.modcatalog.ModPlatform

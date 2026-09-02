@@ -34,7 +34,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import calebxzhou.mykotutils.std.encodeBase64
+import calebxzhou.rdi.common.util.encodeBase64
 import calebxzhou.rdi.client.service.GameService
 import calebxzhou.rdi.client.service.EarlyDisplayMount
 import calebxzhou.rdi.client.service.LocalMcProxyService

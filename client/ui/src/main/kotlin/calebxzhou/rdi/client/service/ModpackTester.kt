@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
-import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.sha1
 import calebxzau.rdi.client.packproc.LoadedLocalModpack
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.McVersion

@@ -1,6 +1,6 @@
 package calebxzhou.rdi.master.ygg
 
-import calebxzhou.mykotutils.std.encodeBase64
+import calebxzhou.rdi.common.util.encodeBase64
 import calebxzhou.rdi.common.UNKNOWN_PLAYER_ID
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.RAccount

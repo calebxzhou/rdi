@@ -1,8 +1,8 @@
 package calebxzhou.rdi.common.util
 
-import calebxzhou.mykotutils.std.DEFAULT_DATE_TIME_PATTERN
-import calebxzhou.mykotutils.std.digest
-import calebxzhou.mykotutils.std.displayLength
+import calebxzhou.rdi.common.util.DEFAULT_DATE_TIME_PATTERN
+import calebxzhou.rdi.common.util.digest
+import calebxzhou.rdi.common.util.displayLength
 import calebxzhou.rdi.common.VALID_NAME_REGEX
 import calebxzhou.rdi.common.VALID_PLAYER_NAME_REGEX
 import calebxzhou.rdi.common.exception.RequestError

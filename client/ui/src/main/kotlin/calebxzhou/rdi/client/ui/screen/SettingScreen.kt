@@ -25,7 +25,7 @@ import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzau.rdi.client.ui.themeNow
-import calebxzhou.mykotutils.std.humanFileSize
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.client.*
 import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.net.server

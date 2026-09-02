@@ -1,6 +1,6 @@
 package calebxzau.rdi.mclaunch
 
-import calebxzhou.mykotutils.std.humanFileSize
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.LibraryOsArch
 import calebxzhou.rdi.common.serdesJson

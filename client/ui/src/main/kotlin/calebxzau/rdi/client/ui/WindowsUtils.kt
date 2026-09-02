@@ -2,7 +2,7 @@ package calebxzau.rdi.client.ui
 
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
-import calebxzhou.mykotutils.std.jarResource
+import calebxzhou.rdi.common.util.jarResource
 import calebxzau.rdi.mediaproc.FfmpegAvifDecoder
 import calebxzau.rdi.client.RDIClient
 import calebxzhou.rdi.client.ui.pickAwtDirectory

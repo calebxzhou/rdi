@@ -1,6 +1,6 @@
 package calebxzhou.rdi.common.service
 
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.model.Task
 import calebxzhou.rdi.common.model.TaskContext
 import calebxzhou.rdi.common.model.TaskProgress

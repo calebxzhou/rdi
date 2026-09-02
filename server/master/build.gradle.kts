@@ -50,7 +50,6 @@ dependencies {
     implementation(libs.bouncycastle.bcpkix)
     implementation(libs.jakarta.mail)
     implementation(libs.ip2region)
-    implementation(libs.bundles.mykotutils)
     implementation(libs.zstd.jni)
     implementation(libs.koin.core)
     implementation(libs.koin.ktor)

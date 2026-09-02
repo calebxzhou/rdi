@@ -1,6 +1,6 @@
 package calebxzhou.rdi.master.service
 
-import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
 import calebxzhou.rdi.common.model.ModpackUploadSessionVo

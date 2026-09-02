@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.client.database.PlayerInfoStore
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.client.auth.LocalCredentials
 import calebxzhou.rdi.client.model.LoginInfo
 import calebxzhou.rdi.client.net.loggedAccount

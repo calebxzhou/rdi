@@ -1,6 +1,6 @@
 package calebxzhou.rdi.master.service
 
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.master.DL_MODS_CLIENT_DIR

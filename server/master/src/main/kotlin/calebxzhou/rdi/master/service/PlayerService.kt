@@ -1,9 +1,9 @@
 package calebxzhou.rdi.master.service
 
-import calebxzhou.mykotutils.hwspec.HwSpec
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.getDateTimeNow
-import calebxzhou.mykotutils.std.isValidHttpUrl
+import calebxzhou.rdi.common.model.HwSpec
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.getDateTimeNow
+import calebxzhou.rdi.common.util.isValidHttpUrl
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.MojangPlayerProfile
 import calebxzhou.rdi.common.model.MsaAccountInfo

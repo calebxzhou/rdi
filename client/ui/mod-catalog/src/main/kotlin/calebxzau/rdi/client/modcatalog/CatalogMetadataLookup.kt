@@ -1,6 +1,6 @@
 package calebxzau.rdi.client.modcatalog
 
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.model.Mod
 
 val lgr by Loggers

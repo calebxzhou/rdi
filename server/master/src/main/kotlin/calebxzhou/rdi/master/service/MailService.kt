@@ -1,6 +1,6 @@
 package calebxzhou.rdi.master.service
 
-import calebxzhou.mykotutils.std.humanDateTimeNow
+import calebxzhou.rdi.common.util.humanDateTimeNow
 import calebxzhou.rdi.master.DB
 import calebxzhou.rdi.master.SYSTEM_SENDER_ID
 import calebxzhou.rdi.master.exception.ParamError
@@ -13,7 +13,7 @@ import calebxzhou.rdi.master.service.MailService.deleteMails
 import calebxzhou.rdi.master.service.MailService.getInbox
 import calebxzhou.rdi.master.service.MailService.getMail
 import calebxzhou.rdi.master.service.MailService.mailId
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Mail
 import calebxzhou.rdi.common.util.ioScope

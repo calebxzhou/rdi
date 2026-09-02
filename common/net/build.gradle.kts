@@ -37,8 +37,6 @@ dependencies {
     api(libs.kotlinx.coroutines.core)
     api(libs.okhttp)
     implementation(libs.jsoup)
-    implementation(libs.mykotutils.std)
-    implementation(libs.mykotutils.log)
     implementation(libs.kotlin.logging.jvm)
     implementation(libs.tomlkt)
     implementation(libs.kotlinx.io.core)

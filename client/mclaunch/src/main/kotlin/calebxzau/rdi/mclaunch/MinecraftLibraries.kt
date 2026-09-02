@@ -1,7 +1,7 @@
 package calebxzau.rdi.mclaunch
 
-import calebxzhou.mykotutils.std.humanFileSize
-import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.util.humanFileSize
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.common.model.LibraryOsArch
 import calebxzau.rdi.mclaunch.model.MojangDownloadArtifact
 import calebxzau.rdi.mclaunch.model.MojangLibrary

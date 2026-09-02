@@ -1,7 +1,7 @@
 package calebxzhou.rdi.master.service.host2
 
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host2
 import calebxzhou.rdi.common.model.Host2SetupStatus

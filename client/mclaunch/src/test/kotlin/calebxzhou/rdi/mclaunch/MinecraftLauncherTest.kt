@@ -1,6 +1,6 @@
 package calebxzau.rdi.mclaunch
 
-import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
 import calebxzau.rdi.mclaunch.model.MojangDownloadArtifact
 import calebxzau.rdi.mclaunch.model.MojangLibrary
 import calebxzau.rdi.mclaunch.model.MojangLibraryDownloads

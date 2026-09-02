@@ -16,7 +16,7 @@ import calebxzhou.rdi.client.service.SkinService
 import calebxzhou.rdi.client.service.playerInfoCache
 import calebxzhou.rdi.client.ui.comp.PlayerModel
 import calebxzhou.rdi.common.model.RAccount
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

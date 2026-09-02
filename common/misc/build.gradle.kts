@@ -17,7 +17,8 @@ dependencies {
     api(libs.mongodb.bson)
     api(libs.mongodb.bson.kotlinx)
     api(libs.tomlkt)
-    implementation(libs.mykotutils.std)
+    api(libs.kotlin.logging.jvm)
+    implementation(libs.slf4j.api)
     implementation(libs.kotlinx.coroutines.core)
 }
 base {

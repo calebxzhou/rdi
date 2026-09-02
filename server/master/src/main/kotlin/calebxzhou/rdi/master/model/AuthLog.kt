@@ -1,6 +1,6 @@
 package calebxzhou.rdi.master.model
 
-import calebxzhou.mykotutils.hwspec.HwSpec
+import calebxzhou.rdi.common.model.HwSpec
 import org.bson.types.ObjectId
 
 

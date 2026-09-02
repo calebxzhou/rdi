@@ -8,7 +8,7 @@ import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.murmur2
-import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.client.ui.McPlayStore
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption

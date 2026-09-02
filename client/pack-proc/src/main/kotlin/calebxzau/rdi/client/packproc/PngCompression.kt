@@ -2,7 +2,7 @@ package calebxzau.rdi.client.packproc
 
 import calebxzau.rdi.mediaproc.AvifCodec
 import calebxzau.rdi.mediaproc.AvifQuality
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 
 private const val PNG_COMPRESSION_THRESHOLD_BYTES = 50 * 1024
 private val lgr by Loggers

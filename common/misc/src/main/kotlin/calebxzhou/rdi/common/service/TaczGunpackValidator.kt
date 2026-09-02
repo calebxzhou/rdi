@@ -1,6 +1,6 @@
 package calebxzhou.rdi.common.service
 
-import calebxzhou.mykotutils.std.openChineseZip
+import calebxzhou.rdi.common.util.openChineseZip
 import calebxzhou.rdi.common.serdesJson
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString

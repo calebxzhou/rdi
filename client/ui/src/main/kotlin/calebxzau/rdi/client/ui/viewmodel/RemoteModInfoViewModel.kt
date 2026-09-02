@@ -21,7 +21,7 @@ import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.modcatalog.ModPlatform
 import calebxzau.rdi.client.modcatalog.ReleaseChannel
 import calebxzau.rdi.client.modcatalog.ResolvedDownload
-import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager

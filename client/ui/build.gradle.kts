@@ -107,8 +107,6 @@ dependencies {
     */
     implementation(libs.minecraft.auth)
     implementation(libs.kotlin.logging.jvm)
-    implementation(libs.mykotutils.std)
-    implementation(libs.mykotutils.log)
     implementation(libs.jna)
     implementation(libs.jna.platform)
     implementation(libs.oshi.core.desktop)

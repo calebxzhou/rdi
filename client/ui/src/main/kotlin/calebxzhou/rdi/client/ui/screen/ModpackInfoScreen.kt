@@ -23,8 +23,8 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.openUrl
 import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.asIconText
-import calebxzhou.mykotutils.std.humanFileSize
-import calebxzhou.mykotutils.std.millisToHumanDateTime
+import calebxzhou.rdi.common.util.humanFileSize
+import calebxzhou.rdi.common.util.millisToHumanDateTime
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.*

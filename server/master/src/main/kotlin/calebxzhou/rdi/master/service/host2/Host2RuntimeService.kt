@@ -1,7 +1,7 @@
 package calebxzhou.rdi.master.service.host2
 
 import calebxzhou.rdi.common.exception.RequestError
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.McVersion

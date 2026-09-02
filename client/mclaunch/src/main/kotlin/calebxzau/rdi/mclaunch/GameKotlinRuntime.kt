@@ -1,6 +1,6 @@
 package calebxzau.rdi.mclaunch
 
-import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.serdesJson
 import kotlinx.serialization.KSerializer

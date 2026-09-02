@@ -1,6 +1,6 @@
 package calebxzhou.rdi.common.model
 
-import calebxzhou.mykotutils.std.urlEncoded
+import calebxzhou.rdi.common.util.urlEncoded
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import java.io.File

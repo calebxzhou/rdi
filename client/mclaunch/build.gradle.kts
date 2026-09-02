@@ -23,8 +23,6 @@ dependencies {
     implementation(project(":mediaproc"))
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
-    implementation(libs.mykotutils.std)
-    implementation(libs.mykotutils.log)
     implementation(libs.kotlin.logging.jvm)
 
     testImplementation(kotlin("test"))

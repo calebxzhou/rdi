@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.javaExePath
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.javaExePath
 import calebxzhou.rdi.common.model.LibraryOsArch
 import calebxzhou.rdi.common.model.TaskContext
 import calebxzhou.rdi.common.model.TaskProgress

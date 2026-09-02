@@ -1,6 +1,6 @@
 package calebxzhou.rdi.common.net
 
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.serdesJson
 import io.ktor.client.*
 import io.ktor.client.call.*

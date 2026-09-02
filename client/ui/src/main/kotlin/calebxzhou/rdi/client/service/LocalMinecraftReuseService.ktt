@@ -1,7 +1,7 @@
 // Temporarily excluded from Kotlin compilation because local artifact reuse is disabled.
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.net.LocalArtifactRequest
 import calebxzhou.rdi.common.net.LocalArtifactReuse
 import calebxzhou.rdi.common.net.LocalArtifactReuser

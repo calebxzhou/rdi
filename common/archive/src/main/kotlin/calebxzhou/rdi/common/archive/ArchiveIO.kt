@@ -1,6 +1,6 @@
 package calebxzhou.rdi.common.archive
 
-import calebxzhou.mykotutils.std.openChineseZip
+import calebxzhou.rdi.common.util.openChineseZip
 import com.github.luben.zstd.ZstdInputStream
 import com.github.luben.zstd.ZstdOutputStream
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry

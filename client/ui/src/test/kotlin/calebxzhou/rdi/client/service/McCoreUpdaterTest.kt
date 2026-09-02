@@ -1,6 +1,6 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
 import java.nio.file.Files
 import kotlin.test.Test

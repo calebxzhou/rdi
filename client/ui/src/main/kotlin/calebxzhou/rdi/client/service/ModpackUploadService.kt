@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client.service
 
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.*
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.*
 import calebxzau.rdi.client.packproc.*
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.exception.ModpackError

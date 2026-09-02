@@ -27,8 +27,6 @@ dependencies {
     implementation(project(":assets"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlin.logging.jvm)
-    implementation(libs.mykotutils.std)
-    implementation(libs.mykotutils.log)
 
     testImplementation(kotlin("test"))
 }

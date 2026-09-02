@@ -1,6 +1,6 @@
 package calebxzhou.rdi.master.ygg
 
-import calebxzhou.mykotutils.std.encodeBase64
+import calebxzhou.rdi.common.util.encodeBase64
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.RAccount
 import kotlinx.serialization.Contextual

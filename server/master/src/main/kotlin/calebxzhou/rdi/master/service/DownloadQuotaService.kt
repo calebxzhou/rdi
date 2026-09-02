@@ -1,6 +1,6 @@
 package calebxzhou.rdi.master.service
 
-import calebxzhou.mykotutils.std.humanFileSize
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.DownloadQuota
 import calebxzhou.rdi.master.DB

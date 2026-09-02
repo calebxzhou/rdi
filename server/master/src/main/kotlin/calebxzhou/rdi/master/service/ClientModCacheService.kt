@@ -1,6 +1,6 @@
 package calebxzhou.rdi.master.service
 
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2CancelledException

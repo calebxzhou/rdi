@@ -24,8 +24,6 @@ dependencies {
     api(libs.knbt)
     api(libs.tomlkt)
     api(libs.kotlinx.coroutines.core)
-    implementation(libs.mykotutils.std)
-    implementation(libs.mykotutils.log)
     implementation(libs.kotlin.logging.jvm)
     testImplementation(kotlin("test"))
 }

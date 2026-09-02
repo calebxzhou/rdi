@@ -1,6 +1,6 @@
 package calebxzhou.rdi.master.service.host
 
-import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.Host.Companion.getDifficultyText

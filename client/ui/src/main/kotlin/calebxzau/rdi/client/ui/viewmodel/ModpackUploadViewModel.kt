@@ -2,8 +2,8 @@ package calebxzau.rdi.client.ui.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import calebxzhou.mykotutils.std.deleteRecursivelyNoSymlink
-import calebxzhou.mykotutils.std.javaExePath
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.javaExePath
 import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.packproc.LoadedLocalModpack

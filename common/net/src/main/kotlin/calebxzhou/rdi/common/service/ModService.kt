@@ -1,8 +1,8 @@
 package calebxzhou.rdi.common.service
 
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.humanSpeed
-import calebxzhou.mykotutils.std.sha1
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.humanSpeed
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.deser
 import calebxzhou.rdi.common.model.*

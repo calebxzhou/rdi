@@ -1,7 +1,7 @@
 package calebxzhou.rdi.common.service
 
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.decodeBase64
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.decodeBase64
 import calebxzhou.rdi.common.model.MojangPlayerProfile
 import calebxzhou.rdi.common.model.MojangProfileResponse
 import calebxzhou.rdi.common.model.MojangTexturesPayload

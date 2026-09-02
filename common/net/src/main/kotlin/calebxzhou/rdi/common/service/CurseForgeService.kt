@@ -1,7 +1,7 @@
 package calebxzhou.rdi.common.service
 
-import calebxzhou.mykotutils.log.Loggers
-import calebxzhou.mykotutils.std.openChineseZip
+import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.util.openChineseZip
 import calebxzhou.rdi.common.exception.ModpackError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.net.json

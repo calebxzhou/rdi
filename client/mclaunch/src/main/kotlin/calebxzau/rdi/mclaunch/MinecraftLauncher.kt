@@ -1,7 +1,7 @@
 package calebxzau.rdi.mclaunch
 
-import calebxzhou.mykotutils.std.humanFileSize
-import calebxzhou.mykotutils.std.sha1
+import calebxzhou.rdi.common.util.humanFileSize
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.LibraryOsArch
 import calebxzhou.rdi.common.model.McVersion
@@ -9,7 +9,7 @@ import calebxzhou.rdi.common.model.ModLoader
 import calebxzau.rdi.mclaunch.model.MojangDownloadArtifact
 import calebxzau.rdi.mclaunch.model.MojangLibrary
 import calebxzau.rdi.mclaunch.model.MojangVersionManifest
-import calebxzhou.mykotutils.log.Loggers
+import calebxzau.rdi.common.logging.Loggers
 import com.sun.management.OperatingSystemMXBean
 import java.io.File
 import java.lang.management.ManagementFactory
