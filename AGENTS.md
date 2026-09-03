@@ -10,6 +10,8 @@ For example:
 - Prefer `host`（房间） over `Docker container`.
 - Do not expose backend orchestration or deployment details unless the user specifically needs them.
 
+Prefer intellij MCP if available
+
 ---
 ## Subagents
 
