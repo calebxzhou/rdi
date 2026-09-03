@@ -8,6 +8,7 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.serdesJson
+import calebxzhou.rdi.common.util.exportFromJarResource
 import calebxzhou.rdi.master.exception.AuthError
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.response
@@ -120,7 +121,10 @@ fun main(): Unit = runBlocking {
     MODPACK_DATA_DIR.mkdirs()
     HOSTS_DIR.mkdirs()
     // HOST2_DIR.mkdirs()
-    GAME_LIBS_DIR.mkdirs()
+    if ((!GAME_LIBS_DIR.exists() && !GAME_LIBS_DIR.mkdirs()) || !GAME_LIBS_DIR.isDirectory) {
+        throw IllegalStateException("Unable to prepare game libraries directory: ${GAME_LIBS_DIR.absolutePath}")
+    }
+    GAME_LIBS_DIR.resolve("mc-log4j2.xml").exportFromJarResource("mc_log4j2.xml")
     WORLDS_DIR.mkdirs()
     WORLD_CACHE_DIR.mkdirs()
     ModpackService.cleanupStaleUploadsOnStartup()

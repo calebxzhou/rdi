@@ -17,6 +17,7 @@ import calebxzhou.rdi.master.service.host.HostControlService.clearShutFlag
 import calebxzhou.rdi.master.service.host.HostControlService.playable
 import calebxzhou.rdi.master.service.host.HostControlService.sendCommand
 import calebxzhou.rdi.master.service.host.HostControlService.status
+import calebxzhou.rdi.master.service.host.HostContainerService.requireModernLog4j2Config
 import calebxzhou.rdi.master.service.host.HostInstallService.startCreateHost
 import calebxzhou.rdi.master.service.host.HostInstallService.writeServerProperties
 import calebxzhou.rdi.master.service.host.HostQueryService.getById
@@ -115,6 +116,7 @@ object HostLifecycleService {
         val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此整合包")
         val modpackVer = modpack.versions.find { it.name == packVer } ?: modpack.versions.lastOrNull()
         ?: throw RequestError("无可用版本")
+        requireModernLog4j2Config(modpack.mcVer)
         val resolvedVer = modpackVer.name
         val hostIdStr = host._id.str
         val mailId = MailService.sendSystemMail(
@@ -193,4 +195,3 @@ object HostLifecycleService {
         getById(host._id)?.writeServerProperties()
     }
 }
-

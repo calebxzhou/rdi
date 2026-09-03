@@ -1,6 +1,7 @@
 package calebxzhou.rdi.mc.server
 
 import calebxzau.rdi.mc.zstdcodec.ZstdCompressionPipeline
+import calebxzau.mc.common2021.RdiLoggingConfiguration
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.WebSocketClient
 import calebxzhou.rdi.mc.rcmd.chat.PlayerChatRangeState
@@ -41,6 +42,7 @@ import java.util.concurrent.TimeUnit
 @Mod.EventBusSubscriber(modid = "rdi")
 class RDIMain {
     init {
+        RdiLoggingConfiguration.reapplyConfiguredLog4j2()
         RServerNetwork.register()
         McpNetwork.register()
     }

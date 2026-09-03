@@ -17,6 +17,7 @@ import calebxzhou.rdi.master.service.*
 import calebxzhou.rdi.master.service.ModpackService.installToHost
 import calebxzhou.rdi.master.service.WorldService.updateWorldSize
 import calebxzhou.rdi.master.service.host.HostContainerService.makeContainer
+import calebxzhou.rdi.master.service.host.HostContainerService.requireModernLog4j2Config
 import calebxzhou.rdi.master.service.host.HostRuntimeService.listenCrashOnStart
 import calebxzhou.rdi.model.Role
 import kotlinx.coroutines.delay
@@ -214,6 +215,7 @@ object HostInstallService {
                 }
                 val installHost = currentHost.copy(packVer = host.packVer)
                 runCatching {
+                    requireModernLog4j2Config(modpack.mcVer)
                     ctx.emit(LoadProgress.Phase("准备房间目录"))
                     MailService.changeMail(mailId, runningTitle, newContent = "准备房间目录")
                     if (installHost.realVersion == 2) {

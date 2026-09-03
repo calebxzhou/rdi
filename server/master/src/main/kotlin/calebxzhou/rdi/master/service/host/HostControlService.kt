@@ -20,6 +20,7 @@ import calebxzhou.rdi.master.service.ModpackService.getVersion
 import calebxzhou.rdi.master.service.host.HostContainerService.isDisabledMod
 import calebxzhou.rdi.master.service.host.HostContainerService.isServerInstalledMod
 import calebxzhou.rdi.master.service.host.HostContainerService.makeContainer
+import calebxzhou.rdi.master.service.host.HostContainerService.requireModernLog4j2Config
 import calebxzhou.rdi.master.service.host.HostInstallService.deleteTransientStartupDirs
 import calebxzhou.rdi.master.service.host.HostInstallService.refreshWorldSizeAfterStop
 import calebxzhou.rdi.master.service.host.HostInstallService.writeServerProperties
@@ -122,8 +123,9 @@ object HostControlService {
         }
         val modpack = ModpackService.getById(current.modpackId) ?: throw RequestError("无此整合包")
         val version = modpack.getVersion(current.packVer) ?: throw RequestError("无此版本")
+        requireModernLog4j2Config(modpack.mcVer)
         current.requireRequiredStartupMods(modpack, version)
-        if (!hasEnabledKotlinForForge(current, version)) {
+        if (!hasEnabledKotlinForForge(current, version) && modpack.mcVer.isModern) {
             throw RequestError("请先为此房间安装kotlinforforge模组才能启动")
         }
         DockerService.deleteContainer(current._id.str)

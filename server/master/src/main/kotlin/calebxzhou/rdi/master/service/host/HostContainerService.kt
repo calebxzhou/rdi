@@ -10,7 +10,6 @@ import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.sameMod
 import calebxzhou.rdi.common.model.supportsForgeguard
 import calebxzhou.rdi.common.util.str
-import calebxzhou.rdi.master.WORLD_CACHE_DIR
 import calebxzhou.rdi.master.GAME_LIBS_DIR
 import calebxzhou.rdi.master.service.CLIENT_ONLY_MARK_PREFIX
 import calebxzhou.rdi.master.service.DockerService
@@ -28,6 +27,28 @@ import java.nio.file.Files
 
 object HostContainerService {
     internal const val FORGEGUARD_CONTAINER_PATH = "/opt/forgeguard.jar"
+    private const val MC_LOG4J2_FILE_NAME = "mc-log4j2.xml"
+    internal const val MC_LOG4J2_CONTAINER_PATH = "/opt/rdi/mc-log4j2.xml"
+    private const val MC_LOG4J2_CONFIGURATION_ARG = "-Dlog4j.configurationFile=$MC_LOG4J2_CONTAINER_PATH"
+
+    internal fun requireModernLog4j2Config(
+        mcv: McVersion,
+        configFile: File = GAME_LIBS_DIR.resolve(MC_LOG4J2_FILE_NAME),
+    ): File? {
+        if (!mcv.isModern) return null
+        if (!configFile.isFile) {
+            throw RequestError("房间日志配置不可用，请联系管理员")
+        }
+        return configFile
+    }
+
+    internal fun modernLog4j2Mount(configFile: File): Mount {
+        return Mount()
+            .withType(MountType.BIND)
+            .withSource(configFile.absolutePath)
+            .withTarget(MC_LOG4J2_CONTAINER_PATH)
+            .withReadOnly(true)
+    }
 
     internal fun forgeguardMount(): Mount {
         val agentFile = GAME_LIBS_DIR.resolve(FORGEGUARD_AGENT_FILE_NAME)
@@ -82,6 +103,9 @@ object HostContainerService {
             if (worldId != null) {
                 this.add("-Drdi.terrain.cache.path=/data/world/cache")
             }
+            if (mcv.isModern) {
+                this.add(MC_LOG4J2_CONFIGURATION_ARG)
+            }
 
         } + serverArgs + noguiArg
         return mutableListOf(
@@ -101,6 +125,7 @@ object HostContainerService {
         modpack: Modpack,
         version: Modpack.Version
     ) {
+        val modernLog4j2Config = requireModernLog4j2Config(modpack.mcVer)
         if (realVersion == 2 && worldId != null) {
             throw RequestError("v2房间不能使用外置存档")
         }
@@ -137,7 +162,8 @@ object HostContainerService {
                 .withSource(rdiCoreSource.absolutePath)
                 .withTarget("/opt/server/mods/${rdiCore}"),
         ).apply {
-            if (modpack.mcVer.supportsForgeguard(modpack.modloader)) {
+            modernLog4j2Config?.let { this += modernLog4j2Mount(it) }
+            if (modpack.supportsForgeguard(modpack.modloader)) {
                 this += forgeguardMount()
             }
             version.mods

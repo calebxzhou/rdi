@@ -3,8 +3,8 @@ plugins {
     id 'maven-publish'
     id 'idea'
     id 'net.neoforged.moddev' version '2.0.141'
-    id 'org.jetbrains.kotlin.jvm' version '2.4.0'
-    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.0'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.10'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.10'
 
 }
 
@@ -103,6 +103,7 @@ neoForge {
 }
 
 sourceSets.named('main') {
+    java.srcDir '../../../mc/common/2021/src/main/java'
     kotlin.srcDir '../../../mc/common/codec/src/main/kotlin'
     kotlin.srcDir '../../../mc/common3/1.21/src/main/kotlin'
     kotlin.srcDir '../../../mc/common/all/src/main/kotlin'
@@ -133,8 +134,8 @@ dependencies {
     additionalRuntimeClasspath project(':rmcp-common')
     shaded 'com.neovisionaries:nv-websocket-client:2.14'
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.11.0")
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
-    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.10")
+    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.10")
     implementation("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
     additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
     jarJar("com.github.luben:zstd-jni:1.5.7-11:linux_amd64")

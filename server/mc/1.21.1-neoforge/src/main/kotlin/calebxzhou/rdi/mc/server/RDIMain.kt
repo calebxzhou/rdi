@@ -1,6 +1,7 @@
 package calebxzhou.rdi.mc.server
 
 import calebxzau.rdi.mc.zstdcodec.ZstdCompressionPipeline
+import calebxzau.mc.common2021.RdiLoggingConfiguration
 import calebxzhou.rdi.mc.common.RDI
 import calebxzhou.rdi.mc.common.WebSocketClient
 import calebxzhou.rdi.mc.common3.mcs
@@ -36,6 +37,10 @@ import java.util.concurrent.TimeUnit
 @Mod("rdi")
 @EventBusSubscriber(modid = "rdi")
 class RDIMain {
+    init {
+        RdiLoggingConfiguration.reapplyConfiguredLog4j2()
+    }
+
     companion object {
         init {
             ZstdCompressionPipeline.verifyNativeLoaded()

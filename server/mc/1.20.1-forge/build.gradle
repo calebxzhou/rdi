@@ -9,8 +9,8 @@ import java.util.zip.ZipOutputStream
 
 plugins {
     id 'net.neoforged.moddev.legacyforge' version '2.0.141'
-    id 'org.jetbrains.kotlin.jvm' version '2.4.0'
-    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.0'
+    id 'org.jetbrains.kotlin.jvm' version '2.4.10'
+    id 'org.jetbrains.kotlin.plugin.serialization' version '2.4.10'
 }
 
 base {
@@ -22,6 +22,7 @@ group = "calebxzhou.rdi"
 sourceSets.main {
     ext["refMap"] = "rdi.mixins.refmap.json"
     // java.srcDir '../../../mc/chunkcache/1.20.1/src/main/java'
+    java.srcDir '../../../mc/common/2021/src/main/java'
     kotlin.srcDir '../../../mc/common/codec/src/main/kotlin'
     kotlin.srcDir '../../../mc/firmsection/src/main/kotlin'
     kotlin.srcDir '../../../mc/rcmd/src/main/kotlin'
@@ -125,8 +126,8 @@ legacyForge {
 def shadedConfiguration = configurations.maybeCreate('shaded')
 
 dependencies {
-    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
-    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.0")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.4.10")
+    additionalRuntimeClasspath("org.jetbrains.kotlin:kotlin-stdlib:2.4.10")
     implementation("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
     additionalRuntimeClasspath("com.github.luben:zstd-jni:1.5.7-11:win_amd64")
     jarJar("com.github.luben:zstd-jni:1.5.7-11:linux_amd64")
@@ -153,7 +154,7 @@ dependencies {
     ].each { dep ->
         modImplementation dep
     }
-    zstdTestImplementation 'org.jetbrains.kotlin:kotlin-test-junit5:2.4.0'
+    zstdTestImplementation 'org.jetbrains.kotlin:kotlin-test-junit5:2.4.10'
     zstdTestImplementation 'com.github.luben:zstd-jni:1.5.7-11:win_amd64'
     zstdTestImplementation 'io.netty:netty-buffer:4.1.97.Final'
     zstdTestImplementation 'io.netty:netty-codec:4.1.97.Final'
