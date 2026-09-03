@@ -1,12 +1,14 @@
 package calebxzhou.rdi.master.service.host
 
 import calebxzau.rdi.common.logging.Loggers
+import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.common.model.normalizedSlug
@@ -28,6 +30,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.withTimeout
 import org.bson.types.ObjectId
+import java.io.File
 import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CancellationException as KxCancellationException
 
@@ -39,6 +42,33 @@ internal fun resolveHostStatus(
     HostStatus.PLAYABLE
 } else {
     containerStatus
+}
+
+internal fun hasEnabledKotlinForForgeJar(modsDir: File): Boolean =
+    modsDir.isDirectory && modsDir.listFiles().orEmpty().any { file ->
+        isMatchingKotlinForForgeJar(file)
+    }
+
+private fun isMatchingKotlinForForgeJar(file: File): Boolean =
+    file.isFile &&
+        file.extension.equals("jar", ignoreCase = true) &&
+        (file.name.contains("kotlin-for-forge", ignoreCase = true) ||
+            file.name.contains("kotlinforforge", ignoreCase = true))
+
+internal fun hasEnabledKotlinForForge(
+    host: Host,
+    version: Modpack.Version,
+    hostModsDir: File = host.dir.resolve("mods"),
+    modCacheDir: File = DL_MOD_DIR,
+): Boolean {
+    if (hasEnabledKotlinForForgeJar(hostModsDir)) return true
+
+    val hasCachedServerMod = { mod: Mod ->
+        isServerInstalledMod(mod) &&
+            mod.candidateFiles(modCacheDir).any(::isMatchingKotlinForForgeJar)
+    }
+    return version.mods.any { !host.isDisabledMod(it) && hasCachedServerMod(it) } ||
+        host.extraMods.any(hasCachedServerMod)
 }
 
 object HostControlService {
@@ -93,6 +123,9 @@ object HostControlService {
         val modpack = ModpackService.getById(current.modpackId) ?: throw RequestError("无此整合包")
         val version = modpack.getVersion(current.packVer) ?: throw RequestError("无此版本")
         current.requireRequiredStartupMods(modpack, version)
+        if (!hasEnabledKotlinForForge(current, version)) {
+            throw RequestError("请先为此房间安装kotlinforforge模组才能启动")
+        }
         DockerService.deleteContainer(current._id.str)
         current.writeServerProperties()
         current.deleteTransientStartupDirs()
