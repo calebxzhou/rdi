@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "calebxzhou.rdi.common"
-version = "0.1"
+//version = "0.1"
 
 repositories {
     mavenLocal()
@@ -17,4 +17,7 @@ dependencies {
     compileOnly(libs.zstd.jni)
     testImplementation(kotlin("test"))
     testRuntimeOnly(libs.zstd.jni)
+}
+base {
+    archivesName.set("rdi-archive")
 }
