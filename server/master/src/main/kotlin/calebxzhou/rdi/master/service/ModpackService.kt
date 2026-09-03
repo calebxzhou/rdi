@@ -443,7 +443,7 @@ object ModpackService {
     private val lgr by Loggers
     private const val MODPACK_UPLOAD_VERSION_ERROR = "目前只支持上传MC1.20.1和MC1.21.1整合包"
     private const val MAX_MODPACK_PER_USER = 10
-    private const val DEFAULT_SEARCH_LIMIT = 24
+    private const val DEFAULT_SEARCH_LIMIT = 50
     private const val MAX_SEARCH_LIMIT = 60
     private const val MAX_INFO_BATCH_SIZE = 100
     private val STEP_PROGRESS_REGEX = Regex("""^Step\s+(\d+)/(\d+)""")
