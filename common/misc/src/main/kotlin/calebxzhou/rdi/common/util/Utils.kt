@@ -426,7 +426,7 @@ fun File.openChineseZip(): ZipFile {
 fun File.deleteRecursivelyNoSymlink() {
     val path = this.toPath()
 
-    if (!this.exists()) {
+    if (!this.exists() && !Files.isSymbolicLink(path)) {
         return
     }
 
