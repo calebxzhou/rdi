@@ -374,7 +374,9 @@ fun AppNavigation(
             val kind = HostKind.fromRouteValue(route.kind)
             val onBack = {
                 if (route.hostId == null) {
-                    navController.navigateAbsolute(MyModpackRoute)
+                    if (!navController.popBackStack()) {
+                        navController.navigateAbsolute(ModpackPlazaRoute())
+                    }
                 } else {
                     navController.navigateAbsolute(HostRoute)
                 }
@@ -730,7 +732,9 @@ fun AppNavigation(
                                 displayName = pack.name,
                                 legacyMcVersion = pack.mcVer.name,
                             )
-                        )
+                        ) {
+                            popUpTo<ModpackInfo> { inclusive = true }
+                        }
                     },
                 )
             }
