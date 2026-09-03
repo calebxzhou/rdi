@@ -5,7 +5,6 @@ import kotlinx.serialization.Serializable
 import org.bson.types.ObjectId
 
 const val FORGEGUARD_AGENT_FILE_NAME = "forgeguard.jar"
-val FORGEGUARD_DISABLE get() = java.lang.Boolean.getBoolean("rdi.forgeguard.disable")
 @Serializable
 class Modpack(
     @Contextual val _id: ObjectId = ObjectId(),
@@ -23,7 +22,7 @@ class Modpack(
 ) {
     companion object {
         const val MAX_CATEGORY_COUNT = 4
-
+        fun supportForgeGuard(name: String) = name.endsWith("GTO")
         fun normalizeCategories(categories: List<Category>): List<Category> =
             categories.distinct().take(MAX_CATEGORY_COUNT)
     }
@@ -168,3 +167,5 @@ class Modpack(
 
 
 }
+
+fun Modpack.supportsForgeguard(modLoader: ModLoader?= ModLoader.forge): Boolean = Modpack.supportForgeGuard(this.name)

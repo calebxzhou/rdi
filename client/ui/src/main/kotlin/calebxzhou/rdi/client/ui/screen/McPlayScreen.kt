@@ -3,68 +3,31 @@ package calebxzhou.rdi.client.ui.screen
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import calebxzhou.rdi.common.util.encodeBase64
-import calebxzhou.rdi.client.service.mcInstall
-import calebxzhou.rdi.client.service.EarlyDisplayMount
-import calebxzhou.rdi.client.service.LocalMcProxyService
-import calebxzhou.rdi.client.service.ModpackLaunchOptionsService
-import calebxzhou.rdi.client.service.UpdateService
-import calebxzhou.rdi.client.service.startDesktop
-import calebxzhou.rdi.client.service.syncHostExtraMods
-import calebxzhou.rdi.client.service.syncHostManagedBaseMods
 import calebxzau.rdi.client.RDIClient
-import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzau.rdi.client.ui.ContentBody
-import calebxzau.rdi.client.ui.MaxBox
-import calebxzau.rdi.client.ui.ScreenContentSize
-import calebxzau.rdi.client.ui.ScreenContentSurface
-import calebxzau.rdi.client.ui.themeNow
+import calebxzau.rdi.client.ui.*
+import calebxzau.rdi.mcinstall.McLaunchPreparationRequest
+import calebxzau.rdi.mclaunch.MinecraftLaunchOverrides
+import calebxzhou.rdi.client.service.*
 import calebxzhou.rdi.client.ui.McGameSession
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.McPlayStore
-import calebxzau.rdi.client.ui.openFolder
-import calebxzau.rdi.client.ui.Space8h
-import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.Console
-import calebxzau.rdi.mclaunch.MinecraftLaunchOverrides
-import calebxzau.rdi.mcinstall.McLaunchPreparationRequest
 import calebxzhou.rdi.common.model.FORGEGUARD_AGENT_FILE_NAME
-import calebxzhou.rdi.common.model.FORGEGUARD_DISABLE
+import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.model.compactText
-import calebxzhou.rdi.common.model.supportsForgeguard
-
+import calebxzhou.rdi.common.util.encodeBase64
 
 
 @Composable
@@ -185,10 +148,7 @@ fun McPlayScreen(
                         add("-Xlog:os+exit=trace")
                         add(it)
                     }
-                    if (args.mcVer.supportsForgeguard(args.modLoader) &&
-                        !FORGEGUARD_DISABLE &&
-                        !launchSnapshot.forgeguardDisabled
-                    ) {
+                    if (Modpack.supportForgeGuard(args.modpackName)) {
                         val forgeguardAgent = RDIClient.DIR.resolve("lib/$FORGEGUARD_AGENT_FILE_NAME")
                         require(forgeguardAgent.isFile) { "缺少Forgeguard启动保护文件: ${forgeguardAgent.absolutePath}" }
                         add("\"-javaagent:${forgeguardAgent.absolutePath}\"")

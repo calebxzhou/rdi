@@ -97,7 +97,7 @@ object HostContainerService {
             this.add("-Drdi.firmSectionTotalMax=512")
             this.add("-Drdi.firmSectionPersonMax=512")
             this.add("-Xmx8G")
-            if (modpack.mcVer.supportsForgeguard(modpack.modloader)) {
+            if (modpack.supportsForgeguard(modpack.modloader)) {
                 this.add("-javaagent:$FORGEGUARD_CONTAINER_PATH")
             }
             if (worldId != null) {

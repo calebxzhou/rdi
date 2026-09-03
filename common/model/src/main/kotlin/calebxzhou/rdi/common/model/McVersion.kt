@@ -1,7 +1,5 @@
 package calebxzhou.rdi.common.model
 
-import calebxzhou.rdi.common.DEBUG
-
 //https://bmclapi2.bangbang93.com/mc/game/version_manifest_v2.json
 enum class McVersion(
     val mcVer: String,
@@ -103,8 +101,6 @@ enum class McVersion(
     }
 }
 fun McVersion.supportLoader(loader: ModLoader): Boolean = this.loaderVersions.containsKey(loader)
-fun McVersion.supportsForgeguard(modLoader: ModLoader): Boolean =
-    this == McVersion.V201 && modLoader == ModLoader.forge
 
 fun McVersion.supportsModpackUpload(): Boolean =
     this == McVersion.V201 || this == McVersion.V211
