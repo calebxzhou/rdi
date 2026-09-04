@@ -140,6 +140,22 @@ class SettingsViewModelTest {
         assertNull(recovered.downloadQuotaError)
     }
 
+    @Test
+    fun `download cache cleanup submits task and announces progress location`() = runBlocking {
+        val gateway = FakeSettingsGateway()
+        val viewModel = SettingsViewModel(gateway)
+        awaitInitialized(viewModel)
+
+        viewModel.clearDownloadCache()
+        viewModel.clearDownloadCache()
+        assertEquals(2, gateway.clearCount)
+
+        assertEquals(
+            SettingsEvent.ShowSnackbar("清除下载缓存任务已提交，可在任务中查看进度"),
+            viewModel.events.first()
+        )
+    }
+
     private suspend fun awaitInitialized(viewModel: SettingsViewModel): SettingsUiState =
         viewModel.uiState.filter { !it.loading }.first()
 
@@ -166,6 +182,7 @@ class SettingsViewModelTest {
         private val nodeSwitchCount = kotlinx.coroutines.flow.MutableStateFlow(0)
         var quotaLoadCount = 0
         private val quotaLoads = kotlinx.coroutines.flow.MutableStateFlow(0)
+        var clearCount = 0
 
         override suspend fun loadSettings(): Result<SettingsInitialData> = Result.success(initialData)
 
@@ -189,6 +206,11 @@ class SettingsViewModelTest {
             quotaLoads.value = quotaLoadCount
             return quotaResults.removeFirstOrNull()
                 ?: Result.failure(IllegalStateException("没有测试额度结果"))
+        }
+
+        override fun clearDownloadCache(): Result<String> {
+            clearCount++
+            return Result.success("run-$clearCount")
         }
 
         suspend fun awaitQuotaLoadCount(expected: Int) {

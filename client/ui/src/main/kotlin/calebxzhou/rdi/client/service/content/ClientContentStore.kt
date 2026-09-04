@@ -32,6 +32,9 @@ import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.Locale
 import kotlin.math.max
 
@@ -47,6 +50,29 @@ internal object ClientContentStoreCoordinator {
     val progressNetwork = Semaphore(32)
     val progressVerify = Semaphore(32)
     val progressCopy = Semaphore(32)
+    private val cacheLeases = ConcurrentHashMap<Path, AtomicInteger>()
+
+    internal class CachePathLease internal constructor(private val path: Path) : AutoCloseable {
+        private val closed = AtomicBoolean(false)
+
+        override fun close() {
+            if (!closed.compareAndSet(false, true)) return
+            cacheLeases.computeIfPresent(path) { _, count ->
+                if (count.decrementAndGet() <= 0) null else count
+            }
+        }
+    }
+
+    fun lease(path: Path): CachePathLease {
+        val normalized = path.toAbsolutePath().normalize()
+        cacheLeases.compute(normalized) { _, count ->
+            (count ?: AtomicInteger()).also { it.incrementAndGet() }
+        }
+        return CachePathLease(normalized)
+    }
+
+    fun isLeased(path: Path): Boolean =
+        cacheLeases[path.toAbsolutePath().normalize()]?.get()?.let { it > 0 } == true
 
     suspend fun <T> withDigestLock(digest: ContentDigest, block: suspend () -> T): T {
         return withDigestLocks(listOf(digest), block)
@@ -126,8 +152,33 @@ data class ContentRequest(
 
 private data class ResolvedContent(
     val path: Path,
-    val temporary: Boolean
+    val temporary: Boolean,
+    val lease: ClientContentStoreCoordinator.CachePathLease? = null,
 )
+
+private class ContentResourceCollector {
+    private val resources = ConcurrentLinkedQueue<ResolvedContent>()
+
+    fun register(content: ResolvedContent): ResolvedContent {
+        resources.add(content)
+        return content
+    }
+
+    fun close() {
+        resources.forEach { content ->
+            content.lease?.close()
+            if (content.temporary) {
+                runCatching { deleteTemporaryPath(content.path) }
+                    .onFailure { error -> lgr.warn(error) { "无法清理临时客户端内容: ${content.path}" } }
+            }
+        }
+        resources.clear()
+    }
+
+    private fun deleteTemporaryPath(path: Path) {
+        if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) Files.deleteIfExists(path)
+    }
+}
 
 private data class ProgressState(
     var completedBytes: Long = 0L,
@@ -155,6 +206,7 @@ open class ClientContentStore(
         onProgress: (Task2Progress) -> Unit = {},
         block: suspend (Map<String, Path>) -> T
     ): Result<T> {
+        val resources = ContentResourceCollector()
         return try {
             val normalized = validateRequests(requests)
             val prepared = prepareBatchSources(normalized)
@@ -162,23 +214,21 @@ open class ClientContentStore(
             val resolved = coroutineScope {
                 prepared.map { request ->
                     async {
-                        resolve(request, progress)
+                        resolve(request, progress, resources)
                     }
                 }.awaitAll()
             }
             val paths = prepared.zip(resolved).associate { (request, content) ->
                 request.id to content.path
             }
-            try {
-                Result.success(block(paths))
-            } finally {
-                resolved.filter(ResolvedContent::temporary).forEach { deleteTemporary(it.path) }
-            }
+            Result.success(block(paths))
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Throwable) {
             lgr.error(error) { "客户端内容处理失败" }
             Result.failure(error)
+        } finally {
+            resources.close()
         }
     }
 
@@ -190,21 +240,24 @@ open class ClientContentStore(
         requests: List<ContentRequest>,
         block: suspend (Map<String, Path>) -> T,
     ): Result<T> {
+        val resources = ContentResourceCollector()
         return try {
             val normalized = validateRequests(requests)
             val hits = coroutineScope {
                 normalized.map { request ->
                     async {
-                        request.id to findCache(request)
+                        request.id to findCacheAndLease(request, resources)
                     }
                 }.awaitAll()
-            }.mapNotNull { (id, path) -> path?.let { id to it } }.toMap()
-            block(hits).let(Result.Companion::success)
+            }.mapNotNull { (id, hit) -> hit?.let { id to it } }.toMap()
+            block(hits.mapValues { it.value.first }).let(Result.Companion::success)
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Throwable) {
             lgr.error(error) { "客户端内容缓存读取失败" }
             Result.failure(error)
+        } finally {
+            resources.close()
         }
     }
 
@@ -409,25 +462,37 @@ open class ClientContentStore(
 
     private suspend fun resolve(
         request: ContentRequest,
-        progress: ProgressAggregator
+        progress: ProgressAggregator,
+        resources: ContentResourceCollector,
     ): ResolvedContent {
         progress.started(request.id)
         val verificationStart = System.nanoTime()
-        val cacheHit = findCache(request)
+        val cacheHit = if (request.digests.isEmpty()) {
+            null
+        } else {
+            ClientContentStoreCoordinator.withDigestLocks(request.digests) {
+                findCache(request)?.let { path ->
+                    resources.register(
+                        ResolvedContent(path, temporary = false, lease = ClientContentStoreCoordinator.lease(path))
+                    )
+                }
+            }
+        }
         if (cacheHit != null) {
+            val cachePath = cacheHit.path
             progress.finished(
                 request.id,
-                fileSize(cacheHit),
-                elapsedSpeed(fileSize(cacheHit), verificationStart),
-                total = fileSize(cacheHit)
+                fileSize(cachePath),
+                elapsedSpeed(fileSize(cachePath), verificationStart),
+                total = fileSize(cachePath)
             )
-            return ResolvedContent(cacheHit, temporary = false)
+            return cacheHit
         }
 
         if (!request.allowNetwork && request.sources.none { it.localOnly && it.downloader != null }) {
             throw IOException("内容缓存不可用且禁止网络下载: ${request.displayName}")
         }
-        val resolved = downloadSingleFlight(request, progress)
+        val resolved = downloadSingleFlight(request, progress, resources)
         progress.finished(request.id, fileSize(resolved.path), 0.0, request.size)
         return resolved
     }
@@ -447,29 +512,53 @@ open class ClientContentStore(
         return null
     }
 
+    private suspend fun findCacheAndLease(
+        request: ContentRequest,
+        resources: ContentResourceCollector,
+    ): Pair<Path, ClientContentStoreCoordinator.CachePathLease>? {
+        if (request.digests.isEmpty()) return null
+        return ClientContentStoreCoordinator.withDigestLocks(request.digests) {
+            findCache(request)?.let { path ->
+                val lease = ClientContentStoreCoordinator.lease(path)
+                resources.register(ResolvedContent(path, temporary = false, lease = lease))
+                path to lease
+            }
+        }
+    }
+
     private suspend fun downloadSingleFlight(
         request: ContentRequest,
-        progress: ProgressAggregator
+        progress: ProgressAggregator,
+        resources: ContentResourceCollector,
     ): ResolvedContent {
         val resolveUnderLock: suspend () -> ResolvedContent = resolveUnderLock@{
-            findCache(request)?.let { return@resolveUnderLock ResolvedContent(it, false) }
+            findCache(request)?.let {
+                return@resolveUnderLock resources.register(ResolvedContent(
+                    it,
+                    false,
+                    ClientContentStoreCoordinator.lease(it),
+                ))
+            }
             val temporary = createTemporaryFile()
+            resources.register(ResolvedContent(temporary, true))
             try {
                 download(request, temporary, progress)
                 val actual = calculateCommitDigests(temporary, request)
                 validateCalculatedDigests(temporary, actual, request)
                 val committed = commit(temporary, actual)
                 if (committed != null) {
-                    ResolvedContent(committed, false)
+                    resources.register(ResolvedContent(
+                        committed,
+                        false,
+                        ClientContentStoreCoordinator.lease(committed),
+                    ))
                 } else {
                     lgr.warn { "客户端内容缓存不可写，使用已校验临时文件: ${request.displayName}" }
                     ResolvedContent(temporary, true)
                 }
             } catch (cancel: CancellationException) {
-                deleteTemporary(temporary)
                 throw cancel
             } catch (error: Throwable) {
-                deleteTemporary(temporary)
                 throw error
             }
         }

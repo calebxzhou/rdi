@@ -7,6 +7,8 @@ import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.service.ModService
 import calebxzhou.rdi.common.service.murmur2
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
 import java.nio.file.FileSystemException
@@ -365,6 +367,68 @@ class ClientContentStoreTest {
             .getOrThrow()
 
         assertEquals(emptyMap(), received)
+    }
+
+    @Test
+    fun `parallel resolution failure releases cache lease for later cleanup`() = runBlocking {
+        val cacheRoot = Files.createTempDirectory("rdi-content-lease-failure-cache")
+        val payload = "leased-cache-content".toByteArray()
+        val hit = request("lease-hit", "mods/hit.jar", payload, source = null)
+        val cachePath = cacheRoot.resolve("${hit.digests.first().normalizedValue}.sha1")
+        Files.write(cachePath, payload)
+        val leaseReady = CompletableDeferred<Unit>()
+        val failed = ContentRequest(
+            id = "lease-fail",
+            relativePath = "mods/fail.jar",
+            sources = listOf(ContentSource(downloader = { _, _ ->
+                leaseReady.await()
+                Result.failure(IllegalStateException("expected failure"))
+            })),
+        )
+
+        val result = ClientContentStore(cacheRoot).use(
+            listOf(hit, failed),
+            onProgress = { progress ->
+                if (progress.completedItems == 1 && !leaseReady.isCompleted) leaseReady.complete(Unit)
+            },
+        ) { }
+
+        assertTrue(result.isFailure)
+        val cleaned = DownloadCacheCleanupService(
+            cacheRoot = cacheRoot,
+            versionsRoot = Files.createTempDirectory("rdi-content-lease-failure-versions"),
+        ).cleanup().getOrThrow()
+        assertEquals(1, cleaned.deletedFiles)
+        assertTrue(!Files.exists(cachePath))
+    }
+
+    @Test
+    fun `active use lease causes cleanup to report busy and retain entry`() = runBlocking {
+        val cacheRoot = Files.createTempDirectory("rdi-content-active-lease-cache")
+        val payload = "active-cache-content".toByteArray()
+        val request = request("active-hit", "mods/active.jar", payload, source = null)
+        val cachePath = cacheRoot.resolve("${request.digests.first().normalizedValue}.sha1")
+        Files.write(cachePath, payload)
+        val callbackEntered = CompletableDeferred<Unit>()
+        val releaseCallback = CompletableDeferred<Unit>()
+        val useJob = async {
+            ClientContentStore(cacheRoot).use(listOf(request)) {
+                callbackEntered.complete(Unit)
+                releaseCallback.await()
+            }
+        }
+
+        callbackEntered.await()
+        val cleanup = DownloadCacheCleanupService(
+            cacheRoot = cacheRoot,
+            versionsRoot = Files.createTempDirectory("rdi-content-active-lease-versions"),
+        ).cleanup().getOrThrow()
+
+        assertEquals(0, cleanup.deletedFiles)
+        assertEquals(1, cleanup.busyFiles)
+        assertTrue(Files.exists(cachePath))
+        releaseCallback.complete(Unit)
+        assertTrue(useJob.await().isSuccess)
     }
 
     @Test

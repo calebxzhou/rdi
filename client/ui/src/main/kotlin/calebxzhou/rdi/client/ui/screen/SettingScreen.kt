@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody
+import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
@@ -122,7 +123,8 @@ fun SettingScreen(
                                             solidWindow = draft.solidWindow,
                                             onSolidWindowChange = {
                                                 viewModel.updateDraft(draft.copy(solidWindow = it))
-                                            }
+                                            },
+                                            onClearDownloadCache = viewModel::clearDownloadCache,
                                         )
                                     }
 
@@ -243,13 +245,35 @@ fun SettingScreen(
     @Composable
     private fun GeneralSettings(
         solidWindow: Boolean,
-        onSolidWindowChange: (Boolean) -> Unit
+        onSolidWindowChange: (Boolean) -> Unit,
+        onClearDownloadCache: () -> Unit,
     ) {
+        var showClearDownloadCacheConfirmation by remember { mutableStateOf(false) }
+
         RColumn {
             RRow {
                 RSwitch(checked = solidWindow, onCheckedChange = onSolidWindowChange)
                 Text("使用实心窗口解决窗口不显示的问题")
             }
+            RRow {
+                CircleIconButton(
+                    icon = "\uF1F8",
+                    label = "清除下载缓存",
+                    onClick = { showClearDownloadCacheConfirmation = true },
+                )
+            }
+        }
+
+        if (showClearDownloadCacheConfirmation) {
+            ConfirmDialog(
+                title = "清除下载缓存？",
+                message = "只有硬盘空间不足时才应该清除缓存。\n否则会严重拖慢后续下载速度，可能降至几十KB/s。确定要继续吗？",
+                onConfirm = {
+                    showClearDownloadCacheConfirmation = false
+                    onClearDownloadCache()
+                },
+                onDismiss = { showClearDownloadCacheConfirmation = false },
+            )
         }
     }
 

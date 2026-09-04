@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import calebxzhou.rdi.client.AppConfig
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
+import calebxzhou.rdi.client.service.content.submitDownloadCacheCleanupTask2
 import calebxzhou.rdi.client.service.SettingsService
 import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.exception.RequestError
@@ -70,6 +71,8 @@ interface SettingsGateway {
     suspend fun switchNode(request: NodeSwitchRequest): Result<String>
 
     suspend fun loadDownloadQuota(): Result<DownloadQuota.Vo>
+
+    fun clearDownloadCache(): Result<String>
 }
 
 class RdiSettingsGateway : SettingsGateway {
@@ -106,6 +109,10 @@ class RdiSettingsGateway : SettingsGateway {
         val response = server.makeRequest<DownloadQuota.Vo>("download/quota")
         if (!response.ok) throw RequestError(response.msg.ifBlank { "下载额度读取失败" })
         response.data ?: throw RequestError("下载额度读取失败")
+    }
+
+    override fun clearDownloadCache(): Result<String> = runCatching {
+        submitDownloadCacheCleanupTask2()
     }
 }
 
@@ -196,6 +203,17 @@ class SettingsViewModel(
                 _uiState.update { it.copy(downloadQuotaLoading = false) }
             }
         }
+    }
+
+    fun clearDownloadCache() {
+        gateway.clearDownloadCache()
+            .onSuccess {
+                eventChannel.trySend(SettingsEvent.ShowSnackbar("清除下载缓存任务已提交，可在任务中查看进度"))
+            }
+            .onFailure { cause ->
+                lgr.warn(cause) { "清除下载缓存任务提交失败" }
+                eventChannel.trySend(SettingsEvent.ShowSnackbar("清除下载缓存任务提交失败：${cause.message ?: "未知错误"}"))
+            }
     }
 
     private fun loadSettings() {
