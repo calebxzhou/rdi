@@ -4,7 +4,7 @@ import java.util.*
 import java.util.concurrent.ConcurrentHashMap
 
 object PlayerChatRangeState {
-    val DEFAULT_RANGE: ChatRange = ChatRange.GLOBAL
+    val DEFAULT_RANGE: ChatRange = ChatRange.HOST
     private val CHAT_RANGES = ConcurrentHashMap<UUID, ChatRange>()
 
     fun restore(playerId: UUID, store: ChatRangeStore): ChatRange {
