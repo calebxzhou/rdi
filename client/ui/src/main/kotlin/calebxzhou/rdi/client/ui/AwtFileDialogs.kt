@@ -3,7 +3,6 @@ package calebxzhou.rdi.client.ui
 import java.awt.FileDialog
 import java.awt.Frame
 import java.io.File
-import java.nio.charset.StandardCharsets
 
 private const val DIRECTORY_DIALOG_PROPERTY = "apple.awt.fileDialogForDirectories"
 private val directoryDialogLock = Any()
@@ -76,46 +75,6 @@ private fun FileDialog.selectedDirectoryOrNull(): File? {
 private fun isWindows(): Boolean =
     System.getProperty("os.name").contains("windows", ignoreCase = true)
 
-private fun escapePowerShellSingleQuotedString(value: String): String =
-    value.replace("'", "''")
-
-private fun pickWindowsDirectory(
-    title: String,
-    defaultDirectory: File
-): File? {
-    val initialDir = defaultDirectory.takeIf { it.exists() && it.isDirectory }
-        ?: defaultDialogDirectory()
-    val command = buildString {
-        val escapedTitle = escapePowerShellSingleQuotedString(title)
-        val escapedInitialDir = escapePowerShellSingleQuotedString(initialDir.absolutePath)
-        appendLine("Add-Type -AssemblyName System.Windows.Forms")
-        appendLine("[System.Windows.Forms.Application]::EnableVisualStyles()")
-        appendLine("\$dialog = New-Object System.Windows.Forms.FolderBrowserDialog")
-        appendLine("\$dialog.Description = '$escapedTitle'")
-        appendLine("\$dialog.SelectedPath = '$escapedInitialDir'")
-        appendLine("if (\$dialog | Get-Member -Name UseDescriptionForTitle -ErrorAction SilentlyContinue) { \$dialog.UseDescriptionForTitle = \$true }")
-        appendLine("if (\$dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK -and -not [string]::IsNullOrWhiteSpace(\$dialog.SelectedPath)) {")
-        appendLine("    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8")
-        appendLine("    Write-Output \$dialog.SelectedPath")
-        appendLine("}")
-    }
-    val process = listOf("powershell", "pwsh").firstNotNullOfOrNull { shell ->
-        runCatching {
-            ProcessBuilder(
-                shell,
-                "-NoProfile",
-                "-STA",
-                "-Command",
-                command
-            ).redirectErrorStream(true).start()
-        }.getOrNull()
-    } ?: return null
-    val output = process.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }.trim()
-    val exitCode = process.waitFor()
-    if (exitCode != 0 || output.isBlank()) return null
-    return File(output).takeIf { it.exists() && it.isDirectory }
-}
-
 internal fun pickAwtOpenFiles(
     title: String,
     defaultDirectory: File = defaultDialogDirectory(),
@@ -161,7 +120,7 @@ internal fun pickAwtDirectory(
     defaultDirectory: File = defaultDialogDirectory()
 ): File? {
     if (isWindows()) {
-        return pickWindowsDirectory(title, defaultDirectory)
+        return pickModernWindowsDirectory(title, defaultDirectory)
     }
     return withDirectoryDialogEnabled {
         withFileDialog(

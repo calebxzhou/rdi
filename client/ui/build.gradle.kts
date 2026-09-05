@@ -98,6 +98,8 @@ dependencies {
     implementation(libs.markdown.renderer.m3)
     implementation(libs.kotlinx.coroutines.swing)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.jna)
+    implementation(libs.jna.platform)
 
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.joml)
