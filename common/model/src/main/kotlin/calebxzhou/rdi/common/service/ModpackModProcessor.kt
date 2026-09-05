@@ -11,7 +11,8 @@ object ModpackModProcessor {
         "essential-mod",
         "default-server-properties",
         "skybox-loader-forge",
-        "customskinloader"
+        "customskinloader",
+        "chunky"
     )
 
     private val clientSideSlugs = setOf(
@@ -30,7 +31,8 @@ object ModpackModProcessor {
         "inventory-tweaks-refoxed",
         "just-enough-resources-jer",
         "radiant-gear",
-        "fusion-connected-textures"
+        "fusion-connected-textures",
+        "oh-the-trees-youll-grow"
     )
 
     fun processMods(mods: List<Mod>): MutableList<Mod> = mods.mapNotNull { mod ->
