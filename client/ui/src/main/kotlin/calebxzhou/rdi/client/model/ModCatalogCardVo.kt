@@ -1,18 +1,18 @@
 package calebxzhou.rdi.client.model
 
-enum class RemoteModSource {
+enum class ModCatalogSource {
     MODRINTH,
     CURSEFORGE
 }
 
-enum class RemoteModSourceFilter {
+enum class ModCatalogSourceFilter {
     ALL,
     MODRINTH,
     CURSEFORGE
 }
 
-data class RemoteModCardVo(
-    val source: RemoteModSource,
+data class ModCatalogCardVo(
+    val source: ModCatalogSource,
     val projectId: String,
     val slug: String?,
     val title: String,
@@ -29,8 +29,8 @@ data class RemoteModCardVo(
     val serverSide: String?
 )
 
-data class RemoteModSearchResult(
-    val mods: List<RemoteModCardVo>,
+data class ModCatalogSearchResult(
+    val mods: List<ModCatalogCardVo>,
     val offset: Int,
     val limit: Int,
     val totalHits: Int,

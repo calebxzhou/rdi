@@ -15,6 +15,8 @@ import calebxzhou.rdi.master.service.modpack.ModpackVersionService.addVersionMod
 import calebxzhou.rdi.master.service.modpack.ModpackVersionService.changeOptions
 import calebxzhou.rdi.master.service.modpack.ModpackUploadService.createVersion
 import calebxzhou.rdi.master.service.modpack.ModpackUploadService.createWithVersion
+import calebxzhou.rdi.master.service.modpack.ModpackUploadService.preflight
+import calebxzhou.rdi.master.service.modpack.ModpackUploadService.validateVersionUpload
 import calebxzhou.rdi.master.service.modpack.ModpackVersionService.deleteModpack
 import calebxzhou.rdi.master.service.modpack.ModpackVersionService.deleteVersion
 import calebxzhou.rdi.master.service.modpack.ModpackQueryService.modpackGuardContext
@@ -54,6 +56,10 @@ fun Route.modpackRoutes() {
         }
         post("/missing") {
             response(data = ModpackQueryService.findMissingIds(call.receive<List<ObjectId>>()))
+        }
+        post("/preflight") {
+            call.receive<ModpackUploadPreflightDto>().preflight(call.player())
+            ok()
         }
         post {
             val (payload, dto) = call.receiveUploadPayload<Modpack.CreateWithVersionDto>(
@@ -208,11 +214,7 @@ fun Route.modpackRoutes() {
                 }
                 post("/from-upload") {
                     val ctx = call.modpackGuardContext()
-                    ctx.requireAuthor()
-                    val verName = param("verName").validateVerName().getOrThrow()
-                    if (ctx.modpack.versions.any { it.name.equals(verName, ignoreCase = true) }) {
-                        throw RequestError("版本 $verName 已存在")
-                    }
+                    val verName = ctx.validateVersionUpload(param("verName"))
                     val dto = call.receive<ModpackVersionCreateFromUploadDto>()
                     parallelUploadService.withReadyUpload(call.uid, dto.uploadId) { uploadFile ->
                         ctx.createVersion(verName, uploadFile, dto.mods)
@@ -221,13 +223,7 @@ fun Route.modpackRoutes() {
                 }
                 post {
                     val ctx = call.modpackGuardContext()
-                    ctx.requireAuthor()
-                    val verName = param("verName").validateVerName().getOrThrow()
-
-                    // Check if version already exists
-                    if (ctx.modpack.versions.any { it.name.equals(verName, ignoreCase = true) }) {
-                        throw RequestError("版本 $verName 已存在")
-                    }
+                    val verName = ctx.validateVersionUpload(param("verName"))
 
                     val (payload, modList) = call.receiveUploadPayload<MutableList<Mod>>(
                         jsonFieldName = "mods",

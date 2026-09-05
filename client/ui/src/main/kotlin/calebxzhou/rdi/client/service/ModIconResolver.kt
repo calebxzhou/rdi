@@ -17,7 +17,7 @@ fun normalizeModIconUrls(iconUrls: List<String>): List<String> = iconUrls
     .filter(String::isNotBlank)
     .distinct()
 
-suspend fun resolveRemoteModIcon(iconUrls: List<String>): Result<ImageBitmap?> {
+suspend fun resolveModCatalogIcon(iconUrls: List<String>): Result<ImageBitmap?> {
     return try {
         val candidates = normalizeModIconUrls(iconUrls)
         for (url in candidates) {
@@ -49,7 +49,7 @@ suspend fun resolveLocalFirstModIcon(
         if (localBitmap != null) {
             Result.success(localBitmap)
         } else {
-            resolveRemoteModIcon(iconUrls)
+            resolveModCatalogIcon(iconUrls)
         }
     } catch (error: CancellationException) {
         throw error

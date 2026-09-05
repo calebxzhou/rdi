@@ -1,15 +1,15 @@
 package calebxzau.rdi.client.ui.viewmodel
 
-import calebxzhou.rdi.client.model.UiMod
-import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.Modpack
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.filter
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -19,46 +19,6 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ModpackInfoViewModelTest {
-    @Test
-    fun `loading detail exposes fallback mods and finishes hydration`() = runBlocking {
-        val pack = testPack(mods = mutableListOf(testMod()))
-        val gateway = FakeModpackInfoGateway(detail = pack)
-        val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
-
-        val state = viewModel.uiState.filter { !it.loading && !it.modsLoading }.first()
-
-        assertEquals(pack, state.pack)
-        assertEquals("example-mod-hydrated", state.mods.single().mod.slug)
-        assertTrue(gateway.hydrateCalled)
-    }
-
-    @Test
-    fun `failed hydration keeps fallback mods`() = runBlocking {
-        val pack = testPack(mods = mutableListOf(testMod()))
-        val gateway = FakeModpackInfoGateway(
-            detail = pack,
-            hydrationFailure = IllegalStateException("catalog unavailable"),
-        )
-        val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
-
-        val state = viewModel.uiState.filter { !it.loading && !it.modsLoading }.first()
-
-        assertEquals(pack.versions.single().mods.toUiMods(), state.mods)
-        assertNull(state.errorMessage)
-    }
-
-    @Test
-    fun `detail without versions exposes an empty mod list`() = runBlocking {
-        val gateway = FakeModpackInfoGateway(detail = testPack().copy(versions = emptyList()))
-        val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
-
-        val state = awaitLoaded(viewModel)
-
-        assertTrue(state.mods.isEmpty())
-        assertFalse(state.modsLoading)
-        assertFalse(gateway.hydrateCalled)
-    }
-
     @Test
     fun `invalid edit is rejected before reaching gateway`() = runBlocking {
         val gateway = FakeModpackInfoGateway(detail = testPack())
@@ -89,33 +49,35 @@ class ModpackInfoViewModelTest {
     }
 
     @Test
+    fun `outer whitespace in name is rejected before reaching gateway`() = runBlocking {
+        val gateway = FakeModpackInfoGateway(detail = testPack())
+        val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
+        awaitLoaded(viewModel)
+
+        viewModel.beginEdit()
+        viewModel.updateEditDraft(viewModel.uiState.value.editDraft.copy(name = " New Name"))
+        viewModel.saveEdit()
+
+        val state = viewModel.uiState.value
+        assertTrue(state.errorMessage!!.contains("整合包名称"))
+        assertTrue(gateway.mutations.isEmpty())
+    }
+
+    @Test
     fun `saving edit updates metadata and reports completion`() = runBlocking {
         val gateway = FakeModpackInfoGateway(detail = testPack())
         val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
         awaitLoaded(viewModel)
 
         viewModel.beginEdit()
-        viewModel.updateEditDraft(viewModel.uiState.value.editDraft.copy(name = "新名称"))
+        viewModel.updateEditDraft(viewModel.uiState.value.editDraft.copy(name = "新 名称"))
         viewModel.saveEdit()
 
         val event = viewModel.events.first()
         val mutation = assertIs<ModpackInfoMutation.UpdateOptions>(gateway.mutations.single())
-        assertEquals("新名称", mutation.options.name)
+        assertEquals("新 名称", mutation.options.name)
         assertIs<ModpackInfoEvent.EditSaved>(event)
         viewModel.uiState.filter { !it.loading && gateway.loadCount >= 2 }.first()
-    }
-
-    @Test
-    fun `deleting version uses its name and reloads detail`() = runBlocking {
-        val gateway = FakeModpackInfoGateway(detail = testPack())
-        val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
-        awaitLoaded(viewModel)
-
-        viewModel.deleteVersion("1.0")
-
-        assertIs<ModpackInfoEvent.ShowSnackbar>(viewModel.events.first())
-        viewModel.uiState.filter { !it.loading && gateway.loadCount >= 2 }.first()
-        assertEquals(ModpackInfoMutation.DeleteVersion("1.0"), gateway.mutations.single())
     }
 
     @Test
@@ -131,51 +93,110 @@ class ModpackInfoViewModelTest {
     }
 
     @Test
-    fun `rebuilding version uses its name`() = runBlocking {
-        val gateway = FakeModpackInfoGateway(detail = testPack())
+    fun `installed version requests redownload confirmation for selected version`() = runBlocking {
+        val selected = testVersion("1.0")
+        val other = testVersion("2.0")
+        val gateway = FakeModpackInfoGateway(testPack(listOf(other, selected)), installed = true)
         val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
         awaitLoaded(viewModel)
 
-        viewModel.rebuildVersion("1.0")
+        viewModel.requestDownload(selected)
 
-        assertIs<ModpackInfoEvent.ShowSnackbar>(viewModel.events.first())
-        assertEquals(ModpackInfoMutation.RebuildVersion("1.0"), gateway.mutations.single())
+        assertEquals("1.0", assertIs<ModpackInfoEvent.ConfirmRedownload>(viewModel.events.first()).versionName)
+        assertEquals("1.0", gateway.checkedVersion?.name)
     }
 
     @Test
-    fun `installing version emits queued task id`() = runBlocking {
-        val gateway = FakeModpackInfoGateway(detail = testPack(), runId = "run-7")
+    fun `not installed version requests download method for selected version`() = runBlocking {
+        val selected = testVersion("1.0")
+        val other = testVersion("2.0")
+        val gateway = FakeModpackInfoGateway(testPack(listOf(other, selected)))
         val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
         awaitLoaded(viewModel)
 
-        viewModel.installVersion("1.0")
+        viewModel.requestDownload(selected.copy(name = selected.name))
 
-        val event = assertIs<ModpackInfoEvent.InstallQueued>(viewModel.events.first())
-        assertEquals("run-7", event.runId)
+        assertEquals("1.0", assertIs<ModpackInfoEvent.SelectDownloadMethod>(viewModel.events.first()).versionName)
+        assertEquals("1.0", gateway.checkedVersion?.name)
     }
 
     @Test
-    fun `installed version requests redownload confirmation`() = runBlocking {
-        val gateway = FakeModpackInfoGateway(detail = testPack(), versionInstalled = true)
+    fun `install queues exact selected version`() = runBlocking {
+        val selected = testVersion("1.0")
+        val other = testVersion("2.0")
+        val gateway = FakeModpackInfoGateway(testPack(listOf(other, selected)), runId = "run-7")
         val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
         awaitLoaded(viewModel)
 
-        viewModel.requestDownload("1.0")
+        viewModel.installVersion(selected.name)
 
-        val event = assertIs<ModpackInfoEvent.ConfirmRedownload>(viewModel.events.first())
-        assertEquals("1.0", event.versionName)
+        assertEquals("1.0", gateway.queuedVersion?.name)
+        assertEquals("run-7", assertIs<ModpackInfoEvent.InstallQueued>(viewModel.events.first()).runId)
     }
 
     @Test
-    fun `missing local version requests download method`() = runBlocking {
-        val gateway = FakeModpackInfoGateway(detail = testPack())
+    fun `non OK version cannot be queued`() = runBlocking {
+        val selected = testVersion("1.0", status = Modpack.Status.FAIL)
+        val gateway = FakeModpackInfoGateway(testPack(listOf(selected)))
         val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
         awaitLoaded(viewModel)
 
-        viewModel.requestDownload("1.0")
+        viewModel.installVersion(selected.name)
+
+        val state = viewModel.uiState.filter { it.errorMessage != null }.first()
+        assertTrue(state.errorMessage!!.contains("当前版本不可下载"))
+        assertNull(gateway.queuedVersion)
+    }
+
+    @Test
+    fun `missing version does not check installation`() = runBlocking {
+        val gateway = FakeModpackInfoGateway(testPack())
+        val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
+        awaitLoaded(viewModel)
+
+        viewModel.requestDownload(testVersion("9.0"))
+
+        viewModel.uiState.filter { it.errorMessage != null }.first()
+        assertTrue(gateway.checkCalls.isEmpty())
+    }
+
+    @Test
+    fun `non OK version does not check installation`() = runBlocking {
+        val version = testVersion("1.0", status = Modpack.Status.FAIL)
+        val gateway = FakeModpackInfoGateway(testPack(listOf(version)))
+        val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
+        awaitLoaded(viewModel)
+
+        viewModel.requestDownload(version)
+
+        viewModel.uiState.filter { it.errorMessage != null }.first()
+        assertTrue(gateway.checkCalls.isEmpty())
+    }
+
+    @Test
+    fun `overlapping download checks only emit the newest version`() = runBlocking {
+        val first = testVersion("1.0")
+        val second = testVersion("2.0")
+        val firstResult = CompletableDeferred<Boolean>()
+        val secondResult = CompletableDeferred<Boolean>()
+        val gateway = FakeModpackInfoGateway(
+            detail = testPack(listOf(first, second)),
+            controlledChecks = mapOf("1.0" to firstResult, "2.0" to secondResult),
+            ignoreCheckCancellation = true,
+        )
+        val viewModel = ModpackInfoViewModel(MODPACK_ID, gateway)
+        awaitLoaded(viewModel)
+
+        viewModel.requestDownload(first)
+        assertEquals("1.0", gateway.checkStarted.receive())
+        viewModel.requestDownload(second)
+        assertEquals("2.0", gateway.checkStarted.receive())
+
+        firstResult.complete(true)
+        secondResult.complete(false)
 
         val event = assertIs<ModpackInfoEvent.SelectDownloadMethod>(viewModel.events.first())
-        assertEquals("1.0", event.versionName)
+        assertEquals("2.0", event.versionName)
     }
 
     private suspend fun awaitLoaded(viewModel: ModpackInfoViewModel): ModpackInfoUiState =
@@ -183,13 +204,17 @@ class ModpackInfoViewModelTest {
 
     private class FakeModpackInfoGateway(
         var detail: Modpack.DetailVo?,
-        private val hydrationFailure: Throwable? = null,
+        private val installed: Boolean = false,
         private val runId: String = "run-1",
-        private val versionInstalled: Boolean = false,
+        private val controlledChecks: Map<String, CompletableDeferred<Boolean>> = emptyMap(),
+        private val ignoreCheckCancellation: Boolean = false,
     ) : ModpackInfoGateway {
         val mutations = mutableListOf<ModpackInfoMutation>()
-        var hydrateCalled = false
         var loadCount = 0
+        var checkedVersion: Modpack.Version? = null
+        var queuedVersion: Modpack.Version? = null
+        val checkCalls = mutableListOf<String>()
+        val checkStarted = Channel<String>(Channel.UNLIMITED)
 
         override suspend fun loadDetail(modpackId: String): Result<Modpack.DetailVo?> {
             loadCount++
@@ -201,50 +226,51 @@ class ModpackInfoViewModelTest {
             return Result.success(Unit)
         }
 
-        override fun hydrateMods(mods: List<Mod>) = flow {
-            hydrateCalled = true
-            hydrationFailure?.let { throw it }
-            emit(mods.toUiMods())
-            emit(mods.map { it.copy(slug = "${it.slug}-hydrated") }.toUiMods())
-        }
-
         override suspend fun isVersionInstalled(
             pack: Modpack.DetailVo,
             version: Modpack.Version,
-        ): Result<Boolean> = Result.success(versionInstalled)
+        ): Result<Boolean> {
+            checkedVersion = version
+            checkCalls += version.name
+            checkStarted.send(version.name)
+            val result = controlledChecks[version.name]?.let { deferred ->
+                if (ignoreCheckCancellation) {
+                    withContext(NonCancellable) { deferred.await() }
+                } else {
+                    deferred.await()
+                }
+            } ?: installed
+            return Result.success(result)
+        }
 
-        override fun queueInstall(pack: Modpack.DetailVo, version: Modpack.Version): Result<String> =
-            Result.success(runId)
+        override fun queueInstall(pack: Modpack.DetailVo, version: Modpack.Version): Result<String> {
+            queuedVersion = version
+            return Result.success(runId)
+        }
+
     }
 
     private companion object {
         const val MODPACK_ID = "66a000000000000000000001"
 
-        fun testPack(mods: MutableList<Mod> = mutableListOf()) = Modpack.DetailVo(
+        fun testPack(versions: List<Modpack.Version> = listOf(testVersion("1.0"))) = Modpack.DetailVo(
             _id = ObjectId(MODPACK_ID),
             name = "测试整合包",
             authorId = ObjectId("66a000000000000000000002"),
-            modCount = mods.size,
+            modCount = 0,
             modloader = ModLoader.neoforge,
             mcVer = McVersion.V211,
-            versions = listOf(
-                Modpack.Version(
-                    time = 1L,
-                    modpackId = ObjectId(MODPACK_ID),
-                    name = "1.0",
-                    changelog = "",
-                    status = Modpack.Status.OK,
-                    mods = mods,
-                )
-            ),
+            versions = versions,
         )
 
-        fun testMod() = Mod(
-            platform = "mr",
-            projectId = "project",
-            slug = "example-mod",
-            fileId = "file",
-            hash = "abc",
+        fun testVersion(name: String, status: Modpack.Status = Modpack.Status.OK) = Modpack.Version(
+            time = 1L,
+            modpackId = ObjectId(MODPACK_ID),
+            name = name,
+            changelog = "",
+            status = status,
+            mods = mutableListOf(),
         )
+
     }
 }

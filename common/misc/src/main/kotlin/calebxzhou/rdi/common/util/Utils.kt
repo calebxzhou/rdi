@@ -83,7 +83,34 @@ fun String.validateName(): Result<Unit> = runCatching {
     if (len !in 3..32) throw RequestError("名称长度需在3~32个字符，当前为${len}（一个汉字算两个）")
     return Result.success(Unit)
 }
+private fun Int.isAllowedModpackNameCodePoint(): Boolean = when {
+    this == ' '.code || this == '.'.code || this == '_'.code || this == '-'.code -> true
+    this in '0'.code..'9'.code || this in 'A'.code..'Z'.code || this in 'a'.code..'z'.code -> true
+    this in 0x4E00..0x9FFF || this in 0x3400..0x4DBF -> true
+    this in 0x20000..0x2A6DF || this in 0x2A700..0x2B73F -> true
+    this in 0x2B740..0x2B81F || this in 0x2B820..0x2CEAF -> true
+    this in 0xF900..0xFAFF || this in 0x2F800..0x2FA1F -> true
+    else -> false
+}
 
+fun String.validateModpackName(): Result<Unit> = runCatching {
+    val invalidMessage = "整合包名称只能包含字母、数字、汉字、空格或._-"
+    if (isEmpty() || first() == ' ' || last() == ' ') {
+        throw RequestError(invalidMessage)
+    }
+    var offset = 0
+    while (offset < length) {
+        val codePoint = codePointAt(offset)
+        if (!codePoint.isAllowedModpackNameCodePoint()) {
+            throw RequestError(invalidMessage)
+        }
+        offset += Character.charCount(codePoint)
+    }
+    val len = displayLength
+    if (len !in 3..32) {
+        throw RequestError("整合包名称长度需在3~32个字符，当前为${len}（一个汉字算两个）")
+    }
+}
 fun String.validatePlayerName(): Result<Unit> = runCatching {
     if (!matches(VALID_PLAYER_NAME_REGEX)) {
         return Result.failure(RequestError("昵称只能包含字母数字汉字_"))

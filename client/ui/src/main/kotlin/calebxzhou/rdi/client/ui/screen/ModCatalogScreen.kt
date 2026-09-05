@@ -33,18 +33,18 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.modcatalog.CatalogMod
 import calebxzau.rdi.client.ui.SearchField
-import calebxzau.rdi.client.ui.viewmodel.RemoteModViewModel
+import calebxzau.rdi.client.ui.viewmodel.ModCatalogViewModel
 import calebxzhou.rdi.client.ui.comp.CatalogModCard
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
 @Composable
-fun RemoteModScreen(
-    route: RemoteModRoute,
+fun ModCatalogScreen(
+    route: ModCatalogRoute,
     onBack: () -> Unit = {},
     onOpenMod: (CatalogMod) -> Unit = {},
-    viewModel: RemoteModViewModel = koinViewModel(
-        key = remoteModViewModelKey(route)
+    viewModel: ModCatalogViewModel = koinViewModel(
+        key = modCatalogViewModelKey(route)
     ) {
         parametersOf(route)
     },
@@ -111,5 +111,5 @@ fun RemoteModScreen(
     }
 }
 
-private fun remoteModViewModelKey(route: RemoteModRoute): String =
+private fun modCatalogViewModelKey(route: ModCatalogRoute): String =
     "${route.requiredMcVer}:${route.requiredLoader}:${route.targetLocalVersionId}:${route.targetHostId}:${route.fromAllHosts}:${route.fromHostMods}"

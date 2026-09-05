@@ -5,8 +5,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -27,7 +25,6 @@ import calebxzhou.rdi.common.util.javaExePath
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
-import calebxzau.rdi.client.ui.RColumn
 import calebxzau.rdi.client.ui.RRow
 import calebxzau.rdi.client.ui.RScrollableColumn
 import calebxzau.rdi.client.ui.RSwitch
@@ -44,7 +41,7 @@ import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
 @Composable
-fun ModpackOptionScreen(
+fun ModpackLocalAdvanceOptionScreen(
     versionId: String,
     modpackName: String,
     versionName: String,

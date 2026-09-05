@@ -6,30 +6,30 @@ import calebxzau.rdi.client.modcatalog.ModPlatform
 import calebxzau.rdi.client.modcatalog.getMetadataOrEmpty
 import calebxzhou.rdi.client.model.ModrinthProjectCategoryVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
-import calebxzhou.rdi.client.model.RemoteModCardVo
-import calebxzhou.rdi.client.model.RemoteModSource
+import calebxzhou.rdi.client.model.ModCatalogCardVo
+import calebxzhou.rdi.client.model.ModCatalogSource
 import calebxzhou.rdi.common.model.ModrinthProject
 import calebxzhou.rdi.common.service.CurseForgeService
 import calebxzhou.rdi.common.service.ModrinthService
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 
-object RemoteModDependencyService {
+object ModCatalogDependencyService {
     suspend fun loadRequiredDependencyCards(
         modCatalog: ModCatalog,
         versions: List<ModrinthProjectVersionVo>
-    ): List<RemoteModCardVo> =
+    ): List<ModCatalogCardVo> =
         coroutineScope {
             val requiredDependencies = versions
                 .flatMap { it.dependencies }
                 .filter { it.required }
 
             val modrinthIds = requiredDependencies
-                .filter { it.source == RemoteModSource.MODRINTH }
+                .filter { it.source == ModCatalogSource.MODRINTH }
                 .mapNotNull { it.projectId?.trim()?.takeIf(String::isNotBlank) }
                 .distinct()
             val curseForgeIds = requiredDependencies
-                .filter { it.source == RemoteModSource.CURSEFORGE }
+                .filter { it.source == ModCatalogSource.CURSEFORGE }
                 .mapNotNull { it.projectId?.trim()?.toIntOrNull() }
                 .distinct()
 
@@ -38,7 +38,7 @@ object RemoteModDependencyService {
                     emptyList()
                 } else {
                     ModrinthService.getMultipleProjects(modrinthIds)
-                        .map(ModrinthProject::toRemoteModCardVo)
+                        .map(ModrinthProject::toModCatalogCardVo)
                 }
             }
             val curseForgeCards = async {
@@ -46,14 +46,14 @@ object RemoteModDependencyService {
                     emptyList()
                 } else {
                     CurseForgeService.getModsInfo(curseForgeIds)
-                        .map { it.toRemoteModCardVo() }
+                        .map { it.toModCatalogCardVo() }
                 }
             }
 
             val cards = (modrinthCards.await() + curseForgeCards.await())
                 .distinctBy { "${it.source}:${it.projectId}" }
             val refs = cards.mapNotNull { card ->
-                val platform = if (card.source == RemoteModSource.MODRINTH) {
+                val platform = if (card.source == ModCatalogSource.MODRINTH) {
                     ModPlatform.MODRINTH
                 } else {
                     ModPlatform.CURSEFORGE
@@ -62,7 +62,7 @@ object RemoteModDependencyService {
             }.toSet()
             val metadata = modCatalog.getMetadataOrEmpty(refs)
             cards.map { card ->
-                val platform = if (card.source == RemoteModSource.MODRINTH) {
+                val platform = if (card.source == ModCatalogSource.MODRINTH) {
                     ModPlatform.MODRINTH
                 } else {
                     ModPlatform.CURSEFORGE
@@ -77,13 +77,13 @@ object RemoteModDependencyService {
         }
 }
 
-private fun ModrinthProject.toRemoteModCardVo(): RemoteModCardVo {
+private fun ModrinthProject.toModCatalogCardVo(): ModCatalogCardVo {
     val loaderIds = loaders.map(String::lowercase).toSet()
     val categoryVos = (categories + loaders)
         .distinct()
         .map { ModrinthProjectCategoryVo(it, it.toModrinthProjectCategoryLabel()) }
-    return RemoteModCardVo(
-        source = RemoteModSource.MODRINTH,
+    return ModCatalogCardVo(
+        source = ModCatalogSource.MODRINTH,
         projectId = id,
         slug = slug,
         title = title,

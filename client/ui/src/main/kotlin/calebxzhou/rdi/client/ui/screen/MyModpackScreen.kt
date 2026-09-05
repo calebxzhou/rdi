@@ -23,7 +23,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.HorizontalDivider
@@ -33,18 +32,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.SideEffect
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -53,7 +48,6 @@ import androidx.compose.ui.unit.TextUnitType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
@@ -70,10 +64,8 @@ import calebxzau.rdi.client.ui.CursorPositionBox
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.RDropdownMenuItem
-import calebxzau.rdi.client.ui.RowV
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
-import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzau.rdi.client.ui.openFolder
@@ -83,13 +75,10 @@ import calebxzau.rdi.client.codeeditor.CodeLanguage
 import calebxzau.rdi.client.codeeditor.validateCodeContent
 import calebxzhou.rdi.client.ui.comp.CodeEditor
 import calebxzhou.rdi.client.ui.comp.ModpackManageCard
-import calebxzhou.rdi.client.ui.comp.ModpackManageCardPresentation
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.common.isExcludedConfigPath
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Host
-import calebxzhou.rdi.common.model.McVersion
-import calebxzhou.rdi.common.model.ModLoader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -132,7 +121,7 @@ private val localConfigEditableExtensions = setOf(
  * The installed-pack entry point for the released legacy modpack workflow.
  */
 @Composable
-fun MyModpackScreen(
+fun ModpackLocalListScreen(
     onBack: () -> Unit = {},
     onOpenPlaza: () -> Unit = {},
     onOpenTask: (String) -> Unit = {},
@@ -366,7 +355,7 @@ fun MyModpackScreen(
                                         .widthIn(max = 350.dp),
                                 ) {
                                     when (item) {
-                                        is InstalledResourceItem.Legacy -> LegacyInstalledCard(
+                                        is InstalledResourceItem.Legacy -> InstalledCard(
                                             pack = item.pack,
                                             onOpenPlay = {
                                                 onOpenPlay(item.pack.toPlayArgs())
@@ -813,7 +802,7 @@ fun MyModpackScreen(
 }
 
 @Composable
-private fun LegacyInstalledCard(
+private fun InstalledCard(
     pack: ModpackLocalDir,
     onOpenPlay: () -> Unit,
     isRunning: Boolean,

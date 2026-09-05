@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.ui.window
 
 import calebxzau.rdi.client.ui.window.TaskHoverAction
+import calebxzau.rdi.client.ui.window.taskMenuProgressFraction
 import calebxzau.rdi.client.ui.window.sortTaskEntries
 import calebxzau.rdi.client.ui.window.taskHoverAction
 import calebxzhou.rdi.common.model.Task2
@@ -35,10 +36,32 @@ class TaskMenuTest {
         assertNull(taskHoverAction(entry("queued", Task2Status.QUEUED)))
     }
 
-    private fun entry(runId: String, status: Task2Status, createdAt: Long = 0) = Task2Entry(
+    @Test
+    fun failedTaskMenuProgressIsAlwaysComplete() {
+        assertEquals(1f, entry("failed", Task2Status.FAILED).taskMenuProgressFraction())
+        assertEquals(1f, entry("failed", Task2Status.FAILED, fraction = 0.4f).taskMenuProgressFraction())
+    }
+
+    @Test
+    fun doneTaskMenuProgressIsComplete() {
+        assertEquals(1f, entry("done", Task2Status.DONE).taskMenuProgressFraction())
+    }
+
+    @Test
+    fun taskMenuProgressPreservesIndeterminateAndClampedStates() {
+        assertNull(entry("running", Task2Status.RUNNING).taskMenuProgressFraction())
+        assertEquals(1f, entry("running", Task2Status.RUNNING, fraction = 1.4f).taskMenuProgressFraction())
+    }
+
+    private fun entry(
+        runId: String,
+        status: Task2Status,
+        createdAt: Long = 0,
+        fraction: Float? = null
+    ) = Task2Entry(
         runId = runId,
         task = Task2.Leaf(title = runId, id = runId) { _ -> },
-        snapshot = Task2Snapshot(status = status),
+        snapshot = Task2Snapshot(status = status, currentFraction = fraction),
         createdAt = createdAt
     )
 }

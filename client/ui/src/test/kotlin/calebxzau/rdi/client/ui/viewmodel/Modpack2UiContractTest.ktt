@@ -12,9 +12,9 @@ class Modpack2UiContractTest {
         val root = sourceRoot()
         val navigation = Files.readString(root.resolve("src/main/kotlin/calebxzhou/rdi/client/ui/AppNavigation.kt"))
         val routes = Files.readString(root.resolve("src/main/kotlin/calebxzhou/rdi/client/ui/screen/Ui2Screens.kt"))
-        assertTrue(navigation.contains("onOpenUpload = { navController.navigate(ModpackUpload) }"))
+        assertTrue(navigation.contains("onOpenUpload = { navController.navigate(ModpackUploadRoute) }"))
         assertFalse(navigation.contains("onOpenUpload = { navController.navigate(Modpack2Upload) }"))
-        assertTrue(routes.contains("object ModpackUpload"))
+        assertTrue(routes.contains("object ModpackUploadRoute"))
         assertFalse(navigation.contains("Modpack2Workspace")); assertFalse(navigation.contains("Modpack2Publish"))
         assertFalse(routes.contains("object Modpack2Workspace")); assertFalse(routes.contains("data class Modpack2Publish"))
     }

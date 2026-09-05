@@ -2,7 +2,7 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.client.model.ModrinthProjectInfoVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
-import calebxzhou.rdi.client.model.RemoteModSource
+import calebxzhou.rdi.client.model.ModCatalogSource
 import calebxzhou.rdi.client.service.content.ClientContentStore
 import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.common.model.Mod
@@ -16,11 +16,11 @@ import calebxzhou.rdi.client.ui.McPlayStore
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-object RemoteModDownloadService {
+object ModCatalogDownloadService {
     fun toMod(project: ModrinthProjectInfoVo, version: ModrinthProjectVersionVo): Mod {
         val file = version.primaryFile ?: error("此版本没有可下载文件")
         return when (project.source) {
-            RemoteModSource.MODRINTH -> {
+            ModCatalogSource.MODRINTH -> {
                 val sha1 = file.sha1?.trim()?.takeIf(String::isNotBlank) ?: error("此版本缺少SHA1")
                 Mod(
                     platform = "mr",
@@ -33,7 +33,7 @@ object RemoteModDownloadService {
                 )
             }
 
-            RemoteModSource.CURSEFORGE -> {
+            ModCatalogSource.CURSEFORGE -> {
                 val murmur2 = file.murmur2?.trim()?.takeIf(String::isNotBlank) ?: error("此版本缺少CurseForge指纹")
                 Mod(
                     platform = "cf",

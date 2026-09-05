@@ -66,6 +66,8 @@ class Modpack(
         val totalSize: Long? = 0L,
         val status: Status,
         val mods: MutableList<Mod> = arrayListOf(),
+        @Contextual
+        val uploaderId: ObjectId? =null,
     ) {
     }
 

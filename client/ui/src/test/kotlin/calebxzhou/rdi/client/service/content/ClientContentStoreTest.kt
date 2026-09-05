@@ -298,6 +298,55 @@ class ClientContentStoreTest {
     }
 
     @Test
+    fun `offline CF request keeps its local source without metadata lookup`() = runBlocking {
+        val cacheRoot = Files.createTempDirectory("rdi-content-offline-cf-cache")
+        val staged = Files.createTempFile("rdi-content-offline-cf-stage", ".jar")
+        val payload = "offline-curseforge-content".toByteArray()
+        Files.write(staged, payload)
+        val fingerprint = staged.murmur2
+        val mod = testCurseForgeMod("301", "3001", fingerprint.toString())
+        val localDownloads = AtomicInteger()
+        val calls = mutableListOf<List<Int>>()
+        val request = mod.toClientContentRequest().copy(
+            allowNetwork = false,
+            sources = listOf(
+                ContentSource(
+                    localOnly = true,
+                    downloader = { target, _ ->
+                        localDownloads.incrementAndGet()
+                        Files.copy(staged, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+                        Result.success(target)
+                    },
+                )
+            ),
+        )
+
+        val result = ClientContentStore(cacheRoot) { ids ->
+            calls += ids
+            emptyList()
+        }.use(listOf(request)) { }
+
+        assertTrue(result.isSuccess)
+        assertEquals(1, localDownloads.get())
+        assertTrue(calls.isEmpty())
+        assertTrue(Files.isRegularFile(cacheRoot.resolve("${fingerprint}.murmur2")))
+    }
+
+    @Test
+    fun `offline uncached CF preparation leaves request unchanged`() = runBlocking {
+        val mod = testCurseForgeMod("302", "3002")
+        val calls = mutableListOf<List<Int>>()
+        val request = mod.toClientContentRequest().copy(allowNetwork = false)
+        val prepared = ClientContentStore(Files.createTempDirectory("rdi-content-offline-cf-prep")) { ids ->
+            calls += ids
+            emptyList()
+        }.prepareBatchSourcesForTest(listOf(request)).single()
+
+        assertEquals(request, prepared)
+        assertTrue(calls.isEmpty())
+    }
+
+    @Test
     fun `cache-only batch returns hits and omits misses without downloading`() = runBlocking {
         val cacheRoot = Files.createTempDirectory("rdi-content-cache-only-batch")
         val downloads = AtomicInteger()
@@ -354,6 +403,44 @@ class ClientContentStoreTest {
             Files.readAllBytes(paths.getValue(hitTwo.id)),
         )
         assertEquals(0, downloads.get())
+    }
+
+    @Test
+    fun `cache-only batch reports exact names and item progress for hits and misses`() = runBlocking {
+        val cacheRoot = Files.createTempDirectory("rdi-content-cache-only-progress")
+        val hit = request(
+            id = "progress-hit",
+            relativePath = "mods/hit.jar",
+            payload = "progress-hit".toByteArray(),
+            source = null,
+        ).copy(displayName = "精确Mod")
+        val miss = request(
+            id = "progress-miss",
+            relativePath = "mods/miss.jar",
+            payload = "progress-miss".toByteArray(),
+            source = ContentSource(localOnly = true, downloader = { _, _ ->
+                error("cache-only lookup must not download")
+            }),
+        ).copy(displayName = "missing-mod")
+        Files.write(
+            cacheRoot.resolve("${hit.digests.first().normalizedValue}.sha1"),
+            "progress-hit".toByteArray(),
+        )
+        val progress = mutableListOf<calebxzhou.rdi.common.model.Task2Progress>()
+
+        ClientContentStore(cacheRoot).useCached(
+            requests = listOf(hit, miss),
+            onProgress = progress::add,
+        ) { it }.getOrThrow()
+
+        assertTrue(progress.isNotEmpty())
+        assertEquals(setOf("精确Mod", "missing-mod"), progress.map { it.message }.toSet())
+        assertTrue(progress.all { it.totalItems == 2 })
+        assertTrue(progress.zipWithNext().all { (before, after) ->
+            (after.completedItems ?: 0) >= (before.completedItems ?: 0)
+        })
+        assertEquals(2, progress.last().completedItems)
+        assertEquals(2, progress.last().totalItems)
     }
 
     @Test

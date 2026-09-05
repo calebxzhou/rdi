@@ -27,18 +27,22 @@ import calebxzhou.rdi.client.service.hydrateToUiModsInBatches
 import calebxzhou.rdi.client.service.modpackUploadTaskKey
 import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
+import calebxzhou.rdi.client.service.content.ContentRequest
 import calebxzhou.rdi.client.service.content.commitEmbeddedModSources
 import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.IGNORE_MODPACK_TEST
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.model.LoadProgress
 import calebxzhou.rdi.common.model.MODPACK_INFO_MAX_CHARACTERS
 import calebxzhou.rdi.common.model.MODPACK_INFO_MIN_CHARACTERS
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
+import calebxzhou.rdi.common.model.ModpackUploadPreflightDto
 import calebxzhou.rdi.common.model.Task2Entry
 import calebxzhou.rdi.common.model.Task2Status
 import calebxzhou.rdi.common.service.ModService
@@ -63,9 +67,14 @@ import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import io.ktor.client.request.setBody
+import io.ktor.http.contentType
+import io.ktor.http.ContentType
+import io.ktor.http.HttpMethod
 import org.bson.types.ObjectId
 import java.io.File
 import java.nio.file.Files
+import java.security.MessageDigest
 import java.util.jar.JarFile
 
 enum class ModpackUploadMode { CREATE, UPDATE }
@@ -182,7 +191,7 @@ data class ModpackUploadUiState(
     val uploadDisabledReason: String?
         get() {
             validateModpackUploadDraft(draft, uploadMode).firstMessage?.let { return it }
-            if (iconValidationRunning) return "正在验证图标链接"
+            if (iconValidationRunning) return "正在检查上传信息"
             if (ignoreModpackTest) return null
             return when {
                 loading -> "正在处理整合包"
@@ -220,6 +229,8 @@ interface ModpackUploadGateway {
     val ignoreModpackTestInitially: Boolean
 
     suspend fun loadUploadedModpacks(): Result<List<Modpack.BriefVo>>
+
+    suspend fun preflightUpload(submission: ModpackUploadSubmission): Result<Unit>
 
     suspend fun prepareClientPack(
         file: File,
@@ -277,6 +288,29 @@ class RdiModpackUploadGateway(
             .map(Modpack::toLocalBriefVo)
     }
 
+    override suspend fun preflightUpload(submission: ModpackUploadSubmission): Result<Unit> = resultOf {
+        val draft = submission.draft
+        val response = server.makeRequest<Unit>("modpack/preflight", HttpMethod.Post) {
+            contentType(ContentType.Application.Json)
+            setBody(
+                serdesJson.encodeToString(
+                    ModpackUploadPreflightDto(
+                        modpackId = submission.updateModpackId,
+                        name = draft.name,
+                        verName = draft.versionName,
+                        mcVer = submission.pack.mcVersion,
+                        modLoader = submission.pack.modloader,
+                        iconUrl = draft.iconUrl.trim().ifBlank { null },
+                        sourceUrl = draft.sourceUrl.trim().ifBlank { null },
+                        info = draft.info.trim().ifBlank { null },
+                        categories = Modpack.normalizeCategories(draft.categories),
+                    )
+                )
+            )
+        }
+        if (!response.ok) throw RequestError(response.msg)
+    }
+
     override suspend fun prepareClientPack(
         file: File,
         onProgress: (LoadProgress) -> Unit,
@@ -304,7 +338,8 @@ class RdiModpackUploadGateway(
         onProgress: (LoadProgress) -> Unit,
     ): Result<PreparedServerPack> = resultOf {
         val clientMods = clientUiMods.map(UiMod::toMod)
-        val serverPack = withStagedClientModSources(clientMods) { clientModSources ->
+        onProgress(LoadProgress.Phase("正在检查本地Mod"))
+        val serverPack = withAvailableClientModSources(clientUiMods, onProgress) { clientModSources ->
             processor.loadServerPack(
                 file = directory,
                 clientMods = clientMods,
@@ -318,31 +353,57 @@ class RdiModpackUploadGateway(
         PreparedServerPack(serverPack, processUiMods(mergedUiMods).getOrThrow())
     }
 
-    private suspend fun <T> withStagedClientModSources(
-        mods: List<Mod>,
+    private suspend fun <T> withAvailableClientModSources(
+        uiMods: List<UiMod>,
+        onProgress: (LoadProgress) -> Unit,
         block: suspend (Map<Mod, File>) -> T,
     ): T {
-        val stagingDir = Files.createTempDirectory(
-            ClientDirs.packProcDir.toPath(),
-            "server-client-mods-",
-        ).toFile()
-        return try {
-            val requests = mods.map { mod ->
-                mod to mod.toClientContentRequest(
-                    targetRelativePath = mod.fileName,
+        fun hasValidLocalFile(uiMod: UiMod): Boolean =
+            uiMod.file?.let { it.exists() && it.isFile } == true
+
+        val localSources = uiMods.mapNotNull { uiMod ->
+            uiMod.file?.takeIf { it.exists() && it.isFile }?.let { file ->
+                uiMod.mod to file
+            }
+        }
+        val requests = uiMods.asSequence()
+            .filterNot(::hasValidLocalFile)
+            .map { uiMod ->
+                uiMod to uiMod.mod.toClientContentRequest(
+                    targetRelativePath = uiMod.mod.fileName,
                 )
             }
-            val paths = ClientContentStore.shared.materialize(
-                requests = requests.map { it.second },
-                targetRoot = stagingDir.toPath(),
-            ).getOrThrow()
-            val sources = requests.zip(paths).associate { (entry, path) ->
-                entry.first to path.toFile()
-            }
-            block(sources)
-        } finally {
-            stagingDir.deleteRecursivelyNoSymlink()
+            .distinctBy { (_, request) -> request.id }
+            .toList()
+        if (requests.isEmpty()) {
+            onProgress(LoadProgress.Percent("本地Mod检查完成", 1f))
+            return block(localSources.toMap())
         }
+
+        return ClientContentStore.shared.useCached(
+            requests = requests.map { it.second },
+            onProgress = { progress ->
+                val completedItems = progress.completedItems ?: 0
+                val totalItems = progress.totalItems ?: requests.size
+                val fraction = if (totalItems > 0) {
+                    completedItems.toFloat().div(totalItems).coerceIn(0f, 1f)
+                } else {
+                    1f
+                }
+                val modName = progress.message.takeIf { it.isNotBlank() }
+                val text = if (modName != null) {
+                    "正在检查本地Mod:${modName}(${completedItems}/${totalItems})"
+                } else {
+                    "正在检查本地Mod(${completedItems}/${totalItems})"
+                }
+                onProgress(LoadProgress.Percent(text, fraction))
+            },
+        ) { paths ->
+            val cacheSources = requests.mapNotNull { (uiMod, request) ->
+                paths[request.id]?.toFile()?.let { file -> uiMod.mod to file }
+            }
+            block((localSources + cacheSources).toMap())
+        }.getOrThrow()
     }
 
     override suspend fun validateRuntime(mcVersion: McVersion): Result<Unit> = resultOf {
@@ -741,40 +802,59 @@ class ModpackUploadViewModel(
             updateModpackId = state.selectedUpdateTarget?.id
                 .takeIf { state.uploadMode == ModpackUploadMode.UPDATE },
         )
-        if (state.uploadMode == ModpackUploadMode.CREATE) {
-            _uiState.update {
-                it.copy(iconValidationRunning = true, errorMessage = null)
-            }
-            viewModelScope.launch {
-                try {
+        _uiState.update {
+            it.copy(iconValidationRunning = true, errorMessage = null)
+        }
+        viewModelScope.launch {
+            var preflightStarted = false
+            try {
+                if (state.uploadMode == ModpackUploadMode.CREATE) {
                     withContext(Dispatchers.IO) {
                         validateFullIconUrl(submission.draft.iconUrl).getOrThrow()
                     }
-                    val currentState = _uiState.value
-                    if (currentState.uploadMode != ModpackUploadMode.CREATE ||
-                        currentState.draft != state.draft ||
-                        currentState.loadedModpack !== pack
-                    ) {
-                        _uiState.update {
-                            it.copy(
-                                iconValidationRunning = false,
-                                errorMessage = "上传信息已更改，请重新提交",
-                            )
-                        }
-                        return@launch
-                    }
-                    queueUploadSubmission(submission)
-                } catch (cancel: CancellationException) {
-                    throw cancel
-                } catch (cause: Throwable) {
-                    reportError("验证图标链接失败", cause)
-                } finally {
-                    _uiState.update { it.copy(iconValidationRunning = false) }
                 }
+                if (!isCurrentUploadSubmission(state, pack, submission)) {
+                    _uiState.update { it.copy(errorMessage = "上传信息已更改，请重新提交") }
+                    return@launch
+                }
+                preflightStarted = true
+                withContext(Dispatchers.IO) {
+                    gateway.preflightUpload(submission).getOrThrow()
+                }
+                if (!isCurrentUploadSubmission(state, pack, submission)) {
+                    _uiState.update { it.copy(errorMessage = "上传信息已更改，请重新提交") }
+                    return@launch
+                }
+                queueUploadSubmission(submission)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (cause: Throwable) {
+                if (preflightStarted) {
+                    lgr.warn(cause) { "上传检查失败" }
+                    _uiState.update {
+                        it.copy(errorMessage = "上传检查失败：${cause.message ?: "无法验证上传信息"}")
+                    }
+                } else {
+                    reportError("验证图标链接失败", cause)
+                }
+            } finally {
+                _uiState.update { it.copy(iconValidationRunning = false) }
             }
-            return
         }
-        queueUploadSubmission(submission)
+    }
+
+    private fun isCurrentUploadSubmission(
+        capturedState: ModpackUploadUiState,
+        capturedPack: LoadedLocalModpack,
+        submission: ModpackUploadSubmission,
+    ): Boolean {
+        val current = _uiState.value
+        return current.uploadMode == capturedState.uploadMode &&
+            current.draft == capturedState.draft &&
+            current.selectedUpdateTarget?.id == capturedState.selectedUpdateTarget?.id &&
+            current.loadedModpack === capturedPack &&
+            current.uiMods == capturedState.uiMods &&
+            current.selectedUpdateTarget?.id == submission.updateModpackId
     }
 
     private fun queueUploadSubmission(submission: ModpackUploadSubmission) {
@@ -1114,45 +1194,103 @@ private data class ModMergeEntry(
         get() = uiMod.mod
 }
 
-private suspend fun strictModMergeKey(
+private fun strictModMergeKey(
     mod: Mod,
-    installedModIdCache: MutableMap<String, String?>,
-): String {
-    val modId = readInstalledModId(mod, installedModIdCache)
-    return when {
-        !modId.isNullOrBlank() -> "modid:$modId"
-        mod.slug.isNotBlank() -> "slug:${mod.slug.lowercase()}"
-        mod.projectId.isNotBlank() -> "project:${mod.projectId}"
-        else -> modStableKey(mod)
-    }
+    installedModIds: Map<String, String?>,
+): String = when {
+    !installedModIds[modStableKey(mod)].isNullOrBlank() ->
+        "modid:${installedModIds.getValue(modStableKey(mod))}"
+    mod.slug.isNotBlank() -> "slug:${mod.slug.lowercase()}"
+    mod.projectId.isNotBlank() -> "project:${mod.projectId}"
+    else -> modStableKey(mod)
 }
+
+private fun UiMod.asMergeEntry(installedModIds: Map<String, String?>): ModMergeEntry =
+    ModMergeEntry(
+        uiMod = this,
+        strictKey = strictModMergeKey(mod, installedModIds),
+        slugKey = slugModMergeKey(mod),
+    )
 
 private fun slugModMergeKey(mod: Mod): String? =
     mod.slug.trim().lowercase().takeIf(String::isNotBlank)?.let { "slug:$it" }
 
-private suspend fun UiMod.asMergeEntry(installedModIdCache: MutableMap<String, String?>): ModMergeEntry =
-    ModMergeEntry(
-        uiMod = this,
-        strictKey = strictModMergeKey(mod, installedModIdCache),
-        slugKey = slugModMergeKey(mod),
-    )
+private fun trustedModContentRequest(mod: Mod): ContentRequest? = runCatching {
+    val request = mod.toClientContentRequest().copy(allowNetwork = false)
+    val digest = request.digests.singleOrNull() ?: return@runCatching null
+    val valid = when (digest.algorithm) {
+        ContentDigestAlgorithm.MURMUR2 -> digest.normalizedValue.toULongOrNull()
+            ?.let { it <= UInt.MAX_VALUE.toULong() } == true
+        ContentDigestAlgorithm.SHA1 -> digest.normalizedValue.matches(Regex("[0-9a-f]{40}"))
+        ContentDigestAlgorithm.SHA256 -> digest.normalizedValue.matches(Regex("[0-9a-f]{64}"))
+    }
+    request.takeIf { valid }?.copy(relativePath = cacheReadRelativePath(request))
+}.getOrNull()
 
-private fun mergeAsBoth(clientMod: UiMod, serverMod: UiMod): UiMod {
-    val mergedDownloadUrls = (clientMod.mod.downloadUrls + serverMod.mod.downloadUrls).distinct()
-    return clientMod.copy(
-        mod = clientMod.mod.copy(side = Mod.Side.BOTH, downloadUrls = mergedDownloadUrls),
-        card = (clientMod.card ?: serverMod.card)?.copy(side = Mod.Side.BOTH),
-        file = clientMod.file ?: serverMod.file,
-    )
+private fun cacheReadRelativePath(request: ContentRequest): String {
+    val requestDigest = MessageDigest.getInstance("SHA-256")
+        .digest(request.id.toByteArray(Charsets.UTF_8))
+        .joinToString(separator = "") { byte -> "%02x".format(byte) }
+    return ".rdi-cache-read/$requestDigest.jar"
 }
+
+private fun readInstalledModId(file: File, displayName: String): String? = try {
+    ModService.run {
+        JarFile(file).use { jar ->
+            jar.readModMeta()?.primaryModId?.trim()?.lowercase()?.ifBlank { null }
+        }
+    }
+} catch (cancel: CancellationException) {
+    throw cancel
+} catch (cause: Throwable) {
+    lgr.warn(cause) { "读取Mod元数据失败:${displayName}" }
+    null
+}
+
+private suspend fun readInstalledModIds(
+    mods: List<UiMod>,
+    store: ClientContentStore = ClientContentStore.shared,
+): Map<String, String?> {
+    val requestById = linkedMapOf<String, ContentRequest>()
+    val stableKeysByRequestId = linkedMapOf<String, MutableList<String>>()
+    mods.forEach { uiMod ->
+        val key = modStableKey(uiMod.mod)
+        val request = trustedModContentRequest(uiMod.mod) ?: return@forEach
+        requestById.putIfAbsent(request.id, request)
+        stableKeysByRequestId.getOrPut(request.id) { mutableListOf() }.add(key)
+    }
+    if (requestById.isEmpty()) return emptyMap()
+
+    val modIdsByRequestId = store.useCached(requestById.values.toList()) { paths ->
+        requestById.values.associate { request ->
+            request.id to paths[request.id]?.toFile()?.takeIf { it.exists() && it.isFile }?.let { file ->
+                readInstalledModId(file, request.displayName)
+            }
+        }
+    }.getOrElse { cause ->
+        lgr.debug(cause) { "读取Mod缓存失败" }
+        emptyMap()
+    }
+    return buildMap {
+        stableKeysByRequestId.forEach { (requestId, stableKeys) ->
+            val modId = modIdsByRequestId[requestId]
+            stableKeys.forEach { stableKey -> put(stableKey, modId) }
+        }
+    }
+}
+
+internal suspend fun readInstalledModIdsForTest(
+    mods: List<UiMod>,
+    store: ClientContentStore,
+): Map<String, String?> = readInstalledModIds(mods, store)
 
 private suspend fun mergeClientAndServerMods(
     clientMods: List<UiMod>,
     serverMods: List<UiMod>,
 ): List<UiMod> {
-    val installedModIdCache = mutableMapOf<String, String?>()
-    val clientEntries = clientMods.map { it.asMergeEntry(installedModIdCache) }
-    val serverEntries = serverMods.map { it.asMergeEntry(installedModIdCache) }
+    val installedModIds = readInstalledModIds(clientMods + serverMods)
+    val clientEntries = clientMods.map { it.asMergeEntry(installedModIds) }
+    val serverEntries = serverMods.map { it.asMergeEntry(installedModIds) }
     val serverByStrictKey = serverEntries.associateBy { it.strictKey }
     val uniqueClientSlugKeys = clientEntries.mapNotNull { it.slugKey }
         .groupingBy { it }
@@ -1196,39 +1334,20 @@ private suspend fun mergeClientAndServerMods(
     val distinctMerged = buildList {
         val seenKeys = mutableSetOf<String>()
         merged.forEach { uiMod ->
-            val key = strictModMergeKey(uiMod.mod, installedModIdCache)
+            val key = strictModMergeKey(uiMod.mod, installedModIds)
             if (seenKeys.add(key)) add(uiMod)
         }
     }
     return distinctMerged.sortedBy { it.slug.lowercase() }
 }
 
-private suspend fun readInstalledModId(
-    mod: Mod,
-    installedModIdCache: MutableMap<String, String?>,
-): String? {
-    val cacheKey = modStableKey(mod)
-    if (installedModIdCache.containsKey(cacheKey)) return installedModIdCache[cacheKey]
-
-    val request = mod.toClientContentRequest().copy(allowNetwork = false)
-    val modId = ClientContentStore.shared.use(listOf(request)) { paths ->
-        paths[request.id]?.toFile()?.takeIf { it.exists() && it.isFile }?.let { file ->
-            runCatching {
-                ModService.run {
-                    JarFile(file).use { jar ->
-                        jar.readModMeta()?.primaryModId?.trim()?.lowercase()?.ifBlank { null }
-                    }
-                }
-            }.getOrElse { cause ->
-                lgr.warn(cause) { "读取Mod元数据失败:${mod.fileName}" }
-                null
-            }
-        }
-    }.onFailure { cause ->
-        lgr.debug(cause) { "读取Mod源文件失败:${mod.fileName}" }
-    }.getOrNull()
-    installedModIdCache[cacheKey] = modId
-    return modId
+private fun mergeAsBoth(clientMod: UiMod, serverMod: UiMod): UiMod {
+    val mergedDownloadUrls = (clientMod.mod.downloadUrls + serverMod.mod.downloadUrls).distinct()
+    return clientMod.copy(
+        mod = clientMod.mod.copy(side = Mod.Side.BOTH, downloadUrls = mergedDownloadUrls),
+        card = (clientMod.card ?: serverMod.card)?.copy(side = Mod.Side.BOTH),
+        file = clientMod.file ?: serverMod.file,
+    )
 }
 
 private suspend fun <T> resultOf(block: suspend () -> T): Result<T> = try {

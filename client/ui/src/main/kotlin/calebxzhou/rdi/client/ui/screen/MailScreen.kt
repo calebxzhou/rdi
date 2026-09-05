@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -51,7 +50,7 @@ import org.bson.types.ObjectId
  */
 
 @Composable
-fun MailScreen(
+fun MailListScreen(
     onBack: () -> Unit = {}
 ) {
     MaxBox {

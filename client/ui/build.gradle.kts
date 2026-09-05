@@ -197,8 +197,14 @@ tasks.withType<Jar>().configureEach {
     }
 }
 
+val runDir = layout.projectDirectory.dir("run").asFile
+
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    workingDir = runDir
+    doFirst {
+        workingDir.mkdirs()
+    }
 }
 
 val localModpackTest by sourceSets.creating {
@@ -233,7 +239,6 @@ idea {
     }
 }
 
-val runDir = layout.projectDirectory.dir("run").asFile
 val hotRunBaseJvmArgs = listOf(
     "-Xmx1G",
     "-Drdi.debug=true",

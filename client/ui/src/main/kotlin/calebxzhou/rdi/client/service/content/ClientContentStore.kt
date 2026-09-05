@@ -238,15 +238,35 @@ open class ClientContentStore(
      */
     suspend fun <T> useCached(
         requests: List<ContentRequest>,
+        onProgress: (Task2Progress) -> Unit = {},
         block: suspend (Map<String, Path>) -> T,
     ): Result<T> {
         val resources = ContentResourceCollector()
         return try {
             val normalized = validateRequests(requests)
+            val progress = ProgressAggregator(normalized, onProgress)
             val hits = coroutineScope {
                 normalized.map { request ->
                     async {
-                        request.id to findCacheAndLease(request, resources)
+                        progress.started(request.id)
+                        val verificationStart = System.nanoTime()
+                        val hit = findCacheAndLease(request, resources)
+                        if (hit != null) {
+                            val size = fileSize(hit.first)
+                            progress.finished(
+                                request.id,
+                                size,
+                                elapsedSpeed(size, verificationStart),
+                                total = size,
+                            )
+                        } else {
+                            progress.finished(
+                                request.id,
+                                completed = 0L,
+                                speed = elapsedSpeed(0L, verificationStart),
+                            )
+                        }
+                        request.id to hit
                     }
                 }.awaitAll()
             }.mapNotNull { (id, hit) -> hit?.let { id to it } }.toMap()
@@ -420,7 +440,9 @@ open class ClientContentStore(
      */
     private suspend fun prepareBatchSources(requests: List<ContentRequest>): List<ContentRequest> {
         val curseForgeMisses = requests.filter { request ->
-            request.curseForgeMod != null && !hasReusableLocalContent(request)
+            request.allowNetwork &&
+                request.curseForgeMod != null &&
+                !hasReusableLocalContent(request)
         }
         if (curseForgeMisses.isEmpty()) return requests
 

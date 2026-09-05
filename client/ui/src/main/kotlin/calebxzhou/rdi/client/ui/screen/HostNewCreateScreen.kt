@@ -44,7 +44,7 @@ import kotlin.random.Random
 
 @Composable
 fun HostNewCreateScreen(
-    arg: HostCreate,
+    arg: HostCreateRoute,
     onBack: () -> Unit,
 ) {
     val defaultHostName = remember(arg.hostId) {

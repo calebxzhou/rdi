@@ -10,7 +10,7 @@ For example:
 - Prefer `host`（房间） over `Docker container`.
 - Do not expose backend orchestration or deployment details unless the user specifically needs them.
 
-Prefer intellij MCP if available
+you can use intellij MCP to check code errors if available
 
 ---
 ## Subagents
@@ -761,6 +761,17 @@ Some `server/proxy` test tasks may currently be disabled in Gradle.
 When adding or maintaining tests there, verify whether the relevant test task needs to be enabled.
 
 ---
+
+### Modpack Changes
+
+  Whenever an agent changes Modpack-server-side-logic related code in this repository, it must run the focused
+  `modpackServiceTest` task from `server/master`.
+
+  When running from WSL, use Windows pwsh.exe and the module-local Gradle wrapper:  
+.\gradlew.bat modpackServiceTest --no-daemon -x :net:compileTestKotlin"
+
+  If the task cannot run, report the exact blocker and do not claim that ModpackService validation passed.
+
 
 ## 15. Change Priorities
 

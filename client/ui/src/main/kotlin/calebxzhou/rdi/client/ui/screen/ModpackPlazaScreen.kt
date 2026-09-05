@@ -61,12 +61,10 @@ import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.client.ui.comp.ModpackCardPresentation
 import calebxzhou.rdi.client.ui.comp.formatModpackUpdatedTime
-import calebxzhou.rdi.client.ui.comp.formatPlayTime
 import calebxzhou.rdi.client.ui.loadResourceBitmap
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Modpack
-import calebxzau.rdi.common.model.ModpackCategory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -125,7 +123,7 @@ internal fun mergeRemoteModpackPresentations(
 }
 
 @Composable
-fun RemoteModpackScreen(
+fun ModpackPlazaScreen(
     onOpenInfo: (String) -> Unit,
     onOpenUpload: (() -> Unit)? = null,
     modifier: Modifier = Modifier,

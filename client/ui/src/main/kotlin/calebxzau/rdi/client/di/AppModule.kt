@@ -17,7 +17,7 @@ import calebxzau.rdi.client.ui.viewmodel.HostModsViewModel
 import calebxzau.rdi.client.ui.viewmodel.ModpackInfoGateway
 import calebxzau.rdi.client.ui.viewmodel.ModpackInfoViewModel
 import calebxzau.rdi.client.ui.viewmodel.SettingsModpackOptionRuntime
-import calebxzau.rdi.client.ui.viewmodel.ModpackVersionEditViewModel
+import calebxzau.rdi.client.ui.viewmodel.ModpackVersionInfoViewModel
 import calebxzau.rdi.client.ui.viewmodel.RdiModpackInfoGateway
 import calebxzau.rdi.client.ui.viewmodel.RdiHostCreateGateway
 import calebxzau.rdi.client.ui.viewmodel.RdiHostGateway
@@ -27,8 +27,8 @@ import calebxzau.rdi.client.ui.viewmodel.SettingsViewModel
 import calebxzau.rdi.client.ui.viewmodel.HostListGateway
 import calebxzau.rdi.client.ui.viewmodel.HostListViewModel
 import calebxzau.rdi.client.ui.viewmodel.RdiHostListGateway
-import calebxzau.rdi.client.ui.viewmodel.RemoteModViewModel
-import calebxzau.rdi.client.ui.viewmodel.RemoteModInfoViewModel
+import calebxzau.rdi.client.ui.viewmodel.ModCatalogViewModel
+import calebxzau.rdi.client.ui.viewmodel.ModCatalogInfoViewModel
 import calebxzau.rdi.client.ui.viewmodel.ModpackUploadGateway
 import calebxzau.rdi.client.ui.viewmodel.ModpackUploadViewModel
 import calebxzau.rdi.client.ui.viewmodel.RdiModpackUploadGateway
@@ -51,7 +51,7 @@ fun appModule(
     single<HostGateway> { RdiHostGateway() }
     single<HostListGateway> { RdiHostListGateway() }
     single<SettingsGateway> { RdiSettingsGateway() }
-    single<ModpackInfoGateway> { RdiModpackInfoGateway(get()) }
+    single<ModpackInfoGateway> { RdiModpackInfoGateway() }
     viewModel { parameters ->
         HostCreateViewModel(
             args = parameters.get(),
@@ -86,20 +86,21 @@ fun appModule(
         )
     }
     viewModel { parameters ->
-        ModpackVersionEditViewModel(
+        ModpackVersionInfoViewModel(
             modCatalog = get(),
+            gateway = get(),
             modpackId = parameters.get(),
             verName = parameters.get(),
         )
     }
     viewModel { parameters ->
-        RemoteModViewModel(
+        ModCatalogViewModel(
             route = parameters.get(),
             catalog = get(),
         )
     }
     viewModel { parameters ->
-        RemoteModInfoViewModel(
+        ModCatalogInfoViewModel(
             route = parameters.get(),
             catalog = get(),
         )

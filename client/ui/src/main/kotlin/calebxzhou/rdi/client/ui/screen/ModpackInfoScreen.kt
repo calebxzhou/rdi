@@ -14,9 +14,15 @@ import calebxzau.rdi.client.ui.BottomSnakebarM3
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
+import calebxzau.rdi.client.ui.CursorPositionBox
 import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.OffsetFirstItemUnderCursor
+import calebxzau.rdi.client.ui.RRow
+import calebxzau.rdi.client.ui.RDropdownMenuItem
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
+import calebxzau.rdi.client.ui.SimpleTooltip
+import calebxzau.rdi.client.ui.Space8h
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.TinyClickCopyText
 import calebxzau.rdi.client.ui.TitleRow
@@ -32,6 +38,7 @@ import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.isDav
 import calebxzau.rdi.client.ui.viewmodel.ModpackInfoEvent
 import calebxzau.rdi.client.ui.viewmodel.ModpackInfoViewModel
+import calebxzhou.rdi.common.util.toFriendlyDateTime
 import kotlinx.coroutines.flow.collect
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -40,12 +47,22 @@ import kotlin.text.isNotBlank
 /**
  * calebxzhou @ 2026-01-17 20:44
  */
+private enum class ModpackDownloadDialogPhase {
+    ConfirmRedownload,
+    SelectMethod,
+}
+
+private data class ActiveModpackDownloadDialog(
+    val versionName: String,
+    val phase: ModpackDownloadDialogPhase,
+)
+
 @Composable
 fun ModpackInfoScreen(
     modpackId: String,
     onBack: () -> Unit,
+    onOpenVersionInfo: ((String) -> Unit)? = null,
     onOpenTaskList: ((String) -> Unit)? = null,
-    onOpenVersionEdit: ((String) -> Unit)? = null,
     onCreateHost: ((Modpack.DetailVo, Modpack.Version) -> Unit)? = null,
     viewModel: ModpackInfoViewModel = koinViewModel(key = modpackId) {
         parametersOf(modpackId)
@@ -54,22 +71,18 @@ fun ModpackInfoScreen(
     val snackbarHostState = remember { SnackbarHostState() }
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     var confirmDeletePack by remember { mutableStateOf(false) }
-    var confirmDeleteVersion by remember { mutableStateOf<Modpack.Version?>(null) }
-    var confirmRebuildVersion by remember { mutableStateOf<Modpack.Version?>(null) }
-    var confirmRedownloadVersion by remember { mutableStateOf<Modpack.Version?>(null) }
-    var downloadMethodVersion by remember { mutableStateOf<Modpack.Version?>(null) }
     var showEditDialog by remember { mutableStateOf(false) }
-    var dialogMessage by remember { mutableStateOf<String?>(null) }
-    var dialogErrorMessage by remember { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(dialogMessage) {
-        dialogMessage?.let {
-            snackbarHostState.showSnackbar(it, duration = SnackbarDuration.Short)
+    var activeDownloadDialog by remember { mutableStateOf<ActiveModpackDownloadDialog?>(null) }
+    var dialogMessage by remember<MutableState<String?>> { mutableStateOf(null) }
+    var dialogErrorMessage by remember<MutableState<String?>> { mutableStateOf(null) }
+    LaunchedEffect(dialogMessage, dialogErrorMessage) {
+        (dialogErrorMessage ?: dialogMessage)?.let { message ->
+            snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
             dialogMessage = null
+            dialogErrorMessage = null
         }
     }
-
-    LaunchedEffect(viewModel, onBack, onOpenTaskList) {
+    LaunchedEffect(viewModel, onBack) {
         viewModel.events.collect { event ->
             when (event) {
                 is ModpackInfoEvent.ShowSnackbar -> {
@@ -81,57 +94,36 @@ fun ModpackInfoScreen(
                     snackbarHostState.showSnackbar(event.message, duration = SnackbarDuration.Short)
                 }
 
-                is ModpackInfoEvent.InstallQueued -> {
-                    if (onOpenTaskList != null) {
-                        onOpenTaskList(event.runId)
-                    } else {
-                        snackbarHostState.showSnackbar("已加入任务列表", duration = SnackbarDuration.Short)
-                    }
-                }
-
-                is ModpackInfoEvent.SelectDownloadMethod -> {
-                    downloadMethodVersion = viewModel.uiState.value.pack?.versions
-                        ?.firstOrNull { it.name == event.versionName }
-                }
-
-                is ModpackInfoEvent.ConfirmRedownload -> {
-                    confirmRedownloadVersion = viewModel.uiState.value.pack?.versions
-                        ?.firstOrNull { it.name == event.versionName }
-                }
-
                 ModpackInfoEvent.PackDeleted -> onBack()
+                is ModpackInfoEvent.ConfirmRedownload -> activeDownloadDialog =
+                    ActiveModpackDownloadDialog(event.versionName, ModpackDownloadDialogPhase.ConfirmRedownload)
+                is ModpackInfoEvent.SelectDownloadMethod -> activeDownloadDialog =
+                    ActiveModpackDownloadDialog(event.versionName, ModpackDownloadDialogPhase.SelectMethod)
+                is ModpackInfoEvent.InstallQueued -> onOpenTaskList?.invoke(event.runId)
+                    ?: snackbarHostState.showSnackbar("已加入任务列表", duration = SnackbarDuration.Short)
             }
         }
     }
     val pack = uiState.pack
-    val isAuthor = pack?.let {  it.authorId == loggedAccount._id || loggedAccount.isDav } ?: false
+    val isAuthor = pack?.let { it.authorId == loggedAccount._id || loggedAccount.isDav } ?: false
     val sourceUrl = pack?.sourceUrl?.trim()?.takeIf(String::isNotBlank)
 
     MaxBox {
-        ScreenContentSurface(size = ScreenContentSize.LARGE) {
-            TitleRow(pack?.let { "整合包 · ${it.name}" } ?: "整合包详情", onBack) {
-                (uiState.errorMessage ?: dialogErrorMessage)?.let {
+        ScreenContentSurface(size = ScreenContentSize.SMALL) {
+            TitleRow(pack?.name ?: "整合包详情", onBack) {
+                uiState.errorMessage?.let {
                     Text(it, color = MaterialTheme.colorScheme.error)
                 }
 
-                pack?.let { pack ->
-                    TinyClickCopyText("mid", pack._id.toString())
-                    HeadButton(pack.authorId, showName = false)
-                    Text(pack.mcVer.simpleVer)
-                }
                 sourceUrl?.let { url ->
-                    OutlinedButton(onClick = { openUrl(url) }) {
-                        Text("打开原帖")
-                    }
+                    CircleIconButton("\uDB81\uDD9F", tooltip = "打开原帖"){openUrl(url)}
                 }
                 if (isAuthor) {
                     CircleIconButton(
                         icon = "\uF01F",
                         tooltip = "修改信息",
-                        showText = false,
                         bgColor = themeNow.tertiary
                     ) {
-                        dialogErrorMessage = null
                         viewModel.beginEdit()
                         showEditDialog = true
                     }
@@ -139,7 +131,6 @@ fun ModpackInfoScreen(
                         icon = "\uEA81",
                         tooltip = "删除整合包",
                         bgColor = MaterialTheme.colorScheme.error,
-                        showText = false
                     ) { confirmDeletePack = true }
 
 
@@ -147,50 +138,77 @@ fun ModpackInfoScreen(
             }
             ContentBody {
                 if (uiState.loading) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    CircularProgressIndicator()
-                }
-            }
-
-            if (!uiState.loading && pack == null) {
-                Text("未找到整合包信息")
-            }
-
-            if (pack != null) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    ModpackDownloadVersions(
-                        pack = pack,
-                        isAuthor = isAuthor,
-                        onOpenVersionEdit = onOpenVersionEdit,
-                        onCreateHost = onCreateHost?.let { createHost ->
-                            { version -> createHost(pack, version) }
-                        },
-                        onDeleteVersion = { confirmDeleteVersion = it },
-                        onRebuildVersion = { confirmRebuildVersion = it },
-                        onDownloadVersion = viewModel::requestDownload,
-                    )
-                    ModpackIntroContent(pack)
-                    if (uiState.modsLoading) {
-                        Text("正在载入${pack.modCount}个Mod的详细信息...")
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        CircularProgressIndicator()
                     }
-                    ModGrid(
-                        mods = uiState.mods,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        emptyText = "没有可显示的mod",
-                        initialIconOnly = true,
-                    )
                 }
-            }}
+
+                if (!uiState.loading && pack == null) {
+                    Text("未找到整合包信息")
+                }
+
+                if (pack != null) {
+                    Column(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        ModpackDownloadVersions(
+                            pack = pack,
+                            isAuthor = isAuthor,
+                            onOpenVersionInfo = onOpenVersionInfo,
+                            onCreateHost = onCreateHost,
+                            onRequestDownload = viewModel::requestDownload,
+                        )
+                        ModpackIntroContent(pack)
+                    }
+                }
+            }
         }
         BottomSnakebarM3(snackbarHostState)
+    }
+
+    val selectedDownloadVersion = activeDownloadDialog?.let { dialog ->
+        pack?.versions?.firstOrNull { it.name == dialog.versionName }
+    }
+    LaunchedEffect(pack, activeDownloadDialog) {
+        if (activeDownloadDialog != null && selectedDownloadVersion == null) {
+            activeDownloadDialog = null
+        }
+    }
+    if (activeDownloadDialog?.phase == ModpackDownloadDialogPhase.ConfirmRedownload &&
+        pack != null && selectedDownloadVersion != null
+    ) {
+        ConfirmDialog(
+            title = "确认重新下载",
+            message = "整合包版本 ${selectedDownloadVersion.name} 已存在，是否重新下载？",
+            onConfirm = {
+                activeDownloadDialog = ActiveModpackDownloadDialog(
+                    versionName = selectedDownloadVersion.name,
+                    phase = ModpackDownloadDialogPhase.SelectMethod,
+                )
+            },
+            onDismiss = { activeDownloadDialog = null },
+        )
+    }
+    if (activeDownloadDialog?.phase == ModpackDownloadDialogPhase.SelectMethod &&
+        pack != null && selectedDownloadVersion != null
+    ) {
+        ModpackDownloadMethodDialog(
+            packName = pack.name,
+            packVer = selectedDownloadVersion.name,
+            onDismiss = { activeDownloadDialog = null },
+            onDirectDownload = {
+                val versionName = selectedDownloadVersion.name
+                activeDownloadDialog = null
+                viewModel.installVersion(versionName)
+            },
+            onOpenTaskList = onOpenTaskList,
+            onImportMessage = { dialogMessage = it },
+            onImportError = { dialogErrorMessage = it },
+        )
     }
 
     if (confirmDeletePack && pack != null) {
@@ -289,178 +307,133 @@ fun ModpackInfoScreen(
         )
     }
 
-    confirmRedownloadVersion?.let { version ->
-        val currentPack = pack
-        if (currentPack != null) {
-            ConfirmDialog(
-                title = "确认重新下载",
-                message = "整合包版本 ${version.name} 已存在，是否重新下载？",
-                onConfirm = {
-                    confirmRedownloadVersion = null
-                    downloadMethodVersion = version
-                },
-                onDismiss = { confirmRedownloadVersion = null }
-            )
-        } else {
-            confirmRedownloadVersion = null
-        }
-    }
-
-    downloadMethodVersion?.let { version ->
-        val currentPack = pack
-        if (currentPack != null) {
-            ModpackDownloadMethodDialog(
-                packName = currentPack.name,
-                packVer = version.name,
-                onDismiss = { downloadMethodVersion = null },
-                onDirectDownload = {
-                    downloadMethodVersion = null
-                    viewModel.installVersion(version.name)
-                },
-                onOpenTaskList = onOpenTaskList,
-                onImportMessage = { dialogMessage = it },
-                onImportError = { dialogErrorMessage = it }
-            )
-        }
-    }
-
-    confirmDeleteVersion?.let { version ->
-        AlertDialog(
-            onDismissRequest = { confirmDeleteVersion = null },
-            title = { Text("确认删除版本") },
-            text = { Text("确定要永久删除版本 V${version.name} 吗？无法恢复！") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmDeleteVersion = null
-                    viewModel.deleteVersion(version.name)
-                }) {
-                    Text("删除", color = MaterialTheme.colorScheme.error)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDeleteVersion = null }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-
-    confirmRebuildVersion?.let { version ->
-        AlertDialog(
-            onDismissRequest = { confirmRebuildVersion = null },
-            title = { Text("确认重构版本") },
-            text = { Text("整合包出现mod不完整等问题，可重构以解决。确定吗？") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmRebuildVersion = null
-                    viewModel.rebuildVersion(version.name)
-                }) {
-                    Text("重构")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmRebuildVersion = null }) {
-                    Text("取消")
-                }
-            }
-        )
-    }
-
 }
 
 @Composable
 private fun ModpackDownloadVersions(
     pack: Modpack.DetailVo,
     isAuthor: Boolean,
-    onOpenVersionEdit: ((String) -> Unit)?,
-    onCreateHost: ((Modpack.Version) -> Unit)?,
-    onDeleteVersion: (Modpack.Version) -> Unit,
-    onRebuildVersion: (Modpack.Version) -> Unit,
-    onDownloadVersion: (String) -> Unit,
+    onOpenVersionInfo: ((String) -> Unit)?,
+    onCreateHost: ((Modpack.DetailVo, Modpack.Version) -> Unit)?,
+    onRequestDownload: (Modpack.Version) -> Unit,
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(
-            text = "\uF019 下载版本(${pack.versions.size})".asIconText,
-            style = MaterialTheme.typography.titleMedium
-        )
-        if (pack.versions.isEmpty()) {
-            Text("此整合包暂无可用版本，等待作者上传....", color = Color.Gray)
-        }
-        pack.versions.forEach { version ->
-            val statusText = when (version.status) {
-                Modpack.Status.OK -> "\uF058 可用"
-                Modpack.Status.BUILDING -> "\uEEFF 构建中"
-                Modpack.Status.FAIL -> "\uEA87 构建失败"
-                Modpack.Status.WAIT -> "\uE641 等待构建"
-            }
-            val statusColor = when (version.status) {
-                Modpack.Status.OK -> themeNow.primary
-                Modpack.Status.BUILDING -> themeNow.tertiary
-                Modpack.Status.FAIL -> MaterialTheme.colorScheme.error
-                Modpack.Status.WAIT -> themeNow.onSurfaceVariant
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "V${version.name} - \uE641 ${version.time.millisToHumanDateTime} - \uF0C7${version.totalSize?.humanFileSize ?: ""}".asIconText,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(statusText.asIconText, color = statusColor)
-                Space8w()
-                var hasAction = false
-                if (version.status == Modpack.Status.OK) {
-                    onCreateHost?.let { createHost ->
-                        CircleIconButton(
-                            icon = "\uF04B",
-                            label = "创建多人房间",
-                            showText = true,
-                        ) { createHost(version) }
-                        hasAction = true
-                    }
-                }
-                if (isAuthor) {
-                    if (hasAction) {
-                        Space8w()
-                    }
-                    onOpenVersionEdit?.let { openVersionEdit ->
-                        CircleIconButton(
-                            icon = "\uF044",
-                            label = "编辑版本Mod",
-                            bgColor = themeNow.secondary,
-                            showText = false,
-                        ) { openVersionEdit(version.name) }
-                        Space8w()
-                        hasAction = true
-                    }
-                    CircleIconButton(
-                        icon = "\uEA81",
-                        label = "删除版本",
-                        showText = false,
-                        bgColor = MaterialTheme.colorScheme.error
-                    ) { onDeleteVersion(version) }
-                    Space8w()
-                    CircleIconButton(
-                        icon = "\uF0AD",
-                        label = "重构",
-                        showText = false,
-                        bgColor = MaterialTheme.colorScheme.tertiary
-                    ) { onRebuildVersion(version) }
-                    hasAction = true
-                }
-                if (version.status == Modpack.Status.OK) {
-                    if (hasAction) {
-                        Space8w()
-                    }
-                    CircleIconButton(
-                        icon = "\uF019",
-                        showText = false,
-                        label = "下载整合包"
+    val visibleVersions = visibleModpackVersions(pack.versions, isAuthor)
 
-                    ) { onDownloadVersion(version.name) }
-                }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+
+            RRow {
+                Text(
+                    text = "请选择版本",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                HeadButton(pack.authorId, showName = false)
+                Text(pack.mcVer.simpleVer)
+                TinyClickCopyText("mid", pack._id.toString())
+
+        }
+        if (visibleVersions.isEmpty()) {
+            Text(
+                if (isAuthor) "暂无版本" else "暂无可用版本",
+                color = Color.Gray,
+            )
+        }
+        visibleVersions.forEach { version ->
+            ModpackVersionCard(
+                pack = pack,
+                version = version,
+                onOpenVersionInfo = onOpenVersionInfo,
+                onCreateHost = onCreateHost,
+                onRequestDownload = onRequestDownload,
+            )
+        }
+    }
+}
+
+internal fun visibleModpackVersions(
+    versions: List<Modpack.Version>,
+    isAuthor: Boolean,
+): List<Modpack.Version> = if (isAuthor) versions else versions.filter { it.status == Modpack.Status.OK }
+
+@Composable
+private fun ModpackVersionCard(
+    pack: Modpack.DetailVo,
+    version: Modpack.Version,
+    onOpenVersionInfo: ((String) -> Unit)?,
+    onCreateHost: ((Modpack.DetailVo, Modpack.Version) -> Unit)?,
+    onRequestDownload: (Modpack.Version) -> Unit,
+) {
+    val statusText = when (version.status) {
+        Modpack.Status.OK -> "\uDB82\uDE50"
+        Modpack.Status.BUILDING -> "\uEEFF"
+        Modpack.Status.FAIL -> "\uEA87"
+        Modpack.Status.WAIT -> "\uE641"
+    }
+    val statusColor = when (version.status) {
+        Modpack.Status.OK -> themeNow.primary
+        Modpack.Status.BUILDING -> themeNow.tertiary
+        Modpack.Status.FAIL -> MaterialTheme.colorScheme.error
+        Modpack.Status.WAIT -> themeNow.onSurfaceVariant
+    }
+
+    var menuExpanded by remember(version.name) { mutableStateOf(false) }
+    CursorPositionBox(
+        onSecondaryPress = { menuExpanded = true },
+        cursorContent = {
+            DropdownMenu(
+                expanded = menuExpanded,
+                onDismissRequest = { menuExpanded = false },
+                offset = OffsetFirstItemUnderCursor,
+            ) {
+                RDropdownMenuItem(
+                    text = "创建多人房间",
+                    icon = "\uF04B",
+                    enabled = version.status == Modpack.Status.OK,
+                    onClick = {
+                        menuExpanded = false
+                        onCreateHost?.invoke(pack, version)
+                    },
+                )
+                RDropdownMenuItem(
+                    text = "下载",
+                    icon = "\uF019",
+                    enabled = version.status == Modpack.Status.OK,
+                    onClick = {
+                        menuExpanded = false
+                        onRequestDownload(version)
+                    },
+                )
+                RDropdownMenuItem(
+                    text = "查看详情",
+                    icon = "\uF05A",
+                    onClick = {
+                        menuExpanded = false
+                        onOpenVersionInfo?.invoke(version.name)
+                    },
+                )
             }
+        },
+    ) {
+        Card(onClick = { menuExpanded = true }) {
+            ModpackVersionCardContent(version, statusText, statusColor)
+        }
+    }
+}
+
+@Composable
+private fun ModpackVersionCardContent(
+    version: Modpack.Version,
+    statusText: String,
+    statusColor: Color,
+) {
+    Row(
+        modifier = Modifier
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SimpleTooltip(
+            version.time.toFriendlyDateTime()){
+                Text(statusText+" ${version.name}", color = statusColor)
+
         }
     }
 }
@@ -475,9 +448,11 @@ private fun ModpackIntroContent(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        Text("简介", style = MaterialTheme.typography.titleMedium)
-        if (pack.categories.isNotEmpty()) {
-            ModpackCategoryChips(categories = pack.categories)
+        RRow {
+            Text("简介", style = MaterialTheme.typography.titleMedium)
+            if (pack.categories.isNotEmpty()) {
+                ModpackCategoryChips(categories = pack.categories)
+            }
         }
         displaySummary?.let {
             Text(it)

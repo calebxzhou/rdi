@@ -238,20 +238,22 @@ class ModpackProcessor(
             if (!modsDir.exists() || !modsDir.isDirectory) {
                 throw ModpackError("请选择服务端根目录，目录下应有mods文件夹")
             }
-            val modFiles = collectServerPackModFiles(file)
-            if (modFiles.isEmpty()) {
+            val modFileSelection = collectServerPackModFiles(file)
+            if (modFileSelection.selected.isEmpty()) {
                 throw ModpackError("请选择服务端根目录，目录下应有mods文件夹")
             }
             val clientModsByModId = buildClientModsByModId(clientMods, clientModSources)
             val matchedByModId = matchServerModsByClientModId(
-                files = modFiles,
+                files = modFileSelection.selected,
                 clientModsByModId = clientModsByModId,
                 onProgress = onProgress
             )
             val matched = matchLocalModFiles(matchedByModId.unmatchedFiles, onProgress)
             val finalMatchedMods = (matched.mods + matchedByModId.mods)
                 .distinctBy(::serverModMergeKey)
-            val matchedFiles = matched.matchedFiles + matchedByModId.matchedFiles
+            val matchedFiles = matched.matchedFiles +
+                matchedByModId.matchedFiles +
+                modFileSelection.discarded
             val finalUnmatchedFiles = matched.unmatchedFiles
             if (finalUnmatchedFiles.isNotEmpty()) {
                 val preview = finalUnmatchedFiles.take(5).joinToString("、") { it.nameWithoutExtension }
@@ -633,24 +635,39 @@ class ModpackProcessor(
             ?: throw ModpackError("暂不支持Mod加载器${normalized.ifBlank { "未知" }}")
     }
 
+    private data class ModFileSelection(
+        val selected: List<File>,
+        val discarded: Set<File>
+    )
+
     private fun collectEmbeddedModFiles(rootDir: File): List<File> {
         val modFiles = rootDir.walkTopDown()
             .filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
             .filter { it.invariantSeparatorsPath.contains("/mods/") }
             .toList()
-        if (modFiles.size <= 1) return modFiles
-        return modFiles
+        return selectPreferredModFiles(modFiles).selected
+    }
+
+    private fun collectServerPackModFiles(rootDir: File): ModFileSelection {
+        val modsDir = rootDir.resolve("mods")
+        if (!modsDir.exists() || !modsDir.isDirectory) return ModFileSelection(emptyList(), emptySet())
+        val modFiles = modsDir.walkTopDown()
+            .filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
+            .toList()
+        return selectPreferredModFiles(modFiles)
+    }
+
+    private fun selectPreferredModFiles(files: List<File>): ModFileSelection {
+        if (files.size <= 1) return ModFileSelection(files, emptySet())
+        val selected = files
             .groupBy(::embeddedModIdentityKey)
             .values
             .map { grouped -> grouped.maxWithOrNull(::compareEmbeddedModFileVersion) ?: grouped.first() }
-    }
-
-    private fun collectServerPackModFiles(rootDir: File): List<File> {
-        val modsDir = rootDir.resolve("mods")
-        if (!modsDir.exists() || !modsDir.isDirectory) return emptyList()
-        return modsDir.walkTopDown()
-            .filter { it.isFile && it.extension.equals("jar", ignoreCase = true) }
-            .toList()
+        val selectedFiles = selected.toSet()
+        return ModFileSelection(
+            selected = selected,
+            discarded = files.filterNot { it in selectedFiles }.toSet()
+        )
     }
 
     private data class EmbeddedModConfigInfo(

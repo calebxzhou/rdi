@@ -31,10 +31,10 @@ import calebxzhou.rdi.client.service.LocalContentInstallStore
 import calebxzhou.rdi.client.service.LocalContentType
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzhou.rdi.client.service.ModpackService
-import calebxzhou.rdi.client.service.RemoteModDownloadService
+import calebxzhou.rdi.client.service.ModCatalogDownloadService
 import calebxzhou.rdi.client.service.getLocalPackDirs
 import calebxzhou.rdi.client.ui.McPlayStore
-import calebxzhou.rdi.client.ui.screen.RemoteModInfoRoute
+import calebxzhou.rdi.client.ui.screen.ModCatalogInfoRoute
 import calebxzhou.rdi.client.ui.screen.CatalogLocalTargetKind
 import calebxzhou.rdi.client.ui.screen.hasDisabledCatalogLocalTargetKind
 import calebxzhou.rdi.client.ui.screen.localCatalogTarget
@@ -68,7 +68,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
 
-data class RemoteModInfoUiState(
+data class ModCatalogInfoUiState(
     val loading: Boolean = true,
     val mod: CatalogMod? = null,
     val targetLocalPack: ModpackLocalDir? = null,
@@ -90,13 +90,13 @@ data class RemoteModInfoUiState(
     val downloadDialog: CatalogDownloadUiState? = null,
 )
 
-sealed interface RemoteModInfoEvent {
-    data object TargetUnavailable : RemoteModInfoEvent
+sealed interface ModCatalogInfoEvent {
+    data object TargetUnavailable : ModCatalogInfoEvent
 
     data class ShowSnackbar(
         val message: String,
         val runId: String? = null,
-    ) : RemoteModInfoEvent
+    ) : ModCatalogInfoEvent
 }
 
 data class DownloadSelection(
@@ -143,15 +143,15 @@ data class CatalogDownloadUiState(
     val updateCount: Int = 0,
 )
 
-class RemoteModInfoViewModel(
-    private val route: RemoteModInfoRoute,
+class ModCatalogInfoViewModel(
+    private val route: ModCatalogInfoRoute,
     internal val catalog: ModCatalog,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(RemoteModInfoUiState())
-    val uiState: StateFlow<RemoteModInfoUiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(ModCatalogInfoUiState())
+    val uiState: StateFlow<ModCatalogInfoUiState> = _uiState.asStateFlow()
 
-    private val eventChannel = Channel<RemoteModInfoEvent>(Channel.BUFFERED)
-    val events: Flow<RemoteModInfoEvent> = eventChannel.receiveAsFlow()
+    private val eventChannel = Channel<ModCatalogInfoEvent>(Channel.BUFFERED)
+    val events: Flow<ModCatalogInfoEvent> = eventChannel.receiveAsFlow()
 
     private var filesJob: Job? = null
     private var installStateJob: Job? = null
@@ -192,7 +192,7 @@ class RemoteModInfoViewModel(
         val targetPack = state.targetLocalPack
         if (state.resolvingDownload) return
         if (targetPack != null && !targetPack.dir.isDirectory) {
-            emit(RemoteModInfoEvent.TargetUnavailable)
+            emit(ModCatalogInfoEvent.TargetUnavailable)
             return
         }
         _uiState.update { it.copy(resolvingDownload = true) }
@@ -200,7 +200,7 @@ class RemoteModInfoViewModel(
             try {
                 val resolved = catalog.resolveDownload(file).getOrElse { cause ->
                     lgr.warn(cause) { "解析模组下载信息失败" }
-                    emit(RemoteModInfoEvent.ShowSnackbar("无法获取下载信息，请稍后重试"))
+                    emit(ModCatalogInfoEvent.ShowSnackbar("无法获取下载信息，请稍后重试"))
                     null
                 }
                 if (resolved != null) {
@@ -229,7 +229,7 @@ class RemoteModInfoViewModel(
                 throw cause
             } catch (cause: Exception) {
                 lgr.warn(cause) { "解析模组下载信息失败" }
-                emit(RemoteModInfoEvent.ShowSnackbar("无法获取下载信息，请稍后重试"))
+                emit(ModCatalogInfoEvent.ShowSnackbar("无法获取下载信息，请稍后重试"))
             } finally {
                 if (currentCoroutineContext().isActive) {
                     _uiState.update { it.copy(resolvingDownload = false) }
@@ -355,7 +355,7 @@ class RemoteModInfoViewModel(
                 val result = when (target) {
                     is CatalogInstallTarget.Local -> {
                         val runId = ClientTaskManager.submit(
-                            task = RemoteModDownloadService.downloadToLocalModpackTask2(
+                            task = ModCatalogDownloadService.downloadToLocalModpackTask2(
                                 // 自动依赖安装已暂停，只安装用户选择的主Mod。
                                 // dialog.localInstallMods.ifEmpty { listOf(legacyMod) },
                                 listOf(legacyMod),
@@ -386,7 +386,7 @@ class RemoteModInfoViewModel(
                         downloadDialog = null,
                     )
                 }
-                emit(RemoteModInfoEvent.ShowSnackbar(result.first, result.second))
+                emit(ModCatalogInfoEvent.ShowSnackbar(result.first, result.second))
                 if (target is CatalogInstallTarget.Local) refreshLocalInstallState()
             } catch (cause: CancellationException) {
                 throw cause
@@ -409,7 +409,7 @@ class RemoteModInfoViewModel(
         viewModelScope.launch {
             if (route.hasDisabledCatalogLocalTargetKind()) {
                 _uiState.update { it.copy(loading = false) }
-                emit(RemoteModInfoEvent.TargetUnavailable)
+                emit(ModCatalogInfoEvent.TargetUnavailable)
                 return@launch
             }
             val localTarget = route.localCatalogTarget()
@@ -418,7 +418,7 @@ class RemoteModInfoViewModel(
             }
             if (localTarget != null && loadedPack == null) {
                 _uiState.update { it.copy(loading = false) }
-                emit(RemoteModInfoEvent.TargetUnavailable)
+                emit(ModCatalogInfoEvent.TargetUnavailable)
                 return@launch
             }
 
@@ -745,7 +745,7 @@ class RemoteModInfoViewModel(
         }
     }
 
-    private fun availableLoadersFor(state: RemoteModInfoUiState, version: McVersion): List<ModLoader> =
+    private fun availableLoadersFor(state: ModCatalogInfoUiState, version: McVersion): List<ModLoader> =
         state.targetLoader?.let(::listOf) ?: version.loaderVersions.keys.toList()
 
     private fun validateTargetVersion(mcVersion: McVersion?, file: CatalogFile) {
@@ -758,7 +758,7 @@ class RemoteModInfoViewModel(
         _uiState.update { it.copy(errorMessage = message) }
     }
 
-    private fun emit(event: RemoteModInfoEvent) {
+    private fun emit(event: ModCatalogInfoEvent) {
         eventChannel.trySend(event)
     }
 
@@ -844,7 +844,7 @@ private suspend fun resolveRequiredLocalMods(
 
 /* Disabled Modpack2 install planning; retained for later re-enable.
 /** Builds one content request for the selected mod and every recursively-required dependency. */
-private suspend fun RemoteModInfoViewModel.resolveModpack2InstallItems(
+private suspend fun ModCatalogInfoViewModel.resolveModpack2InstallItems(
     pack: LocalModpack2InstanceRecord,
     rootFile: CatalogFile,
     rootDownload: ResolvedDownload,

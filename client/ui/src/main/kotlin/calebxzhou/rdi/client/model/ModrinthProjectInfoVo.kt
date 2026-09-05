@@ -1,7 +1,7 @@
 package calebxzhou.rdi.client.model
 
 data class ModrinthProjectInfoVo(
-    val source: RemoteModSource = RemoteModSource.MODRINTH,
+    val source: ModCatalogSource = ModCatalogSource.MODRINTH,
     val projectId: String,
     val slug: String,
     val title: String,
@@ -49,7 +49,7 @@ data class ModrinthProjectVersionDependencyVo(
     val versionId: String?,
     val projectId: String?,
     val dependencyType: String?,
-    val source: RemoteModSource = RemoteModSource.MODRINTH,
+    val source: ModCatalogSource = ModCatalogSource.MODRINTH,
     val relationLabel: String = dependencyType ?: "dependency",
     val required: Boolean = dependencyType == "required"
 )

@@ -2,6 +2,7 @@ import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import org.gradle.api.file.DuplicatesStrategy
+import org.gradle.api.tasks.JavaExec
 import org.gradle.api.tasks.testing.Test
 import sun.jvmstat.monitor.MonitoredVmUtil.mainClass
 
@@ -90,6 +91,8 @@ application {
     mainClass.set("calebxzhou.rdi.master.RDIKt")
 }
 
+val runDir = layout.projectDirectory.dir("run").asFile
+
 kotlin {
     jvmToolchain(25)
 }
@@ -104,6 +107,17 @@ tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin"
 
 tasks.withType<Test>().configureEach {
     useJUnitPlatform()
+    workingDir = runDir
+    doFirst {
+        workingDir.mkdirs()
+    }
+}
+
+tasks.withType<JavaExec>().configureEach {
+    workingDir = runDir
+    doFirst {
+        workingDir.mkdirs()
+    }
 }
 
 tasks.register<Test>("modpackServiceTest") {

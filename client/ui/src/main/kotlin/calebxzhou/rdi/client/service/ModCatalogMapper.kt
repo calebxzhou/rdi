@@ -3,23 +3,23 @@ package calebxzhou.rdi.client.service
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
 import calebxzhou.rdi.client.model.ModrinthProjectCategoryVo
 import calebxzhou.rdi.client.model.ModrinthProjectSearchResult
-import calebxzhou.rdi.client.model.RemoteModCardVo
-import calebxzhou.rdi.client.model.RemoteModSearchResult
-import calebxzhou.rdi.client.model.RemoteModSource
+import calebxzhou.rdi.client.model.ModCatalogCardVo
+import calebxzhou.rdi.client.model.ModCatalogSearchResult
+import calebxzhou.rdi.client.model.ModCatalogSource
 import calebxzhou.rdi.common.model.CurseForgeModInfo
 
-fun ModrinthProjectSearchResult.toRemoteModSearchResult(): RemoteModSearchResult =
-    RemoteModSearchResult(
-        mods = projects.map(ModrinthProjectCardVo::toRemoteModCardVo),
+fun ModrinthProjectSearchResult.toModCatalogSearchResult(): ModCatalogSearchResult =
+    ModCatalogSearchResult(
+        mods = projects.map(ModrinthProjectCardVo::toModCatalogCardVo),
         offset = offset,
         limit = limit,
         totalHits = totalHits
     )
 
-fun ModrinthProjectCardVo.toRemoteModCardVo(): RemoteModCardVo {
+fun ModrinthProjectCardVo.toModCatalogCardVo(): ModCatalogCardVo {
     val loaderIds = loaders.map(String::lowercase).toSet()
-    return RemoteModCardVo(
-        source = RemoteModSource.MODRINTH,
+    return ModCatalogCardVo(
+        source = ModCatalogSource.MODRINTH,
         projectId = projectId,
         slug = slug,
         title = title,
@@ -37,7 +37,7 @@ fun ModrinthProjectCardVo.toRemoteModCardVo(): RemoteModCardVo {
     )
 }
 
-fun CurseForgeModInfo.toRemoteModCardVo(): RemoteModCardVo {
+fun CurseForgeModInfo.toModCatalogCardVo(): ModCatalogCardVo {
     val loaders = latestFiles
         .flatMap { it.gameVersions }
         .mapNotNull(String::toRemoteLoaderId)
@@ -46,8 +46,8 @@ fun CurseForgeModInfo.toRemoteModCardVo(): RemoteModCardVo {
         .flatMap { it.gameVersions }
         .filter(String::isMinecraftVersion)
         .distinct()
-    return RemoteModCardVo(
-        source = RemoteModSource.CURSEFORGE,
+    return ModCatalogCardVo(
+        source = ModCatalogSource.CURSEFORGE,
         projectId = id.toString(),
         slug = slug,
         title = name,

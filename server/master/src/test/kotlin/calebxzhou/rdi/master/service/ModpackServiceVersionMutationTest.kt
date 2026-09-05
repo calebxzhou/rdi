@@ -425,7 +425,7 @@ class ModpackServiceVersionMutationTest {
         val ctx = ModpackContext(player, pack, null)
         ctx.changeOptions(
             Modpack.OptionsDto(
-                name = " New Name ",
+                name = "New Name",
                 iconUrl = null,
                 info = "updated description",
                 sourceUrl = " https://example.invalid/source ",

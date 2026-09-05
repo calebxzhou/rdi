@@ -12,7 +12,7 @@ class CatalogLocalTargetTest {
         assertFalse(isDisabledCatalogLocalTargetKind(null))
         assertEquals(
             CatalogLocalTarget(CatalogLocalTargetKind.Legacy, "1.20.1-pack"),
-            RemoteModRoute(
+            ModCatalogRoute(
                 requiredMcVer = "1.20.1",
                 requiredLoader = "forge",
                 targetLocalVersionId = "1.20.1-pack",
@@ -39,13 +39,13 @@ class CatalogLocalTargetTest {
                 targetLocalVersionId = "legacy-field",
             ).localCatalogTarget()
         )
-        val remoteModInfoRoute = RemoteModInfoRoute(
+        val modCatalogInfoRoute = ModCatalogInfoRoute(
             platform = "MODRINTH",
             projectId = "iris",
             targetLocalKind = "Modpack2",
             targetLocalVersionId = "legacy-field",
         )
-        assertTrue(remoteModInfoRoute.hasDisabledCatalogLocalTargetKind())
-        assertNull(remoteModInfoRoute.localCatalogTarget())
+        assertTrue(modCatalogInfoRoute.hasDisabledCatalogLocalTargetKind())
+        assertNull(modCatalogInfoRoute.localCatalogTarget())
     }
 }

@@ -33,10 +33,38 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.delay
 import java.io.File
 
-data class ModpackVersionEditUiState(
+enum class VersionRebuildLifecycle {
+    Idle,
+    AwaitingBusy,
+    ObservedBusy,
+}
+
+fun transitionVersionRebuildLifecycle(
+    lifecycle: VersionRebuildLifecycle,
+    status: Modpack.Status,
+): VersionRebuildLifecycle = when (lifecycle) {
+    VersionRebuildLifecycle.Idle -> VersionRebuildLifecycle.Idle
+    VersionRebuildLifecycle.AwaitingBusy -> when (status) {
+        Modpack.Status.WAIT, Modpack.Status.BUILDING -> VersionRebuildLifecycle.ObservedBusy
+        Modpack.Status.OK, Modpack.Status.FAIL -> VersionRebuildLifecycle.AwaitingBusy
+    }
+    VersionRebuildLifecycle.ObservedBusy -> when (status) {
+        Modpack.Status.WAIT, Modpack.Status.BUILDING -> VersionRebuildLifecycle.ObservedBusy
+        Modpack.Status.OK, Modpack.Status.FAIL -> VersionRebuildLifecycle.Idle
+    }
+}
+
+fun shouldApplyVersionMonitorResponse(
+    currentReloadToken: Int,
+    responseReloadToken: Int,
+): Boolean = currentReloadToken == responseReloadToken
+
+data class ModpackVersionInfoUiState(
     val loading: Boolean = true,
     val pack: Modpack.DetailVo? = null,
     val version: Modpack.Version? = null,
@@ -52,26 +80,43 @@ data class ModpackVersionEditUiState(
     val selectedPendingAddKeys: Set<String> = emptySet(),
     val rejectedAddFiles: List<String> = emptyList(),
     val editDialogSaving: Boolean = false,
-    val completedAction: ModpackVersionEditAction? = null,
+    val completedAction: ModpackVersionInfoAction? = null,
     val reloadToken: Int = 0,
-)
+    val rebuildLifecycle: VersionRebuildLifecycle = VersionRebuildLifecycle.Idle,
+) {
+    val versionActionPending: Boolean
+        get() = rebuildLifecycle != VersionRebuildLifecycle.Idle
+}
 
-enum class ModpackVersionEditAction {
+enum class ModpackVersionInfoAction {
     ADD,
     EDIT,
     DELETE,
 }
 
-class ModpackVersionEditViewModel(
+private const val REBUILD_MONITOR_INTERVAL_MS = 1_500L
+private const val MAX_REBUILD_MONITOR_POLLS = 40
+private const val MAX_REBUILD_MONITOR_FAILURES = 3
+
+sealed interface ModpackVersionInfoEvent {
+    data class ShowSnackbar(val message: String) : ModpackVersionInfoEvent
+    data object VersionDeleted : ModpackVersionInfoEvent
+}
+
+class ModpackVersionInfoViewModel(
     private val modCatalog: ModCatalog,
+    private val gateway: ModpackInfoGateway,
     private val modpackId: String,
     private val verName: String,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(ModpackVersionEditUiState())
-    val uiState: StateFlow<ModpackVersionEditUiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(ModpackVersionInfoUiState())
+    val uiState: StateFlow<ModpackVersionInfoUiState> = _uiState.asStateFlow()
+    private val eventChannel = kotlinx.coroutines.channels.Channel<ModpackVersionInfoEvent>(kotlinx.coroutines.channels.Channel.BUFFERED)
+    val events: kotlinx.coroutines.flow.Flow<ModpackVersionInfoEvent> = eventChannel.receiveAsFlow()
 
     private var reloadJob: Job? = null
     private var hydrateJob: Job? = null
+    private var rebuildMonitorJob: Job? = null
 
     init {
         reload()
@@ -80,27 +125,30 @@ class ModpackVersionEditViewModel(
     fun reload() {
         reloadJob?.cancel()
         hydrateJob?.cancel()
+        val requestToken = _uiState.value.reloadToken + 1
         _uiState.update {
             it.copy(
                 loading = true,
                 errorMessage = null,
                 uiMods = emptyList(),
                 uiModsLoading = false,
-                reloadToken = it.reloadToken + 1,
+                reloadToken = requestToken,
             )
         }
-        reloadJob = viewModelScope.rdiRequest<Modpack.DetailVo>(
-            path = "modpack/$modpackId/detail",
-            onOk = { response ->
-                val detail = response.data
+        reloadJob = viewModelScope.launch {
+            try {
+                val detail = withContext(Dispatchers.IO) { gateway.loadDetail(modpackId).getOrThrow() }
                 val currentVersion = detail?.versions?.firstOrNull { it.name == verName }
-                _uiState.update {
-                    it.copy(
+                _uiState.update { state ->
+                    if (state.reloadToken != requestToken) state else state.copy(
                         pack = detail,
                         version = currentVersion,
                         uiMods = currentVersion?.mods?.toUiMods().orEmpty(),
                         uiModsLoading = currentVersion != null,
                         errorMessage = if (currentVersion == null) "未找到版本 V$verName" else null,
+                        rebuildLifecycle = currentVersion?.let { version ->
+                            transitionVersionRebuildLifecycle(state.rebuildLifecycle, version.status)
+                        } ?: state.rebuildLifecycle,
                     )
                 }
                 if (currentVersion != null) {
@@ -110,7 +158,9 @@ class ModpackVersionEditViewModel(
                                 .hydrateToUiModsInBatches(modCatalog)
                                 .flowOn(Dispatchers.IO)
                                 .collect { batch ->
-                                    _uiState.update { it.copy(uiMods = batch) }
+                                    _uiState.update { state ->
+                                        if (state.reloadToken == requestToken) state.copy(uiMods = batch) else state
+                                    }
                                 }
                         } catch (cancel: CancellationException) {
                             throw cancel
@@ -118,18 +168,25 @@ class ModpackVersionEditViewModel(
                             lgr.warn(cause) { "加载版本Mod展示信息失败，将使用基础Mod数据" }
                         } finally {
                             if (currentCoroutineContext().isActive) {
-                                _uiState.update { it.copy(uiModsLoading = false) }
+                                _uiState.update { state ->
+                                    if (state.reloadToken == requestToken) state.copy(uiModsLoading = false) else state
+                                }
                             }
                         }
                     }
                 }
-            },
-            onErr = {
-                lgr.warn(it) { "加载版本信息失败" }
-                _uiState.update { state -> state.copy(errorMessage = "加载版本信息失败: ${it.message}") }
-            },
-            onDone = { _uiState.update { it.copy(loading = false) } },
-        )
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (cause: Throwable) {
+                lgr.warn(cause) { "加载版本信息失败" }
+                _uiState.update { state -> state.copy(errorMessage = "加载版本信息失败: ${cause.message}") }
+            } finally {
+                if (currentCoroutineContext().isActive) _uiState.update { it.copy(loading = false) }
+            }
+        }
+        if (_uiState.value.versionActionPending && rebuildMonitorJob?.isActive != true) {
+            startRebuildMonitor()
+        }
     }
 
     fun resetAddDialog() {
@@ -224,6 +281,7 @@ class ModpackVersionEditViewModel(
     }
 
     fun addSelectedMods(targetMods: List<UiMod>) {
+        if (!canEditMods()) return
         val rawTargetMods = targetMods.map(UiMod::toMod)
         _uiState.update {
             it.copy(
@@ -239,8 +297,8 @@ class ModpackVersionEditViewModel(
             onOk = {
                 _uiState.update {
                     it.copy(
-                        okMessage = "已添加${targetMods.size}个Mod，版本开始重构",
-                        completedAction = ModpackVersionEditAction.ADD,
+                        okMessage = "已添加${targetMods.size}个Mod",
+                        completedAction = ModpackVersionInfoAction.ADD,
                     )
                 }
                 resetAddDialog()
@@ -255,6 +313,7 @@ class ModpackVersionEditViewModel(
     }
 
     fun saveEdits(replaceItems: List<ModBatchReplaceItem>) {
+        if (!canEditMods()) return
         _uiState.update { it.copy(editDialogSaving = true) }
         viewModelScope.rdiRequestU(
             path = versionModsBatchPath(modpackId, verName),
@@ -263,8 +322,8 @@ class ModpackVersionEditViewModel(
             onOk = {
                 _uiState.update {
                     it.copy(
-                        okMessage = "已批量更新${replaceItems.size}个Mod，版本开始重构",
-                        completedAction = ModpackVersionEditAction.EDIT,
+                        okMessage = "已批量更新${replaceItems.size}个Mod",
+                        completedAction = ModpackVersionInfoAction.EDIT,
                     )
                 }
                 reload()
@@ -278,6 +337,7 @@ class ModpackVersionEditViewModel(
     }
 
     fun deleteMods(targetRefs: List<ModRef>) {
+        if (!canEditMods()) return
         viewModelScope.rdiRequestU(
             path = versionModsBatchPath(modpackId, verName),
             method = HttpMethod.Delete,
@@ -285,8 +345,8 @@ class ModpackVersionEditViewModel(
             onOk = {
                 _uiState.update {
                     it.copy(
-                        okMessage = "已删除${targetRefs.size}个Mod，版本开始重构",
-                        completedAction = ModpackVersionEditAction.DELETE,
+                        okMessage = "已删除${targetRefs.size}个Mod",
+                        completedAction = ModpackVersionInfoAction.DELETE,
                     )
                 }
                 reload()
@@ -305,7 +365,128 @@ class ModpackVersionEditViewModel(
     fun clearCompletedAction() {
         _uiState.update { it.copy(completedAction = null) }
     }
+
+    private fun canEditMods(): Boolean {
+        val state = _uiState.value
+        return !state.versionActionPending && state.version?.status == Modpack.Status.OK
+    }
+
+    fun deleteVersion() {
+        mutateVersion(
+            mutation = ModpackInfoMutation.DeleteVersion(verName),
+            errorPrefix = "删除失败",
+            onSuccess = { eventChannel.send(ModpackVersionInfoEvent.VersionDeleted) },
+        )
+    }
+
+    fun rebuildVersion() {
+        val currentState = _uiState.value
+        val currentVersion = currentState.version ?: return
+        if (currentState.versionActionPending ||
+            currentVersion.status == Modpack.Status.WAIT ||
+            currentVersion.status == Modpack.Status.BUILDING
+        ) return
+        _uiState.update { it.copy(rebuildLifecycle = VersionRebuildLifecycle.AwaitingBusy) }
+        mutateVersion(
+            mutation = ModpackInfoMutation.RebuildVersion(verName),
+            errorPrefix = "重构失败",
+            onSuccess = {
+                eventChannel.send(ModpackVersionInfoEvent.ShowSnackbar("提交请求了 完事了发信箱告诉你"))
+                reload()
+                startRebuildMonitor()
+            },
+            onFailure = { _uiState.update { it.copy(rebuildLifecycle = VersionRebuildLifecycle.Idle) } },
+        )
+    }
+
+    override fun onCleared() {
+        rebuildMonitorJob?.cancel()
+        eventChannel.close()
+        super.onCleared()
+    }
+
+    private fun startRebuildMonitor() {
+        rebuildMonitorJob?.cancel()
+        rebuildMonitorJob = viewModelScope.launch {
+            var polls = 0
+            var failures = 0
+            while (isActive && _uiState.value.versionActionPending && polls < MAX_REBUILD_MONITOR_POLLS) {
+                delay(REBUILD_MONITOR_INTERVAL_MS)
+                if (!isActive || !_uiState.value.versionActionPending) break
+                polls++
+                try {
+                    val monitorToken = _uiState.value.reloadToken
+                    val detail = withContext(Dispatchers.IO) {
+                        gateway.loadDetail(modpackId).getOrThrow()
+                    }
+                    val currentVersion = detail?.versions?.firstOrNull { it.name == verName }
+                    if (currentVersion == null) {
+                        _uiState.update { state ->
+                            if (shouldApplyVersionMonitorResponse(state.reloadToken, monitorToken)) {
+                                state.copy(errorMessage = "未找到版本 V$verName")
+                            } else state
+                        }
+                    } else {
+                        _uiState.update { state ->
+                            if (!shouldApplyVersionMonitorResponse(state.reloadToken, monitorToken)) state else {
+                                state.copy(
+                                    pack = detail,
+                                    version = currentVersion,
+                                    rebuildLifecycle = transitionVersionRebuildLifecycle(
+                                        state.rebuildLifecycle,
+                                        currentVersion.status,
+                                    ),
+                                )
+                            }
+                        }
+                    }
+                    failures = 0
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (cause: Throwable) {
+                    failures++
+                    lgr.warn(cause) { "检查版本重构状态失败" }
+                    if (failures >= MAX_REBUILD_MONITOR_FAILURES) {
+                        eventChannel.send(ModpackVersionInfoEvent.ShowSnackbar("暂时无法确认重构状态，将继续锁定操作"))
+                        break
+                    }
+                }
+            }
+            if (polls >= MAX_REBUILD_MONITOR_POLLS && _uiState.value.versionActionPending) {
+                eventChannel.send(ModpackVersionInfoEvent.ShowSnackbar("重构状态暂未确认，操作仍保持锁定"))
+            }
+        }
+    }
+
+    private fun mutateVersion(
+        mutation: ModpackInfoMutation,
+        errorPrefix: String,
+        onSuccess: suspend () -> Unit,
+        onFailure: (() -> Unit)? = null,
+    ) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { gateway.mutate(modpackId, mutation).getOrThrow() }
+                onSuccess()
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (cause: Throwable) {
+                onFailure?.invoke()
+                reportError(errorPrefix, cause)
+            }
+        }
+    }
+
+    private fun reportError(prefix: String, cause: Throwable) {
+        lgr.warn(cause) { prefix }
+        _uiState.update { it.copy(errorMessage = "$prefix: ${cause.message ?: "未知错误"}") }
+    }
 }
+
+/** Source compatibility for persisted callers; new code should use ModpackVersionInfoRoute*. */
+typealias ModpackVersionEditUiState = ModpackVersionInfoUiState
+typealias ModpackVersionEditAction = ModpackVersionInfoAction
+typealias ModpackVersionEditViewModel = ModpackVersionInfoViewModel
 
 private data class VersionModAddFilterResult(
     val acceptedMods: List<UiMod>,

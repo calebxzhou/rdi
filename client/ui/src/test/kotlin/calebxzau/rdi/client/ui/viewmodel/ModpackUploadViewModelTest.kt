@@ -13,6 +13,7 @@ import calebxzhou.rdi.common.service.validateIconUrlAddress
 import calebxzau.rdi.client.packproc.LoadedLocalModpack
 import calebxzau.rdi.client.packproc.LoadedServerPackResult
 import calebxzau.rdi.client.packproc.LocalModpackSourceType
+import calebxzhou.rdi.client.service.content.ClientContentStore
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -22,6 +23,11 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.bson.types.ObjectId
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.nio.file.Files
+import java.security.MessageDigest
+import java.util.jar.JarEntry
+import java.util.jar.JarOutputStream
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -30,6 +36,34 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ModpackUploadViewModelTest {
+    @Test
+    fun `batched cached mod id reads tolerate same filename for different identities`() = runBlocking {
+        val jarBytes = ByteArrayOutputStream().use { output ->
+            JarOutputStream(output).use { jar ->
+                jar.putNextEntry(JarEntry("META-INF/mods.toml"))
+                jar.write("[[mods]]\nmodId=\"shared-id\"\n".toByteArray())
+                jar.closeEntry()
+            }
+            output.toByteArray()
+        }
+        val hash = MessageDigest.getInstance("SHA-1").digest(jarBytes)
+            .joinToString("") { byte -> "%02x".format(byte) }
+        val cacheRoot = Files.createTempDirectory("rdi-upload-mod-id-batch")
+        Files.write(cacheRoot.resolve("$hash.sha1"), jarBytes)
+        val first = Mod("mr", "first-project", "same-name", "first-file", hash)
+        val second = Mod("mr", "second-project", "same-name", "second-file", hash)
+
+        assertEquals(first.fileName, second.fileName)
+        val ids = readInstalledModIdsForTest(
+            listOf(UiMod(first), UiMod(second)),
+            ClientContentStore(cacheRoot),
+        )
+
+        assertEquals(2, ids.size)
+        assertEquals("shared-id", ids["mr:first-project:first-file:$hash"])
+        assertEquals("shared-id", ids["mr:second-project:second-file:$hash"])
+    }
+
     @Test
     fun `icon address rejects unsupported bare host`() {
         val error = assertFailsWith<RequestError> {
@@ -270,6 +304,67 @@ class ModpackUploadViewModelTest {
     }
 
     @Test
+    fun `double update submit while preflight runs queues one upload after success`() = runBlocking {
+        val preflightResult = CompletableDeferred<Result<Unit>>()
+        val preflightStarted = CompletableDeferred<Unit>()
+        val gateway = FakeModpackUploadGateway(
+            preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
+            ignoreModpackTestInitially = true,
+            preflightGate = preflightResult,
+            onPreflightStarted = { preflightStarted.complete(Unit) },
+        )
+        val viewModel = ModpackUploadViewModel(gateway)
+        viewModel.loadClientPack(File("client-pack.mrpack"))
+        viewModel.events.first()
+        viewModel.uiState.filter { !it.uiModsLoading }.first()
+        viewModel.chooseUpdateMode(updateTarget())
+        viewModel.updateVersionName("2.0")
+
+        viewModel.submitUpload()
+        preflightStarted.await()
+        viewModel.submitUpload()
+
+        assertEquals(1, gateway.preflightCount)
+        assertNull(gateway.submission)
+        preflightResult.complete(Result.success(Unit))
+
+        assertIs<ModpackUploadEvent.UploadSubmitted>(viewModel.events.first())
+        assertEquals(1, gateway.preflightCount)
+        assertEquals("2.0", gateway.submission?.draft?.versionName)
+        assertTrue(!viewModel.uiState.value.iconValidationRunning)
+    }
+
+    @Test
+    fun `changing update draft while preflight runs prevents stale submission`() = runBlocking {
+        val preflightResult = CompletableDeferred<Result<Unit>>()
+        val preflightStarted = CompletableDeferred<Unit>()
+        val gateway = FakeModpackUploadGateway(
+            preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
+            ignoreModpackTestInitially = true,
+            preflightGate = preflightResult,
+            onPreflightStarted = { preflightStarted.complete(Unit) },
+        )
+        val viewModel = ModpackUploadViewModel(gateway)
+        viewModel.loadClientPack(File("client-pack.mrpack"))
+        viewModel.events.first()
+        viewModel.uiState.filter { !it.uiModsLoading }.first()
+        viewModel.chooseUpdateMode(updateTarget())
+        viewModel.updateVersionName("2.0")
+
+        viewModel.submitUpload()
+        preflightStarted.await()
+        viewModel.updateVersionName("3.0")
+        preflightResult.complete(Result.success(Unit))
+
+        val state = viewModel.uiState
+            .filter { it.errorMessage == "上传信息已更改，请重新提交" }
+            .first()
+        assertEquals(1, gateway.preflightCount)
+        assertNull(gateway.submission)
+        assertTrue(!state.iconValidationRunning)
+    }
+
+    @Test
     fun `update submission skips create icon validation`() = runBlocking {
         var validationCount = 0
         val target = Modpack.BriefVo(
@@ -296,7 +391,28 @@ class ModpackUploadViewModelTest {
 
         assertIs<ModpackUploadEvent.UploadSubmitted>(viewModel.events.first())
         assertEquals(0, validationCount)
+        assertEquals(1, gateway.preflightCount)
         assertEquals(target.id, gateway.submission?.updateModpackId)
+    }
+
+    @Test
+    fun `preflight failure prevents upload task submission`() = runBlocking {
+        val gateway = FakeModpackUploadGateway(
+            preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
+            ignoreModpackTestInitially = true,
+            preflightResult = Result.failure(RequestError("同名整合包已存在")),
+        )
+        val viewModel = ModpackUploadViewModel(gateway) { Result.success(Unit) }
+        viewModel.loadClientPack(File("client-pack.mrpack"))
+        viewModel.events.first()
+        viewModel.uiState.filter { !it.uiModsLoading }.first()
+        viewModel.updateDraft(validCreateDraft())
+
+        viewModel.submitUpload()
+
+        val state = viewModel.uiState.filter { it.errorMessage != null }.first()
+        assertEquals("上传检查失败：同名整合包已存在", state.errorMessage)
+        assertNull(gateway.submission)
     }
 
     @Test
@@ -425,13 +541,23 @@ class ModpackUploadViewModelTest {
         private val missingMods: List<Mod> = emptyList(),
         override val ignoreModpackTestInitially: Boolean = false,
         private val uploadRunId: String = "upload-1",
+        private val preflightResult: Result<Unit> = Result.success(Unit),
+        private val preflightGate: CompletableDeferred<Result<Unit>>? = null,
+        private val onPreflightStarted: (() -> Unit)? = null,
     ) : ModpackUploadGateway {
         override val taskEntries: StateFlow<List<Task2Entry>> = MutableStateFlow(emptyList())
         var submission: ModpackUploadSubmission? = null
+        var preflightCount = 0
         var cleanupCalled = false
 
         override suspend fun loadUploadedModpacks(): Result<List<Modpack.BriefVo>> =
             Result.success(emptyList())
+
+        override suspend fun preflightUpload(submission: ModpackUploadSubmission): Result<Unit> {
+            preflightCount++
+            onPreflightStarted?.invoke()
+            return preflightGate?.await() ?: preflightResult
+        }
 
         override suspend fun prepareClientPack(
             file: File,
@@ -471,6 +597,14 @@ class ModpackUploadViewModelTest {
     }
 
     private companion object {
+        fun updateTarget() = Modpack.BriefVo(
+            id = ObjectId("66a000000000000000000001"),
+            name = "已有包",
+            icon = "https://cdn.modrinth.com/icon.png",
+            info = "这是一个已有整合包简介",
+            categories = listOf(Modpack.Category.TECH),
+        )
+
         fun validCreateDraft() = ModpackUploadDraft(
             name = "新整合包",
             versionName = "2.0",

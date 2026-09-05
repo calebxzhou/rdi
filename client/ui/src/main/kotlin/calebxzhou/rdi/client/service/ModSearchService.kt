@@ -6,9 +6,9 @@ import calebxzau.rdi.client.modcatalog.CatalogSlugRef
 import calebxzau.rdi.client.modcatalog.getMetadataOrEmpty
 import calebxzhou.rdi.client.model.ModrinthProjectCardVo
 import calebxzhou.rdi.client.model.ModrinthProjectSearchResult
-import calebxzhou.rdi.client.model.RemoteModCardVo
-import calebxzhou.rdi.client.model.RemoteModSearchResult
-import calebxzhou.rdi.client.model.RemoteModSourceFilter
+import calebxzhou.rdi.client.model.ModCatalogCardVo
+import calebxzhou.rdi.client.model.ModCatalogSearchResult
+import calebxzhou.rdi.client.model.ModCatalogSourceFilter
 import calebxzhou.rdi.common.model.ModrinthSearchIndex
 import calebxzhou.rdi.common.service.CurseForgeService
 import kotlinx.coroutines.async
@@ -21,19 +21,19 @@ object ModSearchService {
         mcVersion: String? = null,
         loader: String? = null,
         index: ModrinthSearchIndex = ModrinthSearchIndex.RELEVANCE,
-        sourceFilter: RemoteModSourceFilter = RemoteModSourceFilter.ALL,
+        sourceFilter: ModCatalogSourceFilter = ModCatalogSourceFilter.ALL,
         offset: Int = 0,
         modrinthOffset: Int = offset,
         curseForgeOffset: Int = offset,
         limit: Int = 20
-    ): RemoteModSearchResult = coroutineScope {
-        val loadModrinth = sourceFilter != RemoteModSourceFilter.CURSEFORGE
-        val loadCurseForge = sourceFilter != RemoteModSourceFilter.MODRINTH
+    ): ModCatalogSearchResult = coroutineScope {
+        val loadModrinth = sourceFilter != ModCatalogSourceFilter.CURSEFORGE
+        val loadCurseForge = sourceFilter != ModCatalogSourceFilter.MODRINTH
         val modrinth = async {
             if (loadModrinth) {
                 runCatching { searchModrinth(modCatalog, query, mcVersion, loader, index, modrinthOffset, limit) }
             } else {
-                Result.success(emptyModrinthResult(modrinthOffset, limit).toRemoteModSearchResult())
+                Result.success(emptyModrinthResult(modrinthOffset, limit).toModCatalogSearchResult())
             }
         }
         val curseForge = async {
@@ -49,14 +49,14 @@ object ModSearchService {
         if (modrinthResult.isFailure && curseForgeResult.isFailure) {
             throw modrinthResult.exceptionOrNull() ?: curseForgeResult.exceptionOrNull()!!
         }
-        val mr = modrinthResult.getOrElse { emptyModrinthResult(modrinthOffset, limit).toRemoteModSearchResult() }
+        val mr = modrinthResult.getOrElse { emptyModrinthResult(modrinthOffset, limit).toModCatalogSearchResult() }
         val cf = curseForgeResult.getOrElse { emptyCurseForgeResult(curseForgeOffset, limit) }
         val mergedMods = when (sourceFilter) {
-            RemoteModSourceFilter.ALL -> mergeRemoteMods(mr.mods, cf.mods)
-            RemoteModSourceFilter.MODRINTH -> mr.mods
-            RemoteModSourceFilter.CURSEFORGE -> cf.mods
+            ModCatalogSourceFilter.ALL -> mergeModCatalogMods(mr.mods, cf.mods)
+            ModCatalogSourceFilter.MODRINTH -> mr.mods
+            ModCatalogSourceFilter.CURSEFORGE -> cf.mods
         }.localize(modCatalog)
-        RemoteModSearchResult(
+        ModCatalogSearchResult(
             mods = mergedMods,
             offset = offset,
             limit = limit,
@@ -75,7 +75,7 @@ object ModSearchService {
         index: ModrinthSearchIndex,
         offset: Int,
         limit: Int
-    ): RemoteModSearchResult {
+    ): ModCatalogSearchResult {
         val queryText = query?.trim().orEmpty()
         val localSlugs = modCatalog.resolveSlugsByChineseName(queryText, ModPlatform.MODRINTH)
         if (localSlugs.isEmpty()) {
@@ -87,11 +87,11 @@ object ModSearchService {
                 index = index,
                 offset = offset,
                 limit = limit
-            ).toRemoteModSearchResult()
+            ).toModCatalogSearchResult()
         }
 
         if (offset > 0) {
-            return emptyModrinthResult(offset, limit).toRemoteModSearchResult()
+            return emptyModrinthResult(offset, limit).toModCatalogSearchResult()
         }
 
         val projects = mutableListOf<ModrinthProjectCardVo>()
@@ -120,7 +120,7 @@ object ModSearchService {
             offset = 0,
             limit = limit,
             totalHits = dedupedProjects.size
-        ).toRemoteModSearchResult()
+        ).toModCatalogSearchResult()
     }
 
     private suspend fun searchCurseForge(
@@ -131,14 +131,14 @@ object ModSearchService {
         index: ModrinthSearchIndex,
         offset: Int,
         limit: Int
-    ): RemoteModSearchResult {
+    ): ModCatalogSearchResult {
         val queryText = query?.trim().orEmpty()
         val localSlugs = modCatalog.resolveSlugsByChineseName(queryText, ModPlatform.CURSEFORGE)
         if (localSlugs.isNotEmpty()) {
             if (offset > 0) {
                 return emptyCurseForgeResult(offset, limit)
             }
-            val mods = mutableListOf<RemoteModCardVo>()
+            val mods = mutableListOf<ModCatalogCardVo>()
             val seenProjectIds = mutableSetOf<String>()
             val seenSlugs = mutableSetOf<String>()
             localSlugs.forEach { slug ->
@@ -156,12 +156,12 @@ object ModSearchService {
                     if (projectId !in seenProjectIds && normalizedSlug !in seenSlugs) {
                         seenProjectIds += projectId
                         seenSlugs += normalizedSlug
-                        mods += project.toRemoteModCardVo()
+                        mods += project.toModCatalogCardVo()
                     }
                 }
             }
             val dedupedMods = mods.take(limit)
-            return RemoteModSearchResult(
+            return ModCatalogSearchResult(
                 mods = dedupedMods,
                 offset = 0,
                 limit = limit,
@@ -185,8 +185,8 @@ object ModSearchService {
         val pageSize = pagination?.pageSize?.takeIf { it > 0 } ?: limit
         val nextOffset = (pagination?.index ?: offset) + resultCount
         val totalCount = pagination?.totalCount ?: response.data.size
-        return RemoteModSearchResult(
-            mods = response.data.filter { it.isMod }.map { it.toRemoteModCardVo() },
+        return ModCatalogSearchResult(
+            mods = response.data.filter { it.isMod }.map { it.toModCatalogCardVo() },
             offset = pagination?.index ?: offset,
             limit = pageSize,
             totalHits = totalCount,
@@ -204,19 +204,19 @@ private suspend fun ModCatalog.resolveSlugsByChineseName(query: String, platform
         .distinct()
 }
 
-private suspend fun List<RemoteModCardVo>.localize(modCatalog: ModCatalog): List<RemoteModCardVo> {
+private suspend fun List<ModCatalogCardVo>.localize(modCatalog: ModCatalog): List<ModCatalogCardVo> {
     val refs = mapNotNull { mod ->
         val platform = when (mod.source) {
-            calebxzhou.rdi.client.model.RemoteModSource.CURSEFORGE -> ModPlatform.CURSEFORGE
-            calebxzhou.rdi.client.model.RemoteModSource.MODRINTH -> ModPlatform.MODRINTH
+            calebxzhou.rdi.client.model.ModCatalogSource.CURSEFORGE -> ModPlatform.CURSEFORGE
+            calebxzhou.rdi.client.model.ModCatalogSource.MODRINTH -> ModPlatform.MODRINTH
         }
         mod.slug?.takeIf(String::isNotBlank)?.let { CatalogSlugRef(platform, it) }
     }.toSet()
     val metadata = modCatalog.getMetadataOrEmpty(refs)
     return map { mod ->
         val platform = when (mod.source) {
-            calebxzhou.rdi.client.model.RemoteModSource.CURSEFORGE -> ModPlatform.CURSEFORGE
-            calebxzhou.rdi.client.model.RemoteModSource.MODRINTH -> ModPlatform.MODRINTH
+            calebxzhou.rdi.client.model.ModCatalogSource.CURSEFORGE -> ModPlatform.CURSEFORGE
+            calebxzhou.rdi.client.model.ModCatalogSource.MODRINTH -> ModPlatform.MODRINTH
         }
         val local = mod.slug?.let { metadata[CatalogSlugRef(platform, it)] } ?: return@map mod
         mod.copy(
@@ -235,8 +235,8 @@ private fun emptyModrinthResult(offset: Int, limit: Int): ModrinthProjectSearchR
         totalHits = 0
     )
 
-private fun emptyCurseForgeResult(offset: Int, limit: Int): RemoteModSearchResult =
-    RemoteModSearchResult(
+private fun emptyCurseForgeResult(offset: Int, limit: Int): ModCatalogSearchResult =
+    ModCatalogSearchResult(
         mods = emptyList(),
         offset = offset,
         limit = limit,
@@ -253,12 +253,12 @@ private fun ModrinthSearchIndex.toCurseForgeSortField(): Int? =
         ModrinthSearchIndex.UPDATED -> 3
     }
 
-private fun mergeRemoteMods(
-    modrinthMods: List<RemoteModCardVo>,
-    curseForgeMods: List<RemoteModCardVo>
-): List<RemoteModCardVo> {
+private fun mergeModCatalogMods(
+    modrinthMods: List<ModCatalogCardVo>,
+    curseForgeMods: List<ModCatalogCardVo>
+): List<ModCatalogCardVo> {
     val seen = mutableSetOf<String>()
-    fun RemoteModCardVo.keys(): List<String> = listOfNotNull(slug, title)
+    fun ModCatalogCardVo.keys(): List<String> = listOfNotNull(slug, title)
         .map { it.lowercase().filter(Char::isLetterOrDigit) }
         .filter(String::isNotBlank)
     return buildList {

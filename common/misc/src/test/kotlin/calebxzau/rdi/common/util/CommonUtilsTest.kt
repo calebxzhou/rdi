@@ -18,6 +18,7 @@ import calebxzhou.rdi.common.util.toFixed
 import calebxzhou.rdi.common.util.toFriendlyDateTime
 import calebxzhou.rdi.common.util.urlDecoded
 import calebxzhou.rdi.common.util.urlEncoded
+import calebxzhou.rdi.common.util.validateModpackName
 import java.time.Instant
 import java.time.ZoneId
 import kotlin.io.path.createTempFile
@@ -29,6 +30,33 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class CommonUtilsTest {
+    @Test
+    fun `modpack names allow valid characters and internal spaces`() {
+        assertTrue("All the Mods 10".validateModpackName().isSuccess)
+        assertTrue("All  the Mods 10".validateModpackName().isSuccess)
+        assertTrue("Pack.v1_test-中文".validateModpackName().isSuccess)
+        assertTrue("a\uD840\uDC00".validateModpackName().isSuccess)
+    }
+
+    @Test
+    fun `modpack names reject boundary whitespace and unsupported characters`() {
+        listOf(" Pack", "Pack ", "   ", "Pack\tName", "Pack\nName", "Pack/Name", "Pack\\Name", "Pack😀", "Pack\u00A0Name", "Pack\u2000Name", "Pack\u3000Name").forEach {
+            assertTrue(it.validateModpackName().isFailure, "Expected invalid modpack name: $it (${it.validateModpackName()})")
+        }
+    }
+
+    @Test
+    fun `modpack names preserve display length rules`() {
+        assertTrue("abc".validateModpackName().isSuccess)
+        assertTrue("a".repeat(32).validateModpackName().isSuccess)
+        assertTrue("a".repeat(2).validateModpackName().isFailure)
+        assertTrue("中".repeat(16).validateModpackName().isSuccess)
+        assertTrue("中".repeat(17).validateModpackName().isFailure)
+        assertTrue("\uD840\uDC00".repeat(16).validateModpackName().isSuccess)
+        assertTrue("\uD840\uDC00".repeat(17).validateModpackName().isFailure)
+        assertTrue("a b".validateModpackName().isSuccess)
+    }
+
     @Test
     fun `friendly date time supports date only mode without changing defaults`() {
         val zone = ZoneId.of("Asia/Shanghai")

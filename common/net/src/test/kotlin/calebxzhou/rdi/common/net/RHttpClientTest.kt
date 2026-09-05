@@ -134,7 +134,7 @@ class RHttpClientTest {
             val body = RecordingBody("allowed".toByteArray(), "text/plain".toMediaType())
 
             assertEquals("allowed", request(body, *encodings.toTypedArray()).debugBodyForLogging())
-            assertEquals(1, body.writeCount, encodings)
+            assertEquals(1, body.writeCount.toDouble(), encodings)
         }
     }
 

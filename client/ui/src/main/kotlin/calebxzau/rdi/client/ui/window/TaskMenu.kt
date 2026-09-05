@@ -86,7 +86,7 @@ internal fun TaskMenuButton(onOpenTask: (String) -> Unit) {
 private fun TaskMenuRow(entry: Task2Entry, onOpen: () -> Unit) {
     val interactionSource = remember { MutableInteractionSource() }
     val hovered by interactionSource.collectIsHoveredAsState()
-    val fraction = if (entry.status == Task2Status.DONE) 1f else entry.progressFraction()
+    val fraction = entry.taskMenuProgressFraction()
 
     Surface(
         onClick = onOpen,
@@ -120,7 +120,15 @@ private fun TaskMenuRow(entry: Task2Entry, onOpen: () -> Unit) {
                 if (fraction == null) {
                     LinearProgressIndicator(Modifier.fillMaxWidth())
                 } else {
-                    LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                    if (entry.status == Task2Status.FAILED) {
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                    }
                 }
                 Text(
                     entry.status.displayName(),
@@ -194,7 +202,9 @@ internal enum class TaskHoverAction { CANCEL, REMOVE }
 private fun Task2Entry.progressText(): String = (snapshot.currentProgress
     ?: Task2Progress(snapshot.currentMessage, snapshot.currentFraction)).compactText()
 
-private fun Task2Entry.progressFraction(): Float? = (snapshot.currentProgress?.fraction
+internal fun Task2Entry.taskMenuProgressFraction(): Float? = if (status == Task2Status.DONE || status == Task2Status.FAILED) {
+    1f
+} else (snapshot.currentProgress?.fraction
     ?: snapshot.currentFraction)?.coerceIn(0f, 1f)
 
 private fun Task2Status.displayName(): String = when (this) {

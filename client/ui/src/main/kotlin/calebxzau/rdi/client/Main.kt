@@ -211,45 +211,45 @@ fun main() {
 
                     val navController = rememberNavController()
                     val currentBackStackEntry by navController.currentBackStackEntryAsState()
-                    val settingsOpen = currentBackStackEntry?.destination?.hasRoute<Setting>() == true
+                    val settingsOpen = currentBackStackEntry?.destination?.hasRoute<SettingRoute>() == true
 
                     WindowChrome(
                         windowState = windowState,
                         minimumSize = minimumSize,
                         onCloseRequest = requestClose,
                         onOpenHome = {
-                            navController.navigateRoot(if (AccountSessionStore.isLoggedIn) Menu else Login)
+                            navController.navigateRoot(if (AccountSessionStore.isLoggedIn) MenuRoute else LoginRoute)
                         },
-                        onOpenMail = { navController.navigate(Mailbox) { launchSingleTop = true } },
+                        onOpenMail = { navController.navigate(MailListScreen) { launchSingleTop = true } },
                         onOpenSettings = {
                             if (settingsOpen) {
                                 navController.popBackStack()
                             } else {
-                                navController.navigate(Setting) { launchSingleTop = true }
+                                navController.navigate(SettingRoute) { launchSingleTop = true }
                             }
                         },
                         onOpenMcSession = { sessionId ->
                             McPlayStore.selectedSessionId = sessionId
                             McPlayStore.openConsoleOnly = true
                             McPlayStore.onBack = { navController.popBackStack() }
-                            navController.navigate(McPlayView) { launchSingleTop = true }
+                            navController.navigate(McPlayRoute) { launchSingleTop = true }
                         },
-                        onLogin = { navController.navigateRoot(Login) },
+                        onLogin = { navController.navigateRoot(LoginRoute) },
                         onLogout = {
                             LocalCredentials.read().setAutoLoginDisabled(true).onFailure {
                                 lgr.error(it) { "保存自动登录设置失败" }
                             }
                             AccountSessionStore.logout()
-                            navController.navigateRoot(Login)
+                            navController.navigateRoot(LoginRoute)
                         },
                         onOpenPlayerInfo = {
-                            navController.navigate(PlayerInfo()) { launchSingleTop = true }
+                            navController.navigate(PlayerInfoRoute()) { launchSingleTop = true }
                         },
-                        onOpenWardrobe = { navController.navigate(Wardrobe) }
+                        onOpenWardrobe = { navController.navigate(WardrobeRoute) }
                     ) { onOpenTask ->
                         val dynamicBackgroundActive = !windowState.isMinimized &&
-                            (currentBackStackEntry?.destination?.hasRoute<Menu>() == true ||
-                                currentBackStackEntry?.destination?.hasRoute<Login>() == true)
+                            (currentBackStackEntry?.destination?.hasRoute<MenuRoute>() == true ||
+                                currentBackStackEntry?.destination?.hasRoute<LoginRoute>() == true)
                         Box(modifier = Modifier.fillMaxSize()) {
                             AppBackgroundImage(
                                 active = dynamicBackgroundActive,

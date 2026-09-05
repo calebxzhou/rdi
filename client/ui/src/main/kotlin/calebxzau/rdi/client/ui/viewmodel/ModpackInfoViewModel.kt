@@ -3,23 +3,17 @@ package calebxzau.rdi.client.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import calebxzau.rdi.client.lgr
-import calebxzau.rdi.client.modcatalog.ModCatalog
-import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.ModpackService.modpackInstallTaskKey
 import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
-import calebxzhou.rdi.client.service.hydrateToUiModsInBatches
-import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
-import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.net.json
-import calebxzhou.rdi.common.service.latest
 import calebxzhou.rdi.common.service.validate
-import calebxzhou.rdi.common.util.validateName
+import calebxzhou.rdi.common.util.validateModpackName
 import io.ktor.client.request.setBody
 import io.ktor.http.HttpMethod
 import io.ktor.http.encodeURLPathPart
@@ -32,8 +26,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
@@ -51,8 +43,6 @@ data class ModpackInfoEditDraft(
 data class ModpackInfoUiState(
     val loading: Boolean = true,
     val pack: Modpack.DetailVo? = null,
-    val mods: List<UiMod> = emptyList(),
-    val modsLoading: Boolean = false,
     val editDraft: ModpackInfoEditDraft = ModpackInfoEditDraft(),
     val savingEdit: Boolean = false,
     val errorMessage: String? = null,
@@ -63,11 +53,11 @@ sealed interface ModpackInfoEvent {
 
     data class EditSaved(val message: String) : ModpackInfoEvent
 
-    data class InstallQueued(val runId: String) : ModpackInfoEvent
-
     data class SelectDownloadMethod(val versionName: String) : ModpackInfoEvent
 
     data class ConfirmRedownload(val versionName: String) : ModpackInfoEvent
+
+    data class InstallQueued(val runId: String) : ModpackInfoEvent
 
     data object PackDeleted : ModpackInfoEvent
 }
@@ -84,16 +74,12 @@ interface ModpackInfoGateway {
 
     suspend fun mutate(modpackId: String, mutation: ModpackInfoMutation): Result<Unit>
 
-    fun hydrateMods(mods: List<Mod>): Flow<List<UiMod>>
-
     suspend fun isVersionInstalled(pack: Modpack.DetailVo, version: Modpack.Version): Result<Boolean>
 
     fun queueInstall(pack: Modpack.DetailVo, version: Modpack.Version): Result<String>
 }
 
-class RdiModpackInfoGateway(
-    private val modCatalog: ModCatalog,
-) : ModpackInfoGateway {
+class RdiModpackInfoGateway : ModpackInfoGateway {
     override suspend fun loadDetail(modpackId: String): Result<Modpack.DetailVo?> = resultOf {
         val response = server.makeRequest<Modpack.DetailVo>("modpack/$modpackId/detail")
         if (!response.ok) throw RequestError(response.msg)
@@ -127,12 +113,10 @@ class RdiModpackInfoGateway(
                 path = "modpack/$modpackId/version/${mutation.versionName.encodeURLPathPart()}/rebuild",
                 method = HttpMethod.Post,
             )
+
         }
         if (!response.ok) throw RequestError(response.msg)
     }
-
-    override fun hydrateMods(mods: List<Mod>): Flow<List<UiMod>> =
-        mods.hydrateToUiModsInBatches(modCatalog)
 
     override fun queueInstall(
         pack: Modpack.DetailVo,
@@ -163,7 +147,8 @@ class ModpackInfoViewModel(
     val events: Flow<ModpackInfoEvent> = eventChannel.receiveAsFlow()
 
     private var loadJob: Job? = null
-    private var hydrateJob: Job? = null
+    private var downloadCheckJob: Job? = null
+    private var downloadCheckGeneration = 0L
 
     init {
         reload()
@@ -171,11 +156,9 @@ class ModpackInfoViewModel(
 
     fun reload() {
         loadJob?.cancel()
-        hydrateJob?.cancel()
         _uiState.update {
             it.copy(
                 loading = true,
-                modsLoading = false,
                 errorMessage = null,
             )
         }
@@ -184,20 +167,11 @@ class ModpackInfoViewModel(
                 val pack = withContext(Dispatchers.IO) {
                     gateway.loadDetail(modpackId).getOrThrow()
                 }
-                val latestMods = pack?.versions
-                    ?.takeIf { it.isNotEmpty() }
-                    ?.latest
-                    ?.mods
-                    .orEmpty()
-                    .toList()
                 _uiState.update {
                     it.copy(
                         pack = pack,
-                        mods = latestMods.toUiMods(),
-                        modsLoading = latestMods.isNotEmpty(),
                     )
                 }
-                if (latestMods.isNotEmpty()) hydrate(latestMods)
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (cause: Throwable) {
@@ -236,12 +210,16 @@ class ModpackInfoViewModel(
     fun saveEdit() {
         val state = _uiState.value
         if (state.savingEdit || state.pack == null) return
+        val nameValidation = state.editDraft.name.validateModpackName()
+        if (nameValidation.isFailure) {
+            reportError("更新失败", nameValidation.exceptionOrNull() ?: RequestError("整合包名称无效"))
+            return
+        }
         _uiState.update { it.copy(savingEdit = true, errorMessage = null) }
         viewModelScope.launch {
             try {
-                val options = state.editDraft.toOptions()
                 withContext(Dispatchers.IO) {
-                    options.name?.validateName()?.getOrThrow()
+                    val options = state.editDraft.toOptions()
                     options.validate().getOrThrow()
                     gateway.mutate(modpackId, ModpackInfoMutation.UpdateOptions(options)).getOrThrow()
                 }
@@ -267,59 +245,63 @@ class ModpackInfoViewModel(
         )
     }
 
-    fun deleteVersion(versionName: String) {
-        mutate(
-            mutation = ModpackInfoMutation.DeleteVersion(versionName),
-            errorPrefix = "删除失败",
-            onSuccess = {
-                reload()
-                eventChannel.send(ModpackInfoEvent.ShowSnackbar("删完了"))
-            },
-        )
-    }
-
-    fun rebuildVersion(versionName: String) {
-        mutate(
-            mutation = ModpackInfoMutation.RebuildVersion(versionName),
-            errorPrefix = "重构失败",
-            onSuccess = {
-                reload()
-                eventChannel.send(ModpackInfoEvent.ShowSnackbar("提交请求了 完事了发信箱告诉你"))
-            },
-        )
-    }
-
-    fun requestDownload(versionName: String) {
-        val pack = _uiState.value.pack ?: return
-        val version = pack.versions.firstOrNull { it.name == versionName }
-        if (version == null) {
-            _uiState.update { it.copy(errorMessage = "未找到版本V${versionName}") }
+    fun requestDownload(version: Modpack.Version) {
+        val state = _uiState.value
+        val pack = state.pack
+        val currentVersion = pack?.versions?.firstOrNull { it.name == version.name }
+        if (pack == null) {
+            reportError("检查整合包版本失败", IllegalStateException("整合包信息尚未加载"))
             return
         }
-        viewModelScope.launch {
+        if (currentVersion == null) {
+            reportError("检查整合包版本失败", IllegalStateException("未找到版本 V${version.name}"))
+            return
+        }
+        downloadCheckGeneration++
+        val requestGeneration = downloadCheckGeneration
+        downloadCheckJob?.cancel()
+        if (currentVersion.status != Modpack.Status.OK) {
+            reportError("检查整合包版本失败", IllegalStateException("当前版本不可下载"))
+            return
+        }
+        downloadCheckJob = viewModelScope.launch {
             try {
                 val installed = withContext(Dispatchers.IO) {
-                    gateway.isVersionInstalled(pack, version).getOrThrow()
+                    gateway.isVersionInstalled(pack, currentVersion).getOrThrow()
                 }
-                val event = if (installed) {
-                    ModpackInfoEvent.ConfirmRedownload(versionName)
-                } else {
-                    ModpackInfoEvent.SelectDownloadMethod(versionName)
-                }
-                eventChannel.send(event)
+                if (requestGeneration != downloadCheckGeneration) return@launch
+                eventChannel.send(
+                    if (installed) ModpackInfoEvent.ConfirmRedownload(currentVersion.name)
+                    else ModpackInfoEvent.SelectDownloadMethod(currentVersion.name)
+                )
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (cause: Throwable) {
-                reportError("检查整合包版本失败", cause)
+                if (requestGeneration == downloadCheckGeneration) {
+                    reportError("检查整合包版本失败", cause)
+                }
+            } finally {
+                if (requestGeneration == downloadCheckGeneration) {
+                    downloadCheckJob = null
+                }
             }
         }
     }
 
     fun installVersion(versionName: String) {
-        val pack = _uiState.value.pack ?: return
-        val version = pack.versions.firstOrNull { it.name == versionName }
+        val state = _uiState.value
+        val pack = state.pack
+        val version = pack?.versions?.firstOrNull { it.name == versionName }
+        if (pack == null) {
+            reportError("加入任务列表失败", IllegalStateException("整合包信息尚未加载"))
+            return
+        }
         if (version == null) {
-            _uiState.update { it.copy(errorMessage = "未找到版本V${versionName}") }
+            reportError("加入任务列表失败", IllegalStateException("未找到版本 V$versionName"))
+            return
+        }
+        if (version.status != Modpack.Status.OK) {
+            reportError("加入任务列表失败", IllegalStateException("当前版本不可下载"))
             return
         }
         viewModelScope.launch {
@@ -339,29 +321,9 @@ class ModpackInfoViewModel(
     }
 
     override fun onCleared() {
+        downloadCheckJob?.cancel()
         eventChannel.close()
         super.onCleared()
-    }
-
-    private fun hydrate(mods: List<Mod>) {
-        hydrateJob?.cancel()
-        hydrateJob = viewModelScope.launch {
-            try {
-                gateway.hydrateMods(mods)
-                    .flowOn(Dispatchers.IO)
-                    .collect { batch ->
-                        _uiState.update { it.copy(mods = batch) }
-                    }
-            } catch (cancel: CancellationException) {
-                throw cancel
-            } catch (cause: Throwable) {
-                lgr.warn(cause) { "整合包Mod详细信息补全失败，保留Fallback" }
-            } finally {
-                if (currentCoroutineContext().isActive) {
-                    _uiState.update { it.copy(modsLoading = false) }
-                }
-            }
-        }
     }
 
     private fun mutate(

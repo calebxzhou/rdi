@@ -37,14 +37,14 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable
-fun RemoteModInfoScreen(
-    route: RemoteModInfoRoute,
+fun ModCatalogInfoScreen(
+    route: ModCatalogInfoRoute,
     onBack: () -> Unit,
     onOpenDependencyMod: (CatalogMod) -> Unit,
     onOpenTaskList: ((String) -> Unit)? = null,
     onTargetUnavailable: () -> Unit = onBack,
-    viewModel: RemoteModInfoViewModel = koinViewModel(
-        key = remoteModInfoViewModelKey(route)
+    viewModel: ModCatalogInfoViewModel = koinViewModel(
+        key = modCatalogInfoViewModelKey(route)
     ) {
         parametersOf(route)
     },
@@ -55,8 +55,8 @@ fun RemoteModInfoScreen(
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
-                RemoteModInfoEvent.TargetUnavailable -> onTargetUnavailable()
-                is RemoteModInfoEvent.ShowSnackbar -> {
+                ModCatalogInfoEvent.TargetUnavailable -> onTargetUnavailable()
+                is ModCatalogInfoEvent.ShowSnackbar -> {
                     val result = snackbar.showSnackbar(
                         message = event.message,
                         actionLabel = event.runId?.let { "查看任务" },
@@ -82,7 +82,7 @@ fun RemoteModInfoScreen(
                     TitleRow("模组详情", onBack)
                 }
 
-                uiState.mod != null -> RemoteModInfoContent(
+                uiState.mod != null -> ModCatalogInfoContent(
                     state = uiState,
                     viewModel = viewModel,
                     onBack = onBack,
@@ -107,13 +107,13 @@ fun RemoteModInfoScreen(
     }
 }
 
-private fun remoteModInfoViewModelKey(route: RemoteModInfoRoute): String =
+private fun modCatalogInfoViewModelKey(route: ModCatalogInfoRoute): String =
     "${route.platform}:${route.projectId}:${route.requiredMcVer}:${route.requiredLoader}:${route.targetLocalVersionId}:${route.targetLocalKind}:${route.targetLocalId}:${route.targetHostId}:${route.fromAllHosts}:${route.fromHostMods}"
 
 @Composable
-private fun RemoteModInfoContent(
-    state: RemoteModInfoUiState,
-    viewModel: RemoteModInfoViewModel,
+private fun ModCatalogInfoContent(
+    state: ModCatalogInfoUiState,
+    viewModel: ModCatalogInfoViewModel,
     onBack: () -> Unit,
     onOpenDependencyMod: (CatalogMod) -> Unit,
 ) {

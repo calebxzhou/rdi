@@ -9,7 +9,7 @@ import calebxzau.rdi.client.modcatalog.CatalogSearchRequest
 import calebxzau.rdi.client.modcatalog.CatalogSort
 import calebxzau.rdi.client.modcatalog.CatalogTarget
 import calebxzau.rdi.client.modcatalog.ModCatalog
-import calebxzhou.rdi.client.ui.screen.RemoteModRoute
+import calebxzhou.rdi.client.ui.screen.ModCatalogRoute
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
 import kotlinx.coroutines.CancellationException
@@ -24,7 +24,7 @@ import kotlinx.coroutines.launch
 
 private val lgr by Loggers
 
-data class RemoteModUiState(
+data class ModCatalogUiState(
     val searchText: String = "",
     val query: String = "",
     val mods: List<CatalogMod> = emptyList(),
@@ -34,7 +34,7 @@ data class RemoteModUiState(
     val errorMessage: String? = null,
 )
 
-internal fun RemoteModRoute.toCatalogTarget(): CatalogTarget {
+internal fun ModCatalogRoute.toCatalogTarget(): CatalogTarget {
     val minecraftVersion = requireNotNull(McVersion.from(requiredMcVer)) {
         "Unknown Minecraft version: ${requiredMcVer}"
     }
@@ -47,7 +47,7 @@ internal fun RemoteModRoute.toCatalogTarget(): CatalogTarget {
     return CatalogTarget(minecraftVersion, loader)
 }
 
-internal fun RemoteModUiState.toSearchRequest(target: CatalogTarget, cursor: CatalogSearchCursor?) =
+internal fun ModCatalogUiState.toSearchRequest(target: CatalogTarget, cursor: CatalogSearchCursor?) =
     CatalogSearchRequest(
         query = query,
         target = target,
@@ -55,14 +55,14 @@ internal fun RemoteModUiState.toSearchRequest(target: CatalogTarget, cursor: Cat
         cursor = cursor,
     )
 
-class RemoteModViewModel(
-    private val route: RemoteModRoute,
+class ModCatalogViewModel(
+    private val route: ModCatalogRoute,
     private val catalog: ModCatalog,
 ) : ViewModel() {
     private val target = route.toCatalogTarget()
 
-    private val _uiState = MutableStateFlow(RemoteModUiState())
-    val uiState: StateFlow<RemoteModUiState> = _uiState.asStateFlow()
+    private val _uiState = MutableStateFlow(ModCatalogUiState())
+    val uiState: StateFlow<ModCatalogUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
 

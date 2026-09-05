@@ -31,7 +31,7 @@ object ModrinthProjectInfoService {
             loaders = loader?.trim()?.takeIf(String::isNotBlank)?.let { listOf(it) } ?: emptyList(),
             includeChangelog = true
         )
-        val metadata = RemoteModLocalization.find(modCatalog, ModPlatform.MODRINTH, project.slug)
+        val metadata = ModCatalogLocalization.find(modCatalog, ModPlatform.MODRINTH, project.slug)
         return project.toModrinthProjectInfoVo(versions, metadata)
     }
 
@@ -59,9 +59,9 @@ private fun ModrinthV3Project.toModrinthProjectInfoVo(
     return ModrinthProjectInfoVo(
         projectId = id,
         slug = slug,
-        title = RemoteModLocalization.title(metadata, name),
-        summary = RemoteModLocalization.intro(metadata, summary?.takeIf(String::isNotBlank) ?: "暂无简介"),
-        description = RemoteModLocalization.intro(metadata, description?.takeIf(String::isNotBlank) ?: "暂无描述"),
+        title = ModCatalogLocalization.title(metadata, name),
+        summary = ModCatalogLocalization.intro(metadata, summary?.takeIf(String::isNotBlank) ?: "暂无简介"),
+        description = ModCatalogLocalization.intro(metadata, description?.takeIf(String::isNotBlank) ?: "暂无描述"),
         downloadsText = downloads.toCompactCountText(),
         followsText = followers.toSeparatedCountText(),
         iconUrl = iconUrl,

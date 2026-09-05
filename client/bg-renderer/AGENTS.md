@@ -103,7 +103,7 @@ The UI integration is outside this module:
 - `client/ui/src/main/kotlin/calebxzau/rdi/client/ui/AppBackground.kt` opens one renderer session for the application window.
 - It shows `bg.avif` before the first frame, after a renderer failure, or after low-performance fallback.
 - A paused renderer keeps displaying its last successful frame.
-- `client/ui/src/main/kotlin/calebxzau/rdi/client/Main.kt` activates rendering only when the window is not minimized and the current route is `Menu` or `Login`.
+- `client/ui/src/main/kotlin/calebxzau/rdi/client/Main.kt` activates rendering only when the window is not minimized and the current route is `MenuRoute` or `LoginRoute`.
 
 Do not move route, window, Compose theme, or fallback-resource policy into `:bg-renderer`.
 

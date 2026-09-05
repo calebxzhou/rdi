@@ -88,17 +88,17 @@ class HostTargetTest {
     fun `navigation host routes use string kind and preserve host2`() {
         val host2Id = "019c9c18-778d-7000-8000-000000000003"
         listOf(
-            HostCreate.serializer().descriptor,
-            HostInfo.serializer().descriptor,
-            HostMembers.serializer().descriptor,
-            HostMods.serializer().descriptor,
-            HostFiles.serializer().descriptor,
-            HostBackend.serializer().descriptor,
+            HostCreateRoute.serializer().descriptor,
+            HostInfoRoute.serializer().descriptor,
+            HostMembersRoute.serializer().descriptor,
+            HostModsRoute.serializer().descriptor,
+            HostFilesRoute.serializer().descriptor,
+            HostBackendRoute.serializer().descriptor,
         ).forEach(::assertKindIsString)
 
-        val create = serdesJson.decodeFromString<HostCreate>(
+        val create = serdesJson.decodeFromString<HostCreateRoute>(
             serdesJson.encodeToString(
-                HostCreate(
+                HostCreateRoute(
                     kind = HostKind.Legacy.name,
                     sourceId = "0123456789abcdef01234567",
                     legacyVersionName = "2.0.0",
@@ -107,29 +107,29 @@ class HostTargetTest {
                 )
             )
         )
-        val modpack2Create = serdesJson.decodeFromString<HostCreate>(
+        val modpack2Create = serdesJson.decodeFromString<HostCreateRoute>(
             serdesJson.encodeToString(
-                HostCreate(
+                HostCreateRoute(
                     kind = HostKind.Host2.name,
                     sourceId = host2Id,
                     displayName = "新整合包",
                 )
             )
         )
-        val info = serdesJson.decodeFromString<HostInfo>(
-            serdesJson.encodeToString(HostInfo(host2Id, fromAllHosts = true, kind = HostKind.Host2.name))
+        val info = serdesJson.decodeFromString<HostInfoRoute>(
+            serdesJson.encodeToString(HostInfoRoute(host2Id, fromAllHosts = true, kind = HostKind.Host2.name))
         )
-        val members = serdesJson.decodeFromString<HostMembers>(
-            serdesJson.encodeToString(HostMembers(host2Id, kind = HostKind.Host2.name))
+        val members = serdesJson.decodeFromString<HostMembersRoute>(
+            serdesJson.encodeToString(HostMembersRoute(host2Id, kind = HostKind.Host2.name))
         )
-        val mods = serdesJson.decodeFromString<HostMods>(
-            serdesJson.encodeToString(HostMods(host2Id, kind = HostKind.Host2.name))
+        val mods = serdesJson.decodeFromString<HostModsRoute>(
+            serdesJson.encodeToString(HostModsRoute(host2Id, kind = HostKind.Host2.name))
         )
-        val files = serdesJson.decodeFromString<HostFiles>(
-            serdesJson.encodeToString(HostFiles(host2Id, kind = HostKind.Host2.name))
+        val files = serdesJson.decodeFromString<HostFilesRoute>(
+            serdesJson.encodeToString(HostFilesRoute(host2Id, kind = HostKind.Host2.name))
         )
-        val backend = serdesJson.decodeFromString<HostBackend>(
-            serdesJson.encodeToString(HostBackend(host2Id, kind = HostKind.Host2.name))
+        val backend = serdesJson.decodeFromString<HostBackendRoute>(
+            serdesJson.encodeToString(HostBackendRoute(host2Id, kind = HostKind.Host2.name))
         )
 
         assertEquals("Legacy", create.kind)

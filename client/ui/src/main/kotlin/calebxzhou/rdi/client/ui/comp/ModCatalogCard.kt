@@ -28,8 +28,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
 import androidx.compose.ui.unit.dp
-import calebxzhou.rdi.client.model.RemoteModCardVo
-import calebxzhou.rdi.client.model.RemoteModSource
+import calebxzhou.rdi.client.model.ModCatalogCardVo
+import calebxzhou.rdi.client.model.ModCatalogSource
 import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.asIconText
 import calebxzhou.rdi.client.ui.loadResourceBitmap
@@ -37,8 +37,8 @@ import calebxzau.rdi.client.ui.baseRoundCornerShape
 
 
 @Composable
-fun RemoteModCard(
-    mod: RemoteModCardVo,
+fun ModCatalogCard(
+    mod: ModCatalogCardVo,
     modifier: Modifier = Modifier.fillMaxWidth(),
     compact: Boolean = false,
     onClick: (() -> Unit)? = null
@@ -63,7 +63,7 @@ fun RemoteModCard(
                 horizontalArrangement = Arrangement.spacedBy(itemGap),
                 verticalAlignment = Alignment.Top
             ) {
-                RemoteModIcon(mod, iconSize)
+                ModCatalogIcon(mod, iconSize)
                 Column(
                     modifier = Modifier.weight(1f),
                     verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp)
@@ -81,7 +81,7 @@ fun RemoteModCard(
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f)
                         )
-                        RemoteModSourceIcon(mod.source)
+                        ModCatalogSourceIcon(mod.source)
                     }
                     Text(
                         text = mod.summary,
@@ -94,10 +94,10 @@ fun RemoteModCard(
                         horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        RemoteModStat("\uF019", mod.downloadsText, compact)
-                        mod.followsText?.let { RemoteModStat("\uDB80\uDED1", it, compact) }
+                        ModCatalogStat("\uF019", mod.downloadsText, compact)
+                        mod.followsText?.let { ModCatalogStat("\uDB80\uDED1", it, compact) }
                         Spacer(modifier = Modifier.weight(1f))
-                        // mod.modifiedText?.let { RemoteModStat("\uE641", it) }
+                        // mod.modifiedText?.let { ModCatalogStat("\uE641", it) }
                     }
                 }
             }
@@ -108,7 +108,7 @@ fun RemoteModCard(
 }
 
 @Composable
-private fun RemoteModIcon(mod: RemoteModCardVo, size: androidx.compose.ui.unit.Dp = 76.dp) {
+private fun ModCatalogIcon(mod: ModCatalogCardVo, size: androidx.compose.ui.unit.Dp = 76.dp) {
     Surface(
         modifier = Modifier.size(size),
         shape = baseRoundCornerShape,
@@ -139,18 +139,18 @@ private fun RemoteModIcon(mod: RemoteModCardVo, size: androidx.compose.ui.unit.D
 }
 
 @Composable
-fun RemoteModSourceIcon(
-    source: RemoteModSource,
+fun ModCatalogSourceIcon(
+    source: ModCatalogSource,
     modifier: Modifier = Modifier.size(16.dp)
 ) {
     when (source) {
-        RemoteModSource.MODRINTH -> Image(
+        ModCatalogSource.MODRINTH -> Image(
             imageVector = modrinthImageVector,
             contentDescription = source.label,
             modifier = modifier
         )
 
-        RemoteModSource.CURSEFORGE -> {
+        ModCatalogSource.CURSEFORGE -> {
             val bitmap = remember { loadResourceBitmap("assets/icons/curseforge.png") }
             Image(
                 bitmap = bitmap,
@@ -163,7 +163,7 @@ fun RemoteModSourceIcon(
 }
 
 @Composable
-private fun RemoteModIconChip(
+private fun ModCatalogIconChip(
     icon: @Composable () -> Unit,
     text: String? = null
 ) {
@@ -197,7 +197,7 @@ private fun RemoteModIconChip(
 }
 
 @Composable
-private fun RemoteModStat(icon: String, text: String, compact: Boolean = false) {
+private fun ModCatalogStat(icon: String, text: String, compact: Boolean = false) {
     Row(
         horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -215,10 +215,10 @@ private fun RemoteModStat(icon: String, text: String, compact: Boolean = false) 
     }
 }
 
-private val RemoteModSource.label: String
+private val ModCatalogSource.label: String
     get() = when (this) {
-        RemoteModSource.MODRINTH -> "Modrinth"
-        RemoteModSource.CURSEFORGE -> "CurseForge"
+        ModCatalogSource.MODRINTH -> "Modrinth"
+        ModCatalogSource.CURSEFORGE -> "CurseForge"
     }
 
 private val modrinthImageVector: ImageVector by lazy {

@@ -179,6 +179,7 @@ fun TinyClickCopyText(
         fontSize = 8.sp,
         lineHeight = 8.sp,
         maxLines = 1,
+        color = Color.LightGray,
         overflow = TextOverflow.Ellipsis
     )
 }

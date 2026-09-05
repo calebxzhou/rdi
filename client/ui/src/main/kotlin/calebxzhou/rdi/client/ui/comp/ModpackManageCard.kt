@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.service.ModpackLocalDir
 import calebxzau.rdi.client.ui.DEFAULT_MODPACK_ICON
 import calebxzau.rdi.client.ui.baseRoundCornerShape
+import java.awt.Color
 
 /**
  * calebxzhou @ 2026-01-27 21:24
@@ -83,15 +84,13 @@ fun ModpackManageCard(
             Text(
                 text = buildString {
                     append(presentation.name.ifBlank { "未知整合包" })
-                    presentation.versionLabel.takeIf { it.isNotBlank() }?.let {
-                        append(" ").append(it)
-                    }
                 },
                 color = contentColor,
                 style = MaterialTheme.typography.bodyMedium,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            Text(presentation.versionLabel,color = androidx.compose.ui.graphics.Color.Gray, style = MaterialTheme.typography.bodySmall,)
         }
     }
 }

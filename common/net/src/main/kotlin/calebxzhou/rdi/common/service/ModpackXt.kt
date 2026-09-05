@@ -5,7 +5,7 @@ import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.net.httpRequest
 import calebxzhou.rdi.common.util.ok
 import calebxzhou.rdi.common.util.validateHttpUrl
-import calebxzhou.rdi.common.util.validateName
+import calebxzhou.rdi.common.util.validateModpackName
 import io.ktor.client.request.header
 import io.ktor.client.request.url
 import io.ktor.http.HttpHeaders
@@ -98,7 +98,7 @@ private fun validateModpackSourceUrl(sourceUrl: String?) : Result<Unit>{
     return ok()
 }
 suspend fun Modpack.OptionsDto.validate(): Result<Unit>{
-    name?.validateName()
+    name?.validateModpackName()?.getOrThrow()
     validateIconUrl(iconUrl).getOrThrow()
     validateModpackSourceUrl(sourceUrl)
     if ((categories?.distinct()?.size ?: 0) > Modpack.MAX_CATEGORY_COUNT) {
