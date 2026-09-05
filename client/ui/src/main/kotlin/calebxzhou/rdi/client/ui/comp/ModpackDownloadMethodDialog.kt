@@ -13,7 +13,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import calebxzhou.rdi.client.service.ClientTaskManager
-import calebxzhou.rdi.client.ui.screen.prepareRdiModpackImportTask2
+import calebxzhou.rdi.client.ui.screen.prepareRdiPack2ImportFromPicker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -37,7 +37,7 @@ fun ModpackDownloadMethodDialog(
             val task = withContext(Dispatchers.IO) {
                 runCatching {
                     onImportMessage("开始导入...")
-                    prepareRdiModpackImportTask2(onImportMessage)
+                    prepareRdiPack2ImportFromPicker()
                 }
             }.getOrElse {
                 onImportError(it.message ?: "导入失败")
