@@ -5,14 +5,15 @@ import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.normalizedSlug
 
 object ModpackModProcessor {
-    private val removedSlugs = setOf(
+    val removedSlugs: Set<String> = setOf(
         "powerful-dummy",
         "spark",
         "essential-mod",
         "default-server-properties",
         "skybox-loader-forge",
         "customskinloader",
-        "chunky"
+        "chunky",
+        "euphoria-patches"
     )
 
     private val clientSideSlugs = setOf(

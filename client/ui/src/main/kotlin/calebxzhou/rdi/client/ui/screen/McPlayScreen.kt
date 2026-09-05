@@ -28,6 +28,7 @@ import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.model.compactText
 import calebxzhou.rdi.common.util.encodeBase64
+import java.nio.file.Paths
 
 
 @Composable
@@ -95,6 +96,12 @@ fun McPlayScreen(
                     session.appendLog("[RDI] 房间附加Mod已同步")
                 }
                 if (session.stopRequested) return@launchSessionTask
+
+                val versionDir = args.versionDir?.let(Paths::get)
+                    ?: mcInstall.versionListDir.resolve(args.versionId).toPath()
+                RemovedModCleanupService.cleanup(versionDir).getOrThrow().forEach { fileName ->
+                    session.appendLog("[RDI] 已移除不兼容Mod $fileName")
+                }
 
                 UpdateService.prepareMcCore(
                     mcVersion = args.mcVer,
