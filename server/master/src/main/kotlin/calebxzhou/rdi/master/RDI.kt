@@ -19,6 +19,8 @@ import calebxzhou.rdi.master.service.host.HostPresenceService
 import calebxzhou.rdi.master.service.host.HostService
 import calebxzhou.rdi.master.service.host.hostPlayRoutes
 import calebxzhou.rdi.master.service.host.hostRoutes
+import calebxzhou.rdi.master.service.modpack.ModpackUploadService
+import calebxzhou.rdi.master.service.modpack.ModpackBuildService
 import calebxzau.rdi.server.infra.configurePostgresServices
 // Archived Modpack2 and friend routes are intentionally disabled.
 import calebxzhou.rdi.master.ygg.YggdrasilService.yggdrasilRoutes
@@ -127,11 +129,11 @@ fun main(): Unit = runBlocking {
     GAME_LIBS_DIR.resolve("mc-log4j2.xml").exportFromJarResource("mc_log4j2.xml")
     WORLDS_DIR.mkdirs()
     WORLD_CACHE_DIR.mkdirs()
-    ModpackService.cleanupStaleUploadsOnStartup()
+    ModpackUploadService.cleanupStaleUploadsOnStartup()
     val uploadSessionCleanupJob = launch(Dispatchers.IO) {
         while (isActive) {
             delay(1.hours)
-            ModpackService.cleanupExpiredUploadSessions()
+            ModpackUploadService.cleanupExpiredUploadSessions()
         }
     }
     lgr.info { "worlds: ${WORLDS_DIR.absolutePath}" }
@@ -147,7 +149,7 @@ fun main(): Unit = runBlocking {
     ModpackService.dbcl.createIndex(Indexes.descending(Modpack::playCount.name))
     DownloadQuotaService.ensureIndexes()
 
-    ModpackService.recoverUnfinishedVersionBuildsOnStartup()
+    ModpackBuildService.recoverUnfinishedVersionBuildsOnStartup()
     launch(Dispatchers.IO) {
         UnusedModPurgeService.purgeOnStartup()
     }

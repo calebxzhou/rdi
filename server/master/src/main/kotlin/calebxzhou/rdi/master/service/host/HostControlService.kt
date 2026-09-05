@@ -16,7 +16,7 @@ import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.master.model.WsMessage
 import calebxzhou.rdi.master.service.DockerService
 import calebxzhou.rdi.master.service.ModpackService
-import calebxzhou.rdi.master.service.ModpackService.getVersion
+import calebxzhou.rdi.master.service.modpack.ModpackQueryService.getVersion
 import calebxzhou.rdi.master.service.host.HostContainerService.isDisabledMod
 import calebxzhou.rdi.master.service.host.HostContainerService.isServerInstalledMod
 import calebxzhou.rdi.master.service.host.HostContainerService.makeContainer
@@ -121,7 +121,7 @@ object HostControlService {
             clearShutFlag(current._id)
             return
         }
-        val modpack = ModpackService.getById(current.modpackId) ?: throw RequestError("无此整合包")
+        val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(current.modpackId) ?: throw RequestError("无此整合包")
         val version = modpack.getVersion(current.packVer) ?: throw RequestError("无此版本")
         requireModernLog4j2Config(modpack.mcVer)
         current.requireRequiredStartupMods(modpack, version)

@@ -9,11 +9,15 @@ import kotlinx.coroutines.flow.StateFlow
 object ServerTaskManager {
     private val manager = Task2Manager()
 
+    /** Test-only submission hook; production callers continue using the global manager. */
+    internal var testSubmitter: ((Task2, String?, Boolean) -> String)? = null
+
     val entries: StateFlow<List<Task2Entry>>
         get() = manager.entries
 
     fun submit(task: Task2, dedupeKey: String? = null, autoStart: Boolean = true): String =
-        manager.submit(task, dedupeKey, autoStart)
+        testSubmitter?.invoke(task, dedupeKey, autoStart)
+            ?: manager.submit(task, dedupeKey, autoStart)
 
     fun start(runId: String) {
         manager.start(runId)

@@ -118,7 +118,7 @@ object HostPresenceService {
             .distinctBy { it.playerId }
             .sortedWith(compareBy<RGlobalPlayerList.PlayerEntry> { it.playerName }.thenBy { it.playerId })
         if (players.isEmpty()) return null
-        val modpackName = runCatching { ModpackService.getById(modpackId)?.name }
+        val modpackName = runCatching { calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(modpackId)?.name }
             .getOrElse { error ->
                 if (error is KxCancellationException) throw error
                 lgr.warn { "读取host ${_id} 整合包名称失败: ${error.message}" }

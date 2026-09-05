@@ -44,7 +44,7 @@ object HostLifecycleService {
     private suspend fun HostContext.deleteLocked(payload: Host.DeleteDto) {
         val current = host
         if (current.status != HostStatus.STOPPED) {
-            throw RequestError("请先停止房间后再删除")
+            throw RequestError("请先去后台停止房间后 再删除")
         }
         if (current.realVersion == 2 && current.worldId != null) {
             throw RequestError("v2房间存档数据无效")
@@ -95,7 +95,7 @@ object HostLifecycleService {
         val current = host
         if (current.realVersion != 2) throw RequestError("仅v2房间支持重置世界")
         if (current.worldId != null) throw RequestError("v2房间存档数据无效")
-        if (current.status != HostStatus.STOPPED) throw RequestError("请先停止房间后再重置存档")
+        if (current.status != HostStatus.STOPPED) throw RequestError("请先去后台停止房间后 再重置存档")
         val worldPath = current.dir.resolve("world")
         if (worldPath.exists() || Files.isSymbolicLink(worldPath.toPath())) {
             worldPath.deleteRecursivelyNoSymlink()
@@ -113,7 +113,7 @@ object HostLifecycleService {
         if (host.realVersion == 2 && host.worldId != null) {
             throw RequestError("v2房间存档数据无效")
         }
-        val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此整合包")
+        val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(host.modpackId) ?: throw RequestError("无此整合包")
         val modpackVer = modpack.versions.find { it.name == packVer } ?: modpack.versions.lastOrNull()
         ?: throw RequestError("无可用版本")
         requireModernLog4j2Config(modpack.mcVer)

@@ -14,7 +14,9 @@ import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.service.*
-import calebxzhou.rdi.master.service.ModpackService.installToHost
+import calebxzhou.rdi.master.service.modpack.ModpackInstallService.installToHost
+import calebxzhou.rdi.master.service.modpack.ModpackVersionMutationLock
+import calebxzhou.rdi.master.service.modpack.ModpackQueryService
 import calebxzhou.rdi.master.service.WorldService.updateWorldSize
 import calebxzhou.rdi.master.service.host.HostContainerService.makeContainer
 import calebxzhou.rdi.master.service.host.HostContainerService.requireModernLog4j2Config
@@ -32,6 +34,13 @@ import kotlin.time.Duration.Companion.seconds
 
 object HostInstallService {
     private val lgr by Loggers
+
+    private data class HostCreateAdmission(
+        val modpack: Modpack,
+        val version: Modpack.Version,
+        val host: Host,
+        val mailId: ObjectId,
+    )
 
     val ModLoader.Version.legacyForgeUniversalJarName: String
         get() {
@@ -152,43 +161,59 @@ object HostInstallService {
         if (HostQueryService.findByOwnerAndModpack(playerId, host.modpackId) != null && !this.isDav) {
             throw RequestError("同一个整合包只能创建一张房间")
         }
-        val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此包")
-        val version = resolveHostCreateVersion(modpack, host.packVer)
-        if (version.status != Modpack.Status.OK) {
+        val initiallyResolvedPack = ModpackQueryService.getById(host.modpackId) ?: throw RequestError("无此包")
+        val pinnedVersionName = resolveHostCreateVersion(initiallyResolvedPack, host.packVer).name
+        if (initiallyResolvedPack.versions.first { it.name == pinnedVersionName }.status != Modpack.Status.OK) {
             throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
         }
-        val port = allocateRoomPort()
-        val createdHost = Host(
-            name = host.name,
-            ownerId = playerId,
-            modpackId = host.modpackId,
-            packVer = version.name,
-            worldId = null,
-            port = port,
-            difficulty = host.difficulty,
-            allowCheats = host.allowCheats,
-            whitelist = host.whitelist,
-            gameMode = host.gameMode,
-            levelType = host.levelType,
-            members = listOf(Host.Member(id = playerId, role = Role.OWNER)),
-            gameRules = host.gameRules,
-            version = 2
-        )
-        val mailId =
-            MailService.sendSystemMail(playerId, "房间创建中", "${createdHost.name}正在创建中，请稍等几分钟...")._id
-        var inserted = false
-        try {
-            HostService.dbcl.insertOne(createdHost)
-            inserted = true
-            startCreateHost(createdHost, modpack, version, mailId, newHost = true)
-        } catch (error: Throwable) {
-            if (inserted) {
-                runCatching { HostService.dbcl.deleteOne(com.mongodb.client.model.Filters.eq("_id", createdHost._id)) }
-                    .onFailure { cleanupError -> lgr.error(cleanupError) { "提交创建任务失败时删除房间记录失败: ${createdHost._id}" } }
+        val admission = ModpackVersionMutationLock.withLock(host.modpackId, pinnedVersionName) {
+            val freshPack = ModpackQueryService.getById(host.modpackId) ?: throw RequestError("无此包")
+            val freshVersion = freshPack.versions.firstOrNull { it.name == pinnedVersionName }
+                ?: throw RequestError("无此版本")
+            if (freshVersion.status != Modpack.Status.OK) {
+                throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
             }
+            val createdHost = Host(
+                name = host.name,
+                ownerId = playerId,
+                modpackId = host.modpackId,
+                packVer = freshVersion.name,
+                worldId = null,
+                port = allocateRoomPort(),
+                difficulty = host.difficulty,
+                allowCheats = host.allowCheats,
+                whitelist = host.whitelist,
+                gameMode = host.gameMode,
+                levelType = host.levelType,
+                members = listOf(Host.Member(id = playerId, role = Role.OWNER)),
+                gameRules = host.gameRules,
+                version = 2
+            )
+            val mailId = MailService.sendSystemMail(
+                playerId,
+                "房间创建中",
+                "${createdHost.name}正在创建中，请稍等几分钟..."
+            )._id
+            try {
+                HostService.dbcl.insertOne(createdHost)
+                HostCreateAdmission(freshPack, freshVersion, createdHost, mailId)
+            } catch (error: Throwable) {
+                runCatching {
+                    MailService.changeMail(mailId, "房间创建失败", newContent = "无法创建房间，错误：$error")
+                }.onFailure { mailError ->
+                    lgr.error(mailError) { "更新房间创建失败通知失败: ${createdHost._id}" }
+                }
+                throw error
+            }
+        }
+        try {
+            startCreateHost(admission.host, admission.modpack, admission.version, admission.mailId, newHost = true)
+        } catch (error: Throwable) {
+            runCatching { HostService.dbcl.deleteOne(com.mongodb.client.model.Filters.eq("_id", admission.host._id)) }
+                .onFailure { cleanupError -> lgr.error(cleanupError) { "提交创建任务失败时删除房间记录失败: ${admission.host._id}" } }
             runCatching {
-                MailService.changeMail(mailId, "房间创建失败", newContent = "无法创建房间，错误：$error")
-            }.onFailure { mailError -> lgr.error(mailError) { "更新房间创建失败通知失败: ${createdHost._id}" } }
+                MailService.changeMail(admission.mailId, "房间创建失败", newContent = "无法创建房间，错误：$error")
+            }.onFailure { mailError -> lgr.error(mailError) { "更新房间创建失败通知失败: ${admission.host._id}" } }
             throw error
         }
     }

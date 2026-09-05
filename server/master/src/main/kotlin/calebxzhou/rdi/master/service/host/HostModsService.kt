@@ -21,7 +21,7 @@ import calebxzhou.rdi.common.service.ModrinthService
 import calebxzhou.rdi.common.service.runInline
 import calebxzhou.rdi.master.service.MailService
 import calebxzhou.rdi.master.service.ModpackService
-import calebxzhou.rdi.master.service.ModpackService.getVersion
+import calebxzhou.rdi.master.service.modpack.ModpackQueryService.getVersion
 import calebxzhou.rdi.master.service.ServerTaskManager
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.Updates.set
@@ -179,7 +179,7 @@ object HostModsService {
             throw RequestError("请求中包含重复Mod名: ${duplicateRequestSlugs.joinToString()}")
         }
 
-        val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此整合包")
+        val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(host.modpackId) ?: throw RequestError("无此整合包")
         val baseVersion = modpack.getVersion(host.packVer) ?: throw RequestError("无此整合包版本: ${host.packVer}")
         val activeBaseMods = host.effectiveBaseMods(baseVersion)
         val existingProjectIds = (host.extraMods + activeBaseMods).map(::projectIdentity).toSet()
@@ -206,7 +206,7 @@ object HostModsService {
 
     suspend fun HostContext.addDisabledMods(mods: List<Mod>): List<Mod> {
         if (mods.isEmpty()) throw RequestError("禁用Mod列表不能为空")
-        val modpack = ModpackService.getById(host.modpackId) ?: throw RequestError("无此整合包")
+        val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(host.modpackId) ?: throw RequestError("无此整合包")
         val baseVersion = modpack.getVersion(host.packVer) ?: throw RequestError("无此整合包版本: ${host.packVer}")
         val matchedMods = mods.map { requestMod ->
             baseVersion.mods.firstOrNull { sameMod(it, requestMod) }
@@ -244,7 +244,7 @@ object HostModsService {
                     MailService.changeMail(mailId, newContent = "开始校验Mod信息")
                     ctx.emit(LoadProgress.Phase("开始校验Mod信息"))
                     val currentHost = HostQueryService.getById(hostId) ?: throw RequestError("无此房间")
-                    val modpack = ModpackService.getById(modpackId) ?: throw RequestError("无此整合包")
+                    val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(modpackId) ?: throw RequestError("无此整合包")
                     val baseVersion = modpack.getVersion(packVer) ?: throw RequestError("无此整合包版本: $packVer")
                     validateExtraMods(mods)
                     mods.forEachIndexed { index, mod ->
@@ -284,7 +284,7 @@ object HostModsService {
                     )
 
                     val latestHost = HostQueryService.getById(hostId) ?: throw RequestError("无此房间")
-                    val latestModpack = ModpackService.getById(latestHost.modpackId) ?: throw RequestError("无此整合包")
+                    val latestModpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(latestHost.modpackId) ?: throw RequestError("无此整合包")
                     val latestBaseVersion = latestModpack.getVersion(latestHost.packVer)
                         ?: throw RequestError("无此整合包版本: ${latestHost.packVer}")
                     val latestActiveBaseMods = latestHost.effectiveBaseMods(latestBaseVersion)

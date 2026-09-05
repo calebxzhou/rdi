@@ -5,6 +5,7 @@ import calebxzhou.rdi.common.DL_MOD_DIR
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.master.DL_MODS_CLIENT_DIR
 import calebxzhou.rdi.master.service.host.HostService
+import calebxzhou.rdi.master.service.modpack.ModpackServiceKernel
 import kotlinx.coroutines.flow.toList
 import java.io.File
 import java.nio.file.Files
@@ -99,7 +100,7 @@ object UnusedModPurgeService {
         .orEmpty()
 
     private suspend fun collectUsedModFileNames(): UsedModFileNames {
-        val versions = ModpackService.dbcl.find().toList()
+        val versions = ModpackServiceKernel.dbcl.find().toList()
             .flatMap { it.versions }
         val all = buildSet {
             versions.flatMap { it.mods }.forEach { addAll(it.fileNames) }

@@ -30,6 +30,7 @@ import calebxzhou.rdi.master.service.WorldService.startSurfaceCacheBuild
 import calebxzhou.rdi.master.service.WorldService.toVo
 import calebxzhou.rdi.master.service.WorldService.world
 import calebxzhou.rdi.master.service.host.HostQueryService
+import calebxzhou.rdi.master.service.modpack.ModpackQueryService
 import com.mongodb.client.model.CreateCollectionOptions
 import com.mongodb.client.model.Filters.and
 import com.mongodb.client.model.Filters.eq
@@ -174,7 +175,7 @@ object WorldService {
         listByOwner(ownerId).map { it.toVo() }
 
     suspend fun World.toVo(): World.Vo {
-        val modpack = ModpackService.getById(modpackId)
+        val modpack = ModpackQueryService.getById(modpackId)
         return World.Vo(
             id = _id,
             name = name,
@@ -213,7 +214,7 @@ object WorldService {
     }
 
     suspend fun createWorld(uid: ObjectId, name: String?, packId: ObjectId): World {
-        val modpack = ModpackService.getById(packId) ?: throw RequestError("整合包不存在")
+        val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(packId) ?: throw RequestError("整合包不存在")
         val name = name ?: "存档${listByOwner(uid).size + 1}"
         name.validateName()
         ensureCapacity(uid)

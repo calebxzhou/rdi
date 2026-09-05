@@ -5,7 +5,7 @@ import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.RAccount
 import calebxzhou.rdi.master.service.ModpackService
-import calebxzhou.rdi.master.service.ModpackService.toBriefVo
+import calebxzhou.rdi.master.service.modpack.ModpackQueryService.toBriefVo
 import calebxzhou.rdi.master.service.host.HostControlService.status
 import calebxzhou.rdi.master.service.host.HostControlService.statusSnapshot
 import calebxzhou.rdi.master.service.host.HostPresenceService.getOnlinePlayers
@@ -135,7 +135,7 @@ object HostQueryService {
 
     private suspend fun HostListingCandidate.toBriefVo(): Host.BriefVo {
         val host = host
-        val modpack = ModpackService.getById(host.modpackId)
+        val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(host.modpackId)
         val onlinePlayers = host.getOnlinePlayers(status)
         return Host.BriefVo(
             _id = host._id,
@@ -155,7 +155,7 @@ object HostQueryService {
     }
 
     suspend fun Host.toDetailVo(): Host.DetailVo {
-        val modpack = ModpackService.getById(modpackId)
+        val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(modpackId)
         val modpackVo = modpack?.toBriefVo()
             ?: Modpack.BriefVo(id = modpackId, name = "未知整合包")
         val onlinePlayers = runCatching { getOnlinePlayers() }.getOrElse { emptyList() }

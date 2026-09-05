@@ -65,6 +65,7 @@ dependencies {
     testImplementation(kotlin("test"))
     testImplementation(libs.mockk)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation("io.ktor:ktor-server-test-host:${libs.versions.ktor.get()}")
     testImplementation(libs.testcontainers.postgresql)
     testImplementation(libs.testcontainers.junit.jupiter)
     testRuntimeOnly(libs.junit.jupiter.engine)
@@ -102,6 +103,20 @@ tasks.named<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>("compileTestKotlin"
 }
 
 tasks.withType<Test>().configureEach {
+    useJUnitPlatform()
+}
+
+tasks.register<Test>("modpackServiceTest") {
+    group = "verification"
+    description = "Runs focused Legacy ModpackService behavior tests."
+    dependsOn(tasks.named("testClasses"))
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    include("**/calebxzhou/rdi/master/service/ModpackService*Test.class")
+    include("**/calebxzhou/rdi/master/service/ModpackRoutesTest.class")
+    include("**/calebxzhou/rdi/master/service/ModpackParallelUploadServiceTest.class")
+    include("**/calebxzhou/rdi/master/service/ModpackUploadTempStorageTest.class")
+    systemProperty("net.bytebuddy.experimental", "true")
     useJUnitPlatform()
 }
 //
