@@ -15,6 +15,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.ConfirmDialog
+import calebxzau.rdi.client.ui.AlertErr
+import calebxzau.rdi.client.ui.AlertOk
 import calebxzau.rdi.client.ui.MaxBox
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
@@ -125,6 +127,15 @@ fun SettingScreen(
                                                 viewModel.updateDraft(draft.copy(solidWindow = it))
                                             },
                                             onClearDownloadCache = viewModel::clearDownloadCache,
+                                            invalidModpacksBusy = uiState.invalidModpacksChecking || uiState.invalidModpacksCleaning,
+                                            pendingInvalidModpacksCount = uiState.pendingInvalidModpacks.size,
+                                            invalidModpackSuccessMessage = uiState.invalidModpackSuccessMessage,
+                                            invalidModpackErrorMessage = uiState.invalidModpackErrorMessage,
+                                            onCheckInvalidModpacks = viewModel::checkInvalidModpacks,
+                                            onConfirmInvalidModpackCleanup = viewModel::confirmInvalidModpackCleanup,
+                                            onDismissInvalidModpackConfirmation = viewModel::dismissInvalidModpackConfirmation,
+                                            onClearInvalidModpackSuccessMessage = viewModel::clearInvalidModpackSuccessMessage,
+                                            onClearInvalidModpackErrorMessage = viewModel::clearInvalidModpackErrorMessage,
                                         )
                                     }
 
@@ -247,6 +258,15 @@ fun SettingScreen(
         solidWindow: Boolean,
         onSolidWindowChange: (Boolean) -> Unit,
         onClearDownloadCache: () -> Unit,
+        invalidModpacksBusy: Boolean,
+        pendingInvalidModpacksCount: Int,
+        invalidModpackSuccessMessage: String?,
+        invalidModpackErrorMessage: String?,
+        onCheckInvalidModpacks: () -> Unit,
+        onConfirmInvalidModpackCleanup: () -> Unit,
+        onDismissInvalidModpackConfirmation: () -> Unit,
+        onClearInvalidModpackSuccessMessage: () -> Unit,
+        onClearInvalidModpackErrorMessage: () -> Unit,
     ) {
         var showClearDownloadCacheConfirmation by remember { mutableStateOf(false) }
 
@@ -262,6 +282,20 @@ fun SettingScreen(
                     onClick = { showClearDownloadCacheConfirmation = true },
                 )
             }
+            RRow {
+                CircleIconButton(
+                    icon = "\uF1F8",
+                    label = "清除无效整合包",
+                    enabled = !invalidModpacksBusy,
+                    onClick = onCheckInvalidModpacks,
+                )
+                if (invalidModpacksBusy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                    )
+                }
+            }
         }
 
         if (showClearDownloadCacheConfirmation) {
@@ -274,6 +308,21 @@ fun SettingScreen(
                 },
                 onDismiss = { showClearDownloadCacheConfirmation = false },
             )
+        }
+
+        if (pendingInvalidModpacksCount > 0) {
+            ConfirmDialog(
+                title = "清除无效整合包？",
+                message = "有${pendingInvalidModpacksCount}个无效整合包，立刻清理吗？",
+                onConfirm = onConfirmInvalidModpackCleanup,
+                onDismiss = onDismissInvalidModpackConfirmation,
+            )
+        }
+        invalidModpackErrorMessage?.let { message ->
+            AlertErr(message, onClearInvalidModpackErrorMessage)
+        }
+        invalidModpackSuccessMessage?.let { message ->
+            AlertOk(message, onClearInvalidModpackSuccessMessage)
         }
     }
 
@@ -466,4 +515,3 @@ fun SettingScreen(
             )
         }
     }
-

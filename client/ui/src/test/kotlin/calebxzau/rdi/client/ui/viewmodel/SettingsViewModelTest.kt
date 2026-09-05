@@ -1,6 +1,7 @@
 package calebxzau.rdi.client.ui.viewmodel
 
 import calebxzhou.rdi.common.model.DownloadQuota
+import calebxzhou.rdi.client.service.ModpackLocalDir
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -11,6 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import java.io.File
 
 class SettingsViewModelTest {
     @Test
@@ -156,6 +158,88 @@ class SettingsViewModelTest {
         )
     }
 
+    @Test
+    fun `invalid pack check ignores duplicate starts and reports empty result`() = runBlocking {
+        val checkGate = CompletableDeferred<Result<List<ModpackLocalDir>>>()
+        val gateway = FakeSettingsGateway(invalidPackCheckGate = checkGate)
+        val viewModel = SettingsViewModel(gateway)
+        awaitInitialized(viewModel)
+
+        viewModel.checkInvalidModpacks()
+        viewModel.uiState.filter { it.invalidModpacksChecking }.first()
+        viewModel.checkInvalidModpacks()
+        assertEquals(1, gateway.invalidPackCheckCount)
+
+        checkGate.complete(Result.success(emptyList()))
+        val completed = viewModel.uiState.filter {
+            !it.invalidModpacksChecking && it.invalidModpackSuccessMessage != null
+        }.first()
+        assertEquals("没有无效整合包", completed.invalidModpackSuccessMessage)
+    }
+
+    @Test
+    fun `invalid pack check failure clears busy state and exposes alert error`() = runBlocking {
+        val gateway = FakeSettingsGateway(
+            invalidPackResult = Result.failure(IllegalStateException("网络不可用")),
+        )
+        val viewModel = SettingsViewModel(gateway)
+        awaitInitialized(viewModel)
+
+        viewModel.checkInvalidModpacks()
+        val failed = viewModel.uiState.filter {
+            !it.invalidModpacksChecking && it.invalidModpackErrorMessage != null
+        }.first()
+        assertEquals("检查无效整合包失败：网络不可用", failed.invalidModpackErrorMessage)
+    }
+
+    @Test
+    fun `invalid packs can be dismissed or cleaned after confirmation`() = runBlocking {
+        val packs = listOf(localPack("111111111111111111111111_one"), localPack("222222222222222222222222_two"))
+        val gateway = FakeSettingsGateway(invalidPackResult = Result.success(packs))
+        val viewModel = SettingsViewModel(gateway)
+        awaitInitialized(viewModel)
+
+        viewModel.checkInvalidModpacks()
+        val pending = viewModel.uiState.filter { it.pendingInvalidModpacks.size == 2 }.first()
+        assertEquals(packs, pending.pendingInvalidModpacks)
+        viewModel.dismissInvalidModpackConfirmation()
+        assertTrue(viewModel.uiState.value.pendingInvalidModpacks.isEmpty())
+
+        viewModel.checkInvalidModpacks()
+        viewModel.uiState.filter { it.pendingInvalidModpacks.size == 2 }.first()
+        viewModel.confirmInvalidModpackCleanup()
+        viewModel.uiState.filter { it.invalidModpacksCleaning }.first()
+        val completed = viewModel.uiState.filter {
+            !it.invalidModpacksCleaning && it.invalidModpackSuccessMessage != null
+        }.first()
+        assertEquals("已清理2个无效整合包", completed.invalidModpackSuccessMessage)
+        assertEquals(packs, gateway.deletedInvalidPacks)
+    }
+
+    @Test
+    fun `invalid pack cleanup continues after individual failure`() = runBlocking {
+        val packs = listOf(localPack("111111111111111111111111_one"), localPack("222222222222222222222222_two"))
+        val gateway = FakeSettingsGateway(
+            invalidPackResult = Result.success(packs),
+            invalidPackDeleteResults = mapOf(
+                packs[0].versionId to Result.failure(IllegalStateException("正在运行")),
+            ),
+        )
+        val viewModel = SettingsViewModel(gateway)
+        awaitInitialized(viewModel)
+
+        viewModel.checkInvalidModpacks()
+        viewModel.uiState.filter { it.pendingInvalidModpacks.size == 2 }.first()
+        viewModel.confirmInvalidModpackCleanup()
+        val failed = viewModel.uiState.filter {
+            !it.invalidModpacksCleaning && it.invalidModpackErrorMessage != null
+        }.first()
+        assertTrue(failed.invalidModpackErrorMessage!!.contains("成功1个"))
+        assertTrue(failed.invalidModpackErrorMessage!!.contains("失败1个"))
+        assertTrue(failed.invalidModpackErrorMessage!!.contains(packs[0].versionId))
+        assertEquals(packs, gateway.deletedInvalidPacks)
+    }
+
     private suspend fun awaitInitialized(viewModel: SettingsViewModel): SettingsUiState =
         viewModel.uiState.filter { !it.loading }.first()
 
@@ -176,6 +260,9 @@ class SettingsViewModelTest {
         private val quotaResults: ArrayDeque<Result<DownloadQuota.Vo>> = ArrayDeque(
             listOf(Result.success(quota(remainingBytes = 800)))
         ),
+        private val invalidPackResult: Result<List<ModpackLocalDir>> = Result.success(emptyList()),
+        private val invalidPackCheckGate: CompletableDeferred<Result<List<ModpackLocalDir>>>? = null,
+        private val invalidPackDeleteResults: Map<String, Result<Unit>> = emptyMap(),
     ) : SettingsGateway {
         val savedDrafts = mutableListOf<SettingsDraft>()
         val nodeSwitches = mutableListOf<NodeSwitchRequest>()
@@ -183,6 +270,9 @@ class SettingsViewModelTest {
         var quotaLoadCount = 0
         private val quotaLoads = kotlinx.coroutines.flow.MutableStateFlow(0)
         var clearCount = 0
+        val invalidPackChecks = mutableListOf<Unit>()
+        val deletedInvalidPacks = mutableListOf<ModpackLocalDir>()
+        var invalidPackCheckCount = 0
 
         override suspend fun loadSettings(): Result<SettingsInitialData> = Result.success(initialData)
 
@@ -213,12 +303,25 @@ class SettingsViewModelTest {
             return Result.success("run-$clearCount")
         }
 
+        override suspend fun checkInvalidModpacks(): Result<List<ModpackLocalDir>> {
+            invalidPackChecks += Unit
+            invalidPackCheckCount++
+            return invalidPackCheckGate?.await() ?: invalidPackResult
+        }
+
+        override suspend fun deleteInvalidModpack(packdir: ModpackLocalDir): Result<Unit> {
+            deletedInvalidPacks += packdir
+            return invalidPackDeleteResults[packdir.versionId] ?: Result.success(Unit)
+        }
+
         suspend fun awaitQuotaLoadCount(expected: Int) {
             quotaLoads.filter { it >= expected }.first()
         }
     }
 
     private companion object {
+        fun localPack(versionId: String) = ModpackLocalDir(File(versionId), versionId.substringAfter('_'), null, 0L)
+
         fun quota(remainingBytes: Long) = DownloadQuota.Vo(
             limitBytes = 1_000,
             usedBytes = 1_000 - remainingBytes,

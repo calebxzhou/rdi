@@ -62,18 +62,17 @@ fun McPlayScreen(
     }
 
     fun startSession(args: McPlayArgs, allowDuplicateVersion: Boolean = false) {
-        if (!allowDuplicateVersion && McPlayStore.aliveCount(args.versionId) > 0) {
-            duplicateLaunchArgs = args
-            return
-        }
-
-        val session = McPlayStore.createSession(args)
-        session.appendLog("[RDI] 准备启动 ${args.title}")
-        args.startupWarnings.forEach { warning ->
-            session.appendLog("[RDI] 警告: $warning")
-        }
-
         McPlayStore.launchSessionTask {
+            val session = McPlayStore.admitSession(args, allowDuplicateVersion)
+            if (session == null) {
+                duplicateLaunchArgs = args
+                return@launchSessionTask
+            }
+            session.appendLog("[RDI] 准备启动 ${args.title}")
+            args.startupWarnings.forEach { warning ->
+                session.appendLog("[RDI] 警告: $warning")
+            }
+
             try {
                 val baseModProgress = SyncProgressFilter()
                 val extraModProgress = SyncProgressFilter()

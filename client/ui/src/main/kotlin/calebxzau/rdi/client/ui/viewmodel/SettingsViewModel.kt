@@ -5,7 +5,10 @@ import androidx.lifecycle.viewModelScope
 import calebxzhou.rdi.client.AppConfig
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.NodeRefreshCoordinator
+import calebxzhou.rdi.client.service.ModpackLocalDir
+import calebxzhou.rdi.client.service.ModpackService
 import calebxzhou.rdi.client.service.content.submitDownloadCacheCleanupTask2
+import calebxzhou.rdi.client.service.getInvalidLocalPackDirs
 import calebxzhou.rdi.client.service.SettingsService
 import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.exception.RequestError
@@ -57,6 +60,11 @@ data class SettingsUiState(
     val downloadQuotaLoading: Boolean = false,
     val downloadQuotaError: String? = null,
     val errorMessage: String? = null,
+    val invalidModpacksChecking: Boolean = false,
+    val invalidModpacksCleaning: Boolean = false,
+    val pendingInvalidModpacks: List<ModpackLocalDir> = emptyList(),
+    val invalidModpackSuccessMessage: String? = null,
+    val invalidModpackErrorMessage: String? = null,
 )
 
 sealed interface SettingsEvent {
@@ -73,6 +81,10 @@ interface SettingsGateway {
     suspend fun loadDownloadQuota(): Result<DownloadQuota.Vo>
 
     fun clearDownloadCache(): Result<String>
+
+    suspend fun checkInvalidModpacks(): Result<List<ModpackLocalDir>>
+
+    suspend fun deleteInvalidModpack(packdir: ModpackLocalDir): Result<Unit>
 }
 
 class RdiSettingsGateway : SettingsGateway {
@@ -114,6 +126,12 @@ class RdiSettingsGateway : SettingsGateway {
     override fun clearDownloadCache(): Result<String> = runCatching {
         submitDownloadCacheCleanupTask2()
     }
+
+    override suspend fun checkInvalidModpacks(): Result<List<ModpackLocalDir>> =
+        with(ModpackService) { getInvalidLocalPackDirs() }
+
+    override suspend fun deleteInvalidModpack(packdir: ModpackLocalDir): Result<Unit> =
+        ModpackService.deleteLocalPack(packdir)
 }
 
 class SettingsViewModel(
@@ -214,6 +232,106 @@ class SettingsViewModel(
                 lgr.warn(cause) { "清除下载缓存任务提交失败" }
                 eventChannel.trySend(SettingsEvent.ShowSnackbar("清除下载缓存任务提交失败：${cause.message ?: "未知错误"}"))
             }
+    }
+
+    fun checkInvalidModpacks() {
+        val state = _uiState.value
+        if (state.invalidModpacksChecking || state.invalidModpacksCleaning) return
+        _uiState.update {
+            it.copy(
+                invalidModpacksChecking = true,
+                pendingInvalidModpacks = emptyList(),
+                invalidModpackSuccessMessage = null,
+                invalidModpackErrorMessage = null,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val invalid = withContext(Dispatchers.IO) {
+                    gateway.checkInvalidModpacks().getOrThrow()
+                }
+                _uiState.update {
+                    it.copy(
+                        pendingInvalidModpacks = invalid,
+                        invalidModpackSuccessMessage = if (invalid.isEmpty()) "没有无效整合包" else null,
+                    )
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (cause: Throwable) {
+                lgr.warn(cause) { "检查无效整合包失败" }
+                _uiState.update {
+                    it.copy(
+                        pendingInvalidModpacks = emptyList(),
+                        invalidModpackErrorMessage = "检查无效整合包失败：${cause.message ?: "未知错误"}",
+                    )
+                }
+            } finally {
+                _uiState.update { it.copy(invalidModpacksChecking = false) }
+            }
+        }
+    }
+
+    fun dismissInvalidModpackConfirmation() {
+        _uiState.update { it.copy(pendingInvalidModpacks = emptyList()) }
+    }
+
+    fun confirmInvalidModpackCleanup() {
+        val state = _uiState.value
+        if (state.invalidModpacksChecking || state.invalidModpacksCleaning) return
+        val packs = state.pendingInvalidModpacks
+        if (packs.isEmpty()) return
+        _uiState.update {
+            it.copy(
+                pendingInvalidModpacks = emptyList(),
+                invalidModpacksCleaning = true,
+                invalidModpackSuccessMessage = null,
+                invalidModpackErrorMessage = null,
+            )
+        }
+        viewModelScope.launch {
+            var successCount = 0
+            val failures = mutableListOf<String>()
+            try {
+                for (pack in packs) {
+                    try {
+                        withContext(Dispatchers.IO) {
+                            gateway.deleteInvalidModpack(pack).getOrThrow()
+                        }
+                        successCount++
+                    } catch (cancel: CancellationException) {
+                        throw cancel
+                    } catch (cause: Throwable) {
+                        lgr.warn(cause) { "清理无效整合包${pack.versionId}失败" }
+                        failures += "${pack.versionId}: ${cause.message ?: "未知错误"}"
+                    }
+                }
+                if (failures.isEmpty()) {
+                    _uiState.update {
+                        it.copy(invalidModpackSuccessMessage = "已清理${successCount}个无效整合包")
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            invalidModpackErrorMessage =
+                                "清理无效整合包完成：成功${successCount}个，失败${failures.size}个（${failures.joinToString("；")}）"
+                        )
+                    }
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } finally {
+                _uiState.update { it.copy(invalidModpacksCleaning = false) }
+            }
+        }
+    }
+
+    fun clearInvalidModpackSuccessMessage() {
+        _uiState.update { it.copy(invalidModpackSuccessMessage = null) }
+    }
+
+    fun clearInvalidModpackErrorMessage() {
+        _uiState.update { it.copy(invalidModpackErrorMessage = null) }
     }
 
     private fun loadSettings() {

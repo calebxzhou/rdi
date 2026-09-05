@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import calebxzhou.rdi.client.ui.comp.ConsoleState
+import calebxzhou.rdi.client.service.ModpackLifecycleCoordinator
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModLoader
@@ -12,6 +13,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.UUID
 
 private val mcPlaySessionScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -106,6 +108,17 @@ object McPlayStore {
         selectedSessionId = session.id
         return session
     }
+
+    suspend fun admitSession(args: McPlayArgs, allowDuplicateVersion: Boolean): McGameSession? =
+        ModpackLifecycleCoordinator.withVersionLock(args.versionId) {
+            withContext(Dispatchers.Main.immediate) {
+                if (!allowDuplicateVersion && aliveCount(args.versionId) > 0) {
+                    null
+                } else {
+                    createSession(args)
+                }
+            }
+        }
 
     fun selectedSession(): McGameSession? {
         val selected = selectedSessionId?.let { id -> sessions.firstOrNull { it.id == id } }

@@ -31,6 +31,7 @@ import java.nio.file.Files
 import java.util.concurrent.atomic.AtomicBoolean
 
 private val lgr by Loggers
+private const val INVALID_PACK_CHECK_BATCH_SIZE = 512
 
 /** Modpack download and installation service. */
 object ModpackService {
@@ -87,16 +88,25 @@ object ModpackService {
     )
 
     suspend fun deleteLocalPack(packdir: ModpackLocalDir): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            require(calebxzhou.rdi.client.ui.McPlayStore.aliveCount(packdir.versionId) == 0) {
-                "整合包正在运行，不能删除"
-            }
-            withContext(NonCancellable + Dispatchers.IO) {
-                moveToOsTrash(packdir.dir.toPath()).getOrThrow()
-                require(!Files.exists(packdir.dir.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-                    "无法确认整合包目录已移入回收站: ${packdir.dir}"
+        ModpackLifecycleCoordinator.withVersionLock(packdir.versionId) {
+            try {
+                withContext(Dispatchers.Main.immediate) {
+                    require(calebxzhou.rdi.client.ui.McPlayStore.aliveCount(packdir.versionId) == 0) {
+                        "整合包正在运行，不能删除"
+                    }
                 }
-                ModpackLaunchOptionsService.delete(packdir.versionId).getOrThrow()
+                withContext(NonCancellable + Dispatchers.IO) {
+                    moveToOsTrash(packdir.dir.toPath()).getOrThrow()
+                    require(!Files.exists(packdir.dir.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                        "无法确认整合包目录已移入回收站: ${packdir.dir}"
+                    }
+                    ModpackLaunchOptionsService.delete(packdir.versionId).getOrThrow()
+                }
+                Result.success(Unit)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (cause: Throwable) {
+                Result.failure(cause)
             }
         }
     }
@@ -430,23 +440,74 @@ suspend fun Host.DetailVo.startPlay(): StartPlayResult {
 private fun isClientInstallableMod(mod: Mod): Boolean =
     mod.side != Mod.Side.SERVER && mod.side != Mod.Side.UNKNOWN
 
-private data class LocalPackRef(
+internal data class LocalPackRef(
     val dir: File,
     val modpackId: ObjectId,
     val verName: String
 )
 
-suspend fun ModpackService.getLocalPackDirs(): List<ModpackLocalDir> {
+internal fun scanLocalPackRefs(root: File): List<LocalPackRef> {
     val pattern = Regex("^([0-9a-fA-F]{24})_(.+)$")
-    val dirs = mcInstall.versionListDir.listFiles()?.asSequence()
+    return root.listFiles()?.asSequence()
         ?.filter { it.isDirectory }
+        ?.mapNotNull { dir ->
+            pattern.matchEntire(dir.name)?.destructured?.let { (idStr, verName) ->
+                LocalPackRef(dir, ObjectId(idStr), verName)
+            }
+        }
         ?.toList()
         .orEmpty()
-    val refs = dirs.mapNotNull { dir ->
-        pattern.matchEntire(dir.name)?.destructured?.let { (idStr, verName) ->
-            LocalPackRef(dir, ObjectId(idStr), verName)
-        }
+}
+
+private fun localPackCreateTime(ref: LocalPackRef): Long = runCatching {
+    Files.readAttributes(
+        ref.dir.toPath(),
+        java.nio.file.attribute.BasicFileAttributes::class.java
+    ).creationTime().toMillis()
+}.getOrElse { ref.dir.lastModified() }
+
+internal suspend fun findInvalidLocalPackDirs(
+    root: File,
+    findMissingIds: suspend (List<ObjectId>) -> List<ObjectId>,
+): List<ModpackLocalDir> {
+    val refs = scanLocalPackRefs(root)
+    if (refs.isEmpty()) return emptyList()
+
+    val ids = refs.map { it.modpackId }.distinct()
+    val missingIds = ids.chunked(INVALID_PACK_CHECK_BATCH_SIZE)
+        .flatMap { chunk -> findMissingIds(chunk) }
+        .toSet()
+    return refs.asSequence()
+        .filter { it.modpackId in missingIds }
+        .map { ref -> ModpackLocalDir(ref.dir, ref.verName, null, localPackCreateTime(ref)) }
+        .sortedByDescending(ModpackLocalDir::createTime)
+        .toList()
+}
+
+suspend fun ModpackService.getInvalidLocalPackDirs(): Result<List<ModpackLocalDir>> {
+    return try {
+        Result.success(
+            findInvalidLocalPackDirs(mcInstall.versionListDir) { chunk ->
+                val response = server.makeRequest<List<ObjectId>>("modpack/missing", HttpMethod.Post) {
+                    json()
+                    setBody(chunk.json)
+                }
+                if (!response.ok) {
+                    throw RequestError(response.msg.ifBlank { "检查无效整合包失败" })
+                }
+                response.data.orEmpty()
+            }
+        )
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (cause: Throwable) {
+        lgr.warn(cause) { "检查无效整合包失败" }
+        Result.failure(cause)
     }
+}
+
+suspend fun ModpackService.getLocalPackDirs(): List<ModpackLocalDir> {
+    val refs = scanLocalPackRefs(mcInstall.versionListDir)
 
     val briefs = if (refs.isEmpty()) emptyList() else ModpackService.getBriefInfos(refs.map { it.modpackId }.distinct()).getOrElse {
         lgr.warn(it) { "读取已安装的RDI整合包信息失败" }
@@ -459,12 +520,7 @@ suspend fun ModpackService.getLocalPackDirs(): List<ModpackLocalDir> {
             lgr.warn { "本地整合包${ref.dir.name}在服务器不存在，将跳过该目录" }
             return@mapNotNull null
         }
-        val createTime = runCatching {
-            java.nio.file.Files.readAttributes(
-                ref.dir.toPath(),
-                java.nio.file.attribute.BasicFileAttributes::class.java
-            ).creationTime().toMillis()
-        }.getOrElse { ref.dir.lastModified() }
+        val createTime = localPackCreateTime(ref)
         ModpackLocalDir(ref.dir, ref.verName, vo, createTime)
     }
     return remotePacks.sortedByDescending(ModpackLocalDir::createTime)
