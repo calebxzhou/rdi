@@ -772,6 +772,7 @@ class ModpackProcessor(
     }
 
     private fun shouldSkipServerExtraFile(relativePath: String, file: File): Boolean {
+        if (isDisabledFile(relativePath, isDirectory = false)) return true
         if (shouldExcludeMca(relativePath, isDirectory = false)) return true
         val relativeLower = relativePath.lowercase()
         val fileNameLower = file.name.lowercase()
@@ -785,6 +786,12 @@ class ModpackProcessor(
         if (!isInsideMods && file.extension.equals("exe", ignoreCase = true)) return true
         if (!isInsideMods && file.extension.isBlank()) return true
         return false
+    }
+
+    private fun isDisabledFile(path: String, isDirectory: Boolean): Boolean {
+        if (isDirectory) return false
+        return path.substringAfterLast('/').substringAfterLast('.', missingDelimiterValue = "")
+            .equals("disabled", ignoreCase = true)
     }
 
     private fun containsExcludedMcaFiles(rootDir: File): Boolean {
@@ -997,6 +1004,9 @@ class ModpackProcessor(
                     if (!sourceFile.exists() || !sourceFile.isFile) {
                         throw ModpackError("服务端额外文件不存在: ${sourceFile.absolutePath}")
                     }
+                    if (isDisabledFile(relative, isDirectory = false) ||
+                        isDisabledFile(sourceFile.name, isDirectory = false)
+                    ) continue
                     if (shouldExcludeMca(relative, isDirectory = false)) continue
                     ensureArchiveParents(relative, out, addedDirs)
                     val bytes = if (
@@ -1137,6 +1147,7 @@ class ModpackProcessor(
         skipCacheDirectory: Boolean = true,
         preprocessedBytes: ByteArray? = null
     ) {
+        if (isDisabledFile(relative, isDirectory)) return
         if (shouldSkipEntry(relativeLower, isDirectory, skipCacheDirectory = skipCacheDirectory)) return
 
         if (isDirectory) {

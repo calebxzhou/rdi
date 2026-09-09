@@ -279,6 +279,111 @@ class PackModelsTest {
     }
 
     @Test
+    fun `disabled client files are excluded while nested entries are preserved`() = runBlocking {
+        val root = Files.createTempDirectory("pack-proc-disabled-client").toFile()
+        try {
+            root.resolve("config/ignored.disabled").also { it.parentFile.mkdirs() }
+                .writeBytes(byteArrayOf(1))
+            root.resolve("config/UPPER.DISABLED").writeBytes(byteArrayOf(2))
+            root.resolve("config/disabled.txt").writeBytes(byteArrayOf(3))
+            root.resolve("config/name.disabled.txt").writeBytes(byteArrayOf(4))
+            root.resolve("directory.disabled/kept.txt").also { it.parentFile.mkdirs() }
+                .writeBytes(byteArrayOf(5))
+            writeZip(
+                root.resolve("nested.zip"),
+                mapOf("inside.disabled" to byteArrayOf(6), "kept.txt" to byteArrayOf(7))
+            )
+
+            val archive = ModpackProcessor(PackProcessingPaths(root.resolve("work")))
+                .buildUploadArchive(root, "disabled-client")
+            val archiveFiles = mutableMapOf<String, ByteArray>()
+            forEachArchiveEntry(archive) { entry ->
+                if (!entry.isDirectory) archiveFiles[entry.path] = entry.bytes!!
+            }
+
+            assertFalse(archiveFiles.containsKey("config/ignored.disabled"))
+            assertFalse(archiveFiles.containsKey("config/UPPER.DISABLED"))
+            assertContentEquals(byteArrayOf(3), archiveFiles["config/disabled.txt"])
+            assertContentEquals(byteArrayOf(4), archiveFiles["config/name.disabled.txt"])
+            assertContentEquals(byteArrayOf(5), archiveFiles["directory.disabled/kept.txt"])
+            assertNestedZipEntryEquals(archiveFiles["nested.zip"]!!, "inside.disabled", byteArrayOf(6))
+            assertNestedZipEntryEquals(archiveFiles["nested.zip"]!!, "kept.txt", byteArrayOf(7))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `disabled selected server files are excluded from extras`() = runBlocking {
+        val root = Files.createTempDirectory("pack-proc-disabled-server").toFile()
+        try {
+            val serverMods = root.resolve("mods").also { it.mkdirs() }
+            val stagedClient = root.resolve("staged/client.jar")
+                .also { it.parentFile.mkdirs() }
+            writeModJar(stagedClient, "shared")
+            writeModJar(serverMods.resolve("server-shared.jar"), "shared")
+            root.resolve("config/ignored.disabled").also { it.parentFile.mkdirs() }
+                .writeBytes(byteArrayOf(1))
+            root.resolve("config/UPPER.DISABLED").writeBytes(byteArrayOf(2))
+            root.resolve("directory.disabled/kept.txt").also { it.parentFile.mkdirs() }
+                .writeBytes(byteArrayOf(3))
+            root.resolve("server.properties").writeText("level-name=world")
+
+            val clientMod = Mod(
+                platform = "mr",
+                projectId = "project",
+                slug = "shared-mod",
+                fileId = "file",
+                hash = "0123456789012345678901234567890123456789",
+            )
+            val loaded = ModpackProcessor(PackProcessingPaths(root.resolve("work")))
+                .loadServerPack(
+                    file = root,
+                    clientMods = listOf(clientMod),
+                    clientModSources = mapOf(clientMod to stagedClient),
+                    onProgress = {},
+                ).getOrThrow()
+
+            val extraPaths = loaded.serverExtraFiles.map { it.relativePath }.toSet()
+            assertFalse(extraPaths.contains("config/ignored.disabled"))
+            assertFalse(extraPaths.contains("config/UPPER.DISABLED"))
+            assertTrue(extraPaths.contains("directory.disabled/kept.txt"))
+            assertTrue(extraPaths.contains("server.properties"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `direct disabled server extras are excluded`() = runBlocking {
+        val root = Files.createTempDirectory("pack-proc-disabled-direct").toFile()
+        try {
+            val disabledSource = root.resolve("direct.disabled").also { it.writeBytes(byteArrayOf(1)) }
+            val normalSource = root.resolve("normal.txt").also { it.writeBytes(byteArrayOf(2)) }
+            val keptSource = root.resolve("kept.txt").also { it.writeBytes(byteArrayOf(3)) }
+            val archive = ModpackProcessor(PackProcessingPaths(root.resolve("work"))).buildUploadArchive(
+                rootDir = root.resolve("empty").also { it.mkdirs() },
+                baseName = "disabled-direct",
+                serverExtraFiles = listOf(
+                    ServerExtraFile(disabledSource, "renamed.txt"),
+                    ServerExtraFile(normalSource, "renamed.DISABLED"),
+                    ServerExtraFile(keptSource, "kept.txt"),
+                ),
+            )
+            val archiveFiles = mutableMapOf<String, ByteArray>()
+            forEachArchiveEntry(archive) { entry ->
+                if (!entry.isDirectory) archiveFiles[entry.path] = entry.bytes!!
+            }
+
+            assertFalse(archiveFiles.containsKey("server/renamed.txt"))
+            assertFalse(archiveFiles.containsKey("server/renamed.DISABLED"))
+            assertContentEquals(byteArrayOf(3), archiveFiles["server/kept.txt"])
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `server extra media extensions are excluded case insensitively`() = runBlocking {
         val root = Files.createTempDirectory("pack-proc-server-media").toFile()
         try {
