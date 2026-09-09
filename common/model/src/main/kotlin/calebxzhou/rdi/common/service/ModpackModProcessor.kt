@@ -32,7 +32,8 @@ object ModpackModProcessor {
         "just-enough-resources-jer",
         "radiant-gear",
         "fusion-connected-textures",
-        "oh-the-trees-youll-grow"
+        "oh-the-trees-youll-grow",
+        "smartbrainlib"
     )
 
     fun processMods(mods: List<Mod>): MutableList<Mod> = mods.mapNotNull { mod ->
