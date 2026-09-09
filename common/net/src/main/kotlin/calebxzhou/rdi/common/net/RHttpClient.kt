@@ -18,6 +18,7 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import com.github.luben.zstd.ZstdInputStream
 import okhttp3.Cache
+import okhttp3.Dispatcher
 import okhttp3.OkHttpClient
 import okhttp3.MediaType
 import okhttp3.Request
@@ -58,6 +59,7 @@ val ktorClient by lazy {
                 readTimeout(0, TimeUnit.SECONDS)
                 proxySelector(DynamicProxySelector())
                 cache(Cache(httpCacheDir.apply { mkdirs() }, HTTP_CACHE_SIZE_BYTES))
+                dispatcher(Dispatcher().apply { maxRequestsPerHost = 8 })
                 configureDebugRequestLogging()
                 configureDebugTlsForSelfSigned()
             }

@@ -4,8 +4,8 @@ import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
 import calebxzhou.rdi.common.model.ModpackUploadSessionVo
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import calebxzhou.rdi.common.util.sha1
 import java.nio.file.Files
-import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
@@ -25,7 +25,7 @@ class Modpack2ParallelUploaderTest {
                 id = UUID.fromString("019fe723-72c0-7000-8000-000000000001"),
                 fileName = "pack.tar.zst",
                 size = bytes.size.toLong(),
-                sha1 = bytes.sha1(),
+                sha1 = bytes.sha1,
                 partSize = 1,
                 partCount = bytes.size,
                 uploadedParts = emptyList(),
@@ -150,7 +150,3 @@ private class RecordingUploadGateway(
     private fun <T> unsupported(): Result<T> =
         Result.failure(UnsupportedOperationException("not used by uploader test"))
 }
-
-private fun ByteArray.sha1(): String = MessageDigest.getInstance("SHA-1")
-    .digest(this)
-    .joinToString("") { "%02x".format(it) }

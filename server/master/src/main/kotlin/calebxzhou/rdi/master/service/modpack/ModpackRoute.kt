@@ -26,6 +26,10 @@ import calebxzhou.rdi.master.service.modpack.ModpackVersionService.removeVersion
 import calebxzhou.rdi.master.service.modpack.ModpackVersionService.replaceVersionMod
 import calebxzhou.rdi.master.service.modpack.ModpackVersionService.replaceVersionMods
 import calebxzhou.rdi.master.service.modpack.ModpackVersionService.requireAuthor
+import calebxzhou.rdi.master.service.modpack.ModpackVersionService.requireCanManageVersion
+import calebxzhou.rdi.master.service.modpack.ModpackVersionService.getUploaderPolicy
+import calebxzhou.rdi.master.service.modpack.ModpackVersionService.resolveUploader
+import calebxzhou.rdi.master.service.modpack.ModpackVersionService.updateUploaderPolicy
 import calebxzhou.rdi.master.service.modpack.ModpackQueryService.toBriefVo
 import calebxzhou.rdi.master.service.modpack.ModpackQueryService.toDetailVo
 import calebxzhou.rdi.master.service.modpack.ModpackQueryService.validateVerName
@@ -118,16 +122,19 @@ fun Route.modpackRoutes() {
             val mods = ModpackQueryService.listByAuthor(call.uid)
             response(data = mods)
         }
+        get("/uploadable") {
+            response(data = ModpackQueryService.listUploadable(call.player()))
+        }
         route("/{modpackId}") {
             //旧版接口 保持兼容
             get {
-                response(data = call.modpackGuardContext().modpack.toDetailVo())
+                response(data = call.modpackGuardContext().toDetailVo())
             }
             get("/brief") {
                 response(data = call.modpackGuardContext().modpack.toBriefVo())
             }
             get("/detail") {
-                response(data = call.modpackGuardContext().modpack.toDetailVo())
+                response(data = call.modpackGuardContext().toDetailVo())
             }
             get("/name") {
                 response(data = call.modpackGuardContext().modpack.name)
@@ -144,6 +151,24 @@ fun Route.modpackRoutes() {
                 val ctx = call.modpackGuardContext().requireAuthor()
                 ctx.changeOptions(call.receive<Modpack.OptionsDto>())
                 ok()
+            }
+            route("/uploaders") {
+                get {
+                    response(data = call.modpackGuardContext().requireAuthor().getUploaderPolicy())
+                }
+                post("/resolve") {
+                    response(
+                        data = call.modpackGuardContext()
+                            .requireAuthor()
+                            .resolveUploader(call.receive<Modpack.UploaderResolveDto>())
+                    )
+                }
+                put {
+                    call.modpackGuardContext()
+                        .requireAuthor()
+                        .updateUploaderPolicy(call.receive<Modpack.UploaderPolicyUpdateDto>())
+                    ok()
+                }
             }
             route("/version/{verName}") {
                 get {
@@ -164,17 +189,17 @@ fun Route.modpackRoutes() {
                         call.modpackGuardContext().version.mods.let { response(data = it) }
                     }
                     post{
-                        val ctx = call.modpackGuardContext().requireAuthor()
+                        val ctx = call.modpackGuardContext().requireCanManageVersion()
                         ctx.addVersionMod(call.receive<Mod>())
                         ok()
                     }
                     post("/batch") {
-                        val ctx = call.modpackGuardContext().requireAuthor()
+                        val ctx = call.modpackGuardContext().requireCanManageVersion()
                         ctx.addVersionMods(call.receive<List<Mod>>())
                         ok()
                     }
                     put{
-                        val ctx = call.modpackGuardContext().requireAuthor()
+                        val ctx = call.modpackGuardContext().requireCanManageVersion()
                         ctx.replaceVersionMod(
                             projectId = param("projectId"),
                             fileId = param("fileId"),
@@ -183,12 +208,12 @@ fun Route.modpackRoutes() {
                         ok()
                     }
                     put("/batch") {
-                        val ctx = call.modpackGuardContext().requireAuthor()
+                        val ctx = call.modpackGuardContext().requireCanManageVersion()
                         ctx.replaceVersionMods(call.receive<List<ModBatchReplaceItem>>())
                         ok()
                     }
                     delete {
-                        val ctx = call.modpackGuardContext().requireAuthor()
+                        val ctx = call.modpackGuardContext().requireCanManageVersion()
                         ctx.removeVersionMod(
                             projectId = param("projectId"),
                             fileId = param("fileId")
@@ -196,18 +221,18 @@ fun Route.modpackRoutes() {
                         ok()
                     }
                     delete("/batch") {
-                        val ctx = call.modpackGuardContext().requireAuthor()
+                        val ctx = call.modpackGuardContext().requireCanManageVersion()
                         ctx.removeVersionMods(call.receive<List<ModRef>>())
                         ok()
                     }
                 }
                 delete {
-                    call.modpackGuardContext().requireAuthor().deleteVersion()
+                    call.modpackGuardContext().requireCanManageVersion().deleteVersion()
                     ok()
 
                 }
                 post("/rebuild") {
-                    call.modpackGuardContext().requireAuthor().rebuildVersion()
+                    call.modpackGuardContext().requireCanManageVersion().rebuildVersion()
 
                     ok()
 

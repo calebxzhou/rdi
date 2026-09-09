@@ -83,7 +83,13 @@ private val RdiColorScheme = lightColorScheme(
 )
 
 private val RdiShapes = Shapes(
-    extraSmall = baseRoundCornerShape
+    baseRoundCornerShape,
+    baseRoundCornerShape,
+    baseRoundCornerShape,
+    baseRoundCornerShape,
+    baseRoundCornerShape,
+    baseRoundCornerShape,
+    baseRoundCornerShape,
 )
 
 @Composable

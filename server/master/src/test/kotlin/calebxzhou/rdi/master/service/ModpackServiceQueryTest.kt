@@ -65,6 +65,26 @@ class ModpackServiceQueryTest {
     }
 
     @Test
+    fun `list uploadable uses author null and listed uploader branches`() = runTest {
+        val player = ModpackServiceTestFixtures.account("uploader")
+        val filter = slot<Bson>()
+        val flow = mockk<FindFlow<Modpack>>()
+        every { collection.find(capture(filter)) } returns flow
+        coEvery { flow.collect(any()) } coAnswers { }
+
+        assertTrue(ModpackQueryService.listUploadable(player).isEmpty())
+
+        val filterText = filter.captured.toString()
+        assertTrue(filterText.contains("authorId"))
+        assertTrue(filterText.contains("allowUploaderIds"))
+        // The driver may render the OR branch as either a named operator or a
+        // composed BSON document. Check the actual predicates instead of its
+        // pretty-printing choice.
+        assertTrue(filterText.contains("null"))
+        assertTrue(filterText.contains(player._id.toString()))
+    }
+
+    @Test
     fun `blank name search is short circuited`() = runTest {
         assertEquals(emptyList(), ModpackService.searchByName("  "))
         coVerify(exactly = 0) { collection.find(any<Bson>()).toList() }

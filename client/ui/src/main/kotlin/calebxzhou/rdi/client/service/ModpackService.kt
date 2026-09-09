@@ -312,7 +312,7 @@ object ModpackService {
             ctx.emit(Task2Progress("写入完成", 1f))
         }
 
-        val copyModsTask = Task2.Leaf("复制mod文件") { ctx ->
+        val copyModsTask = Task2.Leaf("补充模组") { ctx ->
             val modsDir = versionDir.resolve("mods").apply { mkdirs() }
             val requests = installableMods.toClientContentRequests(
                 targetRelativePath = { mod ->
@@ -335,7 +335,7 @@ object ModpackService {
             ctx.emit(Task2Progress("完成", 1f))
         }
 
-        val writeOptionsTask = Task2.Leaf("写入配置文件") { ctx ->
+        val writeOptionsTask = Task2.Leaf("补充配置") { ctx ->
             writeMinecraftOptions(versionDir, mcVersion).getOrThrow()
             ctx.emit(Task2Progress("写入完成", 1f))
         }

@@ -11,6 +11,7 @@ import calebxzhou.rdi.common.util.toFixed
 import calebxzhou.rdi.master.DL_MODS_CLIENT_DIR
 import calebxzhou.rdi.master.net.*
 import calebxzhou.rdi.master.service.*
+import calebxzhou.rdi.master.service.modpack.ModpackVersionService.requireCanManageVersion
 import com.mongodb.client.model.Filters.*
 import com.mongodb.client.model.UpdateOptions
 import com.mongodb.client.model.Updates
@@ -277,7 +278,7 @@ object ModpackBuildService {
             val freshPack = ModpackQueryService.getById(modpack._id) ?: throw RequestError("整合包不存在")
             val freshVersion = freshPack.versions.firstOrNull { it.name == version.name }
                 ?: throw RequestError("版本${version.name}不存在")
-            if (freshPack.authorId != player._id && !player.isDav) throw RequestError("不是你的整合包")
+            ModpackContext(player, freshPack, freshVersion).requireCanManageVersion()
             val previousStatus = freshVersion.status
             if (previousStatus == Modpack.Status.WAIT || previousStatus == Modpack.Status.BUILDING) {
                 throw RequestError("版本${freshVersion.name}正在构建中")

@@ -67,6 +67,7 @@ data class StorageConfig(
     val modpackDir: String? = null,
     val hostsDir: String? = null,
     val worldsDir: String? = null,
+    val baseWorldDir: String? = null,
     val worldCacheDir: String? = null,
     val worldBackupDir: String? = null,
     val gameLibsDir: String? = null,

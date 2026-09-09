@@ -24,6 +24,7 @@ import com.github.dockerjava.api.model.TmpfsOptions
 import org.bson.types.ObjectId
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.LinkOption
 
 object HostContainerService {
     internal const val FORGEGUARD_CONTAINER_PATH = "/opt/forgeguard.jar"
@@ -134,7 +135,7 @@ object HostContainerService {
         }
         DockerService.deleteContainer(_id.str)
         ensureWorkdirQuota()
-        cleanupDisabledModFilesBeforeContainerCreate(version)
+        cleanupModFilesBeforeContainerCreate(version)
 
         val sharedLibsDir = modpack.libsDir.canonicalFile.also { it.mkdirs() }
         val loaderVer = modpack.mcVer.loaderVersions[modpack.modloader] ?: throw RequestError("找不到对应版本的运行库")
@@ -267,38 +268,42 @@ object HostContainerService {
     internal fun Host.isDisabledMod(mod: Mod): Boolean =
         disabledMods.any { sameMod(it, mod) }
 
-    private fun Host.cleanupDisabledModFilesBeforeContainerCreate(version: Modpack.Version) {
-        val modsDir = dir.resolve("mods")
-        if (!modsDir.exists() || !modsDir.isDirectory || disabledMods.isEmpty()) return
+    internal fun Host.cleanupModFilesBeforeContainerCreate(
+        version: Modpack.Version,
+        modsDir: File = dir.resolve("mods"),
+    ) {
+        if (Files.isSymbolicLink(modsDir.toPath())) {
+            throw RequestError("房间Mod目录不能是软链接: ${modsDir.absolutePath}")
+        }
+        if (!modsDir.exists() || !modsDir.isDirectory) return
         val disabledServerMods = version.mods
             .filter(::isServerInstalledMod)
             .filter { isDisabledMod(it) }
-        if (disabledServerMods.isEmpty()) return
 
         disabledServerMods
             .flatMap { it.fileNames }
             .distinct()
             .forEach { fileName ->
-                deleteDisabledHostModFile(modsDir.resolve(fileName))
+                deleteHostModFile(modsDir.resolve(fileName))
             }
 
-        val disabledSlugs = disabledServerMods.map { it.slug.trim().lowercase() }
-            .filter { it.isNotBlank() }
-        val disabledHashes = disabledServerMods.map { it.hash.trim().lowercase() }
-            .filter { it.isNotBlank() }
+        val allowedFileNames = (version.mods + extraMods)
+            .flatMap(Mod::fileNames)
+            .toSet()
         modsDir.listFiles()
-            ?.filter { it.isFile && it.length() == 0L && it.extension.equals("jar", ignoreCase = true) }
-            ?.filter { file ->
-                val lowerName = file.name.lowercase()
-                disabledSlugs.any(lowerName::contains) || disabledHashes.any(lowerName::contains)
+            ?.filter {
+                Files.isRegularFile(it.toPath(), LinkOption.NOFOLLOW_LINKS) &&
+                    it.length() == 0L &&
+                    it.extension.equals("jar", ignoreCase = true) &&
+                    it.name !in allowedFileNames
             }
-            ?.forEach(::deleteDisabledHostModFile)
+            ?.forEach(::deleteHostModFile)
     }
 
-    private fun deleteDisabledHostModFile(file: File) {
+    private fun deleteHostModFile(file: File) {
         runCatching { Files.deleteIfExists(file.toPath()) }
             .getOrElse { err ->
-                throw RequestError("已禁用Mod文件清理失败: ${file.name} ${err.message ?: ""}".trim())
+                throw RequestError("房间Mod文件清理失败: ${file.name} ${err.message ?: ""}".trim())
             }
     }
 }

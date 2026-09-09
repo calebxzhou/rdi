@@ -22,6 +22,8 @@ import calebxzhou.rdi.master.service.host.hostRoutes
 import calebxzhou.rdi.master.service.modpack.ModpackUploadService
 import calebxzhou.rdi.master.service.modpack.ModpackBuildService
 import calebxzau.rdi.server.infra.configurePostgresServices
+import calebxzau.rdi.server.infra.productionMongoCodecRegistry
+import calebxzau.rdi.server.service.baseworld.baseWorldRoutes
 // Archived Modpack2 and friend routes are intentionally disabled.
 import calebxzhou.rdi.master.ygg.YggdrasilService.yggdrasilRoutes
 import com.mongodb.MongoClientSettings
@@ -58,9 +60,6 @@ import org.bouncycastle.openssl.PEMKeyPair
 import org.bouncycastle.openssl.PEMParser
 import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter
 import org.bson.UuidRepresentation
-import org.bson.codecs.configuration.CodecRegistries.fromProviders
-import org.bson.codecs.configuration.CodecRegistries.fromRegistries
-import org.bson.codecs.pojo.PojoCodecProvider
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileReader
@@ -80,14 +79,7 @@ val DB = MongoClient.create(
             builder.hosts(listOf(ServerAddress(CONF.database.host, CONF.database.port)))
         }
         .uuidRepresentation(UuidRepresentation.STANDARD)
-        .codecRegistry(
-            fromRegistries(
-                MongoClientSettings.getDefaultCodecRegistry(),
-                fromProviders(
-                    PojoCodecProvider.builder().automatic(true).build()
-                )
-            )
-        )
+        .codecRegistry(productionMongoCodecRegistry())
         .build()).getDatabase(CONF.database.name)
 
 private fun storageDir(path: String?, defaultName: String): File {
@@ -95,11 +87,14 @@ private fun storageDir(path: String?, defaultName: String): File {
     return if (trimmed.isBlank()) File(defaultName) else File(trimmed)
 }
 
+
+
 val CRASH_REPORT_DIR = storageDir(CONF.storage.crashReportDir, "crash-report")
 val MODPACK_DATA_DIR = storageDir(CONF.storage.modpackDir, "modpack")
 val HOSTS_DIR = storageDir(CONF.storage.hostsDir, "hosts")
 val Host2Dir = storageDir(CONF.storage.host2Dir, "host2")
 val GAME_LIBS_DIR = storageDir(CONF.storage.gameLibsDir, "game-libs")
+val BaseWorldDir = storageDir(CONF.storage.baseWorldDir, "base-world")
 val WORLDS_DIR = storageDir(CONF.storage.worldsDir, "worlds")
 val WORLD_CACHE_DIR = storageDir(CONF.storage.worldCacheDir, "world-cache")
 val WORLD_BACKUP_DIR = storageDir(CONF.storage.worldBackupDir, "world-backup").also { it.mkdirs() }
@@ -407,6 +402,7 @@ private fun Application.configureServer() {
             // friendRoutes() is archived.
             modFileRoutes()
             mailRoutes()
+            baseWorldRoutes()
         }
     }
 

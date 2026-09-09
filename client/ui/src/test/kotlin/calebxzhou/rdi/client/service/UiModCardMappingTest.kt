@@ -7,9 +7,9 @@ import calebxzhou.rdi.client.model.toUiMod
 import calebxzhou.rdi.client.service.content.ClientContentStore
 import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.util.sha1
 import kotlinx.coroutines.runBlocking
 import java.nio.file.Files
-import java.security.MessageDigest
 import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
 import kotlin.test.Test
@@ -162,7 +162,5 @@ class UiModCardMappingTest {
         return output.toByteArray()
     }
 
-    private fun sha1(bytes: ByteArray): String = MessageDigest.getInstance("SHA-1")
-        .digest(bytes)
-        .joinToString("") { "%02x".format(it) }
+    private fun sha1(bytes: ByteArray): String = bytes.sha1
 }

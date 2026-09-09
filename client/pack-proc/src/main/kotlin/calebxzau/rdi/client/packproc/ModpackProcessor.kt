@@ -117,7 +117,8 @@ class ModpackProcessor(
                 mods = mods,
                 embeddedModOriginalFileNames = parsedPayload.embeddedModOriginalFileNames,
                 embeddedModSources = parsedPayload.embeddedModSources,
-                serverExtraFiles = parsedPayload.serverExtraFiles
+                serverExtraFiles = parsedPayload.serverExtraFiles,
+                containsExcludedMcaFiles = containsExcludedMcaFiles(parsedPayload.sourceDir)
             )
         }.fold(
             onSuccess = ::ok,
@@ -263,15 +264,16 @@ class ModpackProcessor(
             val resolvedMods = finalMatchedMods.map { it.toMod() }.toMutableList().also {
                 ModService.run { it.postProcessModSides() }
             }
-            val serverExtraFiles = collectServerPackExtraFiles(
+            val serverExtraSelection = collectServerPackExtraFiles(
                 rootDir = file,
                 matchedModFiles = matchedFiles
             )
             val embeddedModSources = stageMatchedEmbeddedMods(finalMatchedMods)
             LoadedServerPackResult(
                 mods = resolvedMods,
-                serverExtraFiles = serverExtraFiles,
-                embeddedModSources = embeddedModSources
+                serverExtraFiles = serverExtraSelection.files,
+                embeddedModSources = embeddedModSources,
+                containsExcludedMcaFiles = serverExtraSelection.containsExcludedMcaFiles
             )
         }.fold(
             onSuccess = ::ok,
@@ -289,6 +291,11 @@ class ModpackProcessor(
         val mods: List<ModCardMatch>,
         val matchedFiles: Set<File>,
         val unmatchedFiles: List<File>
+    )
+
+    private data class ServerExtraFileSelection(
+        val files: List<ServerExtraFile>,
+        val containsExcludedMcaFiles: Boolean
     )
 
     private suspend fun matchEmbeddedModsCF(
@@ -508,19 +515,25 @@ class ModpackProcessor(
 
     private fun prepareModpackSource(input: File, onProgress: (LoadProgress) -> Unit): PreparedModpack {
         val tempDir = Files.createTempDirectory(paths.workDir.toPath(), "pack-").toFile()
-        if (input.isDirectory) {
-            onProgress(LoadProgress.Phase("正在复制整合包目录"))
-            input.copyRecursively(tempDir, overwrite = true)
-            onProgress(LoadProgress.Percent("整合包目录复制完成", 1f))
-            return PreparedModpack(tempDir, input.name)
+        return try {
+            if (input.isDirectory) {
+                onProgress(LoadProgress.Phase("正在复制整合包目录"))
+                input.copyRecursively(tempDir, overwrite = true)
+                onProgress(LoadProgress.Percent("整合包目录复制完成", 1f))
+                PreparedModpack(tempDir, input.name)
+            } else {
+                onProgress(LoadProgress.Phase("正在解压整合包"))
+                extractArchiveToDir(input, tempDir) { done, total, _ ->
+                    val fraction = done.toFloat() / total.coerceAtLeast(1)
+                    onProgress(LoadProgress.Percent("正在解压整合包(${done}/$total)", fraction))
+                }
+                onProgress(LoadProgress.Percent("整合包解压完成", 1f))
+                PreparedModpack(tempDir, input.nameWithoutExtension)
+            }
+        } catch (error: Throwable) {
+            runCatching { tempDir.deleteRecursivelyNoSymlink() }
+            throw error
         }
-        onProgress(LoadProgress.Phase("正在解压整合包"))
-        extractArchiveToDir(input, tempDir) { done, total, _ ->
-            val fraction = done.toFloat() / total.coerceAtLeast(1)
-            onProgress(LoadProgress.Percent("正在解压整合包(${done}/$total)", fraction))
-        }
-        onProgress(LoadProgress.Percent("整合包解压完成", 1f))
-        return PreparedModpack(tempDir, input.nameWithoutExtension)
     }
 
     private fun detectPackType(rootDir: File): PackType {
@@ -715,22 +728,32 @@ class ModpackProcessor(
     private fun collectServerPackExtraFiles(
         rootDir: File,
         matchedModFiles: Set<File>
-    ): List<ServerExtraFile> {
+    ): ServerExtraFileSelection {
         val canonicalMatchedFiles = matchedModFiles.mapTo(mutableSetOf()) { it.canonicalFile }
-        return rootDir.walkTopDown()
+        var containsExcludedMcaFiles = false
+        val files = rootDir.walkTopDown()
             .onEnter { dir -> !shouldSkipServerExtraDir(rootDir, dir) }
             .filter { it.isFile }
             .filterNot { it.canonicalFile in canonicalMatchedFiles }
             .mapNotNull { file ->
                 val relativePath = file.relativeTo(rootDir).invariantSeparatorsPath
                 if (relativePath.isBlank()) return@mapNotNull null
-                if (shouldSkipServerExtraFile(relativePath, file)) return@mapNotNull null
+                if (shouldSkipServerExtraFile(relativePath, file)) {
+                    if (shouldExcludeMca(relativePath, isDirectory = false)) {
+                        containsExcludedMcaFiles = true
+                    }
+                    return@mapNotNull null
+                }
+                if (containsExcludedMcaArchiveEntry(file)) {
+                    containsExcludedMcaFiles = true
+                }
                 ServerExtraFile(
                     sourceFile = file,
                     relativePath = relativePath
                 )
             }
             .toList()
+        return ServerExtraFileSelection(files, containsExcludedMcaFiles)
     }
 
     private fun shouldSkipServerExtraDir(rootDir: File, dir: File): Boolean {
@@ -749,6 +772,7 @@ class ModpackProcessor(
     }
 
     private fun shouldSkipServerExtraFile(relativePath: String, file: File): Boolean {
+        if (shouldExcludeMca(relativePath, isDirectory = false)) return true
         val relativeLower = relativePath.lowercase()
         val fileNameLower = file.name.lowercase()
         if (relativeLower.startsWith("libraries/")) return true
@@ -761,6 +785,29 @@ class ModpackProcessor(
         if (!isInsideMods && file.extension.equals("exe", ignoreCase = true)) return true
         if (!isInsideMods && file.extension.isBlank()) return true
         return false
+    }
+
+    private fun containsExcludedMcaFiles(rootDir: File): Boolean {
+        return rootDir.walkTopDown()
+            .filter { it.isFile }
+            .any { file ->
+                val relativePath = file.relativeTo(rootDir).invariantSeparatorsPath
+                if (shouldExcludeMca(relativePath, isDirectory = false)) return@any true
+                val relativeLower = relativePath.lowercase()
+                if (shouldSkipEntry(relativeLower, isDirectory = false)) return@any false
+                containsExcludedMcaArchiveEntry(file)
+            }
+    }
+
+    private fun containsExcludedMcaArchiveEntry(file: File): Boolean {
+        if (!file.extension.equals("zip", ignoreCase = true) &&
+            !file.extension.equals("jar", ignoreCase = true)
+        ) return false
+        return file.openChineseZip().use { zip ->
+            zip.entries().asSequence().any { entry ->
+                shouldExcludeMca(entry.name, entry.isDirectory)
+            }
+        }
     }
 
     private fun String.substringBeforeVersionSuffix(): String {
@@ -798,14 +845,36 @@ class ModpackProcessor(
     }
 
     private val serverExtraMediaExtensions = setOf(
-        "psd",
+        "ogg",
+        "wav",
+        "mp3",
+        "flac",
+        "aac",
+        "m4a",
+        "opus",
+        "wma",
+        "mp4",
+        "mov",
+        "avi",
+        "mkv",
+        "webm",
+        "m4v",
+        "mpeg",
+        "mpg",
+        "flv",
+        "wmv",
         "png",
         "jpg",
         "jpeg",
         "webp",
-        "mp4",
-        "ogg",
-        "wav"
+        "gif",
+        "bmp",
+        "tif",
+        "tiff",
+        "avif",
+        "ico",
+        "svg",
+        "psd",
     )
 
     private fun hasOverridesDir(rootDir: File): Boolean {
@@ -904,7 +973,12 @@ class ModpackProcessor(
                         readAllBytes = { file.readBytes() },
                         resourcepackBytes = { readResourcepackFile(file, relativeLower, processedAssets[relative]) },
                         nestedZipBytes = if (relativeLower.endsWith(".zip") || relativeLower.endsWith(".jar")) {
-                            { processNestedZip(file) }
+                            {
+                                processNestedZip(
+                                    file,
+                                    preserveResourcepackEntries = topLevel.equals("resourcepacks", ignoreCase = true)
+                                )
+                            }
                         } else null,
                         preprocessedBytes = processedAssets[relative]
                     )
@@ -923,8 +997,17 @@ class ModpackProcessor(
                     if (!sourceFile.exists() || !sourceFile.isFile) {
                         throw ModpackError("服务端额外文件不存在: ${sourceFile.absolutePath}")
                     }
+                    if (shouldExcludeMca(relative, isDirectory = false)) continue
                     ensureArchiveParents(relative, out, addedDirs)
-                    out.addFile(relative, sourceFile.readBytes(), sourceFile.lastModified())
+                    val bytes = if (
+                        sourceFile.extension.equals("zip", ignoreCase = true) ||
+                        sourceFile.extension.equals("jar", ignoreCase = true)
+                    ) {
+                        processNestedZip(sourceFile, mcaOnly = true)
+                    } else {
+                        sourceFile.readBytes()
+                    }
+                    out.addFile(relative, bytes, sourceFile.lastModified())
                     writtenEntries++
                     val fraction = writtenEntries.toFloat() / totalWriteEntries.toFloat()
                     onProgress(
@@ -942,7 +1025,11 @@ class ModpackProcessor(
         return target
     }
 
-    private suspend fun processNestedZip(zipFile: File): ByteArray {
+    private suspend fun processNestedZip(
+        zipFile: File,
+        preserveResourcepackEntries: Boolean = false,
+        mcaOnly: Boolean = false
+    ): ByteArray {
         return ByteArrayOutputStream().use { baos ->
             ZipOutputStream(baos).use { out ->
                 val addedDirs = mutableSetOf<String>()
@@ -950,23 +1037,27 @@ class ModpackProcessor(
                     val oggWorkDir = Files.createTempDirectory(paths.workDir.toPath(), "ogg-nested-").toFile()
                     try {
                         val entries = zip.entries().asSequence().toList()
-                        val processedAssets = preprocessAssetInputsInParallel(
-                            inputs = entries.asSequence()
-                                .filter { !it.isDirectory }
-                                .mapNotNull { entry ->
-                                    val relative = entry.name.replace('\\', '/').trimStart('/')
-                                    if (relative.isBlank()) return@mapNotNull null
-                                    val relativeLower = relative.lowercase()
-                                    if (!shouldPreprocessAsset(relativeLower)) return@mapNotNull null
-                                    AssetProcessInput(
-                                        relative,
-                                        relativeLower,
-                                        zip.getInputStream(entry).use { it.readBytes() }
-                                    )
-                                }
-                                .toList(),
-                            oggWorkDir = oggWorkDir
-                        )
+                        val processedAssets = if (preserveResourcepackEntries || mcaOnly) {
+                            emptyMap()
+                        } else {
+                            preprocessAssetInputsInParallel(
+                                inputs = entries.asSequence()
+                                    .filter { !it.isDirectory }
+                                    .mapNotNull { entry ->
+                                        val relative = entry.name.replace('\\', '/').trimStart('/')
+                                        if (relative.isBlank()) return@mapNotNull null
+                                        val relativeLower = relative.lowercase()
+                                        if (!shouldPreprocessAsset(relativeLower)) return@mapNotNull null
+                                        AssetProcessInput(
+                                            relative,
+                                            relativeLower,
+                                            zip.getInputStream(entry).use { it.readBytes() }
+                                        )
+                                    }
+                                    .toList(),
+                                oggWorkDir = oggWorkDir
+                            )
+                        }
                         for (entry in entries) {
                             val relative = entry.name.replace('\\', '/').trimStart('/')
                             if (relative.isBlank()) continue
@@ -987,7 +1078,9 @@ class ModpackProcessor(
                                 },
                                 nestedZipBytes = null,
                                 skipCacheDirectory = !isNestedJarEntry,
-                                preprocessedBytes = processedAssets[relative]
+                                preprocessedBytes = processedAssets[relative],
+                                preserveResourcepackEntries = preserveResourcepackEntries,
+                                mcaOnly = mcaOnly
                             )
                         }
                     } finally {
@@ -1010,9 +1103,18 @@ class ModpackProcessor(
         if (relativeLower.startsWith("config/") && relativeLower.removePrefix("config/").isExcludedConfigPath()) return true
         if (disallowedClientPathKeywords.any { relativeLower.contains(it) }) return true
         if (relativeLower.endsWith(".mp4") || relativeLower.endsWith(".mov")) return true
-        if (relativeLower.endsWith(".mca") && relativeLower.contains("/saves/")) return true
+        if (shouldExcludeMca(rawRelativeLower, isDirectory)) return true
         if (isQuestLangEntryDisallowed(relativeLower, isDirectory)) return true
         return false
+    }
+
+    private fun shouldExcludeMca(path: String, isDirectory: Boolean): Boolean {
+        if (isDirectory) return false
+        val normalized = path.replace('\\', '/').trim('/')
+        if (normalized.isBlank() ||
+            !normalized.substringAfterLast('/').endsWith(".mca", ignoreCase = true)
+        ) return false
+        return normalized.split('/').none { it.equals("ftbteambases", ignoreCase = true) }
     }
 
     private fun containsCacheDirectory(relativeLower: String): Boolean {
@@ -1042,8 +1144,9 @@ class ModpackProcessor(
             return
         }
 
-        if (topLevel == "resourcepacks") {
-            val bytes = resourcepackBytes?.invoke() ?: return
+        if (topLevel.equals("resourcepacks", ignoreCase = true)) {
+            val bytes = nestedZipBytes?.invoke() ?: resourcepackBytes?.invoke() ?: return
+            if (bytes.size > RESOURCEPACK_MAX_SIZE_BYTES) return
             ensureArchiveParents(relative, out, addedDirs)
             out.addFile(relative, bytes, lastModified)
             return
@@ -1054,6 +1157,7 @@ class ModpackProcessor(
             nestedZipBytes != null -> nestedZipBytes()
             relativeLower.endsWith(".png") -> preprocessedBytes ?: processUploadPng(readAllBytes(), relative)
             relativeLower.endsWith(".ogg") -> preprocessedBytes ?: processOggBytes(readAllBytes(), relative)
+            relativeLower.endsWith(".mp3") -> preprocessedBytes ?: emptyMp3Bytes
             else -> readAllBytes()
         }
         out.addFile(relative, bytes, lastModified)
@@ -1071,22 +1175,42 @@ class ModpackProcessor(
         resourcepackBytes: (suspend () -> ByteArray?)?,
         nestedZipBytes: (suspend () -> ByteArray)?,
         skipCacheDirectory: Boolean = true,
-        preprocessedBytes: ByteArray? = null
+        preprocessedBytes: ByteArray? = null,
+        preserveResourcepackEntries: Boolean = false,
+        mcaOnly: Boolean = false
     ) {
-        if (shouldSkipEntry(relativeLower, isDirectory, skipCacheDirectory = skipCacheDirectory)) return
+        if (shouldExcludeMca(relative, isDirectory)) return
+        if (mcaOnly) {
+            if (isDirectory) {
+                addZipDirectoryEntry(relative, out, addedDirs)
+                return
+            }
+            ensureZipParents(relative, out, addedDirs)
+            val zipEntry = ZipEntry(relative).apply { time = lastModified }
+            out.putNextEntry(zipEntry)
+            out.write(readAllBytes())
+            out.closeEntry()
+            return
+        }
+        if (!preserveResourcepackEntries &&
+            shouldSkipEntry(relativeLower, isDirectory, skipCacheDirectory = skipCacheDirectory)
+        ) return
 
         if (isDirectory) {
             addZipDirectoryEntry(relative, out, addedDirs)
             return
         }
 
-        val bytes = if (topLevel == "resourcepacks") {
+        val bytes = if (preserveResourcepackEntries) {
+            if (relativeLower.endsWith(".mp3")) emptyMp3Bytes else readAllBytes()
+        } else if (topLevel == "resourcepacks") {
             resourcepackBytes?.invoke() ?: return
         } else {
             when {
                 nestedZipBytes != null -> nestedZipBytes()
                 relativeLower.endsWith(".png") -> preprocessedBytes ?: processUploadPng(readAllBytes(), relative)
                 relativeLower.endsWith(".ogg") -> preprocessedBytes ?: processOggBytes(readAllBytes(), relative)
+                relativeLower.endsWith(".mp3") -> preprocessedBytes ?: emptyMp3Bytes
                 else -> readAllBytes()
             }
         }
@@ -1104,6 +1228,7 @@ class ModpackProcessor(
         preprocessedBytes: ByteArray? = null
     ): ByteArray? {
         val isOgg = relativeLower.endsWith(".ogg")
+        if (relativeLower.endsWith(".mp3")) return emptyMp3Bytes
         if (!isOgg && entry.size != -1L && entry.size > RESOURCEPACK_MAX_SIZE_BYTES) {
             return null
         }
@@ -1121,6 +1246,7 @@ class ModpackProcessor(
             when {
                 isOgg -> processOggBytes(rawBytes, entry.name)
                 relativeLower.endsWith(".png") -> processUploadPng(rawBytes, entry.name)
+                relativeLower.endsWith(".mp3") -> emptyMp3Bytes
                 else -> rawBytes
             }
         }
@@ -1130,7 +1256,7 @@ class ModpackProcessor(
 
     private val disallowedClientPathPrefixes = setOf(
         "config/fancymenu/",
-        "packmenu",
+        //有材质 "packmenu",
         "shaderpacks/",
         "kubejs/probe/"
     )
@@ -1153,6 +1279,7 @@ class ModpackProcessor(
 
     private suspend fun readResourcepackFile(file: File, relativeLower: String, preprocessedBytes: ByteArray? = null): ByteArray? {
         val isOgg = relativeLower.endsWith(".ogg")
+        if (relativeLower.endsWith(".mp3")) return emptyMp3Bytes
         //不接受>1M资源包
         if (!isOgg && file.length() > RESOURCEPACK_MAX_SIZE_BYTES) return null
         val processed = if (preprocessedBytes != null) {
@@ -1167,6 +1294,7 @@ class ModpackProcessor(
             when {
                 isOgg -> processOggBytes(rawBytes, file.name)
                 relativeLower.endsWith(".png") -> processUploadPng(rawBytes, file.path)
+                relativeLower.endsWith(".mp3") -> emptyMp3Bytes
                 else -> rawBytes
             }
         }
@@ -1175,7 +1303,8 @@ class ModpackProcessor(
     }
 
     private fun shouldPreprocessAsset(relativeLower: String): Boolean {
-        return relativeLower.endsWith(".png") || relativeLower.endsWith(".ogg")
+        return relativeLower.endsWith(".png") ||
+            relativeLower.endsWith(".ogg")
     }
 
     private suspend fun preprocessAssetInputsInParallel(
@@ -1194,6 +1323,7 @@ class ModpackProcessor(
                         val processed = when {
                             input.relativeLower.endsWith(".png") -> processUploadPng(input.rawBytes, input.relativePath)
                             input.relativeLower.endsWith(".ogg") -> processOggBytes(input.rawBytes, input.relativePath, oggWorkDir)
+                            input.relativeLower.endsWith(".mp3") -> emptyMp3Bytes
                             else -> input.rawBytes
                         }
                         onProgress(doneCount.incrementAndGet(), total, input.relativePath)
@@ -1209,6 +1339,15 @@ class ModpackProcessor(
             openBundledResource("assets/empty.ogg").use { it.readBytes() }
         }.getOrElse { error ->
             lgr.error(error) { "无法读取RDI空音频资源assets/empty.ogg" }
+            throw ModpackError("音频处理模块损坏，请更新客户端", error)
+        }
+    }
+
+    private val emptyMp3Bytes: ByteArray by lazy(LazyThreadSafetyMode.SYNCHRONIZED) {
+        runCatching {
+            openBundledResource("assets/empty.mp3").use { it.readBytes() }
+        }.getOrElse { error ->
+            lgr.error(error) { "无法读取RDI空音频资源assets/empty.mp3" }
             throw ModpackError("音频处理模块损坏，请更新客户端", error)
         }
     }

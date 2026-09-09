@@ -141,6 +141,12 @@ data class ModpackInfoRoute(
     val ref: String? = null,
 )
 @Serializable
+data class ModpackUploaderManageRoute(
+    val modpackId: String,
+    val fromHostId: String? = null,
+    val fromAllHosts: Boolean = false,
+)
+@Serializable
 data class ModpackLocalAdvanceOptionsRoute(
     val versionId: String,
     val modpackName: String = "",
@@ -162,10 +168,14 @@ data class ModpackVersionInfoRoute(
 )
 /* @Serializable object Modpack2Upload */
 @Serializable
-object ModpackUploadRoute
+data class ModpackUploadRoute(
+    val modpackId: String? = null,
+)
 /* @Serializable data class Modpack2ContentRoute(val versionId: String) */
 @Serializable object LoginRoute
 @Serializable object MenuRoute
+@Serializable object BaseWorldListRoute
+@Serializable object BaseWorldUploadRoute
 /*@Serializable data class AiChat(
     val mcpPort: Int? = null,
     val versionDir: String? = null,

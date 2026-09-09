@@ -127,7 +127,7 @@ class Modpack2ParallelUploader(
                 ByteArray(length).also { input.readFully(it) }
             }
         }
-        val partSha1 = bytes.sha1()
+        val partSha1 = bytes.sha1
         repeat(maxAttempts) { attemptIndex ->
             val attempt = attemptIndex + 1
             try {
@@ -231,9 +231,4 @@ sealed interface Modpack2NetworkBoundary {
 private fun ModpackUploadSessionVo.partLength(index: Int): Int {
     require(index in 0 until partCount) { "分片序号无效" }
     return min(partSize.toLong(), size - index.toLong() * partSize).toInt()
-}
-
-private fun ByteArray.sha1(): String {
-    val digest = java.security.MessageDigest.getInstance("SHA-1")
-    return digest.digest(this).joinToString("") { "%02x".format(it) }
 }

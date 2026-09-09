@@ -24,7 +24,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import calebxzau.rdi.client.ui.CursorPositionBox
 import calebxzau.rdi.client.ui.DEFAULT_HOST_ICON
 import calebxzau.rdi.client.ui.OffsetFirstItemUnderCursor
@@ -63,6 +62,12 @@ fun UnifiedHostCard(
         listOfNotNull(host.ownerId) + host.onlinePlayerIds
     }
     rememberPlayerInfoPrefetch(playerIds)
+    val onlinePlayerIds = host.onlinePlayerIds.filter { it != host.ownerId }
+    val firstRowOnlineCount = if (host.ownerId != null) {
+        onlinePlayerIds.size / 2
+    } else {
+        (onlinePlayerIds.size + 1) / 2
+    }
 
     CursorPositionBox(
         cursorContent = {
@@ -133,31 +138,44 @@ fun UnifiedHostCard(
                     .padding(8.dp),
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    UnifiedHostIcon(host.iconUrl, 64.dp)
+                    UnifiedHostIcon(host.iconUrl, 48.dp)
                     Space8w()
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            text = host.name.ifBlank { "未命名房间" },
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            text = listOf(host.modpackName, host.packVersion).filter(String::isNotBlank).joinToString(" "),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            host.ownerId?.let {
-                                HeadButton(it, avatarSize = 18.dp, nameFontSize = 14.sp, showName = true)
-                                if (host.onlinePlayerIds.isNotEmpty()) {
-                                    Text("·", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = host.name.ifBlank { "未命名房间" },
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            /*host.ownerId?.let {
+                                HeadButton(it, avatarSize = 16.dp, showName = false)
+                            }*/
+                            onlinePlayerIds.take(firstRowOnlineCount).forEach {
+                                HeadButton(it, avatarSize = 16.dp, showName = false)
                             }
-                            host.onlinePlayerIds.forEach {
+                            if (playLoading) {
+                                Spacer(Modifier.size(22.dp))
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = listOf(host.modpackName, host.packVersion).filter(String::isNotBlank).joinToString(" "),
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            onlinePlayerIds.drop(firstRowOnlineCount).forEach {
                                 HeadButton(it, avatarSize = 18.dp, showName = false)
                             }
                         }

@@ -2,34 +2,35 @@ package calebxzhou.rdi.mc.client.mixin;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.ModifyArgs;
-import org.spongepowered.asm.mixin.injection.invoke.arg.Args;
+import org.spongepowered.asm.mixin.injection.ModifyArg;
 
 @Mixin(targets = "net.minecraft.client.gui.screens.multiplayer.ServerSelectionList$OnlineServerEntry")
 public class mOnlineServerEntry {
-    @ModifyArgs(
+    @ModifyArg(
             method = "render",
+            index = 1,
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/network/chat/Component;translatable(Ljava/lang/String;[Ljava/lang/Object;)Lnet/minecraft/network/chat/MutableComponent;",
                     ordinal = 0
             )
     )
-    private void RDI$DisplayFixedPing(Args args) {
-        Object[] translatableArgs = args.get(1);
+    private Object[] RDI$DisplayFixedPing(Object[] translatableArgs) {
         translatableArgs[0] = 11L;
+        return translatableArgs;
     }
 
-    @ModifyArgs(
+    @ModifyArg(
             method = "getNarration",
+            index = 1,
             at = @At(
                     value = "INVOKE",
                     target = "Lnet/minecraft/network/chat/Component;translatable(Ljava/lang/String;[Ljava/lang/Object;)Lnet/minecraft/network/chat/MutableComponent;",
                     ordinal = 3
             )
     )
-    private void RDI$NarrateFixedPing(Args args) {
-        Object[] translatableArgs = args.get(1);
+    private Object[] RDI$NarrateFixedPing(Object[] translatableArgs) {
         translatableArgs[0] = 11L;
+        return translatableArgs;
     }
 }

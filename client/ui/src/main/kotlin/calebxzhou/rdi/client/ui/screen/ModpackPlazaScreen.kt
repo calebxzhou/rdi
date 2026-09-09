@@ -43,10 +43,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
-import calebxzau.rdi.client.packproc.ModpackProcessor
-import calebxzau.rdi.client.packproc.PackProcessingPaths
-import calebxzhou.rdi.client.service.ClientDirs
-import calebxzau.rdi.client.lgr
 import calebxzau.rdi.client.ui.AlertErr
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.SearchField
@@ -63,11 +59,12 @@ import calebxzhou.rdi.client.ui.comp.ModpackCardPresentation
 import calebxzhou.rdi.client.ui.comp.formatModpackUpdatedTime
 import calebxzhou.rdi.client.ui.loadResourceBitmap
 import calebxzau.rdi.client.ui.baseRoundCornerShape
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Modpack
+import calebxzhou.rdi.common.model.isDav
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * calebxzhou @ 2026-05-14 11:29
@@ -126,6 +123,7 @@ internal fun mergeRemoteModpackPresentations(
 fun ModpackPlazaScreen(
     onOpenInfo: (String) -> Unit,
     onOpenUpload: (() -> Unit)? = null,
+    onOpenBaseWorlds: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     requiredMcVer: McVersion? = null,
     requiredLoader: String? = null,
@@ -133,14 +131,6 @@ fun ModpackPlazaScreen(
 ) {
     val scope = rememberCoroutineScope()
     val gridState = rememberLazyGridState()
-    val packProcessor = remember {
-        ModpackProcessor(
-            PackProcessingPaths(
-                workDir = ClientDirs.packProcDir
-            )
-        )
-    }
-    var uploadErrorText by remember { mutableStateOf<String?>(null) }
     var modpacks by remember { mutableStateOf<List<Modpack.BriefVo>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var loadingMore by remember { mutableStateOf(false) }
@@ -154,25 +144,6 @@ fun ModpackPlazaScreen(
     var requestKeyword by rememberSaveable { mutableStateOf("") }
     var requestVersion by remember { mutableStateOf(0) }
     var selectedLoader by rememberSaveable(requiredLoader) { mutableStateOf<String?>(requiredLoader) }
-
-    val openUploadAfterAudioCheck: () -> Unit = {
-        scope.launch {
-            val result: Result<Unit> = withContext(Dispatchers.IO) {
-                try {
-                    packProcessor.ensureAudioReady()
-                    Result.success(Unit)
-                } catch (error: Throwable) {
-                    Result.failure(error)
-                }
-            }
-            result.onSuccess {
-                onOpenUpload?.invoke()
-            }.onFailure { error ->
-                lgr.error(error) { "传包音频模块初始化失败" }
-                uploadErrorText = error.message ?: "音频处理模块损坏，请更新客户端"
-            }
-        }
-    }
 
     suspend fun loadModpacks(reset: Boolean) {
         val offset = if (reset) 0 else modpacks.size
@@ -417,12 +388,21 @@ fun ModpackPlazaScreen(
                     modifier = Modifier.width(240.dp),
                     loading = loading,
                 )
+                onOpenBaseWorlds?.let { onOpen ->
+                    //todo not ready
+                    if(loggedAccount.isDav){
+                        CircleIconButton(
+                            icon = "\uF279",
+                            label = "地图模板",
+                            onClick = onOpen,
+                        )
+                    }
+                }
             }
             ContentBody {
                 Box(modifier = modifier.fillMaxSize()) {
                     Column(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         ResultList(modifier = Modifier.weight(1f))
-                        uploadErrorText?.let { AlertErr(it) { uploadErrorText = null } }
                         /*BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                     Row(
                         modifier = Modifier.fillMaxSize(),
@@ -445,7 +425,7 @@ fun ModpackPlazaScreen(
 
                         }*/
                     }
-                    if (onOpenUpload != null && loggedAccount.hasMsid) {
+                    if (onOpenUpload != null && (loggedAccount.hasMsid|| DEBUG)) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.BottomEnd)
@@ -453,10 +433,9 @@ fun ModpackPlazaScreen(
                         ) {
                             CircleIconButton(
                                 icon = "\uDB80\uDFD5",
-                                label = "传包"
-                            ) {
-                                openUploadAfterAudioCheck()
-                            }
+                                label = "传新包",
+                                onClick = onOpenUpload,
+                            )
                         }
                     }
                 }

@@ -1,5 +1,6 @@
 package calebxzhou.rdi.master.service.modpack
 
+import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.archive.PackArchiveFormat
 import calebxzhou.rdi.common.archive.detectArchiveFormat
 import calebxzhou.rdi.common.exception.RequestError
@@ -176,7 +177,7 @@ object ModpackUploadService {
         requireModpackUploadVersion(mcVer)
         val normalizedVerName = ModpackQueryService.run { verName.validateVerName() }.getOrThrow()
         val normalizedCategories = Modpack.normalizeCategories(categories)
-        if (!player.hasMsid) throw RequestError("必须有微软账号才能传包")
+        if (!player.hasMsid && !DEBUG) throw RequestError("必须有微软账号才能传包")
         if (dbcl.countDocuments(eq(Modpack::authorId.name, player._id)) >= MAX_MODPACK_PER_USER && !player.isDav) {
             throw RequestError("一个人最多传${MAX_MODPACK_PER_USER}个包")
         }
@@ -198,7 +199,7 @@ object ModpackUploadService {
         expectedMcVer: McVersion? = null,
         expectedModLoader: ModLoader? = null,
     ): String {
-        ModpackVersionService.run { this@validateVersionUpload.requireAuthor() }
+        ModpackVersionService.run { this@validateVersionUpload.requireCanUploadVersion() }
         requireModpackUploadVersion(modpack.mcVer)
         expectedMcVer?.let {
             if (it != modpack.mcVer) throw RequestError("MC版本与已有整合包不一致")
@@ -262,7 +263,7 @@ object ModpackUploadService {
         )
         modpack.dir.mkdirs()
         try {
-            val prepared = prepareVersionUpload(modpack, metadata.normalizedVerName, uploadFile, mods)
+            val prepared = prepareVersionUpload(modpack, metadata.normalizedVerName, uploadFile, mods, uploaderId = player._id)
             var published = false
             var inserted = false
             runCatching {
@@ -302,7 +303,14 @@ object ModpackUploadService {
                     val freshVersionName = freshContext.validateVersionUpload(
                         verName = verName,
                     )
-                    prepared = prepareVersionUpload(freshModpack, freshVersionName, uploadFile, mods, stageArchive = false)
+                    prepared = prepareVersionUpload(
+                        freshModpack,
+                        freshVersionName,
+                        uploadFile,
+                        mods,
+                        uploaderId = player._id,
+                        stageArchive = false,
+                    )
                     marker = pendingVersionPublication(prepared.version, prepared.stagedArchive)
                     writePendingVersionPublication(marker)
                     markerOwned = true
@@ -596,6 +604,7 @@ object ModpackUploadService {
         verName: String,
         uploadFile: File,
         mods: MutableList<Mod>,
+        uploaderId: org.bson.types.ObjectId,
         stageArchive: Boolean = true,
     ): PreparedVersionUpload {
         mods.sortBy { it.slug.lowercase() }
@@ -605,7 +614,8 @@ object ModpackUploadService {
             changelog = "新上传",
             status = Modpack.Status.WAIT,
             mods = ModpackModProcessor.processMods(mods),
-            time = System.currentTimeMillis()
+            time = System.currentTimeMillis(),
+            uploaderId = uploaderId,
         )
         val stagedArchive = reserveStagedArchive(version, uploadFile.detectArchiveFormat())
         try {

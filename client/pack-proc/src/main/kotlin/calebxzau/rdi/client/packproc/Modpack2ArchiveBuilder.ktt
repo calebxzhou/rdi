@@ -9,6 +9,7 @@ import calebxzau.rdi.common.model.Modpack2RawFile
 import calebxzau.rdi.common.model.Modpack2RawFileRoot
 import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.common.util.openChineseZip
+import calebxzhou.rdi.common.util.sha1
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
@@ -78,7 +79,7 @@ class Modpack2ArchiveBuilder(
                         val archivePath = "${rawFile.root.name.lowercase()}/${normalizePackPath(rawFile.path)}"
                         out.addFile(archivePath, bytes, source.lastModified())
                         writtenRawFiles += rawFile.copy(
-                            sha1 = sha1(bytes),
+                            sha1 = bytes.sha1,
                             size = bytes.size.toLong(),
                         )
                     }
@@ -95,11 +96,6 @@ class Modpack2ArchiveBuilder(
                 runCatching { Files.deleteIfExists(partial.toPath()) }
             }
         }
-    }
-
-    private fun sha1(bytes: ByteArray): String {
-        val digest = java.security.MessageDigest.getInstance("SHA-1")
-        return digest.digest(bytes).joinToString("") { "%02x".format(it) }
     }
 
     private suspend fun processBytes(rawPath: String, sourceBytes: ByteArray): ByteArray {

@@ -2,9 +2,15 @@ package calebxzhou.rdi.master.service.host
 
 import java.nio.file.Files
 import java.util.Properties
+import java.util.UUID
+import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.serdesJson
+import org.bson.types.ObjectId
+import calebxzhou.rdi.master.service.host.HostInstallService.writeServerProperties
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertEquals
 
 class HostInstallServiceTest {
     @Test
@@ -13,14 +19,14 @@ class HostInstallServiceTest {
         try {
             root.resolve("world").mkdirs()
             root.resolve("world").resolve("level.dat").writeText("keep")
-            root.resolve("World").mkdirs()
+            root.resolve("World_backup").mkdirs()
             root.resolve("world_nether").mkdirs()
             root.resolve("server.properties").writeText("remove")
 
             HostInstallService.cleanForV2Install(root)
 
             assertTrue(root.resolve("world/level.dat").isFile)
-            assertFalse(root.resolve("World").exists())
+            assertFalse(root.resolve("World_backup").exists())
             assertFalse(root.resolve("world_nether").exists())
             assertFalse(root.resolve("server.properties").exists())
         } finally {
@@ -64,5 +70,102 @@ class HostInstallServiceTest {
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    @Test
+    fun `template properties are escaped and override defaults without raw injection`() {
+        val host = Host(
+            _id = ObjectId(),
+            name = "properties-template",
+            ownerId = ObjectId(),
+            modpackId = ObjectId(),
+            port = 25565,
+            difficulty = 2,
+            gameMode = 0,
+            levelType = "custom\nlevel-name=evil",
+            baseWorldId = UUID.randomUUID(),
+            generatorSettings = "{\\\"seed\\\":1}\ngenerator-settings=evil",
+            version = 2,
+        )
+        val dir = host.dir
+        try {
+            dir.mkdirs()
+            dir.resolve("default-server.properties").writeText("level-type=default\ngenerator-settings=default\nlevel-name=wrong\n")
+            host.writeServerProperties()
+            val properties = Properties().apply { dir.resolve("server.properties").inputStream().use(::load) }
+            assertEquals(host.levelType, properties.getProperty("level-type"))
+            assertEquals(host.generatorSettings, properties.getProperty("generator-settings"))
+            assertEquals("world", properties.getProperty("level-name"))
+            assertEquals(null, properties.getProperty("evil"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `template null and empty generator settings are preserved without defaults`() {
+        val base = Host(
+            _id = ObjectId(),
+            name = "properties-empty",
+            ownerId = ObjectId(),
+            modpackId = ObjectId(),
+            port = 25565,
+            difficulty = 2,
+            gameMode = 0,
+            levelType = "flat",
+            baseWorldId = UUID.randomUUID(),
+            version = 2,
+        )
+        val dir = base.dir
+        try {
+            dir.mkdirs()
+            base.writeServerProperties()
+            val nullSettings = Properties().apply { dir.resolve("server.properties").inputStream().use(::load) }
+            assertEquals("{}", nullSettings.getProperty("generator-settings"))
+            dir.deleteRecursively()
+            val emptySettings = base.copy(generatorSettings = "")
+            emptySettings.dir.mkdirs()
+            emptySettings.writeServerProperties()
+            val empty = Properties().apply { emptySettings.dir.resolve("server.properties").inputStream().use(::load) }
+            assertEquals("", empty.getProperty("generator-settings"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `no-template defaults preserve existing level properties`() {
+        val host = Host(
+            _id = ObjectId(),
+            name = "properties-default",
+            ownerId = ObjectId(),
+            modpackId = ObjectId(),
+            port = 25565,
+            difficulty = 2,
+            gameMode = 0,
+            levelType = "normal",
+            version = 2,
+        )
+        val dir = host.dir
+        try {
+            dir.mkdirs()
+            dir.resolve("default-server.properties").writeText("level-type=flat\ngenerator-settings=default\n")
+            host.writeServerProperties()
+            val properties = Properties().apply { dir.resolve("server.properties").inputStream().use(::load) }
+            assertEquals("flat", properties.getProperty("level-type"))
+            assertEquals("default", properties.getProperty("generator-settings"))
+            assertEquals("world", properties.getProperty("level-name"))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `old host create payload decodes without template id`() {
+        val payload = """
+            {"name":"room","modpackId":"696312b0e61232912c744968","packVer":"latest","difficulty":2,"gameMode":0,"levelType":"normal","allowCheats":false,"whitelist":false,"gameRules":{}}
+        """.trimIndent()
+        val decoded = serdesJson.decodeFromString<Host.CreateDto>(payload)
+        assertEquals(null, decoded.baseWorldId)
     }
 }

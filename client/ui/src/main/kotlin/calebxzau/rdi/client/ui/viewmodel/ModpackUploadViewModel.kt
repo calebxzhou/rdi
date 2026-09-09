@@ -34,6 +34,7 @@ import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.common.DEBUG
 import calebxzhou.rdi.common.IGNORE_MODPACK_TEST
+import calebxzhou.rdi.common.exception.ModpackError
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.model.LoadProgress
@@ -148,6 +149,8 @@ data class PreparedServerPack(
     val uiMods: List<UiMod>,
 )
 
+const val MODPACK_UPLOAD_MCA_WARNING = "可能含有内置地图，请创建地图模板，详见说明书。"
+
 data class ModpackUploadSubmission(
     val pack: LoadedLocalModpack,
     val uiMods: List<UiMod>,
@@ -158,6 +161,8 @@ data class ModpackUploadSubmission(
 data class ModpackUploadUiState(
     val title: String = "上传整合包",
     val loading: Boolean = false,
+    val uploadInitializationReady: Boolean = false,
+    val uploadInitializationError: String? = null,
     val iconValidationRunning: Boolean = false,
     val editMode: Boolean = false,
     val loadedModpack: LoadedLocalModpack? = null,
@@ -183,6 +188,7 @@ data class ModpackUploadUiState(
     val serverTestPassSeconds: String? = null,
     val mcVersionText: String = "",
     val modloaderText: String = "",
+    val warningMessage: String? = null,
     val errorMessage: String? = null,
 ) {
     val allowUploadWithoutTests: Boolean
@@ -191,6 +197,8 @@ data class ModpackUploadUiState(
     val uploadDisabledReason: String?
         get() {
             validateModpackUploadDraft(draft, uploadMode).firstMessage?.let { return it }
+            uploadInitializationError?.let { return it }
+            if (!uploadInitializationReady) return "正在准备上传"
             if (iconValidationRunning) return "正在检查上传信息"
             if (ignoreModpackTest) return null
             return when {
@@ -227,6 +235,11 @@ sealed interface ModpackUploadEvent {
 interface ModpackUploadGateway {
     val taskEntries: StateFlow<List<Task2Entry>>
     val ignoreModpackTestInitially: Boolean
+
+    suspend fun ensureAudioReady(): Result<Unit> = Result.success(Unit)
+
+    suspend fun loadUpdateTarget(modpackId: String): Result<Modpack.BriefVo> =
+        Result.failure(UnsupportedOperationException("更新目标加载未实现"))
 
     suspend fun loadUploadedModpacks(): Result<List<Modpack.BriefVo>>
 
@@ -280,8 +293,20 @@ class RdiModpackUploadGateway(
     override val ignoreModpackTestInitially: Boolean
         get() = IGNORE_MODPACK_TEST
 
+    override suspend fun ensureAudioReady(): Result<Unit> = resultOf {
+        processor.ensureAudioReady()
+    }
+
+    override suspend fun loadUpdateTarget(modpackId: String): Result<Modpack.BriefVo> = resultOf {
+        val response = server.makeRequest<Modpack.DetailVo>("modpack/$modpackId/detail")
+        if (!response.ok) throw RequestError(response.msg)
+        val detail = response.data ?: throw RequestError("整合包信息为空")
+        if (!detail.canUploadVersion) throw RequestError("没有上传新版本的权限")
+        detail.toLocalBriefVo()
+    }
+
     override suspend fun loadUploadedModpacks(): Result<List<Modpack.BriefVo>> = resultOf {
-        val response = server.makeRequest<List<Modpack>>("modpack/my")
+        val response = server.makeRequest<List<Modpack>>("modpack/uploadable")
         if (!response.ok) throw RequestError(response.msg)
         response.data.orEmpty()
             .sortedByDescending { pack -> pack.versions.maxOfOrNull { it.time } ?: 0L }
@@ -337,6 +362,9 @@ class RdiModpackUploadGateway(
         clientUiMods: List<UiMod>,
         onProgress: (LoadProgress) -> Unit,
     ): Result<PreparedServerPack> = resultOf {
+        if (INVALID_SERVER_ROOT_MARKERS.any { directory.resolve(it).isFile }) {
+            throw ModpackError("请选择 正确安装了模组载入器 的服务端")
+        }
         val clientMods = clientUiMods.map(UiMod::toMod)
         onProgress(LoadProgress.Phase("正在检查本地Mod"))
         val serverPack = withAvailableClientModSources(clientUiMods, onProgress) { clientModSources ->
@@ -351,6 +379,10 @@ class RdiModpackUploadGateway(
         val serverUiMods = serverPack.mods.hydrateToUiMods(modCatalog)
         val mergedUiMods = mergeClientAndServerMods(clientUiMods, serverUiMods)
         PreparedServerPack(serverPack, processUiMods(mergedUiMods).getOrThrow())
+    }
+
+    private companion object {
+        val INVALID_SERVER_ROOT_MARKERS = listOf("spigot.yml", "arclight.conf", "bukkit.yml")
     }
 
     private suspend fun <T> withAvailableClientModSources(
@@ -484,10 +516,19 @@ class RdiModpackUploadGateway(
 
 class ModpackUploadViewModel(
     private val gateway: ModpackUploadGateway,
+    private val modpackId: String? = null,
     private val validateFullIconUrl: suspend (String?) -> Result<Unit> = ::validateIconUrl,
 ) : ViewModel() {
+    constructor(
+        gateway: ModpackUploadGateway,
+        validateFullIconUrl: suspend (String?) -> Result<Unit>,
+    ) : this(gateway, null, validateFullIconUrl)
     private val _uiState = MutableStateFlow(
-        ModpackUploadUiState(ignoreModpackTest = gateway.ignoreModpackTestInitially)
+        ModpackUploadUiState(
+            loading = true,
+            uploadMode = if (modpackId == null) ModpackUploadMode.CREATE else ModpackUploadMode.UPDATE,
+            ignoreModpackTest = gateway.ignoreModpackTestInitially,
+        )
     )
     val uiState: StateFlow<ModpackUploadUiState> = _uiState.asStateFlow()
 
@@ -503,6 +544,71 @@ class ModpackUploadViewModel(
 
     init {
         observeTasks()
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    gateway.ensureAudioReady().getOrThrow()
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (cause: Throwable) {
+                val message = cause.message ?: "音频处理模块损坏，请更新客户端"
+                lgr.warn(cause) { "上传页面音频模块初始化失败" }
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        uploadInitializationReady = false,
+                        uploadInitializationError = message,
+                        errorMessage = message,
+                    )
+                }
+                return@launch
+            }
+
+            val target = try {
+                modpackId?.let { targetId ->
+                    withContext(Dispatchers.IO) {
+                        gateway.loadUpdateTarget(targetId).getOrThrow()
+                    }
+                }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (cause: Throwable) {
+                val message = "无法加载要更新的整合包，请返回后重试"
+                lgr.warn(cause) { "上传页面更新目标加载失败" }
+                _uiState.update {
+                    it.copy(
+                        loading = false,
+                        uploadInitializationReady = false,
+                        uploadInitializationError = message,
+                        errorMessage = message,
+                    )
+                }
+                return@launch
+            }
+
+            _uiState.update {
+                it.copy(
+                    loading = false,
+                    uploadInitializationReady = true,
+                    uploadInitializationError = null,
+                    uploadMode = if (modpackId == null) {
+                        ModpackUploadMode.CREATE
+                    } else {
+                        ModpackUploadMode.UPDATE
+                    },
+                    selectedUpdateTarget = target,
+                    draft = target?.let { targetBrief ->
+                        it.draft.copy(
+                            name = targetBrief.name,
+                            categories = targetBrief.categories,
+                            iconUrl = targetBrief.icon.orEmpty(),
+                            info = targetBrief.info.orEmpty(),
+                        )
+                    } ?: it.draft,
+                )
+            }
+        }
     }
 
     fun updateDraft(draft: ModpackUploadDraft) {
@@ -520,12 +626,16 @@ class ModpackUploadViewModel(
     }
 
     fun loadClientPack(file: File) {
+        val currentState = _uiState.value
+        if (currentState.uploadInitializationError != null) return
+        if (modpackId != null && currentState.selectedUpdateTarget == null) return
         _uiState.update {
             it.copy(
                 loading = true,
                 progressText = "已选择:${file.name}",
                 progressFraction = null,
                 errorMessage = null,
+                warningMessage = null,
             )
         }
         viewModelScope.launch {
@@ -537,22 +647,36 @@ class ModpackUploadViewModel(
                     gateway.validateRuntime(prepared.pack.mcVersion).getOrThrow()
                 }
                 _uiState.update {
+                    val target = it.selectedUpdateTarget
                     it.copy(
                         loading = false,
                         editMode = true,
                         loadedModpack = prepared.pack,
                         draftErrors = ModpackUploadFieldErrors(),
-                        draft = ModpackUploadDraft(
-                            name = prepared.pack.packName,
-                            versionName = prepared.pack.packVersion.replace(' ', '_'),
-                        ),
+                        draft = if (target == null) {
+                            ModpackUploadDraft(
+                                name = prepared.pack.packName,
+                                versionName = prepared.pack.packVersion.replace(' ', '_'),
+                            )
+                        } else {
+                            it.draft.copy(
+                                name = target.name,
+                                versionName = prepared.pack.packVersion.replace(' ', '_'),
+                                categories = target.categories,
+                                iconUrl = target.icon.orEmpty(),
+                                info = target.info.orEmpty(),
+                            )
+                        },
                         uiMods = prepared.uiMods,
                         uiModsLoading = prepared.uiMods.isNotEmpty(),
                         serverPackName = null,
-                        uploadMode = ModpackUploadMode.CREATE,
-                        selectedUpdateTarget = null,
+                        uploadMode = it.uploadMode,
+                        selectedUpdateTarget = target,
                         mcVersionText = prepared.pack.mcVersion.mcVer,
                         modloaderText = prepared.pack.modloader.name,
+                        warningMessage = MODPACK_UPLOAD_MCA_WARNING.takeIf {
+                            prepared.pack.containsExcludedMcaFiles
+                        },
                     )
                 }
                 eventChannel.send(ModpackUploadEvent.ClientPackLoaded())
@@ -629,61 +753,15 @@ class ModpackUploadViewModel(
         serverTester?.onModsChanged(mods)
     }
 
-    fun chooseCreateMode() {
-        _uiState.update {
-            it.copy(
-                uploadMode = ModpackUploadMode.CREATE,
-                selectedUpdateTarget = null,
-                draftErrors = ModpackUploadFieldErrors(),
-                draft = it.draft.copy(
-                    name = it.loadedModpack?.packName ?: it.draft.name,
-                    categories = emptyList(),
-                    iconUrl = "",
-                    info = "",
-                ),
-            )
-        }
-    }
+    fun chooseCreateMode() = Unit
 
-    fun chooseUpdateMode(target: Modpack.BriefVo) {
-        _uiState.update {
-            it.copy(
-                uploadMode = ModpackUploadMode.UPDATE,
-                selectedUpdateTarget = target,
-                draftErrors = ModpackUploadFieldErrors(),
-                draft = it.draft.copy(
-                    name = target.name,
-                    categories = target.categories,
-                    iconUrl = target.icon.orEmpty(),
-                    info = target.info.orEmpty(),
-                ),
-            )
-        }
-    }
+    fun chooseUpdateMode(target: Modpack.BriefVo) = Unit
 
-    fun requestUpdateModeSelection() {
-        _uiState.update {
-            it.copy(
-                uploadMode = ModpackUploadMode.UPDATE,
-                draft = it.draft.copy(
-                    categories = it.selectedUpdateTarget?.categories ?: emptyList()
-                ),
-            )
-        }
-        loadUploadedModpacks(openDialogAfterLoad = true)
-    }
+    fun requestUpdateModeSelection() = Unit
 
-    fun requestUploadModeDialog() {
-        loadUploadedModpacks(openDialogAfterLoad = true)
-    }
+    fun requestUploadModeDialog() = Unit
 
-    fun closeUploadModeDialog() {
-        if (_uiState.value.uploadMode == ModpackUploadMode.UPDATE &&
-            _uiState.value.selectedUpdateTarget == null
-        ) {
-            chooseCreateMode()
-        }
-    }
+    fun closeUploadModeDialog() = Unit
 
     fun startClientTest() {
         val tester = clientTester
@@ -715,6 +793,10 @@ class ModpackUploadViewModel(
 
     fun dismissMissingModDownload() {
         _uiState.update { it.copy(pendingMissingModDownload = null) }
+    }
+
+    fun clearWarningMessage() {
+        _uiState.update { it.copy(warningMessage = null) }
     }
 
     fun confirmMissingModDownload() {
@@ -750,6 +832,12 @@ class ModpackUploadViewModel(
 
     fun submitUpload() {
         val state = _uiState.value
+        if (state.uploadInitializationError != null || !state.uploadInitializationReady) {
+            _uiState.update {
+                it.copy(errorMessage = state.uploadInitializationError ?: "正在准备上传")
+            }
+            return
+        }
         if (state.iconValidationRunning) return
         val pack = state.loadedModpack
         if (pack == null) {
@@ -916,7 +1004,7 @@ class ModpackUploadViewModel(
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (cause: Throwable) {
-                reportError("读取已上传整合包失败", cause)
+                reportError("读取可上传整合包失败", cause)
             } finally {
                 _uiState.update { it.copy(uploadedModpacksLoading = false) }
             }
@@ -970,6 +1058,11 @@ class ModpackUploadViewModel(
                 loadedModpack = updatedPack,
                 serverPackName = buildServerPackName(prepared.pack),
                 editMode = true,
+                warningMessage = if (prepared.pack.containsExcludedMcaFiles) {
+                    MODPACK_UPLOAD_MCA_WARNING
+                } else {
+                    it.warningMessage
+                },
             )
         }
         if (updatedPack != null) replaceTesters(updatedPack, processedUiMods)
@@ -1181,6 +1274,22 @@ private fun Modpack.toLocalBriefVo(): Modpack.BriefVo = Modpack.BriefVo(
     fileSize = versions.lastOrNull()?.totalSize ?: 0L,
     lastUpdatedTime = versions.lastOrNull()?.time ?: 0L,
     icon = iconUrl,
+    info = info,
+    categories = categories,
+)
+
+private fun Modpack.DetailVo.toLocalBriefVo(): Modpack.BriefVo = Modpack.BriefVo(
+    id = _id,
+    name = name,
+    authorId = authorId,
+    authorName = authorName,
+    mcVer = mcVer,
+    modloader = modloader,
+    modCount = modCount,
+    fileSize = versions.lastOrNull()?.totalSize ?: 0L,
+    playCount = playCount,
+    lastUpdatedTime = versions.maxOfOrNull { it.time } ?: 0L,
+    icon = icon,
     info = info,
     categories = categories,
 )

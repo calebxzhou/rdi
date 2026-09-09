@@ -1,16 +1,21 @@
 package calebxzhou.rdi.master.service
 
 import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
+import calebxzhou.rdi.common.model.ModpackUploadSessionVo
+import calebxzhou.rdi.common.util.sha1
+import io.ktor.utils.io.ByteChannel
 import io.ktor.utils.io.ByteReadChannel
+import io.ktor.utils.io.writeFully
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.bson.types.ObjectId
-import java.security.MessageDigest
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
-import java.util.HexFormat
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -28,7 +33,7 @@ class ModpackParallelUploadServiceTest {
             val service = service(root)
             val session = service.create(
                 ownerId,
-                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1())
+                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1)
             ).getOrThrow()
 
             assertEquals(7, session.id.version())
@@ -43,7 +48,7 @@ class ModpackParallelUploadServiceTest {
                     id = session.id,
                     index = index,
                     declaredLength = part.size.toLong(),
-                    expectedSha1 = part.sha1(),
+                    expectedSha1 = part.sha1,
                     source = ByteReadChannel(part)
                 ).getOrThrow()
             }
@@ -69,7 +74,7 @@ class ModpackParallelUploadServiceTest {
             val service = service(root)
             val session = service.create(
                 ownerId,
-                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1())
+                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1)
             ).getOrThrow()
 
             val firstPart = content.part(0, session.partSize)
@@ -78,7 +83,7 @@ class ModpackParallelUploadServiceTest {
                 session.id,
                 0,
                 firstPart.size.toLong(),
-                firstPart.sha1(),
+                firstPart.sha1,
                 ByteReadChannel(firstPart)
             ).getOrThrow()
 
@@ -97,7 +102,7 @@ class ModpackParallelUploadServiceTest {
             val service = service(root)
             val session = service.create(
                 ownerId,
-                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1())
+                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1)
             ).getOrThrow()
             (0 until session.partCount).forEach { index ->
                 val part = content.part(index, session.partSize)
@@ -106,7 +111,7 @@ class ModpackParallelUploadServiceTest {
                     session.id,
                     index,
                     part.size.toLong(),
-                    part.sha1(),
+                    part.sha1,
                     ByteReadChannel(part)
                 ).getOrThrow()
             }
@@ -138,7 +143,7 @@ class ModpackParallelUploadServiceTest {
         try {
             val ownerId = ObjectId()
             val content = "resume-me".encodeToByteArray()
-            val dto = ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1())
+            val dto = ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1)
             val service = service(root)
             val first = service.create(ownerId, dto).getOrThrow()
             val part = content.part(0, first.partSize)
@@ -148,7 +153,7 @@ class ModpackParallelUploadServiceTest {
                 first.id,
                 0,
                 part.size.toLong(),
-                ByteArray(20).sha1(),
+                ByteArray(20).sha1,
                 ByteReadChannel(part)
             )
             assertTrue(wrongHashResult.isFailure)
@@ -157,7 +162,7 @@ class ModpackParallelUploadServiceTest {
                 first.id,
                 0,
                 part.size.toLong(),
-                part.sha1(),
+                part.sha1,
                 ByteReadChannel(part)
             ).getOrThrow()
 
@@ -171,18 +176,142 @@ class ModpackParallelUploadServiceTest {
         }
     }
 
-    private fun service(root: java.io.File) = ModpackParallelUploadService(
+    @Test
+    fun `parallel receives are capped and cancellation releases a slot`() = runBlocking {
+        val root = createTempDirectory("modpack-parallel-cap-test").toFile()
+        try {
+            val ownerId = ObjectId()
+            val content = ByteArray(9) { it.toByte() }
+            val service = service(root, partSize = 1)
+            val session = service.create(
+                ownerId,
+                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1)
+            ).getOrThrow()
+            val channels = List(8) { ByteChannel(autoFlush = true) }
+            val receiving = List(8) { CompletableDeferred<Unit>() }
+            val uploads = channels.indices.map { index ->
+                async(start = CoroutineStart.UNDISPATCHED) {
+                    service.uploadPart(
+                        ownerId,
+                        session.id,
+                        index,
+                        1,
+                        byteArrayOf(content[index]).sha1,
+                        blockedChannel(channels[index], receiving[index]),
+                    )
+                }
+            }
+            receiving.forEach { withTimeout(5_000) { it.await() } }
+            assertTrue(
+                service.uploadPart(
+                    ownerId,
+                    session.id,
+                    8,
+                    1,
+                    byteArrayOf(content[8]).sha1,
+                    ByteReadChannel(byteArrayOf(content[8])),
+                ).isFailure,
+            )
+
+            uploads[0].cancel()
+            uploads[0].join()
+            channels[0].close()
+            assertTrue(
+                service.uploadPart(
+                    ownerId,
+                    session.id,
+                    8,
+                    1,
+                    byteArrayOf(content[8]).sha1,
+                    ByteReadChannel(byteArrayOf(content[8])),
+                ).isSuccess,
+            )
+            channels.drop(1).forEachIndexed { offset, channel ->
+                val index = offset + 1
+                channel.writeFully(byteArrayOf(content[index]))
+                channel.close()
+            }
+            assertTrue(uploads.drop(1).all { it.await().isSuccess })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `invalid part never overwrites an acknowledged part`() = runTest {
+        val root = createTempDirectory("modpack-parallel-invalid-part-test").toFile()
+        try {
+            val ownerId = ObjectId()
+            val content = "stable-content".encodeToByteArray()
+            val service = service(root)
+            val session = service.create(
+                ownerId,
+                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1)
+            ).getOrThrow()
+            val part = content.part(0, session.partSize)
+            service.uploadPart(ownerId, session.id, 0, part.size.toLong(), part.sha1, ByteReadChannel(part)).getOrThrow()
+            val acceptedBefore = session.dir(root).resolve("upload.data").readBytes()
+            assertTrue(
+                service.uploadPart(
+                    ownerId,
+                    session.id,
+                    0,
+                    part.size.toLong(),
+                    ByteArray(20).sha1,
+                    ByteReadChannel(ByteArray(part.size) { 7 }),
+                ).isFailure,
+            )
+            assertContentEquals(acceptedBefore, session.dir(root).resolve("upload.data").readBytes())
+            assertEquals(listOf(0), service.status(ownerId, session.id).getOrThrow().uploadedParts)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `startup removes only scoped part upload temporaries`() = runTest {
+        val root = createTempDirectory("modpack-parallel-orphan-test").toFile()
+        try {
+            val ownerId = ObjectId()
+            val content = "orphan-test".encodeToByteArray()
+            val first = service(root)
+            val session = first.create(
+                ownerId,
+                ModpackUploadSessionCreateDto("pack.zip", content.size.toLong(), content.sha1)
+            ).getOrThrow()
+            val orphan = session.dir(root).resolve(".part-upload-orphan.tmp").apply { writeText("stale") }
+            val sentinel = session.dir(root).resolve("keep.me").apply { writeText("keep") }
+            service(root)
+            assertTrue(!orphan.exists())
+            assertTrue(sentinel.isFile)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    private fun service(root: java.io.File, partSize: Int = 4) = ModpackParallelUploadService(
         sessionsDir = root,
         maxFileSize = 1024,
         clock = Clock.fixed(Instant.parse("2026-08-11T00:00:00Z"), ZoneOffset.UTC),
-        partSize = 4
+        partSize = partSize
     )
+
+    private fun blockedChannel(
+        channel: ByteChannel,
+        receiving: CompletableDeferred<Unit>,
+    ): io.ktor.utils.io.ByteReadChannel = object : io.ktor.utils.io.ByteReadChannel by channel {
+        override suspend fun awaitContent(min: Int): Boolean {
+            receiving.complete(Unit)
+            return channel.awaitContent(min)
+        }
+    }
+
+    private fun ModpackUploadSessionVo.dir(root: java.io.File): java.io.File =
+        root.resolve(id.toString())
 
     private fun ByteArray.part(index: Int, partSize: Int): ByteArray {
         val start = index * partSize
         return copyOfRange(start, minOf(start + partSize, size))
     }
 
-    private fun ByteArray.sha1(): String =
-        HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(this))
 }

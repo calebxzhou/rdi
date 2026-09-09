@@ -1,5 +1,7 @@
 package calebxzau.rdi.client.modcatalog
 
+import calebxzhou.rdi.common.util.digestHex
+import calebxzhou.rdi.common.util.sha1dig
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -7,7 +9,6 @@ import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 
 internal data class LocalFileHashes(
     val path: Path,
@@ -30,7 +31,7 @@ suspend fun hashCatalogFile(
     openStream: () -> java.io.InputStream
 ): Result<CatalogFileHashes> = try {
     val context = currentCoroutineContext()
-    val sha1 = MessageDigest.getInstance("SHA-1")
+    val sha1 = sha1dig()
     val fingerprintInput = ByteArrayOutputStream()
     openStream().use { input ->
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -47,7 +48,7 @@ suspend fun hashCatalogFile(
             }
         }
     }
-    Result.success(CatalogFileHashes(key, sha1.digest().toHex(), murmur2(fingerprintInput.toByteArray()).toUInt().toLong()))
+    Result.success(CatalogFileHashes(key, sha1.digestHex(), murmur2(fingerprintInput.toByteArray()).toUInt().toLong()))
 } catch (cause: kotlinx.coroutines.CancellationException) {
     throw cause
 } catch (cause: Throwable) {

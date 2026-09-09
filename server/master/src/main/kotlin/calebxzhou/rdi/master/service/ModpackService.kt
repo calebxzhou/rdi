@@ -68,6 +68,7 @@ object ModpackService {
     suspend fun ApplicationCall.modpackGuardContext() =
         ModpackQueryService.run { this@modpackGuardContext.modpackGuardContext() }
     suspend fun listByAuthor(uid: ObjectId) = ModpackQueryService.listByAuthor(uid)
+    suspend fun listUploadable(player: RAccount) = ModpackQueryService.listUploadable(player)
     suspend fun getById(id: ObjectId) = ModpackQueryService.getById(id)
     suspend fun incrementPlayCount(id: ObjectId) = ModpackQueryService.incrementPlayCount(id)
     suspend fun searchByName(name: String) = ModpackQueryService.searchByName(name)
@@ -88,6 +89,15 @@ object ModpackService {
 
     fun ModpackContext.requireAuthor() =
         ModpackVersionService.run { this@requireAuthor.requireAuthor() }
+
+    fun ModpackContext.canManageVersion() =
+        ModpackVersionService.run { this@canManageVersion.canManageVersion() }
+
+    fun ModpackContext.requireCanManageVersion() =
+        ModpackVersionService.run { this@requireCanManageVersion.requireCanManageVersion() }
+
+    fun ModpackContext.requireCanUploadVersion() =
+        ModpackVersionService.run { this@requireCanUploadVersion.requireCanUploadVersion() }
 
     suspend fun ModpackContext.addVersionMod(newMod: Mod) =
         ModpackVersionService.run { this@addVersionMod.addVersionMod(newMod) }

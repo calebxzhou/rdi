@@ -15,11 +15,15 @@ import androidx.navigation.toRoute
 import calebxzau.rdi.client.blessingskin.BlessingSkinClient
 import calebxzau.rdi.client.modcatalog.CatalogMod
 import calebxzau.rdi.client.ui.screen.PlayerInfoScreen
+import calebxzau.rdi.client.ui.screen.BaseWorldListScreen
+import calebxzau.rdi.client.ui.screen.BaseWorldUploadScreen
 import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.ui.screen.ModpackVersionInfoScreen
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
+import org.koin.compose.viewmodel.koinViewModel
+import org.koin.core.parameter.parametersOf
 
 private const val SCREEN_FADE_DURATION_MS = 500
 private const val BLESSING_SKIN_BASE_URL = "https://littleskin.cn"
@@ -156,6 +160,31 @@ fun AppNavigation(
                 onOpenTaskList = { runId ->
                     onOpenTask(runId)
                 }
+            )
+        }
+        composable<BaseWorldListRoute> {
+            BaseWorldListScreen(
+                onBack = {
+                    if (!navController.popBackStack()) {
+                        navController.navigateAbsolute(ModpackPlazaRoute())
+                    }
+                },
+                onOpenUpload = { navController.navigate(BaseWorldUploadRoute) },
+            )
+        }
+        composable<BaseWorldUploadRoute> {
+            BaseWorldUploadScreen(
+                onBack = {
+                    if (!navController.popBackStack<BaseWorldListRoute>(inclusive = false)) {
+                        navController.navigateAbsolute(BaseWorldListRoute)
+                    }
+                },
+                onUploadSubmitted = { runId ->
+                    onOpenTask(runId)
+                    if (!navController.popBackStack<BaseWorldListRoute>(inclusive = false)) {
+                        navController.navigateAbsolute(BaseWorldListRoute)
+                    }
+                },
             )
         }
         composable<RegisterRoute> {
@@ -485,7 +514,8 @@ fun AppNavigation(
                     )
                 },
                 onBack = { navController.returnFromModpackPlaza(route) },
-                onOpenUpload = { navController.navigate(ModpackUploadRoute) },
+                onOpenUpload = { navController.navigate(ModpackUploadRoute(modpackId = null)) },
+                onOpenBaseWorlds = { navController.navigate(BaseWorldListRoute) },
                 requiredMcVer = route.requiredMcVer?.let(McVersion::from),
                 requiredLoader = route.requiredLoader,
             )
@@ -579,11 +609,18 @@ fun AppNavigation(
             )
         }
         composable<ModpackUploadRoute> {
+            val route = it.toRoute<ModpackUploadRoute>()
             ModpackUploadScreen(
                 onBack = {
                     if (!navController.popBackStack()) navController.navigateAbsolute(ModpackPlazaRoute())
                 },
-                onUploadSubmitted = onOpenTask,
+                onUploadSubmitted = { runId ->
+                    navController.popBackStack()
+                    onOpenTask(runId)
+                },
+                viewModel = koinViewModel(key = "modpack-upload:${route.modpackId ?: "new"}") {
+                    parametersOf(route.modpackId)
+                },
             )
         }
         /* composable<Modpack2Upload> {
@@ -693,6 +730,18 @@ fun AppNavigation(
                 ModpackInfoScreen(
                     modpackId = route.modpackId,
                     onBack = onBackFromModpackInfo,
+                    onManageUploaders = {
+                        navController.navigate(
+                            ModpackUploaderManageRoute(
+                                modpackId = route.modpackId,
+                                fromHostId = route.fromHostId,
+                                fromAllHosts = route.fromAllHosts,
+                            )
+                        )
+                    },
+                    onOpenUpload = {
+                        navController.navigate(ModpackUploadRoute(modpackId = route.modpackId))
+                    },
                     onOpenTaskList = onOpenTask,
                     onOpenVersionInfo = { verName ->
                         navController.navigate(
@@ -719,6 +768,23 @@ fun AppNavigation(
                     },
                 )
             }
+        }
+        composable<ModpackUploaderManageRoute> {
+            val route = it.toRoute<ModpackUploaderManageRoute>()
+            val returnToPack = {
+                navController.navigateAbsolute(
+                    ModpackInfoRoute(
+                        modpackId = route.modpackId,
+                        fromHostId = route.fromHostId,
+                        fromAllHosts = route.fromAllHosts,
+                    )
+                )
+            }
+            ModpackUploaderManageScreen(
+                modpackId = route.modpackId,
+                onBack = returnToPack,
+                onSaved = returnToPack,
+            )
         }
         composable<ModpackVersionInfoRoute> {
             val route = it.toRoute<ModpackVersionInfoRoute>()

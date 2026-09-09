@@ -1511,7 +1511,7 @@ private suspend fun moveDownloadedFile(source: Path, target: Path) {
 }
 
 private suspend fun deleteQuietly(path: Path) {
-    withContext(Dispatchers.IO) {
+    withContext(NonCancellable + Dispatchers.IO) {
         runCatching { Files.deleteIfExists(path) }
             .onFailure { error ->
                 lgr.debug(error) { "Failed to delete temp download file: $path" }

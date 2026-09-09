@@ -1,8 +1,10 @@
 package calebxzau.rdi.client.ui.viewmodel
 
 import calebxzhou.rdi.client.model.UiMod
+import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.modpacktest.ModpackTestStatus
 import calebxzhou.rdi.client.service.toUiMods
+import calebxzhou.rdi.common.exception.ModpackError
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
@@ -12,6 +14,7 @@ import calebxzhou.rdi.common.model.Task2Entry
 import calebxzhou.rdi.common.service.validateIconUrlAddress
 import calebxzau.rdi.client.packproc.LoadedLocalModpack
 import calebxzau.rdi.client.packproc.LoadedServerPackResult
+import calebxzhou.rdi.common.util.sha1
 import calebxzau.rdi.client.packproc.LocalModpackSourceType
 import calebxzhou.rdi.client.service.content.ClientContentStore
 import kotlinx.coroutines.CompletableDeferred
@@ -21,11 +24,12 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.bson.types.ObjectId
 import java.io.File
 import java.io.ByteArrayOutputStream
+import java.lang.reflect.Proxy
 import java.nio.file.Files
-import java.security.MessageDigest
 import java.util.jar.JarEntry
 import java.util.jar.JarOutputStream
 import kotlin.test.Test
@@ -37,6 +41,43 @@ import kotlin.test.assertTrue
 
 class ModpackUploadViewModelTest {
     @Test
+    fun `server pack rejects Bukkit family root marker files`() = runBlocking {
+        val gateway = RdiModpackUploadGateway(noCallModCatalog())
+        val markerNames = listOf("spigot.yml", "arclight.conf", "bukkit.yml")
+
+        markerNames.forEach { markerName ->
+            val directory = Files.createTempDirectory("rdi-upload-invalid-server").toFile()
+            directory.resolve(markerName).writeText("")
+
+            val result = gateway.prepareServerPack(
+                directory = directory,
+                clientUiMods = emptyList(),
+                onProgress = { error("invalid server marker should reject before progress") },
+            )
+
+            val exception = assertIs<ModpackError>(result.exceptionOrNull())
+            assertEquals("请选择正确安装了模组载入器的服务端", exception.message)
+        }
+    }
+
+    @Test
+    fun `nested or directory marker does not trigger Bukkit family root validation`() = runBlocking {
+        val gateway = RdiModpackUploadGateway(noCallModCatalog())
+        val nestedMarkerDirectory = Files.createTempDirectory("rdi-upload-nested-marker").toFile()
+        nestedMarkerDirectory.resolve("nested").mkdirs()
+        nestedMarkerDirectory.resolve("nested/spigot.yml").writeText("")
+        val directoryMarkerDirectory = Files.createTempDirectory("rdi-upload-directory-marker").toFile()
+        directoryMarkerDirectory.resolve("bukkit.yml").mkdirs()
+
+        listOf(nestedMarkerDirectory, directoryMarkerDirectory).forEach { directory ->
+            val result = gateway.prepareServerPack(directory, emptyList(), {})
+
+            assertTrue(result.isFailure)
+            assertTrue(result.exceptionOrNull()?.message != "请选择正确安装了模组载入器的服务端")
+        }
+    }
+
+    @Test
     fun `batched cached mod id reads tolerate same filename for different identities`() = runBlocking {
         val jarBytes = ByteArrayOutputStream().use { output ->
             JarOutputStream(output).use { jar ->
@@ -46,8 +87,7 @@ class ModpackUploadViewModelTest {
             }
             output.toByteArray()
         }
-        val hash = MessageDigest.getInstance("SHA-1").digest(jarBytes)
-            .joinToString("") { byte -> "%02x".format(byte) }
+        val hash = jarBytes.sha1
         val cacheRoot = Files.createTempDirectory("rdi-upload-mod-id-batch")
         Files.write(cacheRoot.resolve("$hash.sha1"), jarBytes)
         val first = Mod("mr", "first-project", "same-name", "first-file", hash)
@@ -136,6 +176,40 @@ class ModpackUploadViewModelTest {
     }
 
     @Test
+    fun `excluded mca detection shows dismissible warning`() = runBlocking {
+        val prepared = PreparedClientPack(
+            pack = testPack().copy(containsExcludedMcaFiles = true),
+            uiMods = listOf(UiMod(testMod())),
+        )
+        val viewModel = ModpackUploadViewModel(FakeModpackUploadGateway(preparedClientPack = prepared))
+
+        viewModel.loadClientPack(File("client-pack.mrpack"))
+        viewModel.events.first()
+        viewModel.uiState.filter { !it.loading && !it.uiModsLoading && it.editMode }.first()
+
+        assertEquals(MODPACK_UPLOAD_MCA_WARNING, viewModel.uiState.value.warningMessage)
+        viewModel.clearWarningMessage()
+        assertNull(viewModel.uiState.value.warningMessage)
+    }
+
+    @Test
+    fun `starting a new client selection clears stale mca warning`() = runBlocking {
+        val prepared = PreparedClientPack(
+            pack = testPack().copy(containsExcludedMcaFiles = true),
+            uiMods = listOf(UiMod(testMod())),
+        )
+        val viewModel = ModpackUploadViewModel(FakeModpackUploadGateway(preparedClientPack = prepared))
+
+        viewModel.loadClientPack(File("first.mrpack"))
+        viewModel.events.first()
+        viewModel.uiState.filter { !it.loading && !it.uiModsLoading && it.editMode }.first()
+        assertEquals(MODPACK_UPLOAD_MCA_WARNING, viewModel.uiState.value.warningMessage)
+
+        viewModel.loadClientPack(File("second.mrpack"))
+        assertNull(viewModel.uiState.value.warningMessage)
+    }
+
+    @Test
     fun `version draft replaces spaces with underscores`() {
         val viewModel = ModpackUploadViewModel(FakeModpackUploadGateway())
 
@@ -148,12 +222,30 @@ class ModpackUploadViewModelTest {
     fun `submitting before client pack reports error without queueing`() = runBlocking {
         val gateway = FakeModpackUploadGateway()
         val viewModel = ModpackUploadViewModel(gateway)
+        awaitInitialization(viewModel)
+        assertTrue(viewModel.uiState.value.uploadInitializationReady)
 
         viewModel.submitUpload()
 
         val state = viewModel.uiState.filter { it.errorMessage != null }.first()
         assertEquals("请先选择整合包文件", state.errorMessage)
         assertNull(gateway.submission)
+    }
+
+    @Test
+    fun `submitting while initialization is pending does not queue`() = runBlocking {
+        val audioReadyGate = CompletableDeferred<Result<Unit>>()
+        val gateway = FakeModpackUploadGateway(audioReadyGate = audioReadyGate)
+        val viewModel = ModpackUploadViewModel(gateway)
+
+        viewModel.submitUpload()
+
+        assertEquals("正在准备上传", viewModel.uiState.value.errorMessage)
+        assertEquals(0, gateway.preflightCount)
+        assertNull(gateway.submission)
+
+        audioReadyGate.complete(Result.success(Unit))
+        awaitInitialization(viewModel)
     }
 
     @Test
@@ -267,68 +359,127 @@ class ModpackUploadViewModelTest {
     }
 
     @Test
-    fun `switching to update while create icon validation runs prevents stale submission`() = runBlocking {
-        val validationResult = CompletableDeferred<Result<Unit>>()
-        val validationStarted = CompletableDeferred<Unit>()
+    fun `route-fixed create mode cannot switch to update`() = runBlocking {
+        val viewModel = ModpackUploadViewModel(FakeModpackUploadGateway())
+        awaitInitialization(viewModel)
+
+        viewModel.chooseUpdateMode(updateTarget())
+        viewModel.requestUpdateModeSelection()
+        viewModel.requestUploadModeDialog()
+
+        val state = viewModel.uiState.value
+        assertEquals(ModpackUploadMode.CREATE, state.uploadMode)
+        assertNull(state.selectedUpdateTarget)
+    }
+
+    @Test
+    fun `route-fixed update mode survives local pack loading and selector calls`() = runBlocking {
+        val target = updateTarget()
         val gateway = FakeModpackUploadGateway(
             preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
-            ignoreModpackTestInitially = true,
+            updateTarget = target,
         )
-        val viewModel = ModpackUploadViewModel(gateway) {
-            validationStarted.complete(Unit)
-            validationResult.await()
-        }
+        val viewModel = ModpackUploadViewModel(gateway, modpackId = target.id.toHexString())
+
+        awaitInitialization(viewModel)
+        viewModel.chooseCreateMode()
+        viewModel.chooseUpdateMode(updateTarget().copy(name = "其他包"))
         viewModel.loadClientPack(File("client-pack.mrpack"))
-        viewModel.events.first()
-        viewModel.uiState.filter { !it.uiModsLoading }.first()
-        viewModel.updateDraft(validCreateDraft())
-        viewModel.submitUpload()
-        validationStarted.await()
+        awaitClientPackLoaded(viewModel)
+        val state = viewModel.uiState.value
 
-        viewModel.chooseUpdateMode(
-            Modpack.BriefVo(
-                id = ObjectId("66a000000000000000000001"),
-                name = "已有包",
-                icon = "https://cdn.modrinth.com/icon.png",
-                info = "这是一个已有整合包简介",
-                categories = listOf(Modpack.Category.TECH),
-            )
+        assertEquals(ModpackUploadMode.UPDATE, state.uploadMode)
+        assertEquals(target, state.selectedUpdateTarget)
+        assertEquals(target.name, state.draft.name)
+    }
+
+    @Test
+    fun `target initialization failure blocks selection and submission`() = runBlocking {
+        val gateway = FakeModpackUploadGateway(
+            preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
+            updateTargetResult = Result.failure(IllegalStateException("forbidden")),
         )
-        validationResult.complete(Result.success(Unit))
+        val viewModel = ModpackUploadViewModel(
+            gateway = gateway,
+            modpackId = updateTarget().id.toHexString(),
+        )
 
-        val state = viewModel.uiState
-            .filter { it.errorMessage == "上传信息已更改，请重新提交" }
-            .first()
+        awaitInitialization(viewModel)
+        assertEquals("无法加载要更新的整合包，请返回后重试", viewModel.uiState.value.errorMessage)
+        viewModel.loadClientPack(File("client-pack.mrpack"))
+        viewModel.submitUpload()
+
+        assertNull(viewModel.uiState.value.loadedModpack)
+        assertEquals("无法加载要更新的整合包，请返回后重试", viewModel.uiState.value.errorMessage)
         assertNull(gateway.submission)
-        assertTrue(!state.iconValidationRunning)
+    }
+
+    @Test
+    fun `audio initialization failure blocks create upload`() = runBlocking {
+        val gateway = FakeModpackUploadGateway(
+            preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
+            audioReadyResult = Result.failure(IllegalStateException("audio unavailable")),
+        )
+        val viewModel = ModpackUploadViewModel(gateway)
+
+        awaitInitialization(viewModel)
+        assertEquals("audio unavailable", viewModel.uiState.value.errorMessage)
+        viewModel.loadClientPack(File("client-pack.mrpack"))
+        viewModel.submitUpload()
+
+        assertNull(viewModel.uiState.value.loadedModpack)
+        assertEquals("audio unavailable", viewModel.uiState.value.errorMessage)
+        assertNull(gateway.submission)
+    }
+
+    @Test
+    fun `audio initialization failure blocks update before target load`() = runBlocking {
+        val gateway = FakeModpackUploadGateway(
+            audioReadyResult = Result.failure(IllegalStateException("audio unavailable")),
+        )
+        val viewModel = ModpackUploadViewModel(
+            gateway = gateway,
+            modpackId = updateTarget().id.toHexString(),
+        )
+
+        awaitInitialization(viewModel)
+        assertEquals("audio unavailable", viewModel.uiState.value.errorMessage)
+        assertEquals(0, gateway.updateTargetLoadCount)
+        viewModel.submitUpload()
+
+        assertEquals("audio unavailable", viewModel.uiState.value.errorMessage)
     }
 
     @Test
     fun `double update submit while preflight runs queues one upload after success`() = runBlocking {
         val preflightResult = CompletableDeferred<Result<Unit>>()
         val preflightStarted = CompletableDeferred<Unit>()
+        val target = updateTarget()
         val gateway = FakeModpackUploadGateway(
             preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
+            updateTarget = target,
             ignoreModpackTestInitially = true,
             preflightGate = preflightResult,
             onPreflightStarted = { preflightStarted.complete(Unit) },
         )
-        val viewModel = ModpackUploadViewModel(gateway)
+        val viewModel = ModpackUploadViewModel(
+            gateway = gateway,
+            modpackId = target.id.toHexString(),
+        )
+        awaitInitialization(viewModel)
         viewModel.loadClientPack(File("client-pack.mrpack"))
-        viewModel.events.first()
-        viewModel.uiState.filter { !it.uiModsLoading }.first()
-        viewModel.chooseUpdateMode(updateTarget())
+        awaitClientPackLoaded(viewModel)
         viewModel.updateVersionName("2.0")
 
         viewModel.submitUpload()
-        preflightStarted.await()
+        withTimeout(5_000) { preflightStarted.await() }
         viewModel.submitUpload()
 
         assertEquals(1, gateway.preflightCount)
         assertNull(gateway.submission)
         preflightResult.complete(Result.success(Unit))
 
-        assertIs<ModpackUploadEvent.UploadSubmitted>(viewModel.events.first())
+        assertIs<ModpackUploadEvent.UploadSubmitted>(awaitUploadSubmitted(viewModel))
         assertEquals(1, gateway.preflightCount)
         assertEquals("2.0", gateway.submission?.draft?.versionName)
         assertTrue(!viewModel.uiState.value.iconValidationRunning)
@@ -338,27 +489,33 @@ class ModpackUploadViewModelTest {
     fun `changing update draft while preflight runs prevents stale submission`() = runBlocking {
         val preflightResult = CompletableDeferred<Result<Unit>>()
         val preflightStarted = CompletableDeferred<Unit>()
+        val target = updateTarget()
         val gateway = FakeModpackUploadGateway(
             preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
+            updateTarget = target,
             ignoreModpackTestInitially = true,
             preflightGate = preflightResult,
             onPreflightStarted = { preflightStarted.complete(Unit) },
         )
-        val viewModel = ModpackUploadViewModel(gateway)
+        val viewModel = ModpackUploadViewModel(
+            gateway = gateway,
+            modpackId = target.id.toHexString(),
+        )
+        awaitInitialization(viewModel)
         viewModel.loadClientPack(File("client-pack.mrpack"))
-        viewModel.events.first()
-        viewModel.uiState.filter { !it.uiModsLoading }.first()
-        viewModel.chooseUpdateMode(updateTarget())
+        awaitClientPackLoaded(viewModel)
         viewModel.updateVersionName("2.0")
 
         viewModel.submitUpload()
-        preflightStarted.await()
+        withTimeout(5_000) { preflightStarted.await() }
         viewModel.updateVersionName("3.0")
         preflightResult.complete(Result.success(Unit))
 
-        val state = viewModel.uiState
-            .filter { it.errorMessage == "上传信息已更改，请重新提交" }
-            .first()
+        val state = withTimeout(5_000) {
+            viewModel.uiState
+                .filter { it.errorMessage == "上传信息已更改，请重新提交" }
+                .first()
+        }
         assertEquals(1, gateway.preflightCount)
         assertNull(gateway.submission)
         assertTrue(!state.iconValidationRunning)
@@ -376,20 +533,24 @@ class ModpackUploadViewModelTest {
         )
         val gateway = FakeModpackUploadGateway(
             preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
+            updateTarget = target,
             ignoreModpackTestInitially = true,
         )
-        val viewModel = ModpackUploadViewModel(gateway) {
-            validationCount++
-            Result.failure(IllegalStateException("UPDATE不应验证图标"))
-        }
+        val viewModel = ModpackUploadViewModel(
+            gateway = gateway,
+            modpackId = target.id.toHexString(),
+            validateFullIconUrl = {
+                validationCount++
+                Result.failure(IllegalStateException("UPDATE不应验证图标"))
+            },
+        )
+        awaitInitialization(viewModel)
         viewModel.loadClientPack(File("client-pack.mrpack"))
-        viewModel.events.first()
-        viewModel.uiState.filter { !it.uiModsLoading }.first()
-        viewModel.chooseUpdateMode(target)
+        awaitClientPackLoaded(viewModel)
 
         viewModel.submitUpload()
 
-        assertIs<ModpackUploadEvent.UploadSubmitted>(viewModel.events.first())
+        assertIs<ModpackUploadEvent.UploadSubmitted>(awaitUploadSubmitted(viewModel))
         assertEquals(0, validationCount)
         assertEquals(1, gateway.preflightCount)
         assertEquals(target.id, gateway.submission?.updateModpackId)
@@ -478,18 +639,12 @@ class ModpackUploadViewModelTest {
     }
 
     @Test
-    fun `selecting update target copies its name and categories`() {
-        val viewModel = ModpackUploadViewModel(FakeModpackUploadGateway())
-        val target = Modpack.BriefVo(
-            id = ObjectId("66a000000000000000000001"),
-            name = "已有包",
-            icon = "https://cdn.modrinth.com/icon.png",
-            info = "这是一个已有整合包简介",
-            categories = listOf(Modpack.Category.TECH),
-        )
+    fun `route loads exact update target and copies its metadata`() = runBlocking {
+        val target = updateTarget()
+        val gateway = FakeModpackUploadGateway(updateTarget = target)
+        val viewModel = ModpackUploadViewModel(gateway, modpackId = target.id.toHexString())
 
-        viewModel.chooseUpdateMode(target)
-
+        awaitInitialization(viewModel)
         val state = viewModel.uiState.value
         assertEquals(ModpackUploadMode.UPDATE, state.uploadMode)
         assertEquals(target, state.selectedUpdateTarget)
@@ -497,6 +652,7 @@ class ModpackUploadViewModelTest {
         assertEquals(listOf(Modpack.Category.TECH), state.draft.categories)
         assertEquals(target.icon, state.draft.iconUrl)
         assertEquals(target.info, state.draft.info)
+        assertEquals(1, gateway.updateTargetLoadCount)
     }
 
     @Test
@@ -525,6 +681,31 @@ class ModpackUploadViewModelTest {
     }
 
     @Test
+    fun `detected server mca exclusions show the same warning`() = runBlocking {
+        val mergedMod = testMod().copy(side = Mod.Side.BOTH)
+        val gateway = FakeModpackUploadGateway(
+            preparedClientPack = PreparedClientPack(testPack(), testPack().mods.toUiMods()),
+            preparedServerPack = PreparedServerPack(
+                pack = LoadedServerPackResult(
+                    mods = listOf(mergedMod),
+                    serverExtraFiles = emptyList(),
+                    containsExcludedMcaFiles = true,
+                ),
+                uiMods = listOf(UiMod(mergedMod)),
+            ),
+        )
+        val viewModel = ModpackUploadViewModel(gateway)
+        viewModel.loadClientPack(File("client-pack.mrpack"))
+        viewModel.events.first()
+        viewModel.uiState.filter { !it.uiModsLoading }.first()
+
+        viewModel.loadServerPack(File("server"))
+
+        val state = viewModel.uiState.filter { !it.loading && it.serverPackName != null }.first()
+        assertEquals(MODPACK_UPLOAD_MCA_WARNING, state.warningMessage)
+    }
+
+    @Test
     fun `closing screen cleans workspace before navigation`() = runBlocking {
         val gateway = FakeModpackUploadGateway()
         val viewModel = ModpackUploadViewModel(gateway)
@@ -535,10 +716,22 @@ class ModpackUploadViewModelTest {
         assertTrue(gateway.cleanupCalled)
     }
 
+    @Suppress("UNCHECKED_CAST")
+    private fun noCallModCatalog(): ModCatalog = Proxy.newProxyInstance(
+        ModCatalog::class.java.classLoader,
+        arrayOf(ModCatalog::class.java),
+    ) { _, method, _ ->
+        error("catalog should not be called: ${method.name}")
+    } as ModCatalog
+
     private class FakeModpackUploadGateway(
         private val preparedClientPack: PreparedClientPack? = null,
         private val preparedServerPack: PreparedServerPack? = null,
         private val missingMods: List<Mod> = emptyList(),
+        private val updateTarget: Modpack.BriefVo? = null,
+        private val audioReadyResult: Result<Unit> = Result.success(Unit),
+        private val audioReadyGate: CompletableDeferred<Result<Unit>>? = null,
+        private val updateTargetResult: Result<Modpack.BriefVo>? = null,
         override val ignoreModpackTestInitially: Boolean = false,
         private val uploadRunId: String = "upload-1",
         private val preflightResult: Result<Unit> = Result.success(Unit),
@@ -549,6 +742,16 @@ class ModpackUploadViewModelTest {
         var submission: ModpackUploadSubmission? = null
         var preflightCount = 0
         var cleanupCalled = false
+        var updateTargetLoadCount = 0
+
+        override suspend fun ensureAudioReady(): Result<Unit> = audioReadyGate?.await() ?: audioReadyResult
+
+        override suspend fun loadUpdateTarget(modpackId: String): Result<Modpack.BriefVo> {
+            updateTargetLoadCount++
+            return updateTargetResult
+                ?: updateTarget?.takeIf { it.id.toHexString() == modpackId }?.let(Result.Companion::success)
+                ?: Result.failure(IllegalArgumentException("unexpected target $modpackId"))
+        }
 
         override suspend fun loadUploadedModpacks(): Result<List<Modpack.BriefVo>> =
             Result.success(emptyList())
@@ -597,6 +800,27 @@ class ModpackUploadViewModelTest {
     }
 
     private companion object {
+        suspend fun awaitInitialization(viewModel: ModpackUploadViewModel) {
+            withTimeout(5_000) {
+                viewModel.uiState.filter { !it.loading }.first()
+            }
+        }
+
+        suspend fun awaitClientPackLoaded(viewModel: ModpackUploadViewModel) {
+            withTimeout(5_000) {
+                viewModel.events.first { it is ModpackUploadEvent.ClientPackLoaded }
+            }
+            withTimeout(5_000) {
+                viewModel.uiState.filter { !it.loading && !it.uiModsLoading && it.editMode }.first()
+            }
+        }
+
+        suspend fun awaitUploadSubmitted(viewModel: ModpackUploadViewModel): ModpackUploadEvent {
+            return withTimeout(5_000) {
+                viewModel.events.first { it is ModpackUploadEvent.UploadSubmitted }
+            }
+        }
+
         fun updateTarget() = Modpack.BriefVo(
             id = ObjectId("66a000000000000000000001"),
             name = "已有包",

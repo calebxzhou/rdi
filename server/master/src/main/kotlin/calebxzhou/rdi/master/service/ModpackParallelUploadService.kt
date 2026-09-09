@@ -5,13 +5,15 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
 import calebxzhou.rdi.common.model.ModpackUploadSessionVo
 import calebxzhou.rdi.common.serdesJson
+import calebxzau.rdi.server.service.upload.ChunkedUploadService
 import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.readAvailable
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import io.github.oshai.kotlinlogging.KotlinLogging
 import kotlinx.serialization.Serializable
 import org.bson.types.ObjectId
 import java.io.File
@@ -19,12 +21,11 @@ import java.io.RandomAccessFile
 import java.nio.ByteBuffer
 import java.nio.channels.FileChannel
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
-import java.security.MessageDigest
 import java.security.SecureRandom
 import java.time.Clock
-import java.util.HexFormat
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import kotlin.ranges.until
@@ -37,6 +38,7 @@ internal class ModpackParallelUploadService(
 ) {
     private val sessions = ConcurrentHashMap<UUID, SessionState>()
     private val sessionsMutex = Mutex()
+    private val chunkedUploadService = ChunkedUploadService()
 
     init {
         require(partSize > 0) { "分片大小必须大于0" }
@@ -99,29 +101,45 @@ internal class ModpackParallelUploadService(
         val partSha1 = expectedSha1.normalizedSha1()
         val expectedLength = state.expectedPartLength(index)
         requestCheck(declaredLength == null || declaredLength == expectedLength.toLong(), "分片长度不正确")
-        val shouldUpload = state.mutex.withLock {
-            requestCheck(!state.metadata.ready, "上传会话已经完成")
-            requestCheck(index !in state.activeParts, "该分片正在上传")
-            if (state.metadata.uploadedParts[index] == partSha1) {
-                false
-            } else {
-                requestCheck(state.activeParts.size < MAX_CONNECTIONS, "同一上传会话最多允许8个并发连接")
-                state.activeParts += index
-                true
-            }
-        }
-        if (!shouldUpload) return@resultOf
+        var reserved = false
         try {
-            writePart(state, index, expectedLength, partSha1, source)
-            state.mutex.withLock {
-                state.metadata = state.metadata.copy(
-                    uploadedParts = state.metadata.uploadedParts + (index to partSha1),
-                    expiresAt = clock.millis() + SESSION_TTL_MILLIS
-                )
-                persistMetadata(state.dir, state.metadata)
+            val shouldUpload = state.mutex.withLock {
+                requestCheck(!state.metadata.ready, "上传会话已经完成")
+                requestCheck(index !in state.activeParts, "该分片正在上传")
+                val committedSha1 = state.metadata.uploadedParts[index]
+                if (committedSha1 != null) {
+                    requestCheck(committedSha1 == partSha1, "该分片已上传，校验值不一致")
+                    false
+                } else {
+                    requestCheck(state.activeParts.size < MAX_CONNECTIONS, "同一上传会话最多允许8个并发连接")
+                    state.activeParts += index
+                    reserved = true
+                    true
+                }
+            }
+            if (!shouldUpload) return@resultOf
+            withContext(Dispatchers.IO) {
+                val temporary = Files.createTempFile(state.dir.toPath(), ".part-upload-", ".tmp").toFile()
+                var failure: Throwable? = null
+                try {
+                    chunkedUploadService.receive(source, temporary, expectedLength.toLong(), partSha1)
+                    commitPart(state, index, partSha1, temporary)
+                } catch (error: Throwable) {
+                    failure = error
+                    throw error
+                } finally {
+                    if (temporary.exists() && !temporary.delete()) {
+                        val cleanupError = IllegalStateException("无法删除临时上传文件: ${temporary.absolutePath}")
+                        failure?.addSuppressed(cleanupError) ?: throw cleanupError
+                    }
+                }
             }
         } finally {
-            state.mutex.withLock { state.activeParts -= index }
+            if (reserved) {
+                withContext(NonCancellable) {
+                    state.mutex.withLock { state.activeParts -= index }
+                }
+            }
         }
     }
 
@@ -169,15 +187,21 @@ internal class ModpackParallelUploadService(
         try {
             block(state.dataFile).also {
                 sessions.remove(id)
-                state.dir.deleteRecursively()
+                if (!state.dir.deleteRecursively()) {
+                    logger.warn(IllegalStateException("无法删除已消费的整合包上传会话: ${state.dir.absolutePath}")) {
+                        "清理已消费的整合包上传会话失败"
+                    }
+                }
             }
         } catch (error: Throwable) {
-            state.mutex.withLock {
-                if (state.dataFile.exists()) {
-                    state.finalizing = false
-                } else {
-                    sessions.remove(id)
-                    state.dir.deleteRecursively()
+            withContext(NonCancellable) {
+                state.mutex.withLock {
+                    if (state.dataFile.exists()) {
+                        state.finalizing = false
+                    } else {
+                        sessions.remove(id)
+                        state.dir.deleteRecursively()
+                    }
                 }
             }
             throw error
@@ -202,32 +226,44 @@ internal class ModpackParallelUploadService(
         cleaned
     }
 
-    private suspend fun writePart(
+    private suspend fun commitPart(
         state: SessionState,
         index: Int,
-        expectedLength: Int,
         expectedSha1: String,
-        source: ByteReadChannel
-    ) = withContext(Dispatchers.IO) {
-        val digest = MessageDigest.getInstance("SHA-1")
+        temporary: File,
+    ) = state.mutex.withLock {
+        requestCheck(!state.metadata.ready, "上传会话已经完成")
+        requestCheck(!state.finalizing, "上传文件正在使用")
+        requestCheck(index in state.activeParts, "该分片未被当前请求保留")
+        val committedSha1 = state.metadata.uploadedParts[index]
+        if (committedSha1 != null) {
+            requestCheck(committedSha1 == expectedSha1, "该分片已上传，校验值不一致")
+            return@withLock
+        }
+        copyPartToDataFile(temporary, state.dataFile, index.toLong() * state.metadata.partSize)
+        state.metadata = state.metadata.copy(
+            uploadedParts = state.metadata.uploadedParts + (index to expectedSha1),
+            expiresAt = clock.millis() + SESSION_TTL_MILLIS
+        )
+        persistMetadata(state.dir, state.metadata)
+    }
+
+    private fun copyPartToDataFile(temporary: File, dataFile: File, position: Long) {
         val buffer = ByteArray(BUFFER_SIZE)
-        var received = 0
-        FileChannel.open(state.dataFile.toPath(), StandardOpenOption.WRITE).use { output ->
-            output.position(index.toLong() * state.metadata.partSize)
-            while (true) {
-                val read = source.readAvailable(buffer, 0, buffer.size)
-                if (read == -1) break
-                if (read == 0) continue
-                received += read
-                requestCheck(received <= expectedLength, "分片数据过长")
-                digest.update(buffer, 0, read)
-                val bytes = ByteBuffer.wrap(buffer, 0, read)
-                while (bytes.hasRemaining()) output.write(bytes)
+        var offset = position
+        FileChannel.open(temporary.toPath(), StandardOpenOption.READ).use { input ->
+            FileChannel.open(dataFile.toPath(), StandardOpenOption.WRITE).use { output ->
+                while (true) {
+                    val read = input.read(ByteBuffer.wrap(buffer))
+                    if (read == -1) break
+                    if (read == 0) continue
+                    val bytes = ByteBuffer.wrap(buffer, 0, read)
+                    while (bytes.hasRemaining()) {
+                        offset += output.write(bytes, offset)
+                    }
+                }
             }
         }
-        requestCheck(received == expectedLength, "分片数据不完整")
-        val actualSha1 = HexFormat.of().formatHex(digest.digest())
-        requestCheck(actualSha1 == expectedSha1, "分片SHA-1校验失败")
     }
 
     private fun requireSession(ownerId: ObjectId, id: UUID): SessionState {
@@ -248,9 +284,21 @@ internal class ModpackParallelUploadService(
                 if (metadata.expiresAt <= clock.millis()) {
                     dir.deleteRecursively()
                 } else {
+                    cleanupPartTemporaries(dir)
                     sessions[id] = SessionState(id, dir, dataFile, metadata)
                 }
             }.onFailure { dir.deleteRecursively() }
+        }
+    }
+
+    private fun cleanupPartTemporaries(dir: File) {
+        dir.listFiles()?.filter { file ->
+            file.name.startsWith(".part-upload-") &&
+                file.name.endsWith(".tmp") &&
+                Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS)
+        }?.forEach { file ->
+            runCatching { Files.deleteIfExists(file.toPath()) }
+                .onFailure { logger.error(it) { "清理整合包上传临时文件失败: ${file.absolutePath}" } }
         }
     }
 
@@ -354,6 +402,7 @@ internal class ModpackParallelUploadService(
         const val METADATA_FILE_NAME = "session.json"
         val SHA1_PATTERN = Regex("^[0-9a-f]{40}$")
         val SECURE_RANDOM = SecureRandom()
+        val logger = KotlinLogging.logger {}
 
         fun generateUuidV7(timestampMillis: Long): UUID {
             val random = SECURE_RANDOM.nextLong()

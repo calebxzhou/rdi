@@ -12,6 +12,7 @@ import calebxzhou.rdi.common.model.Host.Companion.getGameModeText
 import calebxzhou.rdi.common.util.ioScope
 import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.common.util.validateName
+import calebxzhou.rdi.common.util.toUUID
 import calebxzhou.rdi.master.HOSTS_DIR
 import calebxzhou.rdi.master.service.*
 import calebxzhou.rdi.master.service.modpack.ModpackInstallService.installToHost
@@ -21,6 +22,7 @@ import calebxzhou.rdi.master.service.WorldService.updateWorldSize
 import calebxzhou.rdi.master.service.host.HostContainerService.makeContainer
 import calebxzhou.rdi.master.service.host.HostContainerService.requireModernLog4j2Config
 import calebxzhou.rdi.master.service.host.HostRuntimeService.listenCrashOnStart
+import calebxzau.rdi.server.service.baseworld.BaseWorldService
 import calebxzhou.rdi.model.Role
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
@@ -59,6 +61,7 @@ object HostInstallService {
         dir.resolve("eula.txt").writeText("eula=true")
         syncAllOpMarkers()
         "server.properties".run {
+            val configuredLevelType = if (baseWorldId == null) levelType else "{}"
             var txt = this.jarResource(this).readAllString()
                 .replace("#{port}", port.toString())
                 .replace("#{difficulty}", getDifficultyText(difficulty))
@@ -71,20 +74,28 @@ object HostInstallService {
                     "3;minecraft\\:bedrock,11*minecraft\\:stained_hardened_clay\\:7,4*minecraft\\:stained_hardened_clay\\:12,4*minecraft\\:stained_hardened_clay\\:14,4*minecraft\\:stained_hardened_clay\\:1,4*minecraft\\:gravel,9*minecraft\\:sand,58*minecraft\\:water;0;"
                 ).replace("#{level-type}", "flat")
             } else {
-                txt = txt.replace("#{gen-settings}", "{}").replace("#{level-type}", levelType)
+                txt = txt.replace("#{gen-settings}", "{}")
+                    .replace("#{level-type}", configuredLevelType)
             }
             dir.resolve(this).writeText(txt)
         }
         val defaultPropsFile = dir.resolve("default-server.properties")
         val serverPropsFile = dir.resolve("server.properties")
-        if (defaultPropsFile.exists() && serverPropsFile.exists()) {
+        if (serverPropsFile.exists() && (defaultPropsFile.exists() || baseWorldId != null)) {
             val serverProps = Properties().apply {
                 serverPropsFile.inputStream().use { load(it) }
             }
-            val defaultProps = Properties().apply {
-                defaultPropsFile.inputStream().use { load(it) }
+            if (defaultPropsFile.exists()) {
+                val defaultProps = Properties().apply {
+                    defaultPropsFile.inputStream().use { load(it) }
+                }
+                applyDefaultServerProperties(serverProps, defaultProps)
             }
-            applyDefaultServerProperties(serverProps, defaultProps)
+            if (baseWorldId != null) {
+                serverProps.setProperty("level-type", levelType)
+                serverProps.setProperty("generator-settings", generatorSettings ?: "{}")
+            }
+            serverProps.setProperty("level-name", "world")
             serverPropsFile.outputStream().use { serverProps.store(it, null) }
         }
     }
@@ -129,7 +140,7 @@ object HostInstallService {
             .filter { it.isFile && !Files.isSymbolicLink(it.toPath()) }
             .sumOf { it.length() }
         if (totalSize > HostService.HOST_WORKDIR_LIMIT_BYTES) {
-            throw RequestError("房间目录超过 3GB (${totalSize.humanFileSize})，请删除不必要文件后再启动")
+            throw RequestError("房间目录超过 8GB (${totalSize.humanFileSize})，请删除不必要文件后再启动")
         }
     }
 
@@ -152,7 +163,7 @@ object HostInstallService {
         }
     }
 
-    suspend fun RAccount.createHost(host: Host.CreateDto) {
+    suspend fun RAccount.createHost(host: Host.CreateDto, baseWorldService: BaseWorldService? = null) {
         host.name.validateName()
         val playerId = _id
         if (HostQueryService.getByOwner(playerId).size > 3 && !isDav) {
@@ -162,6 +173,11 @@ object HostInstallService {
             throw RequestError("同一个整合包只能创建一张房间")
         }
         val initiallyResolvedPack = ModpackQueryService.getById(host.modpackId) ?: throw RequestError("无此包")
+        val baseWorld = host.baseWorldId?.let { worldId ->
+            (baseWorldService ?: throw RequestError("地图模板服务不可用"))
+                .requireReadyForHost(worldId)
+                .getOrThrow()
+        }
         val pinnedVersionName = resolveHostCreateVersion(initiallyResolvedPack, host.packVer).name
         if (initiallyResolvedPack.versions.first { it.name == pinnedVersionName }.status != Modpack.Status.OK) {
             throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
@@ -184,7 +200,9 @@ object HostInstallService {
                 allowCheats = host.allowCheats,
                 whitelist = host.whitelist,
                 gameMode = host.gameMode,
-                levelType = host.levelType,
+                levelType = baseWorld?.levelType ?: host.levelType,
+                generatorSettings = baseWorld?.generatorSettings,
+                baseWorldId = baseWorld?.id,
                 members = listOf(Host.Member(id = playerId, role = Role.OWNER)),
                 gameRules = host.gameRules,
                 version = 2
@@ -207,7 +225,14 @@ object HostInstallService {
             }
         }
         try {
-            startCreateHost(admission.host, admission.modpack, admission.version, admission.mailId, newHost = true)
+            startCreateHost(
+                admission.host,
+                admission.modpack,
+                admission.version,
+                admission.mailId,
+                newHost = true,
+                baseWorldService = baseWorldService,
+            )
         } catch (error: Throwable) {
             runCatching { HostService.dbcl.deleteOne(com.mongodb.client.model.Filters.eq("_id", admission.host._id)) }
                 .onFailure { cleanupError -> lgr.error(cleanupError) { "提交创建任务失败时删除房间记录失败: ${admission.host._id}" } }
@@ -229,6 +254,7 @@ object HostInstallService {
         failureTitle: String = "房间创建失败",
         newHost: Boolean = false,
         persistPackVersion: Boolean = false,
+        baseWorldService: BaseWorldService? = null,
     ) {
         ServerTaskManager.submit(
             task = Task2.Leaf("创建房间 ${host.name}") { ctx ->
@@ -239,9 +265,20 @@ object HostInstallService {
                     throw error
                 }
                 val installHost = currentHost.copy(packVer = host.packVer)
-                runCatching {
-                    requireModernLog4j2Config(modpack.mcVer)
-                    ctx.emit(LoadProgress.Phase("准备房间目录"))
+                var baseWorldSnapshot: File? = null
+                try {
+                    try {
+                        requireModernLog4j2Config(modpack.mcVer)
+                        if (newHost && installHost.baseWorldId != null) {
+                        val baseWorldId = installHost.baseWorldId ?: throw RequestError("地图模板ID不存在")
+                        val service = baseWorldService ?: throw RequestError("地图模板服务不可用")
+                        ctx.emit(LoadProgress.Phase("准备地图模板"))
+                        MailService.changeMail(mailId, runningTitle, newContent = "准备地图模板")
+                        baseWorldSnapshot = service.snapshotForHost(
+                            baseWorldId,
+                        ) { ctx.ensureActive() }.getOrThrow()
+                        }
+                        ctx.emit(LoadProgress.Phase("准备房间目录"))
                     MailService.changeMail(mailId, runningTitle, newContent = "准备房间目录")
                     if (installHost.realVersion == 2) {
                         cleanForV2Install(installHost.dir)
@@ -253,6 +290,18 @@ object HostInstallService {
                     modpack.installToHost(installHost.packVer, installHost) {
                         MailService.changeMail(mailId, runningTitle, newContent = it)
                         ctx.emit(LoadProgress.Phase(it))
+                    }
+
+                    if (newHost && baseWorldSnapshot != null) {
+                        ctx.emit(LoadProgress.Phase("安装地图模板"))
+                        MailService.changeMail(mailId, runningTitle, newContent = "安装地图模板")
+                        val worldDir = installHost.dir.resolve("world")
+                        val service = baseWorldService ?: throw RequestError("地图模板服务不可用")
+                        val snapshot = baseWorldSnapshot ?: throw RequestError("地图模板快照不存在")
+                        service.extractSnapshotForHost(
+                            snapshot,
+                            worldDir,
+                        ) { ctx.ensureActive() }.getOrThrow()
                     }
 
                     ctx.emit(LoadProgress.Phase("写入房间配置"))
@@ -267,11 +316,11 @@ object HostInstallService {
                     MailService.changeMail(mailId, runningTitle, newContent = "准备运行库")
                     installHost.makeContainer(installHost.worldId, modpack, version)
 
-                    lgr.info { "installToHost returned. Proceeding to start Docker container for host ${installHost._id} (Logic Error Tracing)." }
+                    /*lgr.info { "installToHost returned. Proceeding to start Docker container for host ${installHost._id} (Logic Error Tracing)." }
                     ctx.emit(LoadProgress.Phase("启动房间"))
                     MailService.changeMail(mailId, runningTitle, newContent = "启动房间")
                     DockerService.start(installHost._id.str)
-                    installHost.listenCrashOnStart()
+                    installHost.listenCrashOnStart()*/
 
                     HostControlService.clearShutFlag(installHost._id)
                     if (persistPackVersion) {
@@ -280,9 +329,9 @@ object HostInstallService {
                             com.mongodb.client.model.Updates.set(Host::packVer.name, installHost.packVer)
                         )
                     }
-                }.onFailure {
-                    lgr.error { it }
-                    it.printStackTrace()
+                    } catch (error: Throwable) {
+                        lgr.error { error }
+                        error.printStackTrace()
                     if (newHost) {
                         runCatching { DockerService.deleteContainer(installHost._id.str) }
                             .onFailure { cleanupError -> lgr.error(cleanupError) { "创建失败时删除房间容器失败: ${installHost._id}" } }
@@ -291,10 +340,15 @@ object HostInstallService {
                         runCatching { HostService.dbcl.deleteOne(com.mongodb.client.model.Filters.eq("_id", installHost._id)) }
                             .onFailure { cleanupError -> lgr.error(cleanupError) { "创建失败时删除房间记录失败: ${installHost._id}" } }
                     }
-                    MailService.changeMail(mailId, failureTitle, newContent = "无法创建房间，错误：${it}")
-                    throw it
-                }.onSuccess {
+                        MailService.changeMail(mailId, failureTitle, newContent = "无法创建房间，错误：${error}")
+                        throw error
+                    }
                     MailService.changeMail(mailId, successTitle, newContent = successContent)
+                } finally {
+                    baseWorldSnapshot?.let { snapshot ->
+                        runCatching { Files.deleteIfExists(snapshot.toPath()) }
+                            .onFailure { cleanupError -> lgr.error(cleanupError) { "清理地图模板快照失败: ${snapshot.absolutePath}" } }
+                    }
                 }
                 }
             },

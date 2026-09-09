@@ -338,7 +338,6 @@ private fun ShaderDownloadVersionRow(
                         onClick = { onDownload(version) },
                         enabled = targetAvailable && (targetPack == null || installRecord == null) &&
                                 taskStatus != "下载中" && version.primaryFile != null,
-                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Text(
                             text = version.versionNumber,

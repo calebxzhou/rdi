@@ -47,6 +47,17 @@ object ModpackQueryService {
 
     suspend fun listByAuthor(uid: ObjectId): List<Modpack> = dbcl.find(eq("authorId", uid)).toList()
 
+    suspend fun listUploadable(player: RAccount): List<Modpack> {
+        if (player.isDav) return dbcl.find().toList()
+        return dbcl.find(
+            or(
+                eq(Modpack::authorId.name, player._id),
+                eq(Modpack::allowUploaderIds.name, null),
+                eq(Modpack::allowUploaderIds.name, player._id),
+            )
+        ).toList()
+    }
+
     private suspend fun hasModpack(name: String): Boolean = dbcl.countDocuments(eq(Modpack::name.name, name)) > 0
 
     private suspend fun getModpackCount(uid: ObjectId): Int =
@@ -300,4 +311,9 @@ object ModpackQueryService {
             versions = versions
         )
     }
+
+    suspend fun ModpackContext.toDetailVo(): Modpack.DetailVo =
+        modpack.toDetailVo().copy(
+            canUploadVersion = ModpackVersionService.run { this@toDetailVo.canUploadVersion() },
+        )
 }

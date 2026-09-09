@@ -6,6 +6,10 @@ import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.master.service.ModpackService.isMcVer
 import calebxzhou.rdi.master.service.ModpackService.requireAuthor
+import calebxzhou.rdi.master.service.ModpackService.requireCanUploadVersion
+import calebxzhou.rdi.master.service.ModpackService.requireCanManageVersion
+import calebxzhou.rdi.master.service.modpack.ModpackQueryService.toDetailVo
+import calebxzhou.rdi.master.service.modpack.ModpackVersionService.canUploadVersion
 import calebxzhou.rdi.master.service.ModpackService.validateVerName
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -13,6 +17,20 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
+import com.mongodb.MongoClientSettings
+import org.bson.BsonDocument
+import org.bson.BsonNull
+import org.bson.codecs.DecoderContext
+import org.bson.codecs.EncoderContext
+import org.bson.codecs.configuration.CodecRegistries.fromProviders
+import org.bson.codecs.configuration.CodecRegistries.fromRegistries
+import org.bson.codecs.pojo.PojoCodecProvider
+import org.bson.BsonDocumentReader
+import org.bson.BsonDocumentWriter
+import org.bson.types.ObjectId
+import io.mockk.coEvery
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 
 class ModpackServicePureTest {
     @Test
@@ -57,6 +75,178 @@ class ModpackServicePureTest {
         assertFailsWith<RequestError> { ModpackContext(other, pack, null).requireAuthor() }
         val dav = other.copy(name = "davickk")
         assertEquals(pack, ModpackContext(dav, pack, null).requireAuthor().modpack)
+    }
+
+    @Test
+    fun `version upload guard follows allow uploader states while preserving author and dav access`() {
+        val owner = ModpackServiceTestFixtures.account("owner")
+        val listed = ModpackServiceTestFixtures.account("listed")
+        val other = ModpackServiceTestFixtures.account("other")
+        val dav = other.copy(name = "davickk")
+
+        assertEquals(owner, ModpackContext(owner, ModpackServiceTestFixtures.modpack(owner._id), null)
+            .requireCanUploadVersion().player)
+        assertEquals(listed, ModpackContext(listed, ModpackServiceTestFixtures.modpack(owner._id), null)
+            .requireCanUploadVersion().player)
+        assertEquals(owner, ModpackContext(
+            owner,
+            ModpackServiceTestFixtures.modpack(owner._id, allowUploaderIds = listOf(listed._id)),
+            null,
+        ).requireCanUploadVersion().player)
+        assertEquals(owner, ModpackContext(
+            owner,
+            ModpackServiceTestFixtures.modpack(owner._id, allowUploaderIds = emptyList()),
+            null,
+        ).requireCanUploadVersion().player)
+        assertFailsWith<RequestError> {
+            ModpackContext(other, ModpackServiceTestFixtures.modpack(owner._id, allowUploaderIds = emptyList()), null)
+                .requireCanUploadVersion()
+        }
+        assertEquals(listed, ModpackContext(
+            listed,
+            ModpackServiceTestFixtures.modpack(owner._id, allowUploaderIds = listOf(listed._id)),
+            null,
+        ).requireCanUploadVersion().player)
+        assertFailsWith<RequestError> {
+            ModpackContext(other, ModpackServiceTestFixtures.modpack(owner._id, allowUploaderIds = listOf(listed._id)), null)
+                .requireCanUploadVersion()
+        }
+        assertEquals(dav, ModpackContext(
+            dav,
+            ModpackServiceTestFixtures.modpack(owner._id, allowUploaderIds = emptyList()),
+            null,
+        ).requireCanUploadVersion().player)
+    }
+
+    @Test
+    fun `version management guard is limited to exact uploader author and dav`() {
+        val author = ModpackServiceTestFixtures.account("author")
+        val uploader = ModpackServiceTestFixtures.account("uploader")
+        val listedButDifferent = ModpackServiceTestFixtures.account("listed")
+        val otherVersionUploader = ModpackServiceTestFixtures.account("other-version")
+        val pack = ModpackServiceTestFixtures.modpack(
+            author._id,
+            allowUploaderIds = listOf(listedButDifferent._id),
+        )
+        val version = ModpackServiceTestFixtures.version(pack, uploaderId = uploader._id)
+
+        assertEquals(uploader, ModpackContext(uploader, pack, version).requireCanManageVersion().player)
+        assertEquals(author, ModpackContext(author, pack, version).requireCanManageVersion().player)
+        val dav = otherVersionUploader.copy(name = "davickk")
+        assertEquals(dav, ModpackContext(dav, pack, version).requireCanManageVersion().player)
+        assertFailsWith<RequestError> {
+            ModpackContext(listedButDifferent, pack, version).requireCanManageVersion()
+        }
+        assertFailsWith<RequestError> {
+            ModpackContext(otherVersionUploader, pack, version).requireCanManageVersion()
+        }
+        assertFailsWith<RequestError> {
+            ModpackContext(uploader, pack, ModpackServiceTestFixtures.version(pack)).requireCanManageVersion()
+        }
+        assertFailsWith<RequestError> {
+            ModpackContext(uploader, pack, null).requireCanManageVersion()
+        }
+    }
+
+    @Test
+    fun `legacy version without uploader is not managed by allow-listed player`() {
+        val author = ModpackServiceTestFixtures.account("author")
+        val listed = ModpackServiceTestFixtures.account("listed")
+        val pack = ModpackServiceTestFixtures.modpack(
+            author._id,
+            allowUploaderIds = listOf(listed._id),
+        )
+        val legacyVersion = ModpackServiceTestFixtures.version(pack, uploaderId = null)
+
+        assertFailsWith<RequestError> {
+            ModpackContext(listed, pack, legacyVersion).requireCanManageVersion()
+        }
+        assertEquals(
+            author,
+            ModpackContext(author, pack, legacyVersion).requireCanManageVersion().player,
+        )
+        val dav = listed.copy(name = "davickk")
+        assertEquals(
+            dav,
+            ModpackContext(dav, pack, legacyVersion).requireCanManageVersion().player,
+        )
+    }
+
+    @Test
+    fun `detail permission flag follows version upload authorization`() = kotlinx.coroutines.test.runTest {
+        mockkObject(PlayerService)
+        coEvery { PlayerService.getName(any()) } returns null
+        val owner = ModpackServiceTestFixtures.account("owner")
+        val listed = ModpackServiceTestFixtures.account("listed")
+        val other = ModpackServiceTestFixtures.account("other")
+        val dav = other.copy(name = "davickk")
+
+        fun context(player: calebxzhou.rdi.common.model.RAccount, allowUploaderIds: List<ObjectId>?) =
+            ModpackContext(
+                player,
+                ModpackServiceTestFixtures.modpack(owner._id, allowUploaderIds = allowUploaderIds),
+                null,
+            )
+
+        try {
+            assertTrue(context(owner, emptyList()).canUploadVersion())
+            assertTrue(context(dav, emptyList()).canUploadVersion())
+            assertTrue(context(other, null).canUploadVersion())
+            assertTrue(context(listed, listOf(listed._id)).canUploadVersion())
+            assertFalse(context(other, emptyList()).canUploadVersion())
+            assertFalse(context(other, listOf(listed._id)).canUploadVersion())
+
+            assertTrue(context(owner, emptyList()).toDetailVo().canUploadVersion)
+            assertTrue(context(dav, emptyList()).toDetailVo().canUploadVersion)
+            assertTrue(context(other, null).toDetailVo().canUploadVersion)
+            assertTrue(context(listed, listOf(listed._id)).toDetailVo().canUploadVersion)
+            assertFalse(context(other, emptyList()).toDetailVo().canUploadVersion)
+            assertFalse(context(other, listOf(listed._id)).toDetailVo().canUploadVersion)
+        } finally {
+            unmockkObject(PlayerService)
+        }
+    }
+
+    @Test
+    fun `production pojo codec round trips upload permission states`() {
+        val codecRegistry = fromRegistries(
+            MongoClientSettings.getDefaultCodecRegistry(),
+            fromProviders(PojoCodecProvider.builder().automatic(true).build()),
+        )
+        val codec = codecRegistry.get(Modpack::class.java)
+        val ownerId = ObjectId()
+        val listedId = ObjectId()
+
+        fun encode(pack: Modpack): BsonDocument {
+            val document = BsonDocument()
+            codec.encode(
+                BsonDocumentWriter(document),
+                pack,
+                EncoderContext.builder().isEncodingCollectibleDocument(true).build(),
+            )
+            return document
+        }
+
+        fun decode(document: BsonDocument): Modpack = codec.decode(
+            BsonDocumentReader(document),
+            DecoderContext.builder().build(),
+        )
+
+        val omitted = encode(ModpackServiceTestFixtures.modpack(ownerId))
+        omitted.remove("allowUploaderIds")
+        assertEquals(null, decode(omitted).allowUploaderIds)
+
+        val explicitNull = encode(ModpackServiceTestFixtures.modpack(ownerId)).apply {
+            put("allowUploaderIds", BsonNull.VALUE)
+        }
+        assertEquals(null, decode(explicitNull).allowUploaderIds)
+
+        assertEquals(emptyList(), decode(encode(
+            ModpackServiceTestFixtures.modpack(ownerId, allowUploaderIds = emptyList())
+        )).allowUploaderIds)
+        assertEquals(listOf(listedId), decode(encode(
+            ModpackServiceTestFixtures.modpack(ownerId, allowUploaderIds = listOf(listedId))
+        )).allowUploaderIds)
     }
 
     @Test

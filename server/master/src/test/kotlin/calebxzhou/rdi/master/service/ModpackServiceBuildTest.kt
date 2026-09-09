@@ -80,6 +80,36 @@ class ModpackServiceBuildTest {
         }
     }
 
+    @Test
+    fun `exact version uploader can enqueue rebuild but unrelated player cannot`() = runTest {
+        val author = ModpackServiceTestFixtures.account("author")
+        val uploader = ModpackServiceTestFixtures.account("uploader")
+        val other = ModpackServiceTestFixtures.account("other")
+        val pack = ModpackServiceTestFixtures.modpack(author._id)
+        val version = ModpackServiceTestFixtures.version(pack, uploaderId = uploader._id)
+        pack.versions += version
+        useFreshPack(pack)
+        var submissionCount = 0
+        ServerTaskManager.testSubmitter = { _, _, _ ->
+            submissionCount++
+            "uploader-rebuild"
+        }
+
+        try {
+            assertFailsWith<Exception> {
+                ModpackContext(other, pack, version).rebuildVersion()
+            }
+            assertEquals(0, submissionCount)
+            coVerify(exactly = 0) { collection.updateOne(any<Bson>(), any<Bson>(), any()) }
+
+            useFreshPack(pack)
+            ModpackContext(uploader, pack, version).rebuildVersion()
+            assertEquals(1, submissionCount)
+        } finally {
+            ServerTaskManager.testSubmitter = null
+        }
+    }
+
     private fun useFreshPack(pack: Modpack) {
         val flow = mockk<FindFlow<Modpack>>()
         every { collection.find(any<Bson>()) } returns flow

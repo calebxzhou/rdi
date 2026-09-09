@@ -1,7 +1,6 @@
 package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.*
@@ -11,6 +10,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.FlowRowV
@@ -29,10 +32,14 @@ import calebxzau.rdi.client.ui.themeNow
 import calebxzau.rdi.client.ui.viewmodel.HostCreateEvent
 import calebxzau.rdi.client.ui.viewmodel.HostCreateViewModel
 import calebxzau.rdi.client.ui.viewmodel.HostCreateViewModelArgs
+import calebxzau.rdi.client.ui.viewmodel.HostCreateWorldSource
+import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.net.RServer
 import calebxzhou.rdi.client.ui.*
 import calebxzhou.rdi.client.ui.comp.GameRuleModal
 import calebxzhou.rdi.client.ui.comp.ImageCard
+import calebxzhou.rdi.client.ui.comp.BaseWorldSelectionModal
 import kotlinx.coroutines.flow.collect
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
@@ -65,6 +72,8 @@ fun HostNewCreateScreen(
             )
         )
     }
+    val account by AccountSessionStore.account.collectAsStateWithLifecycle()
+    val serverRoute by RServer.routeState.collectAsStateWithLifecycle()
     val state by viewModel.uiState.collectAsState()
     var showRules by remember { mutableStateOf(false) }
     var returnSuccessMessage by remember { mutableStateOf<String?>(null) }
@@ -73,6 +82,27 @@ fun HostNewCreateScreen(
     var showResetConfirm by remember { mutableStateOf(false) }
     var resetName by remember { mutableStateOf("") }
     var showCustomLevelTypeDialog by remember { mutableStateOf(false) }
+    var showBaseWorldSelection by remember { mutableStateOf(false) }
+    LaunchedEffect(account._id, serverRoute) {
+        showBaseWorldSelection = false
+        viewModel.updateSessionIdentity("${account._id}:${RServer.now.hqUrl}")
+    }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, viewModel, state.worldSource, state.isLegacyCreate, showBaseWorldSelection) {
+        if (!state.isLegacyCreate || (!showBaseWorldSelection && state.worldSource != HostCreateWorldSource.Template)) {
+            onDispose { }
+        } else {
+            var hasResumed = false
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    if (hasResumed) viewModel.refreshBaseWorlds()
+                    hasResumed = true
+                }
+            }
+            lifecycleOwner.lifecycle.addObserver(observer)
+            onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        }
+    }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
@@ -86,6 +116,11 @@ fun HostNewCreateScreen(
                 is HostCreateEvent.WorldReset -> staySuccessMessage = event.message
             }
         }
+    }
+
+    LaunchedEffect(showBaseWorldSelection) {
+        if (showBaseWorldSelection) viewModel.openBaseWorldSelection()
+        else viewModel.cancelBaseWorldSelection()
     }
 
     if (showCustomLevelTypeDialog) {
@@ -224,9 +259,6 @@ fun HostNewCreateScreen(
                     } else */
 
                         Column(modifier = Modifier.fillMaxWidth()) {
-                        if (state.isLegacyCreate) {
-                            Space8h()
-                        }
                         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
                             val compactTopLayout = maxWidth < 1280.dp
                             val basicSettingSectionModifier = if (compactTopLayout) {
@@ -366,29 +398,36 @@ fun HostNewCreateScreen(
                                                     ImageCard(
                                                         title = "普通",
                                                         iconPath = "assets/icons/worldtype_normal.avif",
-                                                        selected = state.levelChoice == 0,
+                                                        selected = state.worldSource == HostCreateWorldSource.Generate && state.levelChoice == 0,
                                                         onClick = { viewModel.selectLevelChoice(0) }
                                                     )
                                                     ImageCard(
                                                         title = "超平坦",
                                                         iconPath = "assets/icons/worldtype_flat.avif",
-                                                        selected = state.levelChoice == 1,
+                                                        selected = state.worldSource == HostCreateWorldSource.Generate && state.levelChoice == 1,
                                                         onClick = { viewModel.selectLevelChoice(1) }
                                                     )
                                                     ImageCard(
                                                         title = "空岛",
                                                         iconPath = "assets/icons/worldtype_skyblock.avif",
-                                                        selected = state.levelChoice == 2,
+                                                        selected = state.worldSource == HostCreateWorldSource.Generate && state.levelChoice == 2,
                                                         onClick = { viewModel.selectLevelChoice(2) }
                                                     )
                                                     ImageCard(
                                                         title = "自定义",
                                                         iconPath = "assets/icons/worldtype_normal.avif",
-                                                        selected = state.levelChoice == 3,
+                                                        selected = state.worldSource == HostCreateWorldSource.Generate && state.levelChoice == 3,
                                                         onClick = {
+                                                            viewModel.selectLevelChoice(3)
                                                             viewModel.beginCustomLevelType()
                                                             showCustomLevelTypeDialog = true
                                                         }
+                                                    )
+                                                    if (state.isLegacyCreate) ImageCard(
+                                                        title = state.selectedBaseWorldId?.let { id -> state.baseWorlds.firstOrNull { it.id == id }?.let { "模板·${it.name}" } } ?: "模板",
+                                                        iconPath = "assets/icons/worldtype_normal.avif",
+                                                        selected = state.worldSource == HostCreateWorldSource.Template,
+                                                        onClick = { if (!state.submitting) showBaseWorldSelection = true },
                                                     )
                                                 }
                                             }
@@ -415,6 +454,23 @@ fun HostNewCreateScreen(
             initialOverrideRules = state.gameRules,
             onSave = viewModel::updateGameRules,
             onClose = { showRules = false },
+        )
+    }
+
+    if (showBaseWorldSelection && state.isLegacyCreate) {
+        BaseWorldSelectionModal(
+            worlds = state.baseWorlds,
+            loading = state.baseWorldsLoading,
+            errorMessage = state.baseWorldsErrorMessage,
+            initialSelectedId = state.selectedBaseWorldId,
+            submitting = state.submitting,
+            onRetry = viewModel::loadBaseWorldChoices,
+            onClearError = viewModel::clearBaseWorldsError,
+            onConfirm = { id ->
+                viewModel.commitBaseWorldSelection(id)
+                showBaseWorldSelection = false
+            },
+            onDismiss = { showBaseWorldSelection = false },
         )
     }
 

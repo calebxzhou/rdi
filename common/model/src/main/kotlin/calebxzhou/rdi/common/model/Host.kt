@@ -4,6 +4,7 @@ import calebxzhou.rdi.model.Role
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import org.bson.types.ObjectId
+import java.util.UUID
 val HOST_ALLOW_FILE_EXT = setOf("txt","js","json","json5","jsonc","md","ini","toml","yaml","yml","cfg","zs","properties","snbt","mcmeta","bak","lang","lua","mcfunction","xml")
 val HOST_OPR_DIR = mapOf(
     "config" to "配置",
@@ -41,6 +42,9 @@ data class Host(
     var extraMods: List<Mod> = arrayListOf(),
     var disabledMods: List<Mod> = arrayListOf(),
     private var version: Int? = null,
+    @Contextual
+    val baseWorldId: UUID? = null,
+    val generatorSettings: String? = null,
 ) {
     val realVersion get() = version?:1
     companion object {
@@ -143,7 +147,9 @@ data class Host(
         val levelType: String,
         val allowCheats: Boolean,
         val whitelist: Boolean,
-        val gameRules: MutableMap<String, String>
+        val gameRules: MutableMap<String, String>,
+        @Contextual
+        val baseWorldId: UUID? = null,
     )
 
     @Serializable

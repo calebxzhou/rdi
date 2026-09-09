@@ -2,47 +2,26 @@ package calebxzhou.rdi.client.ui.screen
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
-import androidx.compose.material3.SnackbarDuration
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import calebxzau.rdi.client.ui.BottomSnakebarM3
-import calebxzau.rdi.client.ui.CircleIconButton
-import calebxzau.rdi.client.ui.ConfirmDialog
-import calebxzau.rdi.client.ui.ContentBody
-import calebxzau.rdi.client.ui.CursorPositionBox
-import calebxzau.rdi.client.ui.MaxBox
-import calebxzau.rdi.client.ui.OffsetFirstItemUnderCursor
-import calebxzau.rdi.client.ui.RRow
-import calebxzau.rdi.client.ui.RDropdownMenuItem
-import calebxzau.rdi.client.ui.ScreenContentSize
-import calebxzau.rdi.client.ui.ScreenContentSurface
-import calebxzau.rdi.client.ui.SimpleTooltip
-import calebxzau.rdi.client.ui.Space8h
-import calebxzau.rdi.client.ui.Space8w
-import calebxzau.rdi.client.ui.TinyClickCopyText
-import calebxzau.rdi.client.ui.TitleRow
-import calebxzau.rdi.client.ui.openUrl
-import calebxzau.rdi.client.ui.themeNow
-import calebxzau.rdi.client.ui.asIconText
-import calebxzhou.rdi.common.util.humanFileSize
-import calebxzhou.rdi.common.util.millisToHumanDateTime
-import calebxzhou.rdi.client.net.loggedAccount
-import calebxzhou.rdi.client.ui.*
-import calebxzhou.rdi.client.ui.comp.*
-import calebxzhou.rdi.common.model.Modpack
-import calebxzhou.rdi.common.model.isDav
+import calebxzau.rdi.client.ui.*
 import calebxzau.rdi.client.ui.viewmodel.ModpackInfoEvent
 import calebxzau.rdi.client.ui.viewmodel.ModpackInfoViewModel
+import calebxzhou.rdi.client.net.loggedAccount
+import calebxzhou.rdi.client.ui.comp.HeadButton
+import calebxzhou.rdi.client.ui.comp.ModpackCategoryChips
+import calebxzhou.rdi.client.ui.comp.ModpackCategorySelector
+import calebxzhou.rdi.client.ui.comp.ModpackDownloadMethodDialog
+import calebxzhou.rdi.common.model.Modpack
+import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.common.util.toFriendlyDateTime
-import kotlinx.coroutines.flow.collect
+import org.bson.types.ObjectId
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
-import kotlin.text.isNotBlank
 
 /**
  * calebxzhou @ 2026-01-17 20:44
@@ -61,7 +40,9 @@ private data class ActiveModpackDownloadDialog(
 fun ModpackInfoScreen(
     modpackId: String,
     onBack: () -> Unit,
+    onManageUploaders: () -> Unit = {},
     onOpenVersionInfo: ((String) -> Unit)? = null,
+    onOpenUpload: (() -> Unit)? = null,
     onOpenTaskList: ((String) -> Unit)? = null,
     onCreateHost: ((Modpack.DetailVo, Modpack.Version) -> Unit)? = null,
     viewModel: ModpackInfoViewModel = koinViewModel(key = modpackId) {
@@ -120,6 +101,10 @@ fun ModpackInfoScreen(
                 }
                 if (isAuthor) {
                     CircleIconButton(
+                        "\uF4FE",
+                        tooltip = "谁能上传版本",
+                    ) { onManageUploaders() }
+                    CircleIconButton(
                         icon = "\uF01F",
                         tooltip = "修改信息",
                         bgColor = themeNow.tertiary
@@ -158,7 +143,9 @@ fun ModpackInfoScreen(
                         ModpackDownloadVersions(
                             pack = pack,
                             isAuthor = isAuthor,
+                            playerId = loggedAccount._id,
                             onOpenVersionInfo = onOpenVersionInfo,
+                            onOpenUpload = onOpenUpload,
                             onCreateHost = onCreateHost,
                             onRequestDownload = viewModel::requestDownload,
                         )
@@ -313,21 +300,23 @@ fun ModpackInfoScreen(
 private fun ModpackDownloadVersions(
     pack: Modpack.DetailVo,
     isAuthor: Boolean,
+    playerId: ObjectId,
     onOpenVersionInfo: ((String) -> Unit)?,
+    onOpenUpload: (() -> Unit)?,
     onCreateHost: ((Modpack.DetailVo, Modpack.Version) -> Unit)?,
     onRequestDownload: (Modpack.Version) -> Unit,
 ) {
-    val visibleVersions = visibleModpackVersions(pack.versions, isAuthor)
+    val visibleVersions = visibleModpackVersions(pack.versions, isAuthor, playerId)
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
 
-            RRow {
-                Text(
+        RRow {
+            HeadButton(pack.authorId, showName = false, avatarSize = 14.dp)
+            Text(
                     text = "请选择版本",
                     style = MaterialTheme.typography.titleMedium
                 )
-                HeadButton(pack.authorId, showName = false)
-                Text(pack.mcVer.simpleVer)
+                Text(pack.mcVer.simpleVer, color = Color.LightGray)
                 TinyClickCopyText("mid", pack._id.toString())
 
         }
@@ -337,14 +326,24 @@ private fun ModpackDownloadVersions(
                 color = Color.Gray,
             )
         }
-        visibleVersions.forEach { version ->
-            ModpackVersionCard(
-                pack = pack,
-                version = version,
-                onOpenVersionInfo = onOpenVersionInfo,
-                onCreateHost = onCreateHost,
-                onRequestDownload = onRequestDownload,
-            )
+        RRow {
+            visibleVersions.forEach { version ->
+                ModpackVersionCard(
+                    pack = pack,
+                    version = version,
+                    onOpenVersionInfo = onOpenVersionInfo,
+                    onCreateHost = onCreateHost,
+                    onRequestDownload = onRequestDownload,
+                )
+            }
+            if (pack.canUploadVersion) {
+                CircleIconButton(
+                    "\uDB85\uDC03",
+                    "上传新版本",
+                    showText = false,
+                    onClick = { onOpenUpload?.invoke() },
+                )
+            }
         }
     }
 }
@@ -352,7 +351,19 @@ private fun ModpackDownloadVersions(
 internal fun visibleModpackVersions(
     versions: List<Modpack.Version>,
     isAuthor: Boolean,
-): List<Modpack.Version> = if (isAuthor) versions else versions.filter { it.status == Modpack.Status.OK }
+    playerId: ObjectId,
+): List<Modpack.Version> = if (isAuthor) {
+    versions
+} else {
+    versions.filter { it.status == Modpack.Status.OK || it.uploaderId == playerId }
+}
+
+internal fun canManageModpackVersion(
+    pack: Modpack.DetailVo,
+    version: Modpack.Version,
+    playerId: ObjectId,
+    isDav: Boolean,
+): Boolean = isDav || pack.authorId == playerId || version.uploaderId == playerId
 
 @Composable
 private fun ModpackVersionCard(

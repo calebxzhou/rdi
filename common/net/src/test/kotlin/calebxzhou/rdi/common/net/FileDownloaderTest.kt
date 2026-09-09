@@ -5,19 +5,23 @@ import com.sun.net.httpserver.HttpServer
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.runBlocking
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.io.path.createTempDirectory
 import kotlin.io.path.readText
 import kotlin.io.path.writeText
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -68,6 +72,54 @@ class FileDownloaderTest {
             assertEquals("original", target.readText())
             assertFalse(Files.exists(target.resolveSibling("existing.bin.downloading")))
         } finally {
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `cancellation removes partial temp file and propagates`() = runBlocking {
+        val fixture = LocalDownloadServer()
+        val body = ByteArray(1024 * 1024) { (it % 251).toByte() }
+        val downloadedBytes = CountDownLatch(1)
+        val releaseResponse = CountDownLatch(1)
+        fixture.add("/cancel") { exchange ->
+            try {
+                exchange.sendResponseHeaders(200, body.size.toLong())
+                exchange.responseBody.use { output ->
+                    Thread.sleep(600)
+                    output.write(body, 0, 8192)
+                    output.flush()
+                    releaseResponse.await()
+                    output.write(body, 8192, body.size - 8192)
+                }
+            } catch (_: IOException) {
+                // The client is expected to close the response when cancellation propagates.
+            }
+        }
+        try {
+            val target = fixture.tempDirectory.resolve("cancel.bin")
+            val download = async {
+                target.downloadFileFrom(
+                    fixture.url("/cancel"),
+                    knownSize = body.size.toLong(),
+                    maxAttempts = 1,
+                    onProgress = { progress ->
+                        if (progress.bytesDownloaded > 0L) downloadedBytes.countDown()
+                    },
+                )
+            }
+
+            assertTrue(downloadedBytes.await(5, TimeUnit.SECONDS))
+            download.cancel()
+            releaseResponse.countDown()
+
+            assertFailsWith<kotlinx.coroutines.CancellationException> {
+                download.await()
+            }
+            assertFalse(Files.exists(target))
+            assertFalse(Files.exists(target.resolveSibling("cancel.bin.downloading")))
+        } finally {
+            releaseResponse.countDown()
             fixture.close()
         }
     }

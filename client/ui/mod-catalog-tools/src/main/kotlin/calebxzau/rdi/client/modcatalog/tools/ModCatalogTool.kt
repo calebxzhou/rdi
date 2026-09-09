@@ -3,6 +3,7 @@ package calebxzau.rdi.client.modcatalog.tools
 import app.cash.sqldelight.driver.jdbc.sqlite.JdbcSqliteDriver
 import calebxzau.rdi.client.modcatalog.ModPlatform
 import calebxzhou.rdi.client.modcatalog.database.ModCatalogDatabase
+import calebxzhou.rdi.common.util.sha1
 import com.aeb.pinyin.api.NonZhFormatOption
 import com.aeb.pinyin.api.PinyinFormatOptions
 import com.aeb.pinyin.api.PinyinPro4J
@@ -17,10 +18,8 @@ import kotlinx.serialization.json.Json
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.sql.DriverManager
 import java.time.Instant
-import java.util.HexFormat
 import java.util.Properties
 
 internal data class CatalogBuildSummary(
@@ -48,7 +47,7 @@ internal class ModCatalogTool(
         val normalized = merge(wikiPages, mcmodItems)
         val normalizedJson = json.encodeToString(normalized)
         writeAtomically(workingDir.resolve("mod_catalog.json"), normalizedJson)
-        val sourceSha1 = normalizedJson.toByteArray().sha1()
+        val sourceSha1 = normalizedJson.toByteArray().sha1
         val existing = readExistingMetadata(outputFile)?.takeIf {
             it.formatVersion == FORMAT_VERSION && it.sourceSha1 == sourceSha1 && it.countsMatch
         }
@@ -268,8 +267,6 @@ private fun normalizeSlug(value: String): String = value.trim().lowercase()
 private fun String?.normalized(): String? = this?.trim()?.takeIf(String::isNotEmpty)
 
 private fun String?.overrideFor(base: String?): String? = normalized()?.takeUnless { it == base }
-
-private fun ByteArray.sha1(): String = HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(this))
 
 fun main() = runBlocking {
     val summary = ModCatalogTool().run().getOrThrow()

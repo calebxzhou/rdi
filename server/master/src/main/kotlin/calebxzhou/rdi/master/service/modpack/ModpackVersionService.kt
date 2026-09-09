@@ -11,6 +11,7 @@ import calebxzhou.rdi.master.DL_MODS_CLIENT_DIR
 import calebxzhou.rdi.master.service.ClientModCacheService
 import calebxzhou.rdi.master.service.ModpackContext
 import calebxzhou.rdi.master.service.ModpackService
+import calebxzhou.rdi.master.service.PlayerService
 import calebxzhou.rdi.master.service.host.HostQueryService
 import calebxzhou.rdi.master.service.host.HostControlService.status
 import calebxzhou.rdi.master.service.host.dir
@@ -29,10 +30,85 @@ import java.io.File
 
 /** Authorization, metadata and embedded-version mutations for Legacy modpacks. */
 object ModpackVersionService {
+    private const val MAX_ALLOWED_UPLOADERS = 100
     private val dbcl get() = ModpackServiceKernel.dbcl
     fun ModpackContext.requireAuthor(): ModpackContext {
         if (modpack.authorId != player._id && !player.isDav) throw RequestError("不是你的整合包")
         return this
+    }
+
+    fun ModpackContext.canManageVersion(): Boolean {
+        val selectedVersion = versionNull ?: return false
+        return player.isDav ||
+            modpack.authorId == player._id ||
+            selectedVersion.uploaderId == player._id
+    }
+
+    fun ModpackContext.requireCanManageVersion(): ModpackContext {
+        if (versionNull == null) throw RequestError("无此版本")
+        if (!canManageVersion()) throw RequestError("不是你的整合包版本")
+        return this
+    }
+
+    fun ModpackContext.canUploadVersion(): Boolean {
+        val allowedUploaderIds = modpack.allowUploaderIds
+        return player.isDav ||
+            modpack.authorId == player._id ||
+            allowedUploaderIds == null ||
+            player._id in allowedUploaderIds
+    }
+
+    fun ModpackContext.requireCanUploadVersion(): ModpackContext {
+        if (!canUploadVersion()) {
+            throw RequestError("没有上传新版本的权限")
+        }
+        return this
+    }
+
+    suspend fun ModpackContext.getUploaderPolicy(): Modpack.UploaderPolicyVo {
+        val ids = modpack.allowUploaderIds
+        if (ids.isNullOrEmpty()) {
+            return Modpack.UploaderPolicyVo(ids, emptyList())
+        }
+        val accountsById = PlayerService.getByIds(ids).associateBy { it._id }
+        return Modpack.UploaderPolicyVo(
+            allowUploaderIds = ids,
+            uploaders = ids.mapNotNull { accountsById[it]?.dto },
+        )
+    }
+
+    suspend fun ModpackContext.resolveUploader(payload: Modpack.UploaderResolveDto): RAccount.Dto {
+        val identifier = payload.playerNameOrQq.trim()
+        if (identifier.isBlank()) throw RequestError("玩家名或QQ不能为空")
+        val account = PlayerService.getByQQ(identifier)
+            ?: PlayerService.getByName(identifier)
+            ?: throw RequestError("找不到该玩家")
+        if (account._id == modpack.authorId) throw RequestError("作者始终可以上传新版本")
+        val allowedIds = modpack.allowUploaderIds
+        if (allowedIds != null && account._id in allowedIds) {
+            throw RequestError("该玩家已在名单中")
+        }
+        return account.dto
+    }
+
+    suspend fun ModpackContext.updateUploaderPolicy(payload: Modpack.UploaderPolicyUpdateDto) {
+        val ids = payload.allowUploaderIds
+        if (ids != null) {
+            if (ids.size > MAX_ALLOWED_UPLOADERS) {
+                throw RequestError("最多只能添加${MAX_ALLOWED_UPLOADERS}名玩家")
+            }
+            if (ids.size != ids.toSet().size) throw RequestError("上传玩家名单中有重复玩家")
+            if (modpack.authorId in ids) throw RequestError("作者始终可以上传新版本")
+            val accounts = PlayerService.getByIds(ids)
+            if (accounts.map { it._id }.toSet() != ids.toSet()) {
+                throw RequestError("上传玩家名单中存在不存在的玩家")
+            }
+        }
+        val result = dbcl.updateOne(
+            eq(Modpack::_id.name, modpack._id),
+            Updates.set(Modpack::allowUploaderIds.name, ids),
+        )
+        if (result.matchedCount == 0L) throw RequestError("整合包不存在")
     }
 
     private fun ModRef.normalizedVersionModRef(): ModRef = copy(
@@ -211,7 +287,7 @@ object ModpackVersionService {
             val freshVersion = freshPack.versions.firstOrNull { it.name == version.name }
                 ?: throw RequestError("版本${version.name}不存在")
             freshVersion.ensureVersionModsEditable()
-            if (freshPack.authorId != player._id && !player.isDav) throw RequestError("不是你的整合包")
+            ModpackContext(player, freshPack, freshVersion).requireCanManageVersion()
 
             val oldMods = freshVersion.mods.copyVersionMods()
             val updatedMods = oldMods.copyVersionMods()
@@ -350,7 +426,7 @@ object ModpackVersionService {
             val freshPack = ModpackQueryService.getById(modpack._id) ?: throw RequestError("整合包不存在")
             val freshVersion = freshPack.versions.firstOrNull { it.name == requestedName }
                 ?: throw RequestError("无此版本")
-            if (freshPack.authorId != player._id && !player.isDav) throw RequestError("不是你的整合包")
+            ModpackContext(player, freshPack, freshVersion).requireCanManageVersion()
             if (freshVersion.status == Modpack.Status.WAIT ||
                 freshVersion.status == Modpack.Status.BUILDING ||
                 ModpackBuildService.hasActiveVersionBuildTask(freshPack._id, freshVersion.name)

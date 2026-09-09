@@ -12,6 +12,7 @@ import calebxzhou.rdi.client.service.content.ContentRequest
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.util.sha1
 import calebxzau.rdi.common.model.ContentPlatform
 import calebxzau.rdi.common.model.ContentSide
 import calebxzau.rdi.common.model.ContentType
@@ -20,7 +21,6 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.jar.JarOutputStream
 import java.util.zip.ZipEntry
-import java.security.MessageDigest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -373,7 +373,7 @@ class Modpack2ContentServiceTest {
         }
     }
 
-    private fun sha1(bytes: ByteArray): String = MessageDigest.getInstance("SHA-1").digest(bytes).joinToString("") { "%02x".format(it) }
+    private fun sha1(bytes: ByteArray): String = bytes.sha1
 }
 
 private class WritingContentStore(root: Path) : ClientContentStore(root) {

@@ -2,6 +2,8 @@ package calebxzau.rdi.server.infra
 
 import calebxzau.rdi.server.account.AccountMirrorService
 import calebxzau.rdi.server.account.PgAccountRepo
+import calebxzau.rdi.server.service.baseworld.BaseWorldService
+import calebxzau.rdi.server.service.baseworld.PgBaseWorldRepo
 import calebxzhou.rdi.master.CONF
 import calebxzhou.rdi.master.lgr
 import calebxzhou.rdi.master.infra.postgres.DatabaseProvider
@@ -11,6 +13,7 @@ import io.ktor.server.application.ApplicationStopping
 import io.ktor.server.application.install
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.koin.dsl.module
 import org.koin.ktor.ext.getKoin
 import org.koin.ktor.plugin.Koin
@@ -27,6 +30,7 @@ fun Application.configurePostgresServices() {
 
     val koin = getKoin()
     val accountMirrorService = koin.get<AccountMirrorService>()
+    val baseWorldService = koin.get<BaseWorldService>()
     PlayerService.configureAccountMirror(accountMirrorService)
     launch(Dispatchers.IO) {
         accountMirrorService.scan(PlayerService.accountCol.find())
@@ -41,8 +45,10 @@ fun Application.configurePostgresServices() {
                 lgr.error(error) { "account mirror startup scan failed" }
             }
     }
+    baseWorldService.startRecovery()
 
     monitor.subscribe(ApplicationStopping) {
+        runBlocking { baseWorldService.shutdown() }
         databaseProvider.close()
     }
 }
@@ -50,5 +56,7 @@ fun Application.configurePostgresServices() {
 private fun postgresModule(databaseProvider: DatabaseProvider) = module {
     single { databaseProvider }
     single { PgAccountRepo() }
+    single { PgBaseWorldRepo() }
+    single { BaseWorldService(get(), get(), accounts = get()) }
     single { AccountMirrorService(get(), get()) }
 }

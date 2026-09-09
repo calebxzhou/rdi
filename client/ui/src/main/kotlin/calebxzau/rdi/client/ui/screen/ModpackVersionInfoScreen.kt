@@ -54,6 +54,7 @@ import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.ui.comp.HeadButton
 import calebxzhou.rdi.client.ui.comp.ModGrid
+import calebxzhou.rdi.client.ui.screen.canManageModpackVersion
 import calebxzhou.rdi.client.ui.screen.selectHostExtraModFiles
 import calebxzhou.rdi.common.model.ModRef
 import calebxzhou.rdi.common.model.Modpack
@@ -117,19 +118,27 @@ fun ModpackVersionInfoScreen(
     }
     val currentVersion = uiState.version
     val pack = uiState.pack
-    val isAuthor =
-        pack?.let { it.authorId == loggedAccount._id || loggedAccount.isDav } ?: false
+    val canManageVersion = pack?.let { selectedPack ->
+        currentVersion?.let { selectedVersion ->
+            canManageModpackVersion(
+                pack = selectedPack,
+                version = selectedVersion,
+                playerId = loggedAccount._id,
+                isDav = loggedAccount.isDav,
+            )
+        }
+    } ?: false
     val selectedMods = uiState.uiMods.filter { it.key in selectedModKeys }
-    val canMutate = isAuthor && !uiState.versionActionPending && currentVersion?.status == Modpack.Status.OK
+    val canMutate = canManageVersion && !uiState.versionActionPending && currentVersion?.status == Modpack.Status.OK
     val versionActionsEnabled =
-        isAuthor && !uiState.versionActionPending && currentVersion?.status?.let<Modpack.Status, Boolean> {
+        canManageVersion && !uiState.versionActionPending && currentVersion?.status?.let<Modpack.Status, Boolean> {
             it != Modpack.Status.WAIT && it != Modpack.Status.BUILDING
         } ?: false
     val versionStatusText = if (uiState.versionActionPending) {
         "重构提交中"
     } else when (currentVersion?.status) {
-        Modpack.Status.OK -> if (isAuthor) "可编辑" else "可用"
-        Modpack.Status.FAIL -> if (isAuthor) "构建失败，可重构" else "构建失败"
+        Modpack.Status.OK -> if (canManageVersion) "可编辑" else "可用"
+        Modpack.Status.FAIL -> if (canManageVersion) "构建失败，可重构" else "构建失败"
         Modpack.Status.WAIT -> "等待构建中"
         Modpack.Status.BUILDING -> "构建中"
         null -> "未加载"
@@ -152,7 +161,7 @@ fun ModpackVersionInfoScreen(
                     color = if (canMutate) themeNow.primary else themeNow.onSurfaceVariant
                 )
                 if (currentVersion != null) {
-                    if (isAuthor) {
+                    if (canManageVersion) {
                         CircleIconButton(
                             icon = "\uEA81",
                             label = if (versionActionsEnabled) "删除版本" else "删除版本（处理中）",
@@ -221,11 +230,11 @@ fun ModpackVersionInfoScreen(
                         ) {
                             RRow {
                                 Text(
-                                    text = if (isAuthor && selectedMods.isEmpty()) "模组列表(${currentVersion.mods.size})" else if (isAuthor) "已选中${selectedMods.size}个Mod" else "当前版本Mod",
+                                    text = if (canManageVersion && selectedMods.isEmpty()) "模组列表(${currentVersion.mods.size})" else if (canManageVersion) "已选中${selectedMods.size}个Mod" else "当前版本Mod",
                                     color = themeNow.onSurfaceVariant,
                                     modifier = Modifier.weight(1f)
                                 )
-                                if (isAuthor){
+                                if (canManageVersion){
                                     CircleIconButton(
                                         icon = "\uF021",
                                         label = "刷新",
@@ -303,9 +312,9 @@ fun ModpackVersionInfoScreen(
                                             ModGrid(
                                                 mods = uiState.uiMods,
                                                 modifier = Modifier.fillMaxWidth().weight(1f),
-                                                selectedKeys = if (isAuthor) selectedModKeys else emptySet(),
+                                                selectedKeys = if (canManageVersion) selectedModKeys else emptySet(),
                                                 emptyText = "当前版本没有Mod",
-                                                onModClick = if (isAuthor) {
+                                                onModClick = if (canManageVersion) {
                                                     { uiMod ->
                                                         selectedModKeys = if (uiMod.key in selectedModKeys) {
                                                             selectedModKeys - uiMod.key

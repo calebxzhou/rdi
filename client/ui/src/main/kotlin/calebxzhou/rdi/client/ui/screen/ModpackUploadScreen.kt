@@ -1,19 +1,13 @@
 package calebxzhou.rdi.client.ui.screen
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -27,8 +21,8 @@ import calebxzau.rdi.client.ui.CircleIconButton
 import calebxzau.rdi.client.ui.ConfirmDialog
 import calebxzau.rdi.client.ui.ContentBody
 import calebxzau.rdi.client.ui.MaxBox
+import calebxzau.rdi.client.ui.RColumn
 import calebxzau.rdi.client.ui.RRow
-import calebxzau.rdi.client.ui.RVerticalScrollbar
 import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.SimpleTooltip
@@ -42,7 +36,6 @@ import calebxzhou.rdi.client.ui.comp.Console
 import calebxzhou.rdi.client.ui.comp.ConsoleState
 import calebxzhou.rdi.client.ui.comp.ModGrid
 import calebxzhou.rdi.client.ui.comp.ModpackCategorySelector
-import calebxzhou.rdi.client.ui.comp.ModpackCard
 import calebxzhou.rdi.client.ui.comp.Task2DetailDialog
 import calebxzau.rdi.client.ui.pickLocalDirectory
 import calebxzau.rdi.client.ui.pickLocalModpackFile
@@ -65,15 +58,13 @@ fun ModpackUploadScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var selectedTab by remember { mutableStateOf(0) }
-    var showUploadModeDialog by remember { mutableStateOf(false) }
-    val uploadedModpacksGridState = rememberLazyGridState()
     val focusRequester = remember { FocusRequester() }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 is ModpackUploadEvent.ClientPackLoaded -> selectedTab = event.initialTab
-                ModpackUploadEvent.OpenUploadModeDialog -> showUploadModeDialog = true
+                ModpackUploadEvent.OpenUploadModeDialog -> Unit
                 is ModpackUploadEvent.UploadSubmitted -> onUploadSubmitted(event.runId)
                 ModpackUploadEvent.NavigateBack -> onBack()
             }
@@ -152,6 +143,9 @@ fun ModpackUploadScreen(
                 uiState.errorMessage?.let {
                     AlertErr(it)
                 }
+                uiState.warningMessage?.let { message ->
+                    AlertWarn(message, onClose = viewModel::clearWarningMessage)
+                }
                 if (uiState.ignoreModpackTest) {
                     AlertWarn("已启用rdi.ignoreModpackTest=true，当前允许跳过客户端测试(client test)和服务端测试(server test)直接上传")
                 }
@@ -161,12 +155,22 @@ fun ModpackUploadScreen(
                         modifier = Modifier.fillMaxSize(),
                         contentAlignment = Alignment.Center,
                     ) {
-                        CircleIconButton(
-                            icon = "\uF07C",
-                            label = "选择客户端安装包",
-                            enabled = !uiState.loading,
-                            onClick = ::selectClientPack,
-                        )
+                        Column(horizontalAlignment = Alignment.CenterHorizontally,  verticalArrangement = Arrangement.spacedBy(8.dp),) {
+
+                            uiState.selectedUpdateTarget?.let {
+                                Text("准备为整合包《${it.name}》更新版本")
+                            }?:
+                                Text("准备创建《全新整合包》\n如果你要更新已有包 前往对应包的详情页面点\uDB85\uDC03")
+
+
+
+                            CircleIconButton(
+                                icon = "\uF07C",
+                                label = "选择客户端安装包",
+                                enabled = uiState.uploadInitializationReady && !uiState.loading,
+                                onClick = ::selectClientPack,
+                            )
+                        }
                     }
                 } else {
                     Space8h()
@@ -291,20 +295,6 @@ fun ModpackUploadScreen(
             )
         }
 
-        if (showUploadModeDialog) {
-            ModpackUploadModeDialog(
-                modpacks = uiState.uploadedModpacks,
-                gridState = uploadedModpacksGridState,
-                onSelect = { target ->
-                    viewModel.chooseUpdateMode(target)
-                    showUploadModeDialog = false
-                },
-                onClose = {
-                    showUploadModeDialog = false
-                    viewModel.closeUploadModeDialog()
-                },
-            )
-        }
     }
 }
 
@@ -342,26 +332,9 @@ private fun ModpackUploadInfoTab(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        RRow {
-            RadioButton(
-                selected = state.uploadMode == ModpackUploadMode.CREATE,
-                onClick = viewModel::chooseCreateMode,
-            )
-            Text("传新包")
-            RadioButton(
-                selected = state.uploadMode == ModpackUploadMode.UPDATE,
-                onClick = viewModel::requestUpdateModeSelection,
-            )
-            Text("更新已有包")
-            CircleIconButton(
-                "\uE8B8",
-                "选择整合包",
-                enabled = !state.loading &&
-                    !state.uploadedModpacksLoading &&
-                    state.uploadMode == ModpackUploadMode.UPDATE,
-                onClick = viewModel::requestUploadModeDialog,
-            )
-        }
+        state.selectedUpdateTarget?.let { target ->
+            Text("为已有整合包 上传新版本：${target.name}")
+        } ?: Text("准备创建全新整合包")
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedTextField(
                 value = state.draft.name,
@@ -423,63 +396,6 @@ private fun ModpackUploadInfoTab(
     }
 }
 
-@Composable
-private fun ModpackUploadModeDialog(
-    modpacks: List<Modpack.BriefVo>,
-    gridState: androidx.compose.foundation.lazy.grid.LazyGridState,
-    onSelect: (Modpack.BriefVo) -> Unit,
-    onClose: () -> Unit,
-) {
-    Box(
-        modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.35f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            modifier = Modifier.fillMaxWidth(2f / 3f).fillMaxHeight(2f / 3f),
-            shape = MaterialTheme.shapes.medium,
-            color = Color.White,
-            shadowElevation = 8.dp,
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text("选择整合包")
-                    TextButton(onClick = onClose) { Text("关闭") }
-                }
-                if (modpacks.isEmpty()) {
-                    Text("你还没有已上传整合包")
-                } else {
-                    Box(Modifier.fillMaxWidth().weight(1f)) {
-                        LazyVerticalGrid(
-                            state = gridState,
-                            columns = GridCells.Adaptive(280.dp),
-                            modifier = Modifier.fillMaxSize().padding(end = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            items(modpacks, key = { it.id.toHexString() }) { modpack ->
-                                modpack.ModpackCard(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    onClick = { onSelect(modpack) },
-                                )
-                            }
-                        }
-                        RVerticalScrollbar(
-                            gridState = gridState,
-                            modifier = Modifier.align(Alignment.CenterEnd),
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun TestConsolePane(

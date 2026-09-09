@@ -19,6 +19,9 @@ import calebxzau.rdi.client.ui.viewmodel.ModpackInfoViewModel
 import calebxzau.rdi.client.ui.viewmodel.SettingsModpackOptionRuntime
 import calebxzau.rdi.client.ui.viewmodel.ModpackVersionInfoViewModel
 import calebxzau.rdi.client.ui.viewmodel.RdiModpackInfoGateway
+import calebxzau.rdi.client.ui.viewmodel.ModpackUploaderManageGateway
+import calebxzau.rdi.client.ui.viewmodel.ModpackUploaderManageViewModel
+import calebxzau.rdi.client.ui.viewmodel.RdiModpackUploaderManageGateway
 import calebxzau.rdi.client.ui.viewmodel.RdiHostCreateGateway
 import calebxzau.rdi.client.ui.viewmodel.RdiHostGateway
 import calebxzau.rdi.client.ui.viewmodel.RdiSettingsGateway
@@ -52,6 +55,7 @@ fun appModule(
     single<HostListGateway> { RdiHostListGateway() }
     single<SettingsGateway> { RdiSettingsGateway() }
     single<ModpackInfoGateway> { RdiModpackInfoGateway() }
+    single<ModpackUploaderManageGateway> { RdiModpackUploaderManageGateway() }
     viewModel { parameters ->
         HostCreateViewModel(
             args = parameters.get(),
@@ -86,6 +90,12 @@ fun appModule(
         )
     }
     viewModel { parameters ->
+        ModpackUploaderManageViewModel(
+            modpackId = parameters.get(),
+            gateway = get(),
+        )
+    }
+    viewModel { parameters ->
         ModpackVersionInfoViewModel(
             modCatalog = get(),
             gateway = get(),
@@ -105,5 +115,10 @@ fun appModule(
             catalog = get(),
         )
     }
-    viewModel { ModpackUploadViewModel(get()) }
+    viewModel { parameters ->
+        ModpackUploadViewModel(
+            gateway = get(),
+            modpackId = parameters.getOrNull<String>(),
+        )
+    }
 }

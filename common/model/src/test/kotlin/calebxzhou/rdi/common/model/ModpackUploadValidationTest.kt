@@ -3,8 +3,44 @@ package calebxzhou.rdi.common.model
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import calebxzhou.rdi.common.serdesJson
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import org.bson.types.ObjectId
 
 class ModpackUploadValidationTest {
+    @Test
+    fun `allow uploader ids json supports omitted null and populated values`() {
+        val ownerId = ObjectId()
+        val listedId = ObjectId()
+        val pack = Modpack(
+            name = "Upload permissions",
+            authorId = ownerId,
+            mcVer = McVersion.V211,
+            modloader = ModLoader.neoforge,
+            allowUploaderIds = listOf(listedId),
+        )
+        val encoded = serdesJson.encodeToString(pack)
+        assertTrue(encoded.contains("allowUploaderIds"))
+        assertEquals(
+            listOf(listedId),
+            serdesJson.decodeFromString<Modpack>(encoded).allowUploaderIds,
+        )
+
+        val fieldsWithoutPermission = serdesJson.parseToJsonElement(encoded).jsonObject.toMutableMap()
+        fieldsWithoutPermission.remove("allowUploaderIds")
+        assertEquals(
+            null,
+            serdesJson.decodeFromString<Modpack>(JsonObject(fieldsWithoutPermission).toString()).allowUploaderIds,
+        )
+        val explicitNull = JsonObject(fieldsWithoutPermission + ("allowUploaderIds" to JsonNull))
+        assertEquals(
+            null,
+            serdesJson.decodeFromString<Modpack>(explicitNull.toString()).allowUploaderIds,
+        )
+    }
+
     @Test
     fun `required upload metadata accepts valid values`() {
         val result = validateRequiredModpackUploadMetadata(

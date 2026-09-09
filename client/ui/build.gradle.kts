@@ -160,6 +160,8 @@ dependencies {
     }
 
     testImplementation(kotlin("test"))
+    testImplementation(libs.ktor.client.mock)
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:${libs.versions.kotlinx.coroutines.get()}")
 }
 
 compose.desktop {
@@ -289,6 +291,48 @@ val runtimeArtifactNames = providers.provider<Map<File, String>> {
             }
         }
         .toMap()
+}
+
+val baseWorldTest by sourceSets.creating {
+    kotlin.srcDir("src/test/kotlin")
+    kotlin.include("calebxzau/rdi/client/**/BaseWorld*Test.kt")
+    kotlin.include("calebxzau/rdi/client/**/ChunkedUploaderTest.kt")
+    compileClasspath += sourceSets.main.get().output + configurations.testRuntimeClasspath.get()
+    runtimeClasspath += output + compileClasspath
+}
+
+configurations[baseWorldTest.implementationConfigurationName]
+    .extendsFrom(configurations.testImplementation.get())
+configurations[baseWorldTest.runtimeOnlyConfigurationName]
+    .extendsFrom(configurations.testRuntimeOnly.get())
+
+tasks.register<Test>("baseWorldTest") {
+    testClassesDirs = baseWorldTest.output.classesDirs
+    classpath = baseWorldTest.runtimeClasspath
+    useJUnitPlatform()
+}
+
+val modpackUploadTest by sourceSets.creating {
+    kotlin.srcDir("src/test/kotlin")
+    kotlin.include("calebxzau/rdi/client/service/ModpackChunkedUploaderTest.kt")
+    kotlin.include("calebxzau/rdi/client/service/ModpackUploadApiTest.kt")
+    kotlin.include("calebxzau/rdi/client/ui/viewmodel/ModpackUploadViewModelTest.kt")
+    compileClasspath += sourceSets.main.get().output + configurations.testRuntimeClasspath.get()
+    runtimeClasspath += output + compileClasspath
+}
+
+kotlin.target.compilations.getByName("modpackUploadTest")
+    .associateWith(kotlin.target.compilations.getByName("main"))
+
+configurations[modpackUploadTest.implementationConfigurationName]
+    .extendsFrom(configurations.testImplementation.get())
+configurations[modpackUploadTest.runtimeOnlyConfigurationName]
+    .extendsFrom(configurations.testRuntimeOnly.get())
+
+tasks.register<Test>("modpackUploadTest") {
+    testClassesDirs = modpackUploadTest.output.classesDirs
+    classpath = modpackUploadTest.runtimeClasspath
+    useJUnitPlatform()
 }
 
 tasks.register<Sync>("desktopInstallLibs") {

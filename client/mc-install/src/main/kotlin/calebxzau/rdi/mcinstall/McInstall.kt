@@ -26,7 +26,6 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import java.util.*
 import java.util.zip.ZipFile
 
@@ -919,8 +918,7 @@ class McInstall(
         return length() == expected.size.toLong() && sha1 == expected.sha1Hex()
     }
 
-    private fun ByteArray.sha1Hex(): String =
-        HexFormat.of().formatHex(MessageDigest.getInstance("SHA-1").digest(this))
+    private fun ByteArray.sha1Hex(): String = sha1
 
     private data class NumberedAsset(
         val path: String,

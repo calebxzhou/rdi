@@ -14,14 +14,20 @@ import calebxzhou.rdi.common.net.LocalArtifactReuse
 import calebxzhou.rdi.common.net.downloadFileFrom
 import kotlinx.serialization.decodeFromString
 import net.peanuuutz.tomlkt.Toml
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.nio.file.Files
+import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.nio.file.StandardCopyOption
 import java.nio.file.StandardOpenOption
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.Locale
 import java.util.jar.JarFile
 import java.util.jar.JarInputStream
@@ -523,8 +529,29 @@ object ModService {
                 }
                 targetPath
             } finally {
-                Files.deleteIfExists(stagingDir.resolve(mod.fileName))
-                Files.deleteIfExists(stagingDir)
+                runCatching {
+                    withContext(NonCancellable + Dispatchers.IO) {
+                        val stagingAttributes = Files.readAttributes(
+                            stagingDir,
+                            BasicFileAttributes::class.java,
+                            LinkOption.NOFOLLOW_LINKS,
+                        )
+                        if (!stagingAttributes.isDirectory || stagingAttributes.isSymbolicLink || stagingAttributes.isOther) {
+                            throw IOException("Refusing to clean non-directory mod staging root: $stagingDir")
+                        }
+                        Files.newDirectoryStream(stagingDir).use { children ->
+                            children.forEach { child ->
+                                if (!Files.isRegularFile(child, LinkOption.NOFOLLOW_LINKS)) {
+                                    throw IOException("Refusing to delete non-file mod staging entry: $child")
+                                }
+                                Files.deleteIfExists(child)
+                            }
+                        }
+                        Files.deleteIfExists(stagingDir)
+                    }
+                }.onFailure { error ->
+                    lgr.error(error) { "Failed to clean mod staging directory: $stagingDir" }
+                }
             }
         }.onFailure { error ->
             if (error is kotlinx.coroutines.CancellationException) throw error

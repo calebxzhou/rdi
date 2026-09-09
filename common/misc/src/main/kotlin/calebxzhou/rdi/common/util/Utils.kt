@@ -323,6 +323,13 @@ fun Path.digest(algo: String): String {
     return digest.digest().joinToString("") { "%02x".format(it) }
 }
 
+fun sha1dig(): MessageDigest = MessageDigest.getInstance("SHA-1")
+
+fun MessageDigest.digestHex(): String = HexFormat.of().formatHex(digest())
+
+val ByteArray.sha1: String
+    get() = sha1dig().apply { update(this@sha1) }.digestHex()
+
 val File.sha1: String
     get() = digest("SHA-1")
 

@@ -13,7 +13,6 @@ object ModpackModProcessor {
         "skybox-loader-forge",
         "customskinloader",
         "chunky",
-        "euphoria-patches"
     )
 
     private val clientSideSlugs = setOf(

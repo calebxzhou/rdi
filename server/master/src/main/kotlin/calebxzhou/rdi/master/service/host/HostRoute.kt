@@ -50,6 +50,7 @@ import calebxzhou.rdi.master.service.host.HostQueryService.listAllHosts
 import calebxzhou.rdi.master.service.host.HostQueryService.getBriefHost
 import calebxzhou.rdi.master.service.host.HostQueryService.toDetailVo
 import calebxzhou.rdi.master.service.player
+import calebxzau.rdi.server.service.baseworld.BaseWorldService
 import calebxzhou.rdi.model.Role
 import com.github.dockerjava.api.exception.NotFoundException
 import io.ktor.server.request.receive
@@ -67,6 +68,7 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
+import org.koin.ktor.ext.getKoin
 import org.bson.types.ObjectId
 
 /**
@@ -80,7 +82,9 @@ fun Route.hostRoutes() = route("/host") {
     }
     route("") {
         post("/v2") {
-            call.player().createHost(call.receive())
+            val dto = call.receive<Host.CreateDto>()
+            val baseWorldService = dto.baseWorldId?.let { call.application.getKoin().get<BaseWorldService>() }
+            call.player().createHost(dto, baseWorldService)
             ok()
         }
         get("/my/{page?}") {

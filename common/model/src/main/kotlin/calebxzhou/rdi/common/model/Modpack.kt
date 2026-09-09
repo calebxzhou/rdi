@@ -19,6 +19,8 @@ class Modpack(
     val playCount: Int = 0,
     val categories: List<Category> = emptyList(),
     val versions: MutableList<Version> = arrayListOf(),
+    // null allows every player to upload; empty allows only the author.
+    val allowUploaderIds: List<@Contextual ObjectId>? = null,
 ) {
     companion object {
         const val MAX_CATEGORY_COUNT = 4
@@ -68,6 +70,7 @@ class Modpack(
         val mods: MutableList<Mod> = arrayListOf(),
         @Contextual
         val uploaderId: ObjectId? =null,
+
     ) {
     }
 
@@ -135,6 +138,7 @@ class Modpack(
         val mcVer: McVersion,
         val categories: List<Category> = emptyList(),
         val versions: List<Version> = arrayListOf(),
+        val canUploadVersion: Boolean = false,
     )
 
     @Serializable
@@ -161,6 +165,22 @@ class Modpack(
         val info: String? = null,
         val sourceUrl: String? = null,
         val categories: List<Category>? = null
+    )
+
+    @Serializable
+    data class UploaderPolicyVo(
+        val allowUploaderIds: List<@Contextual ObjectId>?,
+        val uploaders: List<RAccount.Dto>,
+    )
+
+    @Serializable
+    data class UploaderPolicyUpdateDto(
+        val allowUploaderIds: List<@Contextual ObjectId>?,
+    )
+
+    @Serializable
+    data class UploaderResolveDto(
+        val playerNameOrQq: String,
     )
 
     enum class Status {

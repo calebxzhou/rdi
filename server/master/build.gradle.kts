@@ -133,6 +133,18 @@ tasks.register<Test>("modpackServiceTest") {
     systemProperty("net.bytebuddy.experimental", "true")
     useJUnitPlatform()
 }
+
+tasks.register<Test>("baseWorldTest") {
+    group = "verification"
+    description = "Runs focused BaseWorld persistence and route tests."
+    dependsOn(tasks.named("testClasses"))
+    testClassesDirs = sourceSets["test"].output.classesDirs
+    classpath = sourceSets["test"].runtimeClasspath
+    include("**/calebxzau/rdi/server/service/baseworld/*Test.class")
+    include("**/calebxzhou/rdi/master/service/host/HostInstallServiceTest.class")
+    systemProperty("net.bytebuddy.experimental", "true")
+    useJUnitPlatform()
+}
 //
 //tasks.register<Test>("accountMirrorTest") {
 //    group = "verification"

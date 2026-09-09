@@ -120,6 +120,29 @@ class ModpackServiceVersionMutationTest {
     }
 
     @Test
+    fun `exact version uploader can mutate while another allow-listed player cannot`() = runTest {
+        val author = ModpackServiceTestFixtures.account("author")
+        val uploader = ModpackServiceTestFixtures.account("uploader")
+        val other = ModpackServiceTestFixtures.account("other")
+        val pack = ModpackServiceTestFixtures.modpack(
+            author._id,
+            allowUploaderIds = listOf(other._id),
+        )
+        val version = ModpackServiceTestFixtures.version(pack, uploaderId = uploader._id)
+        pack.versions += version
+        useFreshPack(pack)
+
+        ModpackContext(uploader, pack, version).addVersionMod(ModpackServiceTestFixtures.mod("uploader-mod"))
+        assertEquals(1, updates.size)
+
+        useFreshPack(pack)
+        assertFailsWith<RequestError> {
+            ModpackContext(other, pack, version).addVersionMod(ModpackServiceTestFixtures.mod("other-mod"))
+        }
+        assertEquals(1, updates.size)
+    }
+
+    @Test
     fun `mutation rejects empty duplicate blank and missing targets without persistence`() = runTest {
         val player = ModpackServiceTestFixtures.account()
         val pack = ModpackServiceTestFixtures.modpack(player._id)
@@ -325,6 +348,26 @@ class ModpackServiceVersionMutationTest {
         } finally {
             ServerTaskManager.remove(matchingRunId)
         }
+    }
+
+    @Test
+    fun `exact version uploader can delete while unrelated player is rejected`() = runTest {
+        val author = ModpackServiceTestFixtures.account("author")
+        val uploader = ModpackServiceTestFixtures.account("uploader")
+        val other = ModpackServiceTestFixtures.account("other")
+        val pack = ModpackServiceTestFixtures.modpack(author._id)
+        val version = ModpackServiceTestFixtures.version(pack, name = "uploader-delete", uploaderId = uploader._id)
+        pack.versions += version
+        useFreshPack(pack)
+
+        assertFailsWith<RequestError> {
+            ModpackContext(other, pack, version).deleteVersion()
+        }
+        coVerify(exactly = 0) { collection.updateOne(any<Bson>(), any<Bson>(), any<UpdateOptions>()) }
+
+        useFreshPack(pack)
+        ModpackContext(uploader, pack, version).deleteVersion()
+        coVerify(exactly = 1) { collection.updateOne(any<Bson>(), any<Bson>(), any<UpdateOptions>()) }
     }
 
     @Test

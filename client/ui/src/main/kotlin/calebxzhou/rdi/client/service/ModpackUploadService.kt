@@ -3,7 +3,9 @@ package calebxzhou.rdi.client.service
 import calebxzau.rdi.common.logging.Loggers
 import calebxzhou.rdi.common.util.*
 import calebxzau.rdi.client.packproc.*
-import calebxzhou.rdi.client.net.server
+import calebxzau.rdi.client.service.ModpackChunkedUploader
+import calebxzau.rdi.client.service.ModpackUploadApi
+import calebxzau.rdi.client.service.currentModpackUploadApi
 import calebxzhou.rdi.client.service.content.ClientContentStore
 import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.client.service.content.toClientContentRequests
@@ -11,13 +13,7 @@ import calebxzhou.rdi.common.exception.ModpackError
 import calebxzhou.rdi.common.model.*
 import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.common.service.runInline
-import io.ktor.client.plugins.*
-import io.ktor.client.request.*
-import io.ktor.client.request.forms.*
-import io.ktor.http.*
-import io.ktor.utils.io.streams.*
 import kotlinx.coroutines.*
-import kotlinx.io.buffered
 import org.bson.types.ObjectId
 import java.io.File
 
@@ -39,6 +35,7 @@ suspend fun uploadModpack(
     onError: (String) -> Unit,
     onDone: (String) -> Unit
 ) {
+    val uploadApi = currentModpackUploadApi()
     requireModpackUploadVersion(payload.mcVersion)
     onProgress("正在打包整合包...请等一两分钟")
     val uploadZip = try {
@@ -46,6 +43,10 @@ suspend fun uploadModpack(
             payload = payload,
             onProgress = onPackProcessProgress
         )
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Task2CancelledException) {
+        throw e
     } catch (e: Exception) {
         lgr.warn { "打包整合包失败: ${payload.sourceDir.absolutePath + "\n" + e}" }
         payload.sourceDir.deleteRecursivelyNoSymlink()
@@ -54,8 +55,6 @@ suspend fun uploadModpack(
     }
 
     val totalBytes = uploadZip.length()
-    val startTime = System.nanoTime()
-    var lastProgressUpdate = 0L
     try {
         if (updateModpackId != null) {
             uploadNewVersion(
@@ -64,11 +63,10 @@ suspend fun uploadModpack(
                 mods = mods,
                 uploadZip = uploadZip,
                 totalBytes = totalBytes,
-                startTime = startTime,
-                lastProgressUpdate = lastProgressUpdate,
-                onProgress = onProgress,
-                onError = onError,
-                onDone = onDone
+                onProgress = { progress -> onProgress(progress.message) },
+                onDone = onDone,
+                api = uploadApi,
+                onPublicationUncertain = { message -> onProgress(message) },
             )
         } else {
             uploadNewModpack(
@@ -83,13 +81,16 @@ suspend fun uploadModpack(
                 info = info,
                 uploadZip = uploadZip,
                 totalBytes = totalBytes,
-                startTime = startTime,
-                lastProgressUpdate = lastProgressUpdate,
-                onProgress = onProgress,
-                onError = onError,
-                onDone = onDone
+                onProgress = { progress -> onProgress(progress.message) },
+                onDone = onDone,
+                api = uploadApi,
+                onPublicationUncertain = { message -> onProgress(message) },
             )
         }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Task2CancelledException) {
+        throw e
     } catch (e: Exception) {
         lgr.warn { "上传整合包失败: ${payload.sourceName + "\n" + e} $versionName" }
         onError("上传失败: ${e.message ?: "未知错误"}")
@@ -109,14 +110,14 @@ fun createUploadModpackTask2(
     iconUrl: String?,
     sourceUrl: String?,
     info: String?,
-    updateModpackId: ObjectId?
+    updateModpackId: ObjectId?,
+    api: ModpackUploadApi = currentModpackUploadApi(),
 ): Task2 {
     requireModpackUploadVersion(payload.mcVersion)
     var uploadedModpackId: ObjectId? = updateModpackId
     var builtClientZip: File? = null
     val processedMods = processor.processUploadMods(mods)
     val uploadTask = Task2.Leaf("上传整合包") { ctx ->
-        var errorMessage: String? = null
         var doneSummary: String? = null
         ctx.emit(Task2Progress("开始上传整合包", 0f))
         try {
@@ -126,8 +127,6 @@ fun createUploadModpackTask2(
             )
             val uploadZip = builtClientZip ?: throw ModpackError("整合包打包失败")
             val totalBytes = uploadZip.length()
-            val startTime = System.nanoTime()
-            val lastProgressUpdate = 0L
             if (updateModpackId != null) {
                 uploadNewVersion(
                     modpackId = updateModpackId,
@@ -135,14 +134,14 @@ fun createUploadModpackTask2(
                     mods = processedMods,
                     uploadZip = uploadZip,
                     totalBytes = totalBytes,
-                    startTime = startTime,
-                    lastProgressUpdate = lastProgressUpdate,
-                    onProgress = { text -> ctx.emit(Task2Progress(text)) },
-                    onError = { msg -> errorMessage = msg },
+                    onProgress = ctx::emit,
                     onDone = { summary ->
                         doneSummary = summary
                         ctx.emit(Task2Progress(summary, 1f))
-                    }
+                    },
+                    api = api,
+                    ensureActive = ctx::ensureActive,
+                    onPublicationUncertain = { message -> ctx.emit(Task2Progress(message)) },
                 )
             } else {
                 uploadNewModpack(
@@ -157,18 +156,18 @@ fun createUploadModpackTask2(
                     info = info,
                     uploadZip = uploadZip,
                     totalBytes = totalBytes,
-                    startTime = startTime,
-                    lastProgressUpdate = lastProgressUpdate,
-                    onProgress = { text -> ctx.emit(Task2Progress(text)) },
-                    onError = { msg -> errorMessage = msg },
+                    onProgress = ctx::emit,
                     onDone = { summary ->
                         doneSummary = summary
                         ctx.emit(Task2Progress(summary, 1f))
-                    }
+                    },
+                    api = api,
+                    ensureActive = ctx::ensureActive,
+                    onPublicationUncertain = { message -> ctx.emit(Task2Progress(message)) },
                 )
             }
-            errorMessage?.let { throw ModpackError(it) }
             uploadedModpackId = resolveUploadedModpackId(
+                api = api,
                 updateModpackId = updateModpackId,
                 modpackName = modpackName,
                 versionName = versionName
@@ -176,6 +175,14 @@ fun createUploadModpackTask2(
             if (doneSummary == null) {
                 throw ModpackError("上传任务未返回结果")
             }
+        } catch (e: CancellationException) {
+            builtClientZip?.let { runCatching { it.delete() } }
+            runCatching { payload.sourceDir.deleteRecursivelyNoSymlink() }
+            throw e
+        } catch (e: Task2CancelledException) {
+            builtClientZip?.let { runCatching { it.delete() } }
+            runCatching { payload.sourceDir.deleteRecursivelyNoSymlink() }
+            throw e
         } catch (e: Throwable) {
             builtClientZip?.let { runCatching { it.delete() } }
             runCatching { payload.sourceDir.deleteRecursivelyNoSymlink() }
@@ -259,12 +266,21 @@ fun modpackUploadTaskKey(
 }
 
 private suspend fun resolveUploadedModpackId(
+    api: ModpackUploadApi,
     updateModpackId: ObjectId?,
     modpackName: String,
     versionName: String
 ): ObjectId {
     if (updateModpackId != null) return updateModpackId
-    val myModpacks = server.makeRequest<List<Modpack>>("modpack/my").data.orEmpty()
+    val myModpacks = try {
+        api.listMy()
+    } catch (cause: CancellationException) {
+        throw cause
+    } catch (cause: Task2CancelledException) {
+        throw cause
+    } catch (cause: Throwable) {
+        throw ModpackError("上传成功，但未能定位到刚创建的整合包，请刷新列表查看", cause)
+    }
     return myModpacks
         .filter { it.name == modpackName && it.versions.any { version -> version.name == versionName } }
         .maxByOrNull { pack -> pack.versions.maxOfOrNull { it.time } ?: 0L }
@@ -284,14 +300,13 @@ private suspend fun uploadNewModpack(
     info: String?,
     uploadZip: File,
     totalBytes: Long,
-    startTime: Long,
-    lastProgressUpdate: Long,
-    onProgress: (String) -> Unit,
-    onError: (String) -> Unit,
-    onDone: (String) -> Unit
+    onProgress: (Task2Progress) -> Unit,
+    onDone: (String) -> Unit,
+    api: ModpackUploadApi,
+    ensureActive: () -> Unit = {},
+    onPublicationUncertain: (String) -> Unit = {},
 ) {
-    onProgress("创建新整合包 $modpackName...")
-
+    onProgress(Task2Progress("创建新整合包 $modpackName..."))
     val dto = Modpack.CreateWithVersionDto(
         name = modpackName,
         verName = versionName,
@@ -301,78 +316,17 @@ private suspend fun uploadNewModpack(
         sourceUrl = sourceUrl?.trim()?.ifBlank { null },
         info = info?.trim()?.ifBlank { null },
         categories = Modpack.normalizeCategories(categories),
-        mods = mods.toMutableList()
+        mods = mods.toMutableList(),
     )
-    var lastUpdate = lastProgressUpdate
-    val multipartContent = MultiPartFormDataContent(
-        formData {
-            append(
-                key = "dto",
-                value = serdesJson.encodeToString(dto),
-                headers = io.ktor.http.Headers.build {
-                    append(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                }
-            )
-            append(
-                key = "file",
-                value = InputProvider { uploadZip.inputStream().asInput().buffered() },
-                headers = io.ktor.http.Headers.build {
-                    append(HttpHeaders.ContentType, ContentType.Application.Zip.toString())
-                    append(HttpHeaders.ContentDisposition, "filename=\"${uploadZip.name}\"")
-                }
-            )
-        }
+    val startTime = System.nanoTime()
+    ModpackChunkedUploader(api).upload(
+        file = uploadZip,
+        publish = { uploadId -> api.publishNew(ModpackCreateFromUploadDto(uploadId, dto)) },
+        ensureActive = ensureActive,
+        onProgress = { progress -> onProgress(ModpackChunkedUploader.toTask2Progress(modpackName, progress)) },
+        onPublicationUncertain = onPublicationUncertain,
     )
-
-    val createResp = server.makeRequest<Unit>(
-        path = "modpack",
-        method = HttpMethod.Post,
-    ) {
-        timeout {
-            requestTimeoutMillis = 60 * 60 * 1000L
-            socketTimeoutMillis = 60 * 60 * 1000L
-        }
-        setBody(multipartContent)
-        onUpload { bytesSentTotal, contentLength ->
-            val now = System.nanoTime()
-            val shouldUpdate = contentLength != null && bytesSentTotal == contentLength ||
-                    now - lastUpdate > 75_000_000L
-            if (shouldUpdate) {
-                lastUpdate = now
-                val elapsedSeconds = (now - startTime) / 1_000_000_000.0
-                val total = contentLength?.takeIf { it > 0 } ?: totalBytes
-                val percent = if (total <= 0) 100 else ((bytesSentTotal * 100) / total).toInt()
-                val speed = if (elapsedSeconds <= 0) 0.0 else bytesSentTotal / elapsedSeconds
-                onProgress(
-                    buildString {
-                        appendLine("正在上传整合包 $modpackName...")
-                        appendLine(
-                            "进度：${
-                                percent.coerceIn(0, 100)
-                            }% (${bytesSentTotal.humanFileSize}/${total.humanFileSize})"
-                        )
-                        appendLine("速度：${speed.humanSpeed}")
-                    }
-                )
-            }
-        }
-    }
-
-    if (!createResp.ok) {
-        onError(createResp.msg)
-        return
-    }
-
-    val elapsedSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0
-    val speed = if (elapsedSeconds <= 0) 0.0 else totalBytes / elapsedSeconds
-    onDone(
-        buildString {
-            appendLine("文件大小: ${totalBytes.humanFileSize}")
-            appendLine("平均速度: ${speed.humanSpeed}")
-            appendLine("耗时: ${"%.1f".format(elapsedSeconds)}秒")
-            appendLine("上传完成，正在继续本地安装")
-        }
-    )
+    onDone(uploadSummary(totalBytes, startTime))
 }
 
 private suspend fun uploadNewVersion(
@@ -381,84 +335,37 @@ private suspend fun uploadNewVersion(
     mods: List<Mod>,
     uploadZip: File,
     totalBytes: Long,
-    startTime: Long,
-    lastProgressUpdate: Long,
-    onProgress: (String) -> Unit,
-    onError: (String) -> Unit,
-    onDone: (String) -> Unit
+    onProgress: (Task2Progress) -> Unit,
+    onDone: (String) -> Unit,
+    api: ModpackUploadApi,
+    ensureActive: () -> Unit = {},
+    onPublicationUncertain: (String) -> Unit = {},
 ) {
-    onProgress("上传新版本 $versionName...")
-
-    val modpackIdStr = modpackId.toHexString()
-    val versionEncoded = versionName.urlEncoded
-    var lastUpdate = lastProgressUpdate
-    val multipartContent = MultiPartFormDataContent(
-        formData {
-            append(
-                key = "mods",
-                value = serdesJson.encodeToString(mods.toMutableList()),
-                headers = io.ktor.http.Headers.build {
-                    append(HttpHeaders.ContentType, ContentType.Application.Json.toString())
-                }
+    onProgress(Task2Progress("上传新版本 $versionName..."))
+    val startTime = System.nanoTime()
+    ModpackChunkedUploader(api).upload(
+        file = uploadZip,
+        publish = { uploadId ->
+            api.publishVersion(
+                modpackId = modpackId,
+                versionName = versionName,
+                request = ModpackVersionCreateFromUploadDto(uploadId, mods.toMutableList()),
             )
-            append(
-                key = "file",
-                value = InputProvider { uploadZip.inputStream().asInput().buffered() },
-                headers = io.ktor.http.Headers.build {
-                    append(HttpHeaders.ContentType, ContentType.Application.Zip.toString())
-                    append(HttpHeaders.ContentDisposition, "filename=\"${uploadZip.name}\"")
-                }
-            )
-        }
+        },
+        ensureActive = ensureActive,
+        onProgress = { progress -> onProgress(ModpackChunkedUploader.toTask2Progress("版本 $versionName", progress)) },
+        onPublicationUncertain = onPublicationUncertain,
     )
+    onDone(uploadSummary(totalBytes, startTime))
+}
 
-    val createVersionResp = server.makeRequest<Unit>(
-        path = "modpack/$modpackIdStr/version/$versionEncoded",
-        method = HttpMethod.Post,
-    ) {
-        timeout {
-            requestTimeoutMillis = 60 * 60 * 1000L
-            socketTimeoutMillis = 60 * 60 * 1000L
-        }
-        setBody(multipartContent)
-        onUpload { bytesSentTotal, contentLength ->
-            val now = System.nanoTime()
-            val shouldUpdate = contentLength != null && bytesSentTotal == contentLength ||
-                    now - lastUpdate > 75_000_000L
-            if (shouldUpdate) {
-                lastUpdate = now
-                val elapsedSeconds = (now - startTime) / 1_000_000_000.0
-                val total = contentLength?.takeIf { it > 0 } ?: totalBytes
-                val percent = if (total <= 0) 100 else ((bytesSentTotal * 100) / total).toInt()
-                val speed = if (elapsedSeconds <= 0) 0.0 else bytesSentTotal / elapsedSeconds
-                onProgress(
-                    buildString {
-                        appendLine("正在上传版本 ${versionName}...")
-                        appendLine(
-                            "进度：${
-                                percent.coerceIn(0, 100)
-                            }% (${bytesSentTotal.humanFileSize}/${total.humanFileSize})"
-                        )
-                        appendLine("速度：${speed.humanSpeed}")
-                    }
-                )
-            }
-        }
-    }
-
-    if (!createVersionResp.ok) {
-        onError(createVersionResp.msg)
-        return
-    }
-
-    val elapsedSeconds = (System.nanoTime() - startTime) / 1_000_000_000.0
+private fun uploadSummary(totalBytes: Long, startedAt: Long): String {
+    val elapsedSeconds = (System.nanoTime() - startedAt) / 1_000_000_000.0
     val speed = if (elapsedSeconds <= 0) 0.0 else totalBytes / elapsedSeconds
-    onDone(
-        buildString {
-            appendLine("文件大小: ${totalBytes.humanFileSize}")
-            appendLine("平均速度: ${speed.humanSpeed}")
-            appendLine("耗时: ${"%.1f".format(elapsedSeconds)}秒")
-            appendLine("上传完成，正在继续本地安装")
-        }
-    )
+    return buildString {
+        appendLine("文件大小: ${totalBytes.humanFileSize}")
+        appendLine("平均速度: ${speed.humanSpeed}")
+        appendLine("耗时: ${"%.1f".format(elapsedSeconds)}秒")
+        appendLine("上传完成，正在继续本地安装")
+    }
 }

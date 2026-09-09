@@ -3,6 +3,8 @@ package calebxzhou.rdi.client.service
 import calebxzau.rdi.common.model.ContentSide
 import calebxzau.rdi.common.model.ContentType
 import calebxzhou.rdi.common.service.ModService
+import calebxzhou.rdi.common.util.digestHex
+import calebxzhou.rdi.common.util.sha1dig
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -15,7 +17,6 @@ import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.SimpleFileVisitor
 import java.nio.file.attribute.BasicFileAttributes
-import java.security.MessageDigest
 import java.util.Locale
 import java.util.jar.JarFile
 import kotlin.io.path.name
@@ -234,7 +235,7 @@ class Modpack2DiskScanner(
         if (before.isSymbolicLink || !before.isRegularFile) {
             throw scanFailure(Modpack2ScanErrorKind.UnsafePath, path, "内容必须是普通文件")
         }
-        val digest = MessageDigest.getInstance("SHA-1")
+        val digest = sha1dig()
         try {
             Files.newInputStream(path).buffered().use { input ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
@@ -255,7 +256,7 @@ class Modpack2DiskScanner(
         ) {
             throw scanFailure(Modpack2ScanErrorKind.ChangedDuringHash, path, "内容在校验期间发生变化")
         }
-        return digest.digest().toHex() to after.size()
+        return digest.digestHex() to after.size()
     }
 
     private fun hashDirectory(directory: Path): Pair<String, Long> {
@@ -289,7 +290,7 @@ class Modpack2DiskScanner(
         } catch (cause: IOException) {
             throw scanFailure(Modpack2ScanErrorKind.Unreadable, directory, "无法读取目录", cause)
         }
-        val digest = MessageDigest.getInstance("SHA-1")
+        val digest = sha1dig()
         entries.sortedBy { it.path }.forEach { entry ->
             digest.update(if (entry.directory) 'D'.code.toByte() else 'F'.code.toByte())
             digest.update(0.toByte())
@@ -298,7 +299,7 @@ class Modpack2DiskScanner(
             digest.update(entry.hash.toByteArray(StandardCharsets.UTF_8))
             digest.update('\n'.code.toByte())
         }
-        return digest.digest().toHex() to totalSize
+        return digest.digestHex() to totalSize
     }
 
     private fun verifyUnchanged(path: Path, directory: Boolean, size: Long, hash: String) {
@@ -362,7 +363,7 @@ class Modpack2DiskScanner(
     }
 
     private fun snapshot(items: List<Modpack2DiskContentUnit>, errors: List<Modpack2ScanError>): Modpack2DiskSnapshot {
-        val digest = MessageDigest.getInstance("SHA-1")
+        val digest = sha1dig()
         items.sortedWith(compareBy({ it.physicalRelativePath }, { it.type.name })).forEach { item ->
             listOf(item.type.name, item.physicalRelativePath, item.targetPath, item.enabled.toString(), item.fileSize.toString(), item.hash)
                 .forEach { field -> digest.update(field.toByteArray(StandardCharsets.UTF_8)); digest.update(0.toByte()) }
@@ -375,7 +376,7 @@ class Modpack2DiskScanner(
             versionDirectory,
             items.sortedBy { it.physicalRelativePath },
             errors.toList(),
-            digest.digest().toHex(),
+            digest.digestHex(),
             versionId,
         )
     }

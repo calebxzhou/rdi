@@ -11,6 +11,7 @@ import calebxzau.rdi.common.model.Modpack2ServerMode
 import calebxzhou.rdi.common.archive.listArchiveEntries
 import calebxzhou.rdi.common.archive.forEachArchiveEntry
 import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.sha1
 import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.nio.file.Files
@@ -417,9 +418,7 @@ class Modpack2ProcessorTest {
                     }
                     val written = entry.single().bytes ?: error("archive entry has no bytes")
                     val raw = archive.rawFiles.single { it.path == "assets/example.zip" }
-                    val digest = java.security.MessageDigest.getInstance("SHA-1")
-                        .digest(written)
-                        .joinToString("") { "%02x".format(it) }
+                    val digest = written.sha1
                     assertEquals(written.size.toLong(), raw.size)
                     assertEquals(digest, raw.sha1)
                 } finally {

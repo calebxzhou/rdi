@@ -3,10 +3,12 @@ package calebxzau.rdi.client.ui.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import calebxzau.rdi.common.logging.Loggers
+import calebxzau.rdi.client.service.currentBaseWorldApi
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
+import calebxzau.rdi.common.model.BaseWorld
 import calebxzhou.rdi.client.ui.screen.HostKind
 import calebxzhou.rdi.common.net.json
 import io.ktor.client.request.setBody
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
+import java.util.UUID
 
 private val lgr by Loggers
 
@@ -38,6 +41,11 @@ data class HostCreateViewModelArgs(
 
 enum class HostCreateLoadTarget {
     HOST,
+}
+
+enum class HostCreateWorldSource {
+    Generate,
+    Template,
 }
 
 data class HostCreateLoadIssue(
@@ -88,6 +96,13 @@ data class HostCreateUiState(
     val levelChoice: Int = 0,
     val customLevelTypeText: String = "",
     val customLevelTypeError: String? = null,
+    val levelTypeDirty: Boolean = false,
+    val worldSource: HostCreateWorldSource = HostCreateWorldSource.Generate,
+    val selectedBaseWorldId: UUID? = null,
+    val baseWorlds: List<BaseWorld> = emptyList(),
+    val baseWorldsLoading: Boolean = false,
+    val baseWorldsErrorMessage: String? = null,
+    val baseWorldSelectionOpen: Boolean = false,
     val whitelist: Boolean = true,
     val allowCheats: Boolean = false,
     val gameRules: Map<String, String> = emptyMap(),
@@ -104,6 +119,9 @@ data class HostCreateUiState(
 
 interface HostCreateGateway {
     suspend fun loadInitial(hostId: ObjectId?): Result<HostCreateInitialData>
+
+    suspend fun loadBaseWorlds(): Result<List<BaseWorld>> =
+        Result.failure(UnsupportedOperationException("地图模板加载暂不可用"))
 
     suspend fun createOrUpdate(submission: HostCreateSubmission): Result<Unit>
 
@@ -128,6 +146,10 @@ class RdiHostCreateGateway : HostCreateGateway {
             host = loadedHost,
             issues = issues,
         )
+    }
+
+    override suspend fun loadBaseWorlds(): Result<List<BaseWorld>> = resultOf {
+        currentBaseWorldApi().listReady()
     }
 
     override suspend fun resetWorld(hostId: ObjectId): Result<Unit> = resultOf {
@@ -207,12 +229,20 @@ class HostCreateViewModel(
     private val eventChannel = Channel<HostCreateEvent>(Channel.BUFFERED)
     val events: Flow<HostCreateEvent> = eventChannel.receiveAsFlow()
 
+    private var baseWorldGeneration = 0L
+    private var baseWorldLoadJob: kotlinx.coroutines.Job? = null
+    private var sessionIdentity: String? = null
+
     fun clearStatusMessage() {
         _uiState.update { it.copy(statusMessage = null) }
     }
 
     fun clearErrorMessage() {
         _uiState.update { it.copy(errorMessage = null) }
+    }
+
+    fun clearBaseWorldsError() {
+        _uiState.update { it.copy(baseWorldsErrorMessage = null) }
     }
 
     init {
@@ -238,12 +268,16 @@ class HostCreateViewModel(
     fun selectLevelChoice(choice: Int) {
         _uiState.update {
             when (choice) {
-                0 -> it.copy(levelChoice = 0, levelType = "minecraft:normal")
-                1 -> it.copy(levelChoice = 1, levelType = "minecraft:flat")
+                0 -> it.copy(levelChoice = 0, levelType = "minecraft:normal", levelTypeDirty = true, worldSource = HostCreateWorldSource.Generate, selectedBaseWorldId = null)
+                1 -> it.copy(levelChoice = 1, levelType = "minecraft:flat", levelTypeDirty = true, worldSource = HostCreateWorldSource.Generate, selectedBaseWorldId = null)
                 2 -> it.copy(
                     levelChoice = 2,
                     levelType = skyblockLevelType(it.currentMcVersion),
+                    levelTypeDirty = true,
+                    worldSource = HostCreateWorldSource.Generate,
+                    selectedBaseWorldId = null,
                 )
+                3 -> it.copy(levelChoice = 3, worldSource = HostCreateWorldSource.Generate, selectedBaseWorldId = null)
                 else -> it
             }
         }
@@ -274,6 +308,9 @@ class HostCreateViewModel(
                 levelType = trimmed,
                 customLevelTypeText = trimmed,
                 customLevelTypeError = null,
+                levelTypeDirty = true,
+                worldSource = HostCreateWorldSource.Generate,
+                selectedBaseWorldId = null,
             )
         }
         return true
@@ -295,6 +332,116 @@ class HostCreateViewModel(
         _uiState.update { it.copy(gameRules = gameRules.toMap()) }
     }
 
+    fun openBaseWorldSelection() {
+        if (!_uiState.value.isLegacyCreate) return
+        _uiState.update { it.copy(baseWorldSelectionOpen = true, baseWorldsErrorMessage = null) }
+        loadBaseWorldChoices()
+    }
+
+    fun cancelBaseWorldSelection() {
+        val cancelLoad = _uiState.value.worldSource == HostCreateWorldSource.Generate
+        if (cancelLoad) {
+            baseWorldGeneration++
+            baseWorldLoadJob?.cancel()
+        }
+        _uiState.update {
+            it.copy(
+                baseWorldSelectionOpen = false,
+                baseWorldsLoading = if (cancelLoad) false else it.baseWorldsLoading,
+                baseWorldsErrorMessage = null,
+            )
+        }
+    }
+
+    fun commitBaseWorldSelection(worldId: UUID) {
+        val state = _uiState.value
+        if (!state.isBaseWorldSelectionAllowed() || state.submitting) return
+        if (state.baseWorlds.none { it.id == worldId }) return
+        _uiState.update {
+            it.copy(
+                worldSource = HostCreateWorldSource.Template,
+                selectedBaseWorldId = worldId,
+                baseWorldSelectionOpen = false,
+                baseWorldsErrorMessage = null,
+            )
+        }
+    }
+
+    fun loadBaseWorldChoices() {
+        val state = _uiState.value
+        if (!state.isLegacyCreate || (!state.baseWorldSelectionOpen && state.worldSource != HostCreateWorldSource.Template)) return
+        val requestGeneration = ++baseWorldGeneration
+        val identityAtStart = sessionIdentity
+        baseWorldLoadJob?.cancel()
+        _uiState.update { it.copy(baseWorldsLoading = true, baseWorldsErrorMessage = null) }
+        baseWorldLoadJob = viewModelScope.launch {
+            try {
+                val result = withContext(Dispatchers.IO) { gateway.loadBaseWorlds() }
+                if (!isCurrentBaseWorldRequest(requestGeneration, identityAtStart)) return@launch
+                result.fold(
+                    onSuccess = { worlds -> applyBaseWorldChoices(worlds) },
+                    onFailure = { error -> _uiState.update { it.copy(baseWorldsLoading = false, baseWorldsErrorMessage = error.message ?: "加载地图模板失败") } },
+                )
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Throwable) {
+                if (isCurrentBaseWorldRequest(requestGeneration, identityAtStart)) {
+                    _uiState.update { it.copy(baseWorldsLoading = false, baseWorldsErrorMessage = error.message ?: "加载地图模板失败") }
+                }
+            }
+        }
+    }
+
+    fun refreshBaseWorlds() {
+        if (!isBaseWorldSelectionAllowed()) return
+        loadBaseWorldChoices()
+    }
+
+    fun updateSessionIdentity(identity: String) {
+        if (sessionIdentity == identity) return
+        sessionIdentity = identity
+        baseWorldGeneration++
+        baseWorldLoadJob?.cancel()
+        val shouldRefresh = _uiState.value.isLegacyCreate &&
+            _uiState.value.worldSource == HostCreateWorldSource.Template
+        _uiState.update {
+            it.copy(
+                worldSource = HostCreateWorldSource.Generate,
+                selectedBaseWorldId = null,
+                baseWorlds = emptyList(),
+                baseWorldsLoading = false,
+                baseWorldsErrorMessage = null,
+                baseWorldSelectionOpen = false,
+            )
+        }
+        if (shouldRefresh) refreshBaseWorlds()
+    }
+
+    private fun isCurrentBaseWorldRequest(generation: Long, identity: String?): Boolean =
+        generation == baseWorldGeneration && identity == sessionIdentity &&
+            isBaseWorldSelectionAllowed()
+
+    private fun isBaseWorldSelectionAllowed(): Boolean {
+        val state = _uiState.value
+        return state.isLegacyCreate && (state.baseWorldSelectionOpen || state.worldSource == HostCreateWorldSource.Template)
+    }
+
+    private fun HostCreateUiState.isBaseWorldSelectionAllowed(): Boolean =
+        isLegacyCreate && (baseWorldSelectionOpen || worldSource == HostCreateWorldSource.Template)
+
+    private fun applyBaseWorldChoices(worlds: List<BaseWorld>) {
+        _uiState.update { state ->
+            val selectedStillAvailable = state.selectedBaseWorldId?.let { id -> worlds.any { it.id == id } } == true
+            state.copy(
+                baseWorlds = worlds,
+                selectedBaseWorldId = state.selectedBaseWorldId?.takeIf { id -> worlds.any { it.id == id } },
+                worldSource = if (state.worldSource == HostCreateWorldSource.Template && !selectedStillAvailable) HostCreateWorldSource.Generate else state.worldSource,
+                baseWorldsLoading = false,
+                baseWorldsErrorMessage = null,
+            )
+        }
+    }
+
     fun submit() {
         val state = _uiState.value
         if (state.submitting) return
@@ -312,7 +459,7 @@ class HostCreateViewModel(
                     name = trimmedName,
                     difficulty = state.difficulty,
                     gameMode = state.gameMode,
-                    levelType = state.levelType,
+                    levelType = state.levelType.takeIf { state.levelTypeDirty },
                     allowCheats = state.allowCheats,
                     whitelist = state.whitelist,
                     gameRules = state.gameRules.toMap(),
@@ -430,6 +577,7 @@ class HostCreateViewModel(
             levelType = mappedLevelType(host.levelType, host.modpack.mcVer),
             levelChoice = levelChoice(host.levelType),
             customLevelTypeText = if (levelChoice(host.levelType) == 3) host.levelType else "",
+            levelTypeDirty = false,
             whitelist = host.whitelist,
             allowCheats = host.allowCheats,
             gameRules = host.gameRules.toMap(),
@@ -455,9 +603,24 @@ class HostCreateViewModel(
                     _uiState.update { it.copy(statusMessage = "整合包来源或版本无效，请从“我的整合包”的菜单发起创建多人房间") }
                     return null
                 }
-                if (state.levelChoice == 3 && state.levelType.isBlank()) {
+                if (state.worldSource == HostCreateWorldSource.Generate &&
+                    state.levelChoice == 3 && state.levelType.isBlank()
+                ) {
                     _uiState.update { it.copy(statusMessage = "自定义地形不能为空") }
                     return null
+                }
+                val selectedBaseWorld = if (state.worldSource == HostCreateWorldSource.Template) {
+                    if (state.baseWorldsLoading) {
+                        _uiState.update { it.copy(statusMessage = "地图模板正在加载，请稍候") }
+                        return null
+                    }
+                    state.selectedBaseWorldId?.let { id -> state.baseWorlds.firstOrNull { it.id == id } }
+                        ?: run {
+                            _uiState.update { it.copy(statusMessage = "请选择可用的地图模板") }
+                            return null
+                        }
+                } else {
+                    null
                 }
                 HostCreateSubmission.CreateLegacy(
                     Host.CreateDto(
@@ -466,10 +629,11 @@ class HostCreateViewModel(
                         packVer = state.selectedVersionName.trim(),
                         difficulty = state.difficulty,
                         gameMode = state.gameMode,
-                        levelType = state.levelType.trim(),
+                        levelType = (selectedBaseWorld?.levelType ?: state.levelType).trim(),
                         allowCheats = state.allowCheats,
                         whitelist = state.whitelist,
                         gameRules = state.gameRules.toMutableMap(),
+                        baseWorldId = selectedBaseWorld?.id,
                     )
                 )
             }

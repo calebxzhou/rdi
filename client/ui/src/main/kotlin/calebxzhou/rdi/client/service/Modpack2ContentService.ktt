@@ -13,6 +13,8 @@ import calebxzhou.rdi.common.model.Task2Progress
 import calebxzau.rdi.common.model.ContentSide
 import calebxzau.rdi.common.model.ContentType
 import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.util.digestHex
+import calebxzhou.rdi.common.util.sha1dig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +27,6 @@ import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 import kotlin.io.path.name
 import kotlin.uuid.Uuid
 
@@ -342,8 +343,8 @@ private fun Modpack2DiskContentUnit.toCacheRecord(versionId: Uuid) = LocalModpac
     updatedAt = System.currentTimeMillis(),
 )
 private fun localSha1(path: Path): String {
-    val digest = MessageDigest.getInstance("SHA-1")
+    val digest = sha1dig()
     Files.newInputStream(path, LinkOption.NOFOLLOW_LINKS).use { input -> val buffer = ByteArray(DEFAULT_BUFFER_SIZE); while (true) { val count = input.read(buffer); if (count < 0) break; digest.update(buffer, 0, count) } }
-    return digest.digest().joinToString("") { "%02x".format(it) }
+    return digest.digestHex()
 }
 private suspend fun <T> resultOf(block: suspend () -> T): Result<T> = try { Result.success(block()) } catch (cancel: CancellationException) { throw cancel } catch (error: Throwable) { Result.failure(error) }

@@ -203,16 +203,22 @@ fun extractArchiveToDir(
     val totalFiles = fileEntries.size.coerceAtLeast(1)
     var doneFiles = 0
     val targetPath = targetDir.toPath()
-    forEachArchiveEntry(archiveFile) { entry ->
-        val transformedPath = pathTransform(entry.path)?.replace('\\', '/')?.trimStart('/')?.takeIf { it.isNotBlank() }
-            ?: return@forEachArchiveEntry
+    fun normalizePath(path: String): String? =
+        pathTransform(path)?.replace('\\', '/')?.trimStart('/')?.takeIf { it.isNotBlank() }
+
+    fun extractEntry(
+        path: String,
+        isDirectory: Boolean,
+        copyPayload: (output: java.io.OutputStream) -> Unit,
+    ) {
+        val transformedPath = normalizePath(path) ?: return
         val resolved = targetPath.resolve(transformedPath).normalize()
         if (!resolved.startsWith(targetPath)) {
             throw IllegalArgumentException("非法文件路径: $transformedPath")
         }
-        if (entry.isDirectory) {
+        if (isDirectory) {
             Files.createDirectories(resolved)
-            return@forEachArchiveEntry
+            return
         }
         resolved.parent?.let { Files.createDirectories(it) }
         Files.newOutputStream(
@@ -220,10 +226,27 @@ fun extractArchiveToDir(
             StandardOpenOption.CREATE,
             StandardOpenOption.TRUNCATE_EXISTING
         ).use { output ->
-            output.write(entry.bytes ?: byteArrayOf())
+            copyPayload(output)
         }
         doneFiles++
         onProgress(doneFiles, totalFiles, transformedPath)
+    }
+
+    when (archiveFile.detectArchiveFormat()) {
+        PackArchiveFormat.ZIP -> archiveFile.openChineseZip().use { zip ->
+            zip.entries().asSequence().forEach { entry ->
+                val path = entry.name.replace('\\', '/').trimStart('/')
+                val isDirectory = entry.isDirectory || path.endsWith('/')
+                extractEntry(path, isDirectory) { output ->
+                    zip.getInputStream(entry).use { input -> input.copyTo(output) }
+                }
+            }
+        }
+
+        PackArchiveFormat.TAR_ZST -> forEachTarZstEntryStreaming(archiveFile) { entry, input ->
+            val path = entry.path.replace('\\', '/').trimStart('/')
+            extractEntry(path, entry.isDirectory) { output -> input.copyTo(output) }
+        }
     }
 }
 

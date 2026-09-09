@@ -5,7 +5,9 @@ import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModLoader
 import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.ModpackUploadPreflightDto
+import calebxzhou.rdi.common.model.ModpackUploadSessionCreateDto
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.util.sha1
 import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.master.service.ModpackService.createVersion
 import calebxzhou.rdi.master.service.ModpackService.createWithVersion
@@ -26,6 +28,7 @@ import io.mockk.mockkStatic
 import io.mockk.unmockkStatic
 import io.mockk.slot
 import com.mongodb.kotlin.client.coroutine.FindFlow
+import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.flow.FlowCollector
 import kotlinx.coroutines.test.runTest
 import org.bson.conversions.Bson
@@ -79,6 +82,90 @@ class ModpackServiceUploadTest {
             assertTrue(submitted)
         } finally {
             pack.dir.deleteRecursivelyNoSymlink()
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `parallel upload feeds existing version publication and consumes session`() = runTest {
+        val player = ModpackServiceTestFixtures.account()
+        val pack = ModpackServiceTestFixtures.modpack(player._id)
+        stubPack(pack)
+        val root = ModpackServiceTestFixtures.tempRoot("parallel-version-upload")
+        val archive = ModpackServiceTestFixtures.writeTarZst(root, "overrides/config/test.txt" to byteArrayOf(1, 2, 3))
+        val bytes = archive.readBytes()
+        val uploader = ModpackParallelUploadService(root.resolve("sessions"), 1024, partSize = bytes.size)
+        val session = uploader.create(
+            player._id,
+            ModpackUploadSessionCreateDto("pack.tar.zst", bytes.size.toLong(), bytes.sha1),
+        ).getOrThrow()
+        val update = mockk<UpdateResult>()
+        every { update.modifiedCount } returns 1L
+        coEvery { collection.updateOne(any<Bson>(), any<Bson>(), any()) } returns update
+        ServerTaskManager.testSubmitter = { _, _, _ -> "test" }
+        try {
+            uploader.uploadPart(
+                player._id,
+                session.id,
+                0,
+                bytes.size.toLong(),
+                bytes.sha1,
+                ByteReadChannel(bytes),
+            ).getOrThrow()
+            uploader.complete(player._id, session.id).getOrThrow()
+            uploader.withReadyUpload(player._id, session.id) { uploadFile ->
+                ModpackContext(player, pack, null).createVersion("1.0.0", uploadFile, mutableListOf())
+            }.getOrThrow()
+            assertEquals(bytes.toList(), pack.dir.resolve("1.0.0.tar.zst").readBytes().toList())
+            assertTrue(uploader.status(player._id, session.id).isFailure)
+        } finally {
+            pack.dir.deleteRecursivelyNoSymlink()
+            root.deleteRecursivelyNoSymlink()
+        }
+    }
+
+    @Test
+    fun `parallel upload feeds new pack publication`() = runTest {
+        val player = ModpackServiceTestFixtures.account()
+        val dto = Modpack.CreateWithVersionDto(
+            name = "Parallel_New_Pack",
+            mcVer = McVersion.V211,
+            modLoader = McVersion.V211.loaderVersions.keys.first(),
+            verName = "1.0.0",
+            info = "valid description with enough characters",
+            iconUrl = "https://modrinth.com/icon.png",
+            categories = listOf(Modpack.Category.OTHER),
+            mods = mutableListOf(),
+        )
+        val root = ModpackServiceTestFixtures.tempRoot("parallel-new-upload")
+        val archive = ModpackServiceTestFixtures.writeTarZst(root, "overrides/config/test.txt" to byteArrayOf(4, 5, 6))
+        val bytes = archive.readBytes()
+        val uploader = ModpackParallelUploadService(root.resolve("sessions"), 1024, partSize = bytes.size)
+        val session = uploader.create(
+            player._id,
+            ModpackUploadSessionCreateDto("pack.tar.zst", bytes.size.toLong(), bytes.sha1),
+        ).getOrThrow()
+        val inserted = slot<Modpack>()
+        coEvery { collection.insertOne(capture(inserted), any<InsertOneOptions>()) } returns mockk(relaxed = true)
+        ServerTaskManager.testSubmitter = { _, _, _ -> "test" }
+        try {
+            uploader.uploadPart(
+                player._id,
+                session.id,
+                0,
+                bytes.size.toLong(),
+                bytes.sha1,
+                ByteReadChannel(bytes),
+            ).getOrThrow()
+            uploader.complete(player._id, session.id).getOrThrow()
+            uploader.withReadyUpload(player._id, session.id) { uploadFile ->
+                dto.createWithVersion(player, uploadFile)
+            }.getOrThrow()
+            assertTrue(inserted.isCaptured)
+            assertEquals(bytes.toList(), inserted.captured.dir.resolve("1.0.0.tar.zst").readBytes().toList())
+            assertEquals(player._id, inserted.captured.versions.single().uploaderId)
+        } finally {
+            if (inserted.isCaptured) inserted.captured.dir.deleteRecursivelyNoSymlink()
             root.deleteRecursivelyNoSymlink()
         }
     }
@@ -187,7 +274,7 @@ class ModpackServiceUploadTest {
     @Test
     fun `update preflight rejects minecraft loader and author mismatch`() = runTest {
         val owner = ModpackServiceTestFixtures.account()
-        val pack = ModpackServiceTestFixtures.modpack(owner._id)
+        val pack = ModpackServiceTestFixtures.modpack(owner._id, allowUploaderIds = emptyList())
         stubPack(pack)
 
         val mcError = assertFailsWith<RequestError> {
@@ -221,7 +308,7 @@ class ModpackServiceUploadTest {
                 modLoader = pack.modloader,
             ).preflight(ModpackServiceTestFixtures.account("other"))
         }
-        assertEquals("不是你的整合包", authorError.message)
+        assertEquals("没有上传新版本的权限", authorError.message)
     }
 
     @Test

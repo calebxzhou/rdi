@@ -25,7 +25,8 @@ data class LoadedLocalModpack(
     val mods: List<Mod>,
     val embeddedModOriginalFileNames: Map<String, String> = emptyMap(),
     val embeddedModSources: List<EmbeddedModSource> = emptyList(),
-    val serverExtraFiles: List<ServerExtraFile> = emptyList()
+    val serverExtraFiles: List<ServerExtraFile> = emptyList(),
+    val containsExcludedMcaFiles: Boolean = false
 )
 
 /** A matched embedded mod staged for the caller to import into its content store. */
@@ -51,7 +52,8 @@ data class UploadPayload(
 data class LoadedServerPackResult(
     val mods: List<Mod>,
     val serverExtraFiles: List<ServerExtraFile>,
-    val embeddedModSources: List<EmbeddedModSource> = emptyList()
+    val embeddedModSources: List<EmbeddedModSource> = emptyList(),
+    val containsExcludedMcaFiles: Boolean = false
 )
 
 data class PackProcessingPaths(

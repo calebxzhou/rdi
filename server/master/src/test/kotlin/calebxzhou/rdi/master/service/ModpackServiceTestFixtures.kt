@@ -21,20 +21,23 @@ internal object ModpackServiceTestFixtures {
         authorId: ObjectId = ObjectId(),
         name: String = "Pack-${ObjectId().toHexString()}",
         mcVersion: McVersion = McVersion.V211,
-        versions: MutableList<Modpack.Version> = mutableListOf()
+        versions: MutableList<Modpack.Version> = mutableListOf(),
+        allowUploaderIds: List<ObjectId>? = null,
     ) = Modpack(
         name = name,
         authorId = authorId,
         mcVer = mcVersion,
         modloader = mcVersion.loaderVersions.keys.firstOrNull() ?: ModLoader.neoforge,
-        versions = versions
+        versions = versions,
+        allowUploaderIds = allowUploaderIds,
     )
 
     fun version(
         modpack: Modpack,
         name: String = "1.0.0",
         status: Modpack.Status = Modpack.Status.OK,
-        mods: MutableList<Mod> = mutableListOf()
+        mods: MutableList<Mod> = mutableListOf(),
+        uploaderId: ObjectId? = null,
     ) = Modpack.Version(
         time = 1_000L,
         modpackId = modpack._id,
@@ -42,7 +45,8 @@ internal object ModpackServiceTestFixtures {
         changelog = "test",
         totalSize = 123L,
         status = status,
-        mods = mods
+        mods = mods,
+        uploaderId = uploaderId,
     )
 
     fun mod(

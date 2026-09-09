@@ -1,0 +1,210 @@
+package calebxzau.rdi.server.service.baseworld
+
+import calebxzau.rdi.common.model.BaseWorld
+import calebxzau.rdi.common.util.uuid7j
+import calebxzhou.rdi.common.archive.TarZstArchiveWriter
+import calebxzhou.rdi.common.model.Task2CancelledException
+import calebxzhou.rdi.common.util.toUUID
+import calebxzau.rdi.server.account.PgAccountRepo
+import calebxzhou.rdi.master.infra.postgres.DatabaseProvider
+import io.mockk.coEvery
+import io.mockk.every
+import io.mockk.mockk
+import io.mockk.verify
+import kotlinx.coroutines.test.runTest
+import org.bson.types.ObjectId
+import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
+import java.io.File
+import java.nio.file.Files
+import java.util.UUID
+import kotlin.test.Test
+import kotlin.test.assertContentEquals
+import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+
+class BaseWorldHostSelectionTest {
+    @Test
+    fun `template names follow modpack rules and owner quota is three`() = runTest {
+        val owner = UUID.randomUUID()
+        val repository = mockk<PgBaseWorldRepo>()
+        val account = mockk<PgAccountRepo>()
+        var count = 0L
+        every { account.lock(owner) } returns true
+        every { repository.countByOwner(owner) } answers { count }
+        every { repository.create(owner, any(), any(), any(), any()) } answers {
+            count++
+            world(owner)
+        }
+        val database = mockk<DatabaseProvider>()
+        coEvery { database.transaction<Any?>(any()) } coAnswers {
+            firstArg<JdbcTransaction.() -> Any?>().invoke(mockk(relaxed = true))
+        }
+        val service = BaseWorldService(database, repository, accounts = account)
+        repeat(3) { service.create(owner, "Template$it", "normal", null, 1).getOrThrow() }
+        assertTrue(service.create(owner, "Template4", "normal", null, 1).isFailure)
+        assertTrue(service.create(owner, "bad/name", "normal", null, 1).isFailure)
+    }
+
+    @Test
+    fun `released list excludes unpublished templates and includes foreign templates`() = runTest {
+        val root = Files.createTempDirectory("base-world-ready-list").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val foreign = UUID.randomUUID()
+            val ready = world(owner)
+            val unpublished = world(owner)
+            val foreignWorld = world(foreign)
+            val all = listOf(ready, unpublished, foreignWorld)
+            val repository = mockk<PgBaseWorldRepo>()
+            every { repository.listAll() } returns all
+            every { repository.findById(any<UUID>()) } answers {
+                all.singleOrNull { it.id == firstArg<UUID>() }?.copy(size = 999)
+            }
+            val service = service(root, repository)
+            root.resolve(ready.id.toString()).apply { mkdirs() }
+                .resolve("world.tar.zst").writeText("ready")
+            root.resolve(foreignWorld.id.toString()).apply { mkdirs() }
+                .resolve("world.tar.zst").writeText("foreign")
+
+            assertEquals(setOf(foreignWorld, ready), service.listReleased().getOrThrow().toSet())
+            verify(exactly = 0) { repository.findById(any<UUID>()) }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `snapshot remains usable after template deletion and is independent`() = runTest {
+        val root = Files.createTempDirectory("base-world-snapshot").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val template = world(owner)
+            val repository = repository(template)
+            val service = service(root, repository)
+            val archive = archive(root, "level.dat" to byteArrayOf(1, 2, 3), "region/a" to byteArrayOf(4))
+            val destination = root.resolve(template.id.toString()).apply { mkdirs() }
+            archive.copyTo(destination.resolve("world.tar.zst"), overwrite = true)
+
+            val snapshot = service.snapshotForHost(template.id).getOrThrow()
+            assertTrue(service.delete(owner, template.id).getOrThrow())
+            val hostWorld = root.resolve("host/world")
+            hostWorld.parentFile.mkdirs()
+            service.extractSnapshotForHost(snapshot, hostWorld).getOrThrow()
+            assertContentEquals(byteArrayOf(1, 2, 3), hostWorld.resolve("level.dat").readBytes())
+            snapshot.delete()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `snapshot requires a published archive regardless of owner`() = runTest {
+        val root = Files.createTempDirectory("base-world-admission").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val other = UUID.randomUUID()
+            val template = world(owner)
+            val service = service(root, repository(template))
+            assertTrue(service.requireReadyForHost(template.id).isFailure)
+            root.resolve(template.id.toString()).apply { mkdirs() }
+                .resolve("world.tar.zst").writeText("archive")
+            assertEquals(template, service.requireReadyForHost(template.id).getOrThrow())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `valid archive is extracted independently and malformed archives leave no target`() = runTest {
+        val root = Files.createTempDirectory("base-world-extract").toFile()
+        try {
+            val store = BaseWorldUploadStore(root, maxArchiveSize = 1024 * 1024, maxExtractedSize = 1024)
+            val valid = archive(root, "level.dat" to byteArrayOf(9, 8), "region/a" to byteArrayOf(7))
+            val target = root.resolve("valid")
+            store.extractArchiveToDir(valid, target)
+            assertContentEquals(byteArrayOf(9, 8), target.resolve("level.dat").readBytes())
+
+            val traversal = archive(root, "../escape" to byteArrayOf(1), "level.dat" to byteArrayOf(1))
+            val duplicate = root.resolve("duplicate.tar.zst")
+            TarZstArchiveWriter(duplicate).use { writer ->
+                writer.addFile("level.dat", byteArrayOf(1))
+                writer.addFile("LEVEL.DAT", byteArrayOf(2))
+            }
+            val missing = archive(root, "region/a" to byteArrayOf(1))
+            for ((index, invalid) in listOf(traversal, duplicate, missing).withIndex()) {
+                val invalidTarget = root.resolve("invalid-$index")
+                assertFailsWith<Exception> { store.extractArchiveToDir(invalid, invalidTarget) }
+                assertFalse(invalidTarget.exists())
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `cancelled extraction removes stage and final world`() = runTest {
+        val root = Files.createTempDirectory("base-world-cancel").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val template = world(owner)
+            val repository = repository(template)
+            val service = service(root, repository)
+            val archive = archive(root, "level.dat" to ByteArray(16 * 1024) { 1 })
+            val destination = root.resolve(template.id.toString()).apply { mkdirs() }
+            archive.copyTo(destination.resolve("world.tar.zst"), overwrite = true)
+            val snapshot = service.snapshotForHost(template.id).getOrThrow()
+            val target = root.resolve("host/world")
+            target.parentFile.mkdirs()
+            assertFailsWith<Task2CancelledException> {
+                service.extractSnapshotForHost(snapshot, target) { throw Task2CancelledException() }.getOrThrow()
+            }
+            assertFalse(target.exists())
+            assertTrue(target.parentFile.listFiles()?.none { it.name.startsWith(".world-stage-") } == true)
+            snapshot.delete()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    private fun service(root: File, repository: PgBaseWorldRepo): BaseWorldService {
+        val database = mockk<DatabaseProvider>()
+        coEvery { database.transaction<Any?>(any()) } coAnswers {
+            firstArg<JdbcTransaction.() -> Any?>().invoke(mockk(relaxed = true))
+        }
+        return BaseWorldService(
+            database = database,
+            repository = repository,
+            uploads = BaseWorldUploadStore(root),
+            worldDestination = { root.resolve(it.id.toString()) },
+            taskStarter = {},
+            notifier = { _, _, _ -> },
+        )
+    }
+
+    private fun repository(vararg worlds: BaseWorld): PgBaseWorldRepo {
+        val values = worlds.toList()
+        val repository = mockk<PgBaseWorldRepo>()
+        every { repository.listByOwner(any()) } answers { values.filter { it.ownerId == firstArg<UUID>() } }
+        every { repository.listAll() } returns values
+        every { repository.findById(any(), any()) } answers {
+            values.singleOrNull { it.ownerId == firstArg<UUID>() && it.id == secondArg<UUID>() }
+        }
+        every { repository.findById(any<UUID>()) } answers {
+            values.singleOrNull { it.id == firstArg<UUID>() }
+        }
+        every { repository.delete(any(), any()) } answers {
+            values.any { it.ownerId == firstArg<UUID>() && it.id == secondArg<UUID>() }
+        }
+        return repository
+    }
+
+    private fun world(owner: UUID) = BaseWorld(uuid7j(), owner, "Template", "normal", null, 1)
+
+    private fun archive(root: File, vararg files: Pair<String, ByteArray>): File {
+        val archive = root.resolve("${uuid7j()}.tar.zst")
+        TarZstArchiveWriter(archive).use { writer -> files.forEach { writer.addFile(it.first, it.second) } }
+        return archive
+    }
+}

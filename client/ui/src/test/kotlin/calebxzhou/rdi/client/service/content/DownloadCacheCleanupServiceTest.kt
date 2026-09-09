@@ -2,11 +2,11 @@ package calebxzhou.rdi.client.service.content
 
 import kotlinx.coroutines.runBlocking
 import calebxzhou.rdi.common.service.murmur2
+import calebxzhou.rdi.common.util.sha1 as sha1Digest
 import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.writeBytes
@@ -167,8 +167,7 @@ class DownloadCacheCleanupServiceTest {
                 .joinToString("") { "%02x".format(it) }
         }
 
-        fun sha1(bytes: ByteArray): String = MessageDigest.getInstance("SHA-1").digest(bytes)
-            .joinToString("") { "%02x".format(it) }
+        fun sha1(bytes: ByteArray): String = bytes.sha1Digest
 
         fun digest(bytes: ByteArray, algorithm: String): String = MessageDigest.getInstance(algorithm).digest(bytes)
             .joinToString("") { "%02x".format(it) }

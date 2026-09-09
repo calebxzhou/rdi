@@ -11,6 +11,8 @@ import calebxzhou.rdi.common.service.runInline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
 
 fun buildHostExtraModSyncTask2(versionId: String, extraMods: List<Mod>): Task2 {
     val distinctMods = extraMods.distinctBy { it.fileName }
@@ -54,16 +56,25 @@ private suspend fun materializeHostExtraMods(
             }
         }
 
-    if (extraMods.isEmpty()) {
+    val missingMods = missingHostExtraMods(modsDir.toPath(), extraMods)
+    if (missingMods.isEmpty()) {
         ctx.emit(Task2Progress("没有附加Mod需要同步", 1f))
         return
     }
 
     ClientContentStore.shared.materialize(
-        requests = extraMods.toClientContentRequests(::extraModTargetFileName),
+        requests = missingMods.toClientContentRequests(::extraModTargetFileName),
         targetRoot = modsDir.toPath(),
         onProgress = ctx::emit
     ).getOrThrow()
 }
+
+internal fun missingHostExtraMods(modsDir: Path, mods: List<Mod>): List<Mod> =
+    mods.filter { mod ->
+        !Files.isRegularFile(
+            modsDir.resolve(extraModTargetFileName(mod)),
+            LinkOption.NOFOLLOW_LINKS,
+        )
+    }
 
 private fun extraModTargetFileName(mod: Mod): String = EXTRA_MOD_PREFIX + mod.fileName
