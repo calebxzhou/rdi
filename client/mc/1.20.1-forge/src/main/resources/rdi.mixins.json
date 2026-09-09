@@ -1,6 +1,7 @@
 {
   "required": true,
   "package": "calebxzhou.rdi.mc.client.mixin",
+  "plugin": "calebxzhou.rdi.mc.client.mixin.RMixinPlugin",
   "compatibilityLevel": "JAVA_17",
   "refmap": "rdi.mixins.refmap.json",
   "injectors": {
@@ -25,12 +26,14 @@
     "mHttpTexture",
     "mLoadingErrorScreen",
     "mMultiScreen",
+    "mOnlineServerEntry",
     "mNativeImage",
     "mOptions",
     "mWindow",
     "mPlayerTabOverlay",
     "mRcmdChatScreen",
     "mSkinManager",
+    "mEuphoriaPatcherWarning",
     "mTitleScreen",
     "mUser"
   ]

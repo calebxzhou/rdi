@@ -2,6 +2,7 @@
   "required": true,
   "minVersion": "0.8",
   "package": "calebxzhou.rdi.mc.client.mixin",
+  "plugin": "calebxzhou.rdi.mc.client.mixin.RMixinPlugin",
   "compatibilityLevel": "JAVA_21",
   "client": [
     "ASkinManager",
@@ -11,8 +12,10 @@
     "mJpgImage",
     "mNativeImage",
     "mMultiScreen",
+    "mOnlineServerEntry",
     "mPlayerTabOverlay",
     "mSoundBufferLibrary",
+    "mEuphoriaPatcherWarning",
     "mTitleScreen",
     "mUser"
   ],
