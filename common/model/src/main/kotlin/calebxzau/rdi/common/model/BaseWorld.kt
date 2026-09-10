@@ -19,12 +19,20 @@ data class BaseWorld(
     val generatorSettings: String?,
     val size: Long,
 ) {
+    companion object{
+        const val MaxSize = 2*1024*1024L
+    }
     @Serializable
     data class CreateDto(
         val name: String,
         val levelType: String,
         val generatorSettings: String? = null,
         val size: Long,
+    )
+
+    @Serializable
+    data class NameUpdateDto(
+        val name: String,
     )
 }
 

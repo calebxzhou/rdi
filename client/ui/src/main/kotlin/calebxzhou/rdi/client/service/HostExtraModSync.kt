@@ -4,9 +4,11 @@ import calebxzhou.rdi.client.service.content.ClientContentStore
 import calebxzhou.rdi.client.service.content.toClientContentRequests
 import calebxzhou.rdi.common.model.EXTRA_MOD_PREFIX
 import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.model.normalizedSlug
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
+import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.runInline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,7 +17,7 @@ import java.nio.file.LinkOption
 import java.nio.file.Path
 
 fun buildHostExtraModSyncTask2(versionId: String, extraMods: List<Mod>): Task2 {
-    val distinctMods = extraMods.distinctBy { it.fileName }
+    val distinctMods = prepareHostExtraModSyncMods(extraMods).distinctBy { it.fileName }
     return Task2.Sequence(
         title = "同步房间附加Mod",
         children = listOf(
@@ -78,3 +80,6 @@ internal fun missingHostExtraMods(modsDir: Path, mods: List<Mod>): List<Mod> =
     }
 
 private fun extraModTargetFileName(mod: Mod): String = EXTRA_MOD_PREFIX + mod.fileName
+
+internal fun prepareHostExtraModSyncMods(mods: List<Mod>): List<Mod> =
+    mods.filterNot { it.normalizedSlug in ModpackModProcessor.removedSlugs }

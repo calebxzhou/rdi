@@ -82,4 +82,29 @@ class ModpackRoutesTest {
         assertEquals(HttpStatusCode.OK, response.status)
         assertTrue(response.bodyAsText().contains("\"data\":[\"${missingId}\"]"))
     }
+
+    @Test
+    fun `legacy new modpack multipart upload route is unavailable`() = testApplication {
+        application { routing { modpackRoutes() } }
+
+        val response = client.post("/modpack")
+
+        assertTrue(
+            response.status == HttpStatusCode.NotFound ||
+                response.status == HttpStatusCode.MethodNotAllowed
+        )
+    }
+
+    @Test
+    fun `legacy new version multipart upload route is unavailable`() = testApplication {
+        application { routing { modpackRoutes() } }
+        val modpackId = ObjectId()
+
+        val response = client.post("/modpack/$modpackId/version/1.0")
+
+        assertTrue(
+            response.status == HttpStatusCode.NotFound ||
+                response.status == HttpStatusCode.MethodNotAllowed
+        )
+    }
 }

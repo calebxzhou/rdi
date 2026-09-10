@@ -8,6 +8,7 @@ import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.Modpack
 import calebxzau.rdi.common.model.BaseWorld
 import calebxzhou.rdi.client.ui.screen.HostKind
 import calebxzhou.rdi.common.net.json
@@ -26,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.bson.types.ObjectId
 import java.util.UUID
+import io.ktor.http.encodeURLPathPart
 
 private val lgr by Loggers
 
@@ -103,6 +105,9 @@ data class HostCreateUiState(
     val baseWorldsLoading: Boolean = false,
     val baseWorldsErrorMessage: String? = null,
     val baseWorldSelectionOpen: Boolean = false,
+    val configuredBaseWorld: Modpack.Version.BaseWorldBinding? = null,
+    val baseWorldBindingErrorMessage: String? = null,
+    val baseWorldSelectionOverridden: Boolean = false,
     val whitelist: Boolean = true,
     val allowCheats: Boolean = false,
     val gameRules: Map<String, String> = emptyMap(),
@@ -122,6 +127,11 @@ interface HostCreateGateway {
 
     suspend fun loadBaseWorlds(): Result<List<BaseWorld>> =
         Result.failure(UnsupportedOperationException("地图模板加载暂不可用"))
+
+    suspend fun loadVersionBaseWorld(
+        modpackId: String,
+        versionName: String,
+    ): Result<Modpack.Version.BaseWorldBinding?> = Result.success(null)
 
     suspend fun createOrUpdate(submission: HostCreateSubmission): Result<Unit>
 
@@ -150,6 +160,16 @@ class RdiHostCreateGateway : HostCreateGateway {
 
     override suspend fun loadBaseWorlds(): Result<List<BaseWorld>> = resultOf {
         currentBaseWorldApi().listReady()
+    }
+
+    override suspend fun loadVersionBaseWorld(
+        modpackId: String,
+        versionName: String,
+    ): Result<Modpack.Version.BaseWorldBinding?> = resultOf {
+        val detail = loadRemote<Modpack.DetailVo>(
+            "modpack/$modpackId/detail",
+        ).getOrThrow()
+        detail.versions.firstOrNull { it.name == versionName }?.baseWorld
     }
 
     override suspend fun resetWorld(hostId: ObjectId): Result<Unit> = resultOf {
@@ -266,24 +286,28 @@ class HostCreateViewModel(
     }
 
     fun selectLevelChoice(choice: Int) {
+        if (_uiState.value.configuredBaseWorld?.required == true) return
         _uiState.update {
             when (choice) {
-                0 -> it.copy(levelChoice = 0, levelType = "minecraft:normal", levelTypeDirty = true, worldSource = HostCreateWorldSource.Generate, selectedBaseWorldId = null)
-                1 -> it.copy(levelChoice = 1, levelType = "minecraft:flat", levelTypeDirty = true, worldSource = HostCreateWorldSource.Generate, selectedBaseWorldId = null)
+                0 -> it.copy(levelChoice = 0, levelType = "minecraft:normal", levelTypeDirty = true, worldSource = HostCreateWorldSource.Generate, selectedBaseWorldId = null, baseWorldSelectionOverridden = it.configuredBaseWorld != null, baseWorldBindingErrorMessage = null)
+                1 -> it.copy(levelChoice = 1, levelType = "minecraft:flat", levelTypeDirty = true, worldSource = HostCreateWorldSource.Generate, selectedBaseWorldId = null, baseWorldSelectionOverridden = it.configuredBaseWorld != null, baseWorldBindingErrorMessage = null)
                 2 -> it.copy(
                     levelChoice = 2,
                     levelType = skyblockLevelType(it.currentMcVersion),
                     levelTypeDirty = true,
                     worldSource = HostCreateWorldSource.Generate,
                     selectedBaseWorldId = null,
+                    baseWorldSelectionOverridden = it.configuredBaseWorld != null,
+                    baseWorldBindingErrorMessage = null,
                 )
-                3 -> it.copy(levelChoice = 3, worldSource = HostCreateWorldSource.Generate, selectedBaseWorldId = null)
+                3 -> it.copy(levelChoice = 3, worldSource = HostCreateWorldSource.Generate, selectedBaseWorldId = null, baseWorldSelectionOverridden = it.configuredBaseWorld != null, baseWorldBindingErrorMessage = null)
                 else -> it
             }
         }
     }
 
     fun beginCustomLevelType() {
+        if (_uiState.value.configuredBaseWorld?.required == true) return
         _uiState.update {
             it.copy(
                 customLevelTypeText = if (it.levelChoice == 3) it.levelType else it.customLevelTypeText,
@@ -297,6 +321,7 @@ class HostCreateViewModel(
     }
 
     fun applyCustomLevelType(): Boolean {
+        if (_uiState.value.configuredBaseWorld?.required == true) return false
         val trimmed = _uiState.value.customLevelTypeText.trim()
         if (trimmed.isBlank()) {
             _uiState.update { it.copy(customLevelTypeError = "请输入地形ID") }
@@ -311,6 +336,8 @@ class HostCreateViewModel(
                 levelTypeDirty = true,
                 worldSource = HostCreateWorldSource.Generate,
                 selectedBaseWorldId = null,
+                baseWorldSelectionOverridden = it.configuredBaseWorld != null,
+                baseWorldBindingErrorMessage = null,
             )
         }
         return true
@@ -333,7 +360,7 @@ class HostCreateViewModel(
     }
 
     fun openBaseWorldSelection() {
-        if (!_uiState.value.isLegacyCreate) return
+        if (!_uiState.value.isLegacyCreate || _uiState.value.configuredBaseWorld?.required == true) return
         _uiState.update { it.copy(baseWorldSelectionOpen = true, baseWorldsErrorMessage = null) }
         loadBaseWorldChoices()
     }
@@ -355,13 +382,14 @@ class HostCreateViewModel(
 
     fun commitBaseWorldSelection(worldId: UUID) {
         val state = _uiState.value
-        if (!state.isBaseWorldSelectionAllowed() || state.submitting) return
+        if (!state.isBaseWorldSelectionAllowed() || state.submitting || state.configuredBaseWorld?.required == true) return
         if (state.baseWorlds.none { it.id == worldId }) return
         _uiState.update {
             it.copy(
                 worldSource = HostCreateWorldSource.Template,
                 selectedBaseWorldId = worldId,
                 baseWorldSelectionOpen = false,
+                baseWorldSelectionOverridden = state.configuredBaseWorld != null,
                 baseWorldsErrorMessage = null,
             )
         }
@@ -412,6 +440,7 @@ class HostCreateViewModel(
                 baseWorldsLoading = false,
                 baseWorldsErrorMessage = null,
                 baseWorldSelectionOpen = false,
+                baseWorldSelectionOverridden = false,
             )
         }
         if (shouldRefresh) refreshBaseWorlds()
@@ -432,12 +461,36 @@ class HostCreateViewModel(
     private fun applyBaseWorldChoices(worlds: List<BaseWorld>) {
         _uiState.update { state ->
             val selectedStillAvailable = state.selectedBaseWorldId?.let { id -> worlds.any { it.id == id } } == true
+            val configuredStillAvailable = state.configuredBaseWorld?.id?.let { id -> worlds.any { it.id == id } } == true
+            val shouldApplyConfigured = state.configuredBaseWorld != null &&
+                !state.baseWorldSelectionOverridden && configuredStillAvailable
+            val selectedId = when {
+                selectedStillAvailable -> state.selectedBaseWorldId
+                shouldApplyConfigured -> state.configuredBaseWorld?.id
+                else -> null
+            }
+            val unresolvedBinding = state.configuredBaseWorld != null &&
+                !state.baseWorldSelectionOverridden &&
+                !configuredStillAvailable
+            val nextWorldSource = when {
+                selectedId != null -> HostCreateWorldSource.Template
+                unresolvedBinding -> HostCreateWorldSource.Template
+                state.worldSource == HostCreateWorldSource.Template -> HostCreateWorldSource.Generate
+                else -> state.worldSource
+            }
             state.copy(
                 baseWorlds = worlds,
-                selectedBaseWorldId = state.selectedBaseWorldId?.takeIf { id -> worlds.any { it.id == id } },
-                worldSource = if (state.worldSource == HostCreateWorldSource.Template && !selectedStillAvailable) HostCreateWorldSource.Generate else state.worldSource,
+                selectedBaseWorldId = selectedId,
+                worldSource = nextWorldSource,
                 baseWorldsLoading = false,
                 baseWorldsErrorMessage = null,
+                baseWorldBindingErrorMessage = if (unresolvedBinding) {
+                    if (state.configuredBaseWorld?.required == true) {
+                        "此版本指定的地图模板不可用，请联系整合包管理者"
+                    } else {
+                        "此版本推荐的地图模板不可用，请重新选择地图模板"
+                    }
+                } else null,
             )
         }
     }
@@ -532,10 +585,22 @@ class HostCreateViewModel(
     private fun loadInitial() {
         viewModelScope.launch {
             try {
-                val initial = withContext(Dispatchers.IO) {
-                    gateway.loadInitial(requestedHostId).getOrThrow()
+                val (initial, binding) = withContext(Dispatchers.IO) {
+                    val initial = gateway.loadInitial(requestedHostId).getOrThrow()
+                    val binding = if (requestedHostId == null &&
+                        _uiState.value.hostKind == HostKind.Legacy &&
+                        _uiState.value.packSourceId != null &&
+                        _uiState.value.selectedVersionName.isNotBlank()
+                    ) {
+                        gateway.loadVersionBaseWorld(
+                            _uiState.value.packSourceId!!,
+                            _uiState.value.selectedVersionName,
+                        ).getOrThrow()
+                    } else null
+                    initial to binding
                 }
-                _uiState.update { state -> applyInitial(state, initial) }
+                _uiState.update { state -> applyInitial(state, initial, binding) }
+                if (binding != null) loadBaseWorldChoices()
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (cause: Throwable) {
@@ -552,6 +617,7 @@ class HostCreateViewModel(
     private fun applyInitial(
         state: HostCreateUiState,
         initial: HostCreateInitialData,
+        binding: Modpack.Version.BaseWorldBinding? = null,
     ): HostCreateUiState {
         val host = initial.host
         val issueByTarget = initial.issues.associateBy(HostCreateLoadIssue::target)
@@ -560,7 +626,13 @@ class HostCreateViewModel(
                 "无法加载房间信息: ${it.message ?: "未知错误"}"
             },
         )
-        if (host == null) return base
+        if (host == null) {
+            return base.copy(
+                configuredBaseWorld = binding,
+                selectedBaseWorldId = binding?.id,
+                worldSource = binding?.let { HostCreateWorldSource.Template } ?: base.worldSource,
+            )
+        }
         return base.copy(
             editHost = host,
             title = "编辑房间 · ${host.name}",
@@ -603,6 +675,10 @@ class HostCreateViewModel(
                     _uiState.update { it.copy(statusMessage = "整合包来源或版本无效，请从“我的整合包”的菜单发起创建多人房间") }
                     return null
                 }
+                if (state.baseWorldBindingErrorMessage != null) {
+                    _uiState.update { it.copy(statusMessage = state.baseWorldBindingErrorMessage) }
+                    return null
+                }
                 if (state.worldSource == HostCreateWorldSource.Generate &&
                     state.levelChoice == 3 && state.levelType.isBlank()
                 ) {
@@ -620,7 +696,17 @@ class HostCreateViewModel(
                             return null
                         }
                 } else {
+                    if (state.configuredBaseWorld?.required == true) {
+                        _uiState.update { it.copy(statusMessage = "此版本必须使用指定的地图模板") }
+                        return null
+                    }
                     null
+                }
+                if (state.configuredBaseWorld?.required == true &&
+                    (selectedBaseWorld?.id != state.configuredBaseWorld.id)
+                ) {
+                    _uiState.update { it.copy(statusMessage = "此版本指定的地图模板不可用") }
+                    return null
                 }
                 HostCreateSubmission.CreateLegacy(
                     Host.CreateDto(

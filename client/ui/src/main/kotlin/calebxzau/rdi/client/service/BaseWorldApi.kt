@@ -40,6 +40,8 @@ interface BaseWorldApi {
     suspend fun uploadPart(worldId: UUID, uploadId: UUID, index: Int, bytes: ByteArray, sha1: String)
     suspend fun completeUpload(worldId: UUID, uploadId: UUID): BaseWorldUploadSessionVo
     suspend fun cancelUpload(worldId: UUID, uploadId: UUID)
+    suspend fun rename(worldId: UUID, dto: BaseWorld.NameUpdateDto): BaseWorld =
+        error("地图模板改名暂不可用")
     suspend fun delete(worldId: UUID)
 }
 
@@ -104,6 +106,9 @@ private class HttpBaseWorldApi(
     override suspend fun cancelUpload(worldId: UUID, uploadId: UUID) {
         request<Unit>(HttpMethod.Delete, "/baseworld/$worldId/upload/$uploadId")
     }
+
+    override suspend fun rename(worldId: UUID, dto: BaseWorld.NameUpdateDto): BaseWorld =
+        request(HttpMethod.Put, "/baseworld/$worldId", serdesJson.encodeToString(dto))
 
     override suspend fun delete(worldId: UUID) {
         request<Unit>(HttpMethod.Delete, "/baseworld/$worldId")

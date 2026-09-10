@@ -42,6 +42,7 @@ object HostInstallService {
         val version: Modpack.Version,
         val host: Host,
         val mailId: ObjectId,
+        val snapshotLease: BaseWorldService.SnapshotLease?,
     )
 
     val ModLoader.Version.legacyForgeUniversalJarName: String
@@ -163,6 +164,16 @@ object HostInstallService {
         }
     }
 
+    internal fun resolveBaseWorldId(
+        binding: Modpack.Version.BaseWorldBinding?,
+        requestedId: UUID?,
+    ): UUID? = when {
+        binding == null -> requestedId
+        !binding.required -> requestedId
+        requestedId == null || requestedId == binding.id -> binding.id
+        else -> throw RequestError("此版本必须使用指定地图模板，请刷新后重试")
+    }
+
     suspend fun RAccount.createHost(host: Host.CreateDto, baseWorldService: BaseWorldService? = null) {
         host.name.validateName()
         val playerId = _id
@@ -173,11 +184,6 @@ object HostInstallService {
             throw RequestError("同一个整合包只能创建一张房间")
         }
         val initiallyResolvedPack = ModpackQueryService.getById(host.modpackId) ?: throw RequestError("无此包")
-        val baseWorld = host.baseWorldId?.let { worldId ->
-            (baseWorldService ?: throw RequestError("地图模板服务不可用"))
-                .requireReadyForHost(worldId)
-                .getOrThrow()
-        }
         val pinnedVersionName = resolveHostCreateVersion(initiallyResolvedPack, host.packVer).name
         if (initiallyResolvedPack.versions.first { it.name == pinnedVersionName }.status != Modpack.Status.OK) {
             throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
@@ -189,37 +195,56 @@ object HostInstallService {
             if (freshVersion.status != Modpack.Status.OK) {
                 throw RequestError("此整合包版本未准备好，请等待构建完成后再创建房间")
             }
+            val binding = freshVersion.baseWorld
+            val selectedBaseWorldId = resolveBaseWorldId(binding, host.baseWorldId)
+            var snapshotLease: BaseWorldService.SnapshotLease? = selectedBaseWorldId?.let { worldId ->
+                (baseWorldService ?: throw RequestError("地图模板服务不可用"))
+                    .acquireSnapshotLease(worldId)
+                    .getOrThrow()
+            }
+            val baseWorld = snapshotLease?.world
             val createdHost = Host(
-                name = host.name,
-                ownerId = playerId,
-                modpackId = host.modpackId,
-                packVer = freshVersion.name,
-                worldId = null,
-                port = allocateRoomPort(),
-                difficulty = host.difficulty,
-                allowCheats = host.allowCheats,
-                whitelist = host.whitelist,
-                gameMode = host.gameMode,
-                levelType = baseWorld?.levelType ?: host.levelType,
-                generatorSettings = baseWorld?.generatorSettings,
-                baseWorldId = baseWorld?.id,
-                members = listOf(Host.Member(id = playerId, role = Role.OWNER)),
-                gameRules = host.gameRules,
-                version = 2
-            )
-            val mailId = MailService.sendSystemMail(
-                playerId,
-                "房间创建中",
-                "${createdHost.name}正在创建中，请稍等几分钟..."
-            )._id
+                    name = host.name,
+                    ownerId = playerId,
+                    modpackId = host.modpackId,
+                    packVer = freshVersion.name,
+                    worldId = null,
+                    port = allocateRoomPort(),
+                    difficulty = host.difficulty,
+                    allowCheats = host.allowCheats,
+                    whitelist = host.whitelist,
+                    gameMode = host.gameMode,
+                    levelType = baseWorld?.levelType ?: host.levelType,
+                    generatorSettings = baseWorld?.generatorSettings,
+                    baseWorldId = baseWorld?.id,
+                    members = listOf(Host.Member(id = playerId, role = Role.OWNER)),
+                    gameRules = host.gameRules,
+                    version = 2
+                )
+            var mailId: ObjectId? = null
             try {
+                mailId = MailService.sendSystemMail(
+                    playerId,
+                    "房间创建中",
+                    "${createdHost.name}正在创建中，请稍等几分钟..."
+                )._id
                 HostService.dbcl.insertOne(createdHost)
-                HostCreateAdmission(freshPack, freshVersion, createdHost, mailId)
+                HostCreateAdmission(
+                    freshPack,
+                    freshVersion,
+                    createdHost,
+                    mailId ?: error("房间创建通知ID不存在"),
+                    snapshotLease,
+                )
             } catch (error: Throwable) {
-                runCatching {
-                    MailService.changeMail(mailId, "房间创建失败", newContent = "无法创建房间，错误：$error")
-                }.onFailure { mailError ->
-                    lgr.error(mailError) { "更新房间创建失败通知失败: ${createdHost._id}" }
+                snapshotLease?.release()
+                snapshotLease = null
+                mailId?.let { createdMailId ->
+                    runCatching {
+                        MailService.changeMail(createdMailId, "房间创建失败", newContent = "无法创建房间，错误：$error")
+                    }.onFailure { mailError ->
+                        lgr.error(mailError) { "更新房间创建失败通知失败: ${createdHost._id}" }
+                    }
                 }
                 throw error
             }
@@ -232,6 +257,7 @@ object HostInstallService {
                 admission.mailId,
                 newHost = true,
                 baseWorldService = baseWorldService,
+                snapshotLease = admission.snapshotLease,
             )
         } catch (error: Throwable) {
             runCatching { HostService.dbcl.deleteOne(com.mongodb.client.model.Filters.eq("_id", admission.host._id)) }
@@ -239,6 +265,7 @@ object HostInstallService {
             runCatching {
                 MailService.changeMail(admission.mailId, "房间创建失败", newContent = "无法创建房间，错误：$error")
             }.onFailure { mailError -> lgr.error(mailError) { "更新房间创建失败通知失败: ${admission.host._id}" } }
+            runCatching { admission.snapshotLease?.release() }
             throw error
         }
     }
@@ -255,17 +282,20 @@ object HostInstallService {
         newHost: Boolean = false,
         persistPackVersion: Boolean = false,
         baseWorldService: BaseWorldService? = null,
+        snapshotLease: BaseWorldService.SnapshotLease? = null,
     ) {
         ServerTaskManager.submit(
             task = Task2.Leaf("创建房间 ${host.name}") { ctx ->
                 HostLifecycleLock.withLock(host._id) {
                 val currentHost = HostQueryService.getById(host._id) ?: run {
+                    snapshotLease?.release()
                     val error = RequestError("房间不存在")
                     MailService.changeMail(mailId, failureTitle, newContent = "无法创建房间，错误：$error")
                     throw error
                 }
                 val installHost = currentHost.copy(packVer = host.packVer)
                 var baseWorldSnapshot: File? = null
+                var pendingSnapshotLease = snapshotLease
                 try {
                     try {
                         requireModernLog4j2Config(modpack.mcVer)
@@ -277,6 +307,8 @@ object HostInstallService {
                         baseWorldSnapshot = service.snapshotForHost(
                             baseWorldId,
                         ) { ctx.ensureActive() }.getOrThrow()
+                        pendingSnapshotLease?.release()
+                        pendingSnapshotLease = null
                         }
                         ctx.emit(LoadProgress.Phase("准备房间目录"))
                     MailService.changeMail(mailId, runningTitle, newContent = "准备房间目录")
@@ -345,6 +377,7 @@ object HostInstallService {
                     }
                     MailService.changeMail(mailId, successTitle, newContent = successContent)
                 } finally {
+                    pendingSnapshotLease?.release()
                     baseWorldSnapshot?.let { snapshot ->
                         runCatching { Files.deleteIfExists(snapshot.toPath()) }
                             .onFailure { cleanupError -> lgr.error(cleanupError) { "清理地图模板快照失败: ${snapshot.absolutePath}" } }

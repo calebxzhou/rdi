@@ -18,6 +18,7 @@ import calebxzau.rdi.client.ui.viewmodel.ModpackInfoGateway
 import calebxzau.rdi.client.ui.viewmodel.ModpackInfoViewModel
 import calebxzau.rdi.client.ui.viewmodel.SettingsModpackOptionRuntime
 import calebxzau.rdi.client.ui.viewmodel.ModpackVersionInfoViewModel
+import calebxzau.rdi.client.ui.viewmodel.ModpackVersionBaseWorldManageViewModel
 import calebxzau.rdi.client.ui.viewmodel.RdiModpackInfoGateway
 import calebxzau.rdi.client.ui.viewmodel.ModpackUploaderManageGateway
 import calebxzau.rdi.client.ui.viewmodel.ModpackUploaderManageViewModel
@@ -98,6 +99,13 @@ fun appModule(
     viewModel { parameters ->
         ModpackVersionInfoViewModel(
             modCatalog = get(),
+            gateway = get(),
+            modpackId = parameters.get(),
+            verName = parameters.get(),
+        )
+    }
+    viewModel { parameters ->
+        ModpackVersionBaseWorldManageViewModel(
             gateway = get(),
             modpackId = parameters.get(),
             verName = parameters.get(),

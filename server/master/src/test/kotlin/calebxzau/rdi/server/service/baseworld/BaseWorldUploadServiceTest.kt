@@ -61,6 +61,26 @@ class BaseWorldUploadServiceTest {
     }
 
     @Test
+    fun `published world rejects a second upload`() = runTest {
+        val root = Files.createTempDirectory("base-world-service-immutable").toFile()
+        try {
+            val initial = world(size = 1)
+            val fixture = fixture(root, initial)
+            uploadArchive(fixture, initial, archive(root, uploadedFiles()))
+
+            assertTrue(
+                fixture.service.createUpload(
+                    initial.ownerId,
+                    initial.id,
+                    BaseWorldUploadSessionCreateDto(1, "0".repeat(40)),
+                ).isFailure
+            )
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `database size failure restores old world and leaves session retryable`() = runTest {
         val root = Files.createTempDirectory("base-world-service-rollback").toFile()
         try {

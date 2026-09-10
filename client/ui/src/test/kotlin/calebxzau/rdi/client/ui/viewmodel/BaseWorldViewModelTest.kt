@@ -394,6 +394,54 @@ class BaseWorldListViewModelTest {
     }
 
     @Test
+    fun `successful rename updates only the requested world and survives refresh`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        kotlinx.coroutines.Dispatchers.setMain(dispatcher)
+        val target = testWorld("旧名称")
+        val retained = testWorld("保留")
+        val gateway = FakeListGateway().apply { result = Result.success(listOf(target, retained)) }
+        val viewModel = BaseWorldListViewModel(gateway)
+        try {
+            viewModel.refresh("owner")
+            advanceUntilIdle()
+            viewModel.rename("owner", target.id, "新名称")
+            advanceUntilIdle()
+
+            assertEquals("新名称", viewModel.uiState.value.worlds.first { it.id == target.id }.name)
+            assertEquals(listOf(target.id to "新名称"), gateway.renamedWorlds)
+
+            viewModel.refresh("owner")
+            advanceUntilIdle()
+            assertEquals("新名称", viewModel.uiState.value.worlds.first { it.id == target.id }.name)
+        } finally {
+            kotlinx.coroutines.Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `failed rename preserves original world and exposes error`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        kotlinx.coroutines.Dispatchers.setMain(dispatcher)
+        val target = testWorld("原名称")
+        val gateway = FakeListGateway().apply {
+            result = Result.success(listOf(target))
+            renameResult = Result.failure(IllegalStateException("改名失败"))
+        }
+        val viewModel = BaseWorldListViewModel(gateway)
+        try {
+            viewModel.refresh("owner")
+            advanceUntilIdle()
+            viewModel.rename("owner", target.id, "新名称")
+            advanceUntilIdle()
+
+            assertEquals(listOf(target), viewModel.uiState.value.worlds)
+            assertEquals("改名失败", viewModel.uiState.value.renameErrorMessage)
+        } finally {
+            kotlinx.coroutines.Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun `same owner refresh keeps deletion active and filters stale list after deletion`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         kotlinx.coroutines.Dispatchers.setMain(dispatcher)
@@ -594,9 +642,11 @@ class BaseWorldListViewModelTest {
     private class FakeListGateway : BaseWorldListGateway {
         var result: Result<List<BaseWorld>> = Result.failure(IllegalStateException("加载失败"))
         var deleteResult: Result<Unit> = Result.success(Unit)
+        var renameResult: Result<BaseWorld>? = null
         var deleteResponse: CompletableDeferred<Result<Unit>>? = null
         var deleteCalls = 0
         val deletedWorlds = mutableListOf<java.util.UUID>()
+        val renamedWorlds = mutableListOf<Pair<java.util.UUID, String>>()
 
         override suspend fun list(ownerId: String): Result<List<BaseWorld>> = result
 
@@ -604,6 +654,13 @@ class BaseWorldListViewModelTest {
             deleteCalls++
             deletedWorlds += worldId
             return deleteResponse?.await() ?: deleteResult
+        }
+
+        override suspend fun rename(ownerId: String, worldId: UUID, name: String): Result<BaseWorld> {
+            renamedWorlds += worldId to name
+            return renameResult ?: Result.success(
+                BaseWorld(worldId, UUID.randomUUID(), name, "normal", null, 1L),
+            )
         }
     }
 
@@ -614,6 +671,9 @@ class BaseWorldListViewModelTest {
             withContext(NonCancellable) { responses.removeAt(0).await() }
 
         override suspend fun delete(ownerId: String, worldId: java.util.UUID): Result<Unit> = Result.success(Unit)
+
+        override suspend fun rename(ownerId: String, worldId: UUID, name: String): Result<BaseWorld> =
+            Result.failure(IllegalStateException("unused"))
     }
 
     private class OwnerAwareGateway(
@@ -629,6 +689,9 @@ class BaseWorldListViewModelTest {
             deleteCalls++
             return withContext(NonCancellable) { deletion.await() }
         }
+
+        override suspend fun rename(ownerId: String, worldId: UUID, name: String): Result<BaseWorld> =
+            Result.failure(IllegalStateException("unused"))
     }
 
     private class SameOwnerRefreshGateway(
@@ -646,6 +709,9 @@ class BaseWorldListViewModelTest {
 
         override suspend fun delete(ownerId: String, worldId: java.util.UUID): Result<Unit> =
             withContext(NonCancellable) { deletion.await() }
+
+        override suspend fun rename(ownerId: String, worldId: UUID, name: String): Result<BaseWorld> =
+            Result.failure(IllegalStateException("unused"))
     }
 
     private fun testWorld(name: String = "模板") = BaseWorld(

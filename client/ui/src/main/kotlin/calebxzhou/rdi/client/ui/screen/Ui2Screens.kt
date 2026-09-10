@@ -166,6 +166,13 @@ data class ModpackVersionInfoRoute(
     val fromHostId: String? = null,
     val fromAllHosts: Boolean = false,
 )
+@Serializable
+data class ModpackVersionBaseWorldManageRoute(
+    val modpackId: String,
+    val verName: String,
+    val fromHostId: String? = null,
+    val fromAllHosts: Boolean = false,
+)
 /* @Serializable object Modpack2Upload */
 @Serializable
 data class ModpackUploadRoute(

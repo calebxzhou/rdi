@@ -69,6 +69,13 @@ class PgBaseWorldRepo {
         }
         return findById(ownerId, id)
     }
+
+    fun updateName(ownerId: UUID, id: UUID, name: String): BaseWorld? {
+        BaseWorldTable.update({ (BaseWorldTable.ownerId eq ownerId) and (BaseWorldTable.id eq id) }) {
+            it[BaseWorldTable.name] = name
+        }
+        return findById(ownerId, id)
+    }
 }
 
 private object BaseWorldTable : Table("base_world") {

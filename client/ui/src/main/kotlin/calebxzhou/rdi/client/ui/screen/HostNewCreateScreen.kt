@@ -390,6 +390,15 @@ fun HostNewCreateScreen(
                                             }
                                             Column(modifier = optionSectionModifier) {
                                                 Text("地形", fontWeight = FontWeight.Bold)
+                                                if (state.configuredBaseWorld?.required == true) {
+                                                    Text(
+                                                        "此版本强制使用指定的地图模板",
+                                                        color = MaterialTheme.colorScheme.error,
+                                                    )
+                                                    state.baseWorldBindingErrorMessage?.let { message ->
+                                                        Text(message, color = MaterialTheme.colorScheme.error)
+                                                    }
+                                                }
                                                 Space8h()
                                                 Row(
                                                     modifier = Modifier.horizontalScroll(rememberScrollState()),
@@ -399,19 +408,22 @@ fun HostNewCreateScreen(
                                                         title = "普通",
                                                         iconPath = "assets/icons/worldtype_normal.avif",
                                                         selected = state.worldSource == HostCreateWorldSource.Generate && state.levelChoice == 0,
-                                                        onClick = { viewModel.selectLevelChoice(0) }
+                                                        onClick = { viewModel.selectLevelChoice(0) },
+                                                        enabled = state.configuredBaseWorld?.required != true,
                                                     )
                                                     ImageCard(
                                                         title = "超平坦",
                                                         iconPath = "assets/icons/worldtype_flat.avif",
                                                         selected = state.worldSource == HostCreateWorldSource.Generate && state.levelChoice == 1,
-                                                        onClick = { viewModel.selectLevelChoice(1) }
+                                                        onClick = { viewModel.selectLevelChoice(1) },
+                                                        enabled = state.configuredBaseWorld?.required != true,
                                                     )
                                                     ImageCard(
                                                         title = "空岛",
                                                         iconPath = "assets/icons/worldtype_skyblock.avif",
                                                         selected = state.worldSource == HostCreateWorldSource.Generate && state.levelChoice == 2,
-                                                        onClick = { viewModel.selectLevelChoice(2) }
+                                                        onClick = { viewModel.selectLevelChoice(2) },
+                                                        enabled = state.configuredBaseWorld?.required != true,
                                                     )
                                                     ImageCard(
                                                         title = "自定义",
@@ -421,13 +433,15 @@ fun HostNewCreateScreen(
                                                             viewModel.selectLevelChoice(3)
                                                             viewModel.beginCustomLevelType()
                                                             showCustomLevelTypeDialog = true
-                                                        }
+                                                        },
+                                                        enabled = state.configuredBaseWorld?.required != true,
                                                     )
                                                     if (state.isLegacyCreate) ImageCard(
                                                         title = state.selectedBaseWorldId?.let { id -> state.baseWorlds.firstOrNull { it.id == id }?.let { "模板·${it.name}" } } ?: "模板",
                                                         iconPath = "assets/icons/worldtype_normal.avif",
                                                         selected = state.worldSource == HostCreateWorldSource.Template,
-                                                        onClick = { if (!state.submitting) showBaseWorldSelection = true },
+                                                        onClick = { if (!state.submitting && state.configuredBaseWorld?.required != true) showBaseWorldSelection = true },
+                                                        enabled = state.configuredBaseWorld?.required != true,
                                                     )
                                                 }
                                             }

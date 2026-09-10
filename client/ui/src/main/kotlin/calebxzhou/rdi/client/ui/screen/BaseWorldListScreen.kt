@@ -43,6 +43,7 @@ import calebxzau.rdi.client.ui.ScreenContentSize
 import calebxzau.rdi.client.ui.ScreenContentSurface
 import calebxzau.rdi.client.ui.TitleRow
 import calebxzhou.rdi.client.ui.comp.BaseWorldCard
+import calebxzau.rdi.client.service.validateBaseWorldName
 import calebxzau.rdi.client.ui.FlowRowV
 import calebxzau.rdi.client.ui.viewmodel.BaseWorldListViewModel
 import calebxzau.rdi.common.model.BaseWorld
@@ -75,6 +76,8 @@ fun BaseWorldListScreen(
     }
     var menuWorldId by remember { mutableStateOf<UUID?>(null) }
     var detailWorld by remember { mutableStateOf<BaseWorld?>(null) }
+    var renameWorld by remember { mutableStateOf<BaseWorld?>(null) }
+    var renameName by remember { mutableStateOf("") }
     var deleteWorld by remember { mutableStateOf<BaseWorld?>(null) }
     var deleteName by remember { mutableStateOf("") }
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -95,6 +98,8 @@ fun BaseWorldListScreen(
     }
     LaunchedEffect(ownerId) {
         detailWorld = null
+        renameWorld = null
+        renameName = ""
         deleteWorld = null
         deleteName = ""
         viewModel.prepareDeletion()
@@ -165,6 +170,12 @@ fun BaseWorldListScreen(
                                         menuWorldId = null
                                         detailWorld = world
                                     },
+                                    onRename = {
+                                        menuWorldId = null
+                                        viewModel.clearRenameError()
+                                        renameName = world.name
+                                        renameWorld = world
+                                    },
                                     onDelete = {
                                         menuWorldId = null
                                         viewModel.prepareDeletion()
@@ -183,6 +194,42 @@ fun BaseWorldListScreen(
 
     detailWorld?.let { world ->
         BaseWorldDetailsDialog(world = world, uploaderName = account.name, onDismiss = { detailWorld = null })
+    }
+    LaunchedEffect(state.renameSuccessWorldId, renameWorld?.id) {
+        if (renameWorld?.id != null && state.renameSuccessWorldId == renameWorld?.id) {
+            renameWorld = null
+            renameName = ""
+            viewModel.clearRenameSuccess()
+        }
+    }
+    renameWorld?.let { world ->
+        val renaming = state.renameInProgress && state.renamingWorldId == world.id
+        AlertDialog(
+            onDismissRequest = { if (!renaming) renameWorld = null },
+            title = { Text("修改地图模板名称") },
+            text = {
+                OutlinedTextField(
+                    value = renameName,
+                    onValueChange = {
+                        renameName = it
+                        viewModel.clearRenameError()
+                    },
+                    label = { Text("名称") },
+                    singleLine = true,
+                    enabled = !renaming,
+                    isError = renameName.isNotEmpty() && validateBaseWorldName(renameName).isFailure,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !renaming && validateBaseWorldName(renameName).isSuccess,
+                    onClick = { viewModel.rename(ownerId, world.id, renameName) },
+                ) { Text("保存") }
+            },
+            dismissButton = {
+                TextButton(enabled = !renaming, onClick = { renameWorld = null }) { Text("取消") }
+            },
+        )
     }
     deleteWorld?.let { world ->
         val deleting = state.deletionInProgress && state.deletingWorldId == world.id
@@ -213,6 +260,7 @@ fun BaseWorldListScreen(
         )
     }
     state.deletionErrorMessage?.let { AlertErr(it, viewModel::prepareDeletion) }
+    state.renameErrorMessage?.let { AlertErr(it, viewModel::clearRenameError) }
 }
 
 @Composable

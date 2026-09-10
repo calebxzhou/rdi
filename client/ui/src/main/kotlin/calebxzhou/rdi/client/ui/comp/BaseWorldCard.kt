@@ -28,6 +28,7 @@ fun BaseWorldCard(
     onClick: () -> Unit,
     onDismissMenu: () -> Unit = {},
     onDetails: (() -> Unit)? = null,
+    onRename: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     deleteEnabled: Boolean = true,
 ) {
@@ -45,11 +46,11 @@ fun BaseWorldCard(
             ),
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(4.dp),
             ) {
                 Text(world.name)
-                HeadButton(world.ownerId.objectId)
+                HeadButton(world.ownerId.objectId, avatarSize = 16.dp)
             }
         }
     }
@@ -64,6 +65,7 @@ fun BaseWorldCard(
                     offset = OffsetFirstItemUnderCursor,
                 ) {
                     onDetails?.let { RDropdownMenuItem(text = "查看详情", icon = "\uF449", onClick = it) }
+                    onRename?.let { RDropdownMenuItem(text = "修改名称", icon = "\uF4CE", onClick = it) }
                     onDelete?.let {
                         RDropdownMenuItem(
                             text = "删除",

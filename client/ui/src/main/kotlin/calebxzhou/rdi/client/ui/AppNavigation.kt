@@ -20,6 +20,7 @@ import calebxzau.rdi.client.ui.screen.BaseWorldUploadScreen
 import calebxzhou.rdi.client.auth.AccountSessionStore
 import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.ui.screen.ModpackVersionInfoScreen
+import calebxzau.rdi.client.ui.screen.ModpackVersionBaseWorldManageScreen
 import calebxzhou.rdi.client.ui.screen.*
 import calebxzhou.rdi.common.model.McVersion
 import org.koin.compose.viewmodel.koinViewModel
@@ -802,6 +803,37 @@ fun AppNavigation(
                 verName = route.verName,
                 onBack = returnToPack,
                 onVersionDeleted = returnToPack,
+                onOpenBaseWorldManage = {
+                    navController.navigate(
+                        ModpackVersionBaseWorldManageRoute(
+                            modpackId = route.modpackId,
+                            verName = route.verName,
+                            fromHostId = route.fromHostId,
+                            fromAllHosts = route.fromAllHosts,
+                        )
+                    )
+                },
+            )
+        }
+        composable<ModpackVersionBaseWorldManageRoute> {
+            val route = it.toRoute<ModpackVersionBaseWorldManageRoute>()
+            val returnToVersion: () -> Unit = {
+                if (!navController.popBackStack()) {
+                    navController.navigateAbsolute(
+                        ModpackVersionInfoRoute(
+                            modpackId = route.modpackId,
+                            verName = route.verName,
+                            fromHostId = route.fromHostId,
+                            fromAllHosts = route.fromAllHosts,
+                        )
+                    )
+                }
+            }
+            ModpackVersionBaseWorldManageScreen(
+                modpackId = route.modpackId,
+                verName = route.verName,
+                onBack = returnToVersion,
+                onSaved = returnToVersion,
             )
         }
         composable<ModpackVersionEditRoute> {
@@ -822,6 +854,16 @@ fun AppNavigation(
                     navController.navigateAbsolute(
                         ModpackInfoRoute(
                             modpackId = route.modpackId,
+                            fromHostId = route.fromHostId,
+                            fromAllHosts = route.fromAllHosts,
+                        )
+                    )
+                },
+                onOpenBaseWorldManage = {
+                    navController.navigate(
+                        ModpackVersionBaseWorldManageRoute(
+                            modpackId = route.modpackId,
+                            verName = route.verName,
                             fromHostId = route.fromHostId,
                             fromAllHosts = route.fromAllHosts,
                         )

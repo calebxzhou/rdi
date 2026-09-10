@@ -9,7 +9,6 @@ import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.validate
 import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.common.util.validateModpackName
-import calebxzhou.rdi.common.serdesJson
 import calebxzhou.rdi.master.MODPACK_DATA_DIR
 import calebxzhou.rdi.master.exception.ParamError
 import calebxzhou.rdi.master.net.*
@@ -28,11 +27,6 @@ import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.regex.Pattern
-import io.ktor.http.content.*
-import io.ktor.server.request.receiveMultipart
-import io.ktor.utils.io.*
-import kotlinx.io.buffered
-import kotlinx.io.readByteArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -56,83 +50,6 @@ object ModpackUploadService {
     internal fun deleteUploadTempFile(file: File, reason: String) {
         modpackUploadTempStorage.deleteTempFile(file)
             .onFailure { error -> lgr.warn(error) { "${reason}时删除上传暂存文件失败: ${file.absolutePath}" } }
-    }
-
-    internal suspend inline fun <reified T> io.ktor.server.application.ApplicationCall.receiveUploadPayload(
-        jsonFieldName: String,
-        missingJsonError: String,
-        invalidJsonPrefix: String
-    ): Pair<File, T> {
-        val multipart = receiveMultipart(formFieldLimit = MAX_PACK_SIZE)
-        var uploadedFile: File? = null
-        var payloadDto: T? = null
-        try {
-            while (true) {
-                val part = multipart.readPart() ?: break
-                when (part) {
-                    is io.ktor.http.content.PartData.FormItem -> if (part.name == jsonFieldName) {
-                        payloadDto = runCatching { serdesJson.decodeFromString<T>(part.value) }
-                            .getOrElse { throw ParamError("$invalidJsonPrefix: ${it.message}") }
-                    }
-                    is io.ktor.http.content.PartData.FileItem -> if (part.name == "file") {
-                        uploadedFile?.let { deleteUploadTempFile(it, "替换multipart文件") }
-                        uploadedFile = receiveUploadFileToTemp(part.provider())
-                    }
-                    is io.ktor.http.content.PartData.BinaryItem -> if (part.name == "file") {
-                        uploadedFile?.let { deleteUploadTempFile(it, "替换multipart文件") }
-                        uploadedFile = receiveUploadFileToTemp(part.provider())
-                    }
-                    else -> {}
-                }
-                part.dispose()
-            }
-            val fileBytes = uploadedFile ?: throw ParamError("缺少文件")
-            val dto = payloadDto ?: throw ParamError(missingJsonError)
-            uploadedFile = null
-            return fileBytes to dto
-        } catch (error: Throwable) {
-            uploadedFile?.let { deleteUploadTempFile(it, "接收multipart失败") }
-            throw error
-        }
-    }
-
-    private suspend fun receiveUploadFileToTemp(channel: io.ktor.utils.io.ByteReadChannel): File {
-        val tempFile = modpackUploadTempStorage.createTempFile().getOrThrow()
-        val buffer = ByteArray(8192)
-        var total = 0L
-        return try {
-            Files.newOutputStream(
-                tempFile.toPath(),
-                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
-                java.nio.file.StandardOpenOption.WRITE
-            ).use { output ->
-                while (!channel.isClosedForRead) {
-                    val read = channel.readAvailable(buffer, 0, buffer.size)
-                    if (read == -1) break
-                    if (read == 0) continue
-                    total += read
-                    if (total > MAX_PACK_SIZE) throw RequestError("整合包文件过大，最大允许2GiB")
-                    output.write(buffer, 0, read)
-                }
-            }
-            tempFile
-        } catch (error: Throwable) {
-            deleteUploadTempFile(tempFile, "接收上传流失败")
-            throw error
-        }
-    }
-
-    private fun receiveUploadFileToTemp(source: kotlinx.io.Source): File {
-        val tempFile = modpackUploadTempStorage.createTempFile().getOrThrow()
-        return try {
-            val bytes = source.buffered().readByteArray()
-            if (bytes.size > MAX_PACK_SIZE) throw RequestError("整合包文件过大，最大允许2GiB")
-            tempFile.writeBytes(bytes)
-            tempFile
-        } catch (error: Throwable) {
-            deleteUploadTempFile(tempFile, "接收上传数据失败")
-            throw error
-        }
     }
 
     internal fun cleanupStaleUploadsOnStartup() {
@@ -663,12 +580,5 @@ object ModpackUploadService {
 
 internal const val PART_SHA1_HEADER = "X-Part-SHA1"
 internal val parallelUploadService get() = ModpackUploadService.parallelUploadService
-internal suspend inline fun <reified T> io.ktor.server.application.ApplicationCall.receiveUploadPayload(
-    jsonFieldName: String,
-    missingJsonError: String,
-    invalidJsonPrefix: String
-): Pair<File, T> = ModpackUploadService.run {
-    this@receiveUploadPayload.receiveUploadPayload(jsonFieldName, missingJsonError, invalidJsonPrefix)
-}
 internal suspend fun io.ktor.server.routing.RoutingContext.uploadSessionId(): java.util.UUID =
     param("uploadId").let { runCatching { java.util.UUID.fromString(it) }.getOrElse { throw ParamError("上传会话ID无效") } }

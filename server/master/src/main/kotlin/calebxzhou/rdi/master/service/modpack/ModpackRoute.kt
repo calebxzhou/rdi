@@ -30,16 +30,19 @@ import calebxzhou.rdi.master.service.modpack.ModpackVersionService.requireCanMan
 import calebxzhou.rdi.master.service.modpack.ModpackVersionService.getUploaderPolicy
 import calebxzhou.rdi.master.service.modpack.ModpackVersionService.resolveUploader
 import calebxzhou.rdi.master.service.modpack.ModpackVersionService.updateUploaderPolicy
+import calebxzhou.rdi.master.service.modpack.ModpackVersionService.updateVersionBaseWorld
 import calebxzhou.rdi.master.service.modpack.ModpackQueryService.toBriefVo
 import calebxzhou.rdi.master.service.modpack.ModpackQueryService.toDetailVo
 import calebxzhou.rdi.master.service.modpack.ModpackQueryService.validateVerName
 import calebxzhou.rdi.common.util.sha1
+import calebxzau.rdi.server.service.baseworld.BaseWorldService
 import org.bson.types.ObjectId
 import io.ktor.http.HttpHeaders
 import io.ktor.server.application.*
 import io.ktor.server.request.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
+import org.koin.ktor.ext.getKoin
 
 fun Route.modpackRoutes() {
 
@@ -63,15 +66,6 @@ fun Route.modpackRoutes() {
         }
         post("/preflight") {
             call.receive<ModpackUploadPreflightDto>().preflight(call.player())
-            ok()
-        }
-        post {
-            val (payload, dto) = call.receiveUploadPayload<Modpack.CreateWithVersionDto>(
-                jsonFieldName = "dto",
-                missingJsonError = "缺少dto",
-                invalidJsonPrefix = "格式错误"
-            )
-            dto.createWithVersion(call.player(), payload)
             ok()
         }
         route("/upload-sessions") {
@@ -175,6 +169,14 @@ fun Route.modpackRoutes() {
                     call.modpackGuardContext().versionNull?.let { response(data = it) }
                         ?: throw RequestError("无此版本")
                 }
+                put("/baseworld") {
+                    val ctx = call.modpackGuardContext().requireCanManageVersion()
+                    ctx.updateVersionBaseWorld(
+                        call.receive<Modpack.VersionBaseWorldUpdateDto>(),
+                        call.application.getKoin().get<BaseWorldService>(),
+                    )
+                    ok()
+                }
                 get("/client") {
                     val ctx = call.modpackGuardContext()
                     val file = ctx.version.clientPackFile
@@ -245,20 +247,6 @@ fun Route.modpackRoutes() {
                         ctx.createVersion(verName, uploadFile, dto.mods)
                     }.getOrThrow()
                     ok()
-                }
-                post {
-                    val ctx = call.modpackGuardContext()
-                    val verName = ctx.validateVersionUpload(param("verName"))
-
-                    val (payload, modList) = call.receiveUploadPayload<MutableList<Mod>>(
-                        jsonFieldName = "mods",
-                        missingJsonError = "缺少mods列表",
-                        invalidJsonPrefix = "mods格式错误"
-                    )
-
-                    ctx.createVersion(verName, payload, modList)
-                    ok()
-
                 }
             }
 

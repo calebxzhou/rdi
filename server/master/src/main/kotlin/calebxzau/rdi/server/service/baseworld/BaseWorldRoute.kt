@@ -2,6 +2,7 @@ package calebxzau.rdi.server.service.baseworld
 
 import calebxzau.rdi.common.model.BaseWorld
 import calebxzau.rdi.common.model.BaseWorldUploadSessionCreateDto
+import calebxzhou.rdi.common.model.isDav
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.util.toUUID
 import calebxzhou.rdi.master.exception.ParamError
@@ -58,6 +59,17 @@ fun Route.baseWorldRoutes() = route("/baseworld") {
                 throw RequestError("地图模板不存在")
             }
             ok()
+        }
+        put {
+            val player = call.player()
+            response(
+                data = call.baseWorldService().rename(
+                    requesterId = player._id.toUUID(),
+                    id = call.baseWorldId(),
+                    name = call.receive<BaseWorld.NameUpdateDto>().name,
+                    isDav = player.isDav,
+                ).getOrThrow()
+            )
         }
         route("/upload") {
             post {

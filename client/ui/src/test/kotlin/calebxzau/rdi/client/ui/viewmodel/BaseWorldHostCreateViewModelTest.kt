@@ -2,6 +2,7 @@ package calebxzau.rdi.client.ui.viewmodel
 
 import calebxzau.rdi.common.model.BaseWorld
 import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.client.ui.screen.HostKind
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.filter
@@ -199,6 +200,35 @@ class BaseWorldHostCreateViewModelTest {
     }
 
     @Test
+    fun `unavailable optional configured template blocks until player overrides it`() = runBlocking {
+        val gateway = FakeGateway().apply {
+            configuredBinding = Modpack.Version.BaseWorldBinding(UUID.randomUUID(), required = false)
+            baseWorldResult = Result.success(emptyList())
+        }
+        val viewModel = createViewModel(gateway)
+        awaitLoaded(viewModel)
+        withTimeout(5_000) {
+            viewModel.uiState.filter { it.baseWorldBindingErrorMessage != null }.first()
+        }
+
+        assertEquals(HostCreateWorldSource.Template, viewModel.uiState.value.worldSource)
+        assertNull(viewModel.uiState.value.selectedBaseWorldId)
+        assertEquals("此版本推荐的地图模板不可用，请重新选择地图模板", viewModel.uiState.value.baseWorldBindingErrorMessage)
+
+        viewModel.updateHostName("模板房间")
+        viewModel.submit()
+        assertNull(gateway.submission)
+        assertEquals(viewModel.uiState.value.baseWorldBindingErrorMessage, viewModel.uiState.value.statusMessage)
+
+        viewModel.selectLevelChoice(1)
+        assertEquals(HostCreateWorldSource.Generate, viewModel.uiState.value.worldSource)
+        assertNull(viewModel.uiState.value.baseWorldBindingErrorMessage)
+        viewModel.submit()
+        awaitSubmission(gateway)
+        assertNull((gateway.submission as HostCreateSubmission.CreateLegacy).dto.baseWorldId)
+    }
+
+    @Test
     fun `edit mode never loads template choices`() = runBlocking {
         val gateway = FakeGateway(initial = HostCreateInitialData(host = testHost()))
         val viewModel = HostCreateViewModel(
@@ -245,6 +275,7 @@ class BaseWorldHostCreateViewModelTest {
         private val initial: HostCreateInitialData = HostCreateInitialData(),
     ) : HostCreateGateway {
         val world = testWorld()
+        var configuredBinding: Modpack.Version.BaseWorldBinding? = null
         var baseWorldResult: Result<List<BaseWorld>> = Result.success(emptyList())
         var baseWorldGate: CompletableDeferred<Result<List<BaseWorld>>>? = null
         var baseWorldLoadCalls = 0
@@ -258,6 +289,11 @@ class BaseWorldHostCreateViewModelTest {
             baseWorldLoadCalls++
             return baseWorldGate?.await() ?: baseWorldResult
         }
+
+        override suspend fun loadVersionBaseWorld(
+            modpackId: String,
+            versionName: String,
+        ): Result<Modpack.Version.BaseWorldBinding?> = Result.success(configuredBinding)
 
         override suspend fun createOrUpdate(submission: HostCreateSubmission): Result<Unit> {
             this.submission = submission

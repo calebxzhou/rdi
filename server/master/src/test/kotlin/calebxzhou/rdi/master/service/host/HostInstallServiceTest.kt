@@ -4,15 +4,94 @@ import java.nio.file.Files
 import java.util.Properties
 import java.util.UUID
 import calebxzhou.rdi.common.model.Host
+import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.serdesJson
+import calebxzhou.rdi.common.exception.RequestError
 import org.bson.types.ObjectId
 import calebxzhou.rdi.master.service.host.HostInstallService.writeServerProperties
 import kotlin.test.Test
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class HostInstallServiceTest {
+    private fun testHost(): Host = Host(
+        _id = ObjectId("696312b0e61232912c744968"),
+        name = "TestHost",
+        ownerId = ObjectId(),
+        modpackId = ObjectId(),
+        port = 25565,
+        difficulty = 1,
+        gameMode = 0,
+        levelType = "default",
+        members = emptyList(),
+    )
+
+    @Test
+    fun resolveRequiredBaseWorldId_uses_exact_required_binding_only() {
+        val modpackId = ObjectId()
+        val requiredId = UUID.randomUUID()
+        val optionalId = UUID.randomUUID()
+        val exact = Modpack.Version(
+            time = 1L,
+            modpackId = modpackId,
+            name = "1.0",
+            changelog = "",
+            status = Modpack.Status.OK,
+            baseWorld = Modpack.Version.BaseWorldBinding(requiredId, required = true),
+        )
+        val newer = Modpack.Version(
+            time = 2L,
+            modpackId = modpackId,
+            name = "2.0",
+            changelog = "",
+            status = Modpack.Status.OK,
+            baseWorld = Modpack.Version.BaseWorldBinding(optionalId, required = true),
+        )
+        val optional = exact.copy(
+            name = "optional",
+            baseWorld = Modpack.Version.BaseWorldBinding(optionalId, required = false),
+        )
+        val modpack = Modpack(
+            _id = modpackId,
+            name = "test",
+            authorId = ObjectId(),
+            modloader = ModLoader.neoforge,
+            mcVer = McVersion.V211,
+            versions = mutableListOf(exact, newer, optional),
+        )
+
+        val exactHost = testHost().copy(packVer = "1.0", baseWorldId = null)
+        assertEquals(requiredId, HostLifecycleService.resolveRequiredBaseWorldId(modpack, exactHost))
+        assertEquals(
+            requiredId,
+            HostLifecycleService.resolveRequiredBaseWorldId(
+                modpack,
+                exactHost.copy(baseWorldId = UUID.randomUUID()),
+            ),
+        )
+        assertEquals(
+            requiredId,
+            HostLifecycleService.resolveRequiredBaseWorldId(
+                modpack,
+                exactHost.copy(baseWorldId = requiredId),
+            ),
+        )
+        assertNull(
+            HostLifecycleService.resolveRequiredBaseWorldId(
+                modpack,
+                exactHost.copy(packVer = "optional"),
+            )
+        )
+        assertFailsWith<RequestError> {
+            HostLifecycleService.resolveRequiredBaseWorldId(modpack, exactHost.copy(packVer = "missing"))
+        }
+    }
+
     @Test
     fun `v2 install cleanup preserves only exact root world`() {
         val root = Files.createTempDirectory("host-v2-install").toFile()

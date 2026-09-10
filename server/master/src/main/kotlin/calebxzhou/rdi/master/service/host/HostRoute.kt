@@ -83,7 +83,7 @@ fun Route.hostRoutes() = route("/host") {
     route("") {
         post("/v2") {
             val dto = call.receive<Host.CreateDto>()
-            val baseWorldService = dto.baseWorldId?.let { call.application.getKoin().get<BaseWorldService>() }
+            val baseWorldService = call.application.getKoin().get<BaseWorldService>()
             call.player().createHost(dto, baseWorldService)
             ok()
         }
@@ -152,7 +152,8 @@ fun Route.hostRoutes() = route("/host") {
             } ?: err("无此房间")
         }
         post("/reset-world") {
-            call.hostContext().needOwner.resetWorld()
+            val baseWorldService = call.application.getKoin().get<BaseWorldService>()
+            call.hostContext().needOwner.resetWorld(baseWorldService)
             ok()
         }
         get("/brief") {

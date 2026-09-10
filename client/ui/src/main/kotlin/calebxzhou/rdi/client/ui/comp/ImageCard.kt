@@ -30,7 +30,8 @@ fun ImageCard(
     title: String,
     iconPath: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true,
 ) {
     val shape: Shape = RoundedCornerShape(20.dp)
     val bitmap = remember(iconPath) {
@@ -49,7 +50,7 @@ fun ImageCard(
                     }
                 )
                 .clip(shape)
-                .clickable { onClick() },
+                .clickable(enabled = enabled) { onClick() },
             shape = shape,
             color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
             border = if (selected) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null,

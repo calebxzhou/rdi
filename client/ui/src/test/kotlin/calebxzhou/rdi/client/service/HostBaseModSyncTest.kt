@@ -76,6 +76,23 @@ class HostBaseModSyncTest {
         }
     }
 
+    @Test
+    fun `builder inputs filter removed slug case insensitively while ordinary mod remains eligible`() {
+        val removed = mod("Chunky")
+        val ordinary = mod("sodium")
+
+        assertEquals(
+            HostBaseModSyncInputs(
+                activeMods = listOf(ordinary),
+                disabledMods = listOf(ordinary),
+            ),
+            prepareHostBaseModSyncInputs(
+                activeMods = listOf(removed, ordinary),
+                disabledMods = listOf(removed, ordinary),
+            ),
+        )
+    }
+
     private fun mod(name: String) = Mod(
         platform = "mr",
         projectId = name,

@@ -15,7 +15,10 @@ import kotlinx.coroutines.test.runTest
 import org.bson.types.ObjectId
 import org.jetbrains.exposed.v1.jdbc.JdbcTransaction
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.Path
 import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertContentEquals
@@ -168,7 +171,151 @@ class BaseWorldHostSelectionTest {
         }
     }
 
-    private fun service(root: File, repository: PgBaseWorldRepo): BaseWorldService {
+    @Test
+    fun `snapshot replacement publishes template and removes old-only content`() = runTest {
+        val root = Files.createTempDirectory("base-world-replace").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val template = world(owner)
+            val service = service(root, repository(template))
+            val archive = archive(root, "level.dat" to byteArrayOf(1, 2, 3), "region/a" to byteArrayOf(4))
+            root.resolve(template.id.toString()).apply { mkdirs() }
+                .resolve("world.tar.zst").also { archive.copyTo(it, overwrite = true) }
+            val snapshot = service.snapshotForHost(template.id).getOrThrow()
+            val target = root.resolve("host/world")
+            target.mkdirs()
+            target.resolve("old-only.txt").writeText("old")
+            target.resolve("level.dat").writeText("old-level")
+
+            service.replaceWorldFromSnapshot(snapshot, target).getOrThrow()
+
+            assertContentEquals(byteArrayOf(1, 2, 3), target.resolve("level.dat").readBytes())
+            assertContentEquals(byteArrayOf(4), target.resolve("region/a").readBytes())
+            assertFalse(target.resolve("old-only.txt").exists())
+            assertTrue(target.parentFile.listFiles()?.none { it.name.startsWith(".world-stage-") || it.name.startsWith(".world.backup-") } == true)
+            snapshot.delete()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `corrupt snapshot preserves existing world and cleans replacement stage`() = runTest {
+        val root = Files.createTempDirectory("base-world-replace-corrupt").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val template = world(owner)
+            val service = service(root, repository(template))
+            val archive = archive(root, "region/a" to byteArrayOf(4))
+            root.resolve(template.id.toString()).apply { mkdirs() }
+                .resolve("world.tar.zst").also { archive.copyTo(it, overwrite = true) }
+            val snapshot = service.snapshotForHost(template.id).getOrThrow()
+            val target = root.resolve("host/world")
+            target.mkdirs()
+            target.resolve("old-only.txt").writeText("old")
+            val oldContent = target.resolve("old-only.txt").readBytes()
+
+            assertFailsWith<Exception> { service.replaceWorldFromSnapshot(snapshot, target).getOrThrow() }
+
+            assertContentEquals(oldContent, target.resolve("old-only.txt").readBytes())
+            assertTrue(target.parentFile.listFiles()?.none { it.name.startsWith(".world-stage-") || it.name.startsWith(".world.backup-") } == true)
+            snapshot.delete()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `snapshot replacement publishes template when existing world is absent`() = runTest {
+        val root = Files.createTempDirectory("base-world-replace-empty").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val template = world(owner)
+            val service = service(root, repository(template))
+            val archive = archive(root, "level.dat" to byteArrayOf(5, 6))
+            root.resolve(template.id.toString()).apply { mkdirs() }
+                .resolve("world.tar.zst").also { archive.copyTo(it, overwrite = true) }
+            val snapshot = service.snapshotForHost(template.id).getOrThrow()
+            val target = root.resolve("host/world")
+            target.parentFile.mkdirs()
+
+            service.replaceWorldFromSnapshot(snapshot, target).getOrThrow()
+
+            assertContentEquals(byteArrayOf(5, 6), target.resolve("level.dat").readBytes())
+            assertTrue(target.parentFile.listFiles()?.none { it.name.startsWith(".world-stage-") || it.name.startsWith(".world.backup-") } == true)
+            snapshot.delete()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `publication failure restores old world and cleans swap residue`() = runTest {
+        val root = Files.createTempDirectory("base-world-replace-publish-failure").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val template = world(owner)
+            val archive = archive(root, "level.dat" to byteArrayOf(7, 8))
+            root.resolve(template.id.toString()).apply { mkdirs() }
+                .resolve("world.tar.zst").also { archive.copyTo(it, overwrite = true) }
+            val service = service(root, repository(template)) { _, _ -> throw IOException("injected publication failure") }
+            val snapshot = service.snapshotForHost(template.id).getOrThrow()
+            val target = root.resolve("host/world")
+            target.mkdirs()
+            target.resolve("old-only.txt").writeText("old")
+
+            assertFailsWith<IOException> { service.replaceWorldFromSnapshot(snapshot, target).getOrThrow() }
+
+            assertEquals("old", target.resolve("old-only.txt").readText())
+            assertTrue(Files.exists(target.toPath(), LinkOption.NOFOLLOW_LINKS))
+            assertTrue(target.parentFile.listFiles()?.none {
+                it.name.startsWith(".world-stage-") || it.name.startsWith(".world.backup-")
+            } == true)
+            snapshot.delete()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `world symlink is moved as an entry without touching its target`() = runTest {
+        org.junit.jupiter.api.Assumptions.assumeTrue(
+            calebxzhou.rdi.common.util.canCreateSymlink(),
+            "symbolic links are unsupported on this platform",
+        )
+        val root = Files.createTempDirectory("base-world-replace-symlink").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val template = world(owner)
+            val service = service(root, repository(template))
+            val archive = archive(root, "level.dat" to byteArrayOf(9))
+            root.resolve(template.id.toString()).apply { mkdirs() }
+                .resolve("world.tar.zst").also { archive.copyTo(it, overwrite = true) }
+            val snapshot = service.snapshotForHost(template.id).getOrThrow()
+            val external = root.resolve("external-world").apply { mkdirs() }
+            external.resolve("keep.txt").writeText("keep")
+            val target = root.resolve("host/world")
+            target.parentFile.mkdirs()
+            Files.createSymbolicLink(target.toPath(), external.toPath())
+
+            service.replaceWorldFromSnapshot(snapshot, target).getOrThrow()
+
+            assertTrue(Files.isDirectory(target.toPath(), LinkOption.NOFOLLOW_LINKS))
+            assertTrue(Files.isDirectory(external.toPath(), LinkOption.NOFOLLOW_LINKS))
+            assertEquals("keep", external.resolve("keep.txt").readText())
+            snapshot.delete()
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    private fun service(
+        root: File,
+        repository: PgBaseWorldRepo,
+        movePreparedWorld: (Path, Path) -> Unit = { source, target ->
+            Files.move(source, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE)
+        },
+    ): BaseWorldService {
         val database = mockk<DatabaseProvider>()
         coEvery { database.transaction<Any?>(any()) } coAnswers {
             firstArg<JdbcTransaction.() -> Any?>().invoke(mockk(relaxed = true))
@@ -180,6 +327,7 @@ class BaseWorldHostSelectionTest {
             worldDestination = { root.resolve(it.id.toString()) },
             taskStarter = {},
             notifier = { _, _, _ -> },
+            movePreparedWorld = movePreparedWorld,
         )
     }
 

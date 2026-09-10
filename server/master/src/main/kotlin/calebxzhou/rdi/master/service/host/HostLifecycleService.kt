@@ -6,6 +6,7 @@ import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.Host.Companion.getDifficultyText
 import calebxzhou.rdi.common.model.Host.Companion.getGameModeText
 import calebxzhou.rdi.common.model.HostStatus
+import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.util.str
 import calebxzhou.rdi.common.util.validateName
 import calebxzhou.rdi.common.util.ioScope
@@ -24,6 +25,8 @@ import calebxzhou.rdi.master.service.host.HostQueryService.getById
 import calebxzhou.rdi.master.service.host.HostService.needAdmin
 import calebxzhou.rdi.master.service.host.HostService.needOwner
 import calebxzhou.rdi.master.service.host.HostRuntimeService.hostStates
+import calebxzhou.rdi.master.service.modpack.ModpackVersionMutationLock
+import calebxzau.rdi.server.service.baseworld.BaseWorldService
 import com.mongodb.client.model.Filters.eq
 import com.mongodb.client.model.Updates.combine
 import com.mongodb.client.model.Updates.set
@@ -36,6 +39,12 @@ import java.nio.file.LinkOption
 
 object HostLifecycleService {
     private val dbcl get() = HostService.dbcl
+
+    internal fun resolveRequiredBaseWorldId(modpack: Modpack, host: Host): java.util.UUID? {
+        val version = modpack.versions.firstOrNull { it.name == host.packVer }
+            ?: throw RequestError("无此版本")
+        return version.baseWorld?.takeIf { it.required }?.id
+    }
 
     suspend fun HostContext.delete(payload: Host.DeleteDto = Host.DeleteDto()) {
         HostLifecycleLock.withLock(host._id) { fresh().needOwner.deleteLocked(payload) }
@@ -87,18 +96,43 @@ object HostLifecycleService {
         }
     }
 
-    suspend fun HostContext.resetWorld() {
-        HostLifecycleLock.withLock(host._id) { fresh().needOwner.resetWorldLocked() }
+    suspend fun HostContext.resetWorld(baseWorldService: BaseWorldService) {
+        HostLifecycleLock.withLock(host._id) { fresh().needOwner.resetWorldLocked(baseWorldService) }
     }
 
-    private fun HostContext.resetWorldLocked() {
+    private suspend fun HostContext.resetWorldLocked(baseWorldService: BaseWorldService) {
         val current = host
         if (current.realVersion != 2) throw RequestError("仅v2房间支持重置世界")
         if (current.worldId != null) throw RequestError("v2房间存档数据无效")
         if (current.status != HostStatus.STOPPED) throw RequestError("请先去后台停止房间后 再重置存档")
         val worldPath = current.dir.resolve("world")
-        if (worldPath.exists() || Files.isSymbolicLink(worldPath.toPath())) {
-            worldPath.deleteRecursivelyNoSymlink()
+        var lease: BaseWorldService.SnapshotLease? = null
+        var snapshot: java.io.File? = null
+        try {
+            lease = ModpackVersionMutationLock.withLock(current.modpackId, current.packVer) {
+                val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(current.modpackId)
+                    ?: throw RequestError("无此整合包")
+                val requiredBaseWorldId = resolveRequiredBaseWorldId(modpack, current)
+                    ?: return@withLock null
+                baseWorldService.acquireSnapshotLease(requiredBaseWorldId).getOrThrow()
+            }
+            val acquiredLease = lease ?: run {
+                if (worldPath.exists() || Files.isSymbolicLink(worldPath.toPath())) {
+                    worldPath.deleteRecursivelyNoSymlink()
+                }
+                return
+            }
+            snapshot = baseWorldService.snapshotForHost(acquiredLease.world.id).getOrThrow()
+            baseWorldService.replaceWorldFromSnapshot(snapshot, worldPath).getOrThrow()
+        } finally {
+            snapshot?.let { file ->
+                runCatching { Files.deleteIfExists(file.toPath()) }
+                    .onFailure { error -> HostService.lgr.error(error) { "清理地图模板快照失败: ${file.absolutePath}" } }
+            }
+            lease?.let { acquired ->
+                runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { acquired.release() } }
+                    .onFailure { error -> HostService.lgr.error(error) { "释放地图模板快照租约失败: ${acquired.world.id}" } }
+            }
         }
     }
 

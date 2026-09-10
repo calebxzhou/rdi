@@ -14,6 +14,8 @@ import calebxzhou.rdi.master.service.ModpackService
 import calebxzhou.rdi.master.service.PlayerService
 import calebxzhou.rdi.master.service.host.HostQueryService
 import calebxzhou.rdi.master.service.host.HostControlService.status
+import calebxzau.rdi.server.service.baseworld.BaseWorldReferenceCoordinator
+import calebxzau.rdi.server.service.baseworld.BaseWorldService
 import calebxzhou.rdi.master.service.host.dir
 import calebxzhou.rdi.master.service.dir
 import calebxzhou.rdi.master.service.zip
@@ -412,6 +414,56 @@ object ModpackVersionService {
             Updates.set(Modpack::categories.name, normalizedCategories)
         )
         dbcl.updateOne(eq("_id", modpack._id), update)
+    }
+
+    suspend fun ModpackContext.updateVersionBaseWorld(
+        payload: Modpack.VersionBaseWorldUpdateDto,
+        baseWorldService: BaseWorldService,
+    ) {
+        ModpackVersionMutationLock.withLock(modpack._id, version.name) {
+            val freshPack = ModpackQueryService.getById(modpack._id) ?: throw RequestError("整合包不存在")
+            val freshVersion = freshPack.versions.firstOrNull { it.name == version.name }
+                ?: throw RequestError("版本${version.name}不存在")
+            ModpackContext(player, freshPack, freshVersion).requireCanManageVersion()
+            val binding = payload.baseWorld
+            if (binding != null) {
+                BaseWorldReferenceCoordinator.withLock(binding.id) {
+                    baseWorldService.requireReadyForHost(binding.id).getOrThrow()
+                    updateVersionBaseWorldBinding(freshPack, freshVersion, binding)
+                }
+            } else {
+                updateVersionBaseWorldBinding(freshPack, freshVersion, null)
+            }
+        }
+    }
+
+    private suspend fun updateVersionBaseWorldBinding(
+        freshPack: Modpack,
+        freshVersion: Modpack.Version,
+        binding: Modpack.Version.BaseWorldBinding?,
+    ) {
+        val path = "${Modpack::versions.name}.$[elem].${Modpack.Version::baseWorld.name}"
+        val update = if (binding == null) Updates.unset(path) else Updates.set(path, binding)
+        val result = dbcl.updateOne(
+            and(
+                eq(Modpack::_id.name, freshPack._id),
+                elemMatch(
+                    Modpack::versions.name,
+                    and(
+                        eq(Modpack.Version::name.name, freshVersion.name),
+                        eq(Modpack.Version::status.name, freshVersion.status),
+                    )
+                )
+            ),
+            update,
+            UpdateOptions().arrayFilters(
+                listOf(
+                    Document("elem.name", freshVersion.name)
+                        .append("elem.status", freshVersion.status)
+                )
+            )
+        )
+        if (result.matchedCount == 0L) throw RequestError("版本已被其他操作修改，请刷新后重试")
     }
 
     internal suspend fun Modpack.Version.hostsUsing(): List<Host> =

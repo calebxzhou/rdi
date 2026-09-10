@@ -11,6 +11,7 @@ import calebxzhou.rdi.client.service.ModpackService.startInstallTask2
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.json
 import calebxzhou.rdi.common.model.Modpack
+import calebxzau.rdi.client.service.currentBaseWorldApi
 import calebxzhou.rdi.common.net.json
 import calebxzhou.rdi.common.service.validate
 import calebxzhou.rdi.common.util.validateModpackName
@@ -67,10 +68,17 @@ sealed interface ModpackInfoMutation {
     data object DeletePack : ModpackInfoMutation
     data class DeleteVersion(val versionName: String) : ModpackInfoMutation
     data class RebuildVersion(val versionName: String) : ModpackInfoMutation
+    data class UpdateVersionBaseWorld(
+        val versionName: String,
+        val baseWorld: Modpack.Version.BaseWorldBinding?,
+    ) : ModpackInfoMutation
 }
 
 interface ModpackInfoGateway {
     suspend fun loadDetail(modpackId: String): Result<Modpack.DetailVo?>
+
+    suspend fun loadReadyBaseWorlds(): Result<List<calebxzau.rdi.common.model.BaseWorld>> =
+        Result.failure(UnsupportedOperationException("地图模板加载暂不可用"))
 
     suspend fun mutate(modpackId: String, mutation: ModpackInfoMutation): Result<Unit>
 
@@ -84,6 +92,10 @@ class RdiModpackInfoGateway : ModpackInfoGateway {
         val response = server.makeRequest<Modpack.DetailVo>("modpack/$modpackId/detail")
         if (!response.ok) throw RequestError(response.msg)
         response.data
+    }
+
+    override suspend fun loadReadyBaseWorlds(): Result<List<calebxzau.rdi.common.model.BaseWorld>> = resultOf {
+        currentBaseWorldApi().listReady()
     }
 
     override suspend fun mutate(
@@ -113,6 +125,14 @@ class RdiModpackInfoGateway : ModpackInfoGateway {
                 path = "modpack/$modpackId/version/${mutation.versionName.encodeURLPathPart()}/rebuild",
                 method = HttpMethod.Post,
             )
+
+            is ModpackInfoMutation.UpdateVersionBaseWorld -> server.makeRequest<Unit>(
+                path = "modpack/$modpackId/version/${mutation.versionName.encodeURLPathPart()}/baseworld",
+                method = HttpMethod.Put,
+            ) {
+                json()
+                setBody(Modpack.VersionBaseWorldUpdateDto(mutation.baseWorld).json)
+            }
 
         }
         if (!response.ok) throw RequestError(response.msg)

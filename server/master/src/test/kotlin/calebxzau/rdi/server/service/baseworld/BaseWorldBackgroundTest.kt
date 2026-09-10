@@ -279,23 +279,41 @@ class BaseWorldBackgroundTest {
             assertEquals(1, queuedScheduler.tasks.size)
             queuedScheduler.runOnlyTask()
             assertEquals(BaseWorldUploadStatus.Ready, queuedService.uploadStatus(world.ownerId, world.id, first.id).getOrThrow().status)
-            val second = upload(
-                queuedService,
-                world,
-                archive(root, uploadedFiles().mapValues { (_, value) -> value.map { (it + 1).toByte() }.toByteArray() }),
-            )
-            val secondStore = BaseWorldUploadStore(root, partSize = 11)
-            secondStore.acceptForCompletion(world.ownerId, world.id, second.id)
-            secondStore.markProcessing(world.ownerId, world.id, second.id)
             queuedService.shutdown()
 
-            val processingScheduler = Scheduler()
-            val processingService = fixture.service(processingScheduler, mutableListOf())
-            processingService.startRecovery().join()
-            assertEquals(1, processingScheduler.tasks.size)
-            processingScheduler.runOnlyTask()
-            assertEquals(BaseWorldUploadStatus.Ready, processingService.uploadStatus(world.ownerId, world.id, second.id).getOrThrow().status)
-            processingService.shutdown()
+            val processingRoot = Files.createTempDirectory("base-world-background-processing-recovery").toFile()
+            try {
+                val processingWorld = world()
+                val processingFixture = fixture(processingRoot, processingWorld, Scheduler(), mutableListOf())
+                val second = upload(
+                    processingFixture.service,
+                    processingWorld,
+                    archive(processingRoot, uploadedFiles().mapValues { (_, value) -> value.map { (it + 1).toByte() }.toByteArray() }),
+                )
+                val secondStore = BaseWorldUploadStore(processingRoot, partSize = 11)
+                secondStore.acceptForCompletion(processingWorld.ownerId, processingWorld.id, second.id)
+                secondStore.markProcessing(processingWorld.ownerId, processingWorld.id, second.id)
+                processingFixture.service.shutdown()
+
+                val processingScheduler = Scheduler()
+                val processingService = BaseWorldService(
+                    database = processingFixture.database,
+                    repository = processingFixture.repository,
+                    uploads = BaseWorldUploadStore(processingRoot, partSize = 11),
+                    worldDestination = processingFixture.destination,
+                    taskSubmitter = processingScheduler::submit,
+                    taskStarter = {},
+                    notifier = { _, _, _ -> },
+                    taskCanceller = {},
+                )
+                processingService.startRecovery().join()
+                assertEquals(1, processingScheduler.tasks.size)
+                processingScheduler.runOnlyTask()
+                assertEquals(BaseWorldUploadStatus.Ready, processingService.uploadStatus(processingWorld.ownerId, processingWorld.id, second.id).getOrThrow().status)
+                processingService.shutdown()
+            } finally {
+                processingRoot.deleteRecursively()
+            }
         } finally {
             root.deleteRecursively()
         }
@@ -396,7 +414,7 @@ class BaseWorldBackgroundTest {
     }
 
     @Test
-    fun `invalid archive fails in background and preserves old archive`() = runTest {
+    fun `invalid archive fails in background and preserves unpublished world files`() = runTest {
         val root = Files.createTempDirectory("base-world-background-invalid").toFile()
         try {
             val world = world(size = 42)
@@ -405,8 +423,8 @@ class BaseWorldBackgroundTest {
             val fixture = fixture(root, world, scheduler, mail)
             val destination = fixture.destination(world)
             destination.mkdirs()
-            val oldArchive = byteArrayOf(7, 6, 5)
-            destination.resolve("world.tar.zst").writeBytes(oldArchive)
+            val oldWorldFile = byteArrayOf(7, 6, 5)
+            destination.resolve("old.txt").writeBytes(oldWorldFile)
             val invalid = archive(root, mapOf("region/r.0.0.mca" to byteArrayOf(1, 2, 3)))
             val session = upload(fixture.service, world, invalid)
             fixture.service.completeUpload(world.ownerId, world.id, session.id).getOrThrow()
@@ -414,7 +432,8 @@ class BaseWorldBackgroundTest {
             val failed = fixture.service.uploadStatus(world.ownerId, world.id, session.id).getOrThrow()
             assertEquals(BaseWorldUploadStatus.Failed, failed.status)
             assertTrue(!failed.errorMessage.isNullOrBlank())
-            assertContentEquals(oldArchive, destination.resolve("world.tar.zst").readBytes())
+            assertContentEquals(oldWorldFile, destination.resolve("old.txt").readBytes())
+            assertFalse(destination.resolve("world.tar.zst").exists())
             assertEquals(world.ownerId, mail.single().recipient)
             assertTrue(mail.single().title.contains("失败"))
 

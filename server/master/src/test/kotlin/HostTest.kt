@@ -8,9 +8,11 @@ import calebxzhou.rdi.master.service.host.HostContext
 import calebxzhou.rdi.master.service.host.HostInstallService
 import calebxzhou.rdi.model.Role
 import org.bson.types.ObjectId
+import java.util.UUID
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 
 class HostTest {
 
@@ -100,6 +102,24 @@ class HostTest {
 
         assertFailsWith<RequestError> {
             HostInstallService.resolveHostCreateVersion(modpack, "latest")
+        }
+    }
+
+    @Test
+    fun resolveBaseWorldId_enforcesRequiredBindingAndPreservesOptionalSelection() {
+        val boundId = UUID.randomUUID()
+        val otherId = UUID.randomUUID()
+        val required = Modpack.Version.BaseWorldBinding(boundId, required = true)
+        val optional = Modpack.Version.BaseWorldBinding(boundId, required = false)
+
+        assertNull(HostInstallService.resolveBaseWorldId(null, null))
+        assertEquals(otherId, HostInstallService.resolveBaseWorldId(null, otherId))
+        assertNull(HostInstallService.resolveBaseWorldId(optional, null))
+        assertEquals(otherId, HostInstallService.resolveBaseWorldId(optional, otherId))
+        assertEquals(boundId, HostInstallService.resolveBaseWorldId(required, null))
+        assertEquals(boundId, HostInstallService.resolveBaseWorldId(required, boundId))
+        assertFailsWith<RequestError> {
+            HostInstallService.resolveBaseWorldId(required, otherId)
         }
     }
 }

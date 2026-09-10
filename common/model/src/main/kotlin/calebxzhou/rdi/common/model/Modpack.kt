@@ -3,6 +3,7 @@ package calebxzhou.rdi.common.model
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import org.bson.types.ObjectId
+import java.util.UUID
 
 const val FORGEGUARD_AGENT_FILE_NAME = "forgeguard.jar"
 @Serializable
@@ -70,9 +71,20 @@ class Modpack(
         val mods: MutableList<Mod> = arrayListOf(),
         @Contextual
         val uploaderId: ObjectId? =null,
+        val baseWorld: BaseWorldBinding? = null,
 
     ) {
+        @Serializable
+        data class BaseWorldBinding(
+            @Contextual val id: UUID,
+            val required: Boolean = false,
+        )
     }
+
+    @Serializable
+    data class VersionBaseWorldUpdateDto(
+        val baseWorld: Version.BaseWorldBinding? = null,
+    )
 
     @Serializable
     class AddVersionDto(

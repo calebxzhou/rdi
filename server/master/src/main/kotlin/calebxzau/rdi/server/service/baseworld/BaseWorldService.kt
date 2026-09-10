@@ -9,10 +9,12 @@ import calebxzhou.rdi.common.model.Task2CancelledException
 import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.exception.RequestError
+import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.master.BaseWorldDir
 import calebxzhou.rdi.master.infra.postgres.DatabaseProvider
 import calebxzhou.rdi.master.service.MailService
 import calebxzhou.rdi.master.service.ServerTaskManager
+import calebxzhou.rdi.master.service.modpack.ModpackServiceKernel
 import calebxzhou.rdi.common.util.toObjectId
 import calebxzau.rdi.server.service.upload.ChunkedUploadService
 import calebxzau.rdi.server.account.PgAccountRepo
@@ -43,6 +45,7 @@ import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import com.mongodb.client.model.Filters.eq
 
 val BaseWorld.dir get() = BaseWorldDir.resolve(id.toString())
 class BaseWorldService(
@@ -64,6 +67,9 @@ class BaseWorldService(
         uploads.restoreQueued(ownerId, worldId, uploadId)
     },
     internal val afterMarkProcessing: suspend (UUID) -> Unit = {},
+    internal val movePreparedWorld: (java.nio.file.Path, java.nio.file.Path) -> Unit = { source, target ->
+        Files.move(source, target, StandardCopyOption.ATOMIC_MOVE)
+    },
 ) {
     init {
         require(validationConcurrency > 0) { "地图模板校验并发数必须为正数" }
@@ -123,6 +129,25 @@ class BaseWorldService(
             if (publishedArchive(world) == null) throw RequestError("地图模板尚未准备好")
             world
         }
+    }
+
+    /** Checks readiness and reserves the template until the queued host snapshots it. */
+    suspend fun acquireSnapshotLease(worldId: UUID): Result<SnapshotLease> = resultOf {
+        BaseWorldReferenceCoordinator.withLock(worldId) {
+            val world = withWorldLock(worldId) {
+                database.transaction { repository.findById(worldId) }
+                    ?: throw RequestError("地图模板不存在")
+            }
+            if (publishedArchive(world) == null) throw RequestError("地图模板尚未准备好")
+            SnapshotLease(world, BaseWorldReferenceCoordinator.acquireSnapshotLeaseLocked(worldId))
+        }
+    }
+
+    data class SnapshotLease(
+        val world: BaseWorld,
+        private val delegate: BaseWorldReferenceCoordinator.SnapshotLease,
+    ) {
+        suspend fun release() = delegate.release()
     }
 
     /** Copies a published archive while holding the world lock, producing an independent snapshot. */
@@ -204,18 +229,105 @@ class BaseWorldService(
         }
     }
 
+    /** Replaces an existing host world with a fully validated snapshot. */
+    suspend fun replaceWorldFromSnapshot(
+        snapshot: File,
+        targetDir: File,
+        ensureTaskActive: () -> Unit = {},
+    ): Result<Long> = resultOf {
+        withContext(Dispatchers.IO) {
+            val targetPath = targetDir.toPath()
+            val parent = targetDir.parentFile ?: throw RequestError("世界目录路径不正确")
+            check(parent.isDirectory) { "房间目录不存在" }
+            val stage = Files.createTempDirectory(parent.toPath(), ".world-stage-").toFile()
+            val backup = parent.resolve(".${targetDir.name}.backup-${UUID.randomUUID()}")
+            var oldMoved = false
+            var preparedMoved = false
+            try {
+                val size = uploads.extractArchiveToDir(snapshot, stage, ensureTaskActive)
+                ensureTaskActive()
+                if (Files.exists(targetPath, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(targetPath)) {
+                    Files.move(targetPath, backup.toPath())
+                    oldMoved = true
+                }
+                try {
+                    movePreparedWorld(stage.toPath(), targetPath)
+                } catch (error: AtomicMoveNotSupportedException) {
+                    throw RequestError("无法原子发布世界目录").also { it.addSuppressed(error) }
+                }
+                preparedMoved = true
+                if (oldMoved) {
+                    runCatching { backup.deleteRecursivelyNoSymlink() }
+                        .onFailure { cleanupError -> logger.error(cleanupError) { "清理房间旧世界失败: ${backup.absolutePath}" } }
+                    if (Files.exists(backup.toPath(), LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(backup.toPath())) {
+                        logger.error { "清理房间旧世界失败，旧世界备份仍保留: ${backup.absolutePath}" }
+                    }
+                }
+                size
+            } catch (error: Throwable) {
+                if (preparedMoved && (Files.exists(targetPath, LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(targetPath))) {
+                    runCatching { Files.move(targetPath, stage.toPath(), StandardCopyOption.REPLACE_EXISTING) }
+                        .onFailure { restoreError ->
+                            error.addSuppressed(restoreError)
+                            logger.error(restoreError) { "无法移走发布失败的新世界: ${targetDir.absolutePath}" }
+                        }
+                }
+                if (oldMoved && Files.exists(backup.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+                    runCatching { Files.move(backup.toPath(), targetPath) }
+                        .onFailure { restoreError ->
+                            error.addSuppressed(restoreError)
+                            logger.error(restoreError) { "无法恢复房间旧世界: ${targetDir.absolutePath}" }
+                        }
+                }
+                throw error
+            } finally {
+                if (stage.exists() || Files.isSymbolicLink(stage.toPath())) {
+                    runCatching { stage.deleteRecursivelyNoSymlink() }
+                        .onFailure { cleanupError -> logger.error(cleanupError) { "清理房间世界临时目录失败: ${stage.absolutePath}" } }
+                    if (Files.exists(stage.toPath(), LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(stage.toPath())) {
+                        logger.error { "清理房间世界临时目录失败，临时目录仍保留: ${stage.absolutePath}" }
+                    }
+                }
+            }
+        }
+    }
+
     suspend fun delete(ownerId: UUID, id: UUID): Result<Boolean> = resultOf {
-        withWorldLock(id) {
-            val world = database.transaction { repository.findById(ownerId, id) } ?: return@withWorldLock false
-            uploads.checkDeletionAllowed(id)
-            publishDelete(ownerId, world)
-            true
+        BaseWorldReferenceCoordinator.withLock(id) {
+            if (BaseWorldReferenceCoordinator.hasPendingSnapshotLocked(id)) {
+                throw RequestError("地图模板正在被房间创建使用，请稍后再删除")
+            }
+            if (ModpackServiceKernel.dbcl.countDocuments(eq("versions.baseWorld.id", id)) > 0) {
+                throw RequestError("地图模板已被整合包版本引用，请先解除版本绑定")
+            }
+            withWorldLock(id) {
+                val world = database.transaction { repository.findById(ownerId, id) } ?: return@withWorldLock false
+                uploads.checkDeletionAllowed(id)
+                publishDelete(ownerId, world)
+                true
+            }
+        }
+    }
+
+    suspend fun rename(requesterId: UUID, id: UUID, name: String, isDav: Boolean): Result<BaseWorld> = resultOf {
+        name.validateModpackName().getOrElse { error ->
+            throw RequestError(error.message?.replace("整合包", "地图模板") ?: "地图模板名称不正确", error)
+        }
+        BaseWorldReferenceCoordinator.withLock(id) {
+            val world = database.transaction { repository.findById(id) }
+                ?: throw RequestError("地图模板不存在")
+            if (!isDav && world.ownerId != requesterId) throw RequestError("不是你的地图模板")
+            database.transaction { repository.updateName(world.ownerId, id, name) }
+                ?: throw RequestError("地图模板不存在")
         }
     }
 
     suspend fun createUpload(ownerId: UUID, worldId: UUID, dto: BaseWorldUploadSessionCreateDto): Result<BaseWorldUploadSessionVo> = resultOf {
         withWorldLock(worldId) {
-            requireWorld(ownerId, worldId)
+            val world = requireWorld(ownerId, worldId)
+            if (publishedArchive(world) != null) {
+                throw RequestError("地图模板已发布，内容不可替换；请创建新的地图模板")
+            }
             uploads.create(ownerId, worldId, dto.size, dto.sha1)
         }
     }
@@ -532,6 +644,9 @@ class BaseWorldService(
     private suspend fun publish(ownerId: UUID, world: BaseWorld, extracted: BaseWorldUploadStore.ExtractedUpload): BaseWorld =
         withContext(NonCancellable + Dispatchers.IO) {
             val destination = worldDestination(world)
+            if (publishedArchive(world) != null) {
+                throw RequestError("地图模板已发布，内容不可替换；请创建新的地图模板")
+            }
             val backup = destination.resolveSibling(".${destination.name}.backup-${UUID.randomUUID()}")
             var oldMoved = false
             var newMoved = false

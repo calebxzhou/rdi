@@ -3,9 +3,11 @@ package calebxzhou.rdi.client.service
 import calebxzhou.rdi.client.service.content.ClientContentStore
 import calebxzhou.rdi.client.service.content.toClientContentRequests
 import calebxzhou.rdi.common.model.Mod
+import calebxzhou.rdi.common.model.normalizedSlug
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
+import calebxzhou.rdi.common.service.ModpackModProcessor
 import calebxzhou.rdi.common.service.runInline
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -18,10 +20,11 @@ fun buildHostBaseModSyncTask2(
     activeBaseMods: List<Mod>,
     disabledBaseMods: List<Mod>
 ): Task2 {
-    val serverOnlyBaseMods = activeBaseMods.filter { it.side == Mod.Side.SERVER }
-    val unknownSideBaseMods = activeBaseMods.filter { it.side == Mod.Side.UNKNOWN }
-    val distinctDisabledMods = (disabledBaseMods + serverOnlyBaseMods + unknownSideBaseMods).distinctBy { it.fileName }
-    val distinctActiveMods = activeBaseMods
+    val input = prepareHostBaseModSyncInputs(activeBaseMods, disabledBaseMods)
+    val serverOnlyBaseMods = input.activeMods.filter { it.side == Mod.Side.SERVER }
+    val unknownSideBaseMods = input.activeMods.filter { it.side == Mod.Side.UNKNOWN }
+    val distinctDisabledMods = (input.disabledMods + serverOnlyBaseMods + unknownSideBaseMods).distinctBy { it.fileName }
+    val distinctActiveMods = input.activeMods
         .filter { it.side != Mod.Side.SERVER && it.side != Mod.Side.UNKNOWN }
         .distinctBy { it.fileName }
 
@@ -97,3 +100,16 @@ internal fun missingHostBaseMods(modsDir: Path, mods: List<Mod>): List<Mod> =
             Files.isRegularFile(modsDir.resolve(fileName), LinkOption.NOFOLLOW_LINKS)
         }
     }
+
+internal data class HostBaseModSyncInputs(
+    val activeMods: List<Mod>,
+    val disabledMods: List<Mod>,
+)
+
+internal fun prepareHostBaseModSyncInputs(
+    activeMods: List<Mod>,
+    disabledMods: List<Mod>,
+): HostBaseModSyncInputs = HostBaseModSyncInputs(
+    activeMods = activeMods.filterNot { it.normalizedSlug in ModpackModProcessor.removedSlugs },
+    disabledMods = disabledMods.filterNot { it.normalizedSlug in ModpackModProcessor.removedSlugs },
+)

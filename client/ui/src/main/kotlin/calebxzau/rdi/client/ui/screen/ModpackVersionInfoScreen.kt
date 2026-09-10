@@ -72,6 +72,7 @@ fun ModpackVersionInfoScreen(
     verName: String,
     onBack: () -> Unit,
     onVersionDeleted: () -> Unit = onBack,
+    onOpenBaseWorldManage: () -> Unit = {},
     viewModel: ModpackVersionInfoViewModel = koinViewModel(key = "$modpackId:$verName") {
         parametersOf(modpackId, verName)
     },
@@ -212,6 +213,25 @@ fun ModpackVersionInfoScreen(
                             val uploaderId = currentVersion.uploaderId ?: pack?.authorId ?: loggedAccount._id
                             HeadButton(uploaderId, showName = true)
 
+                        }
+                        if (canManageVersion) {
+                            RRow(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        currentVersion.baseWorld?.let { binding ->
+                                            val name = binding.id.toString()
+                                            "初始地图模板：已设置${if (binding.required) "（必须使用）" else ""}"
+                                        } ?: "初始地图模板 可设置",
+                                        color = themeNow.onSurfaceVariant,
+                                    )
+                                }
+                                CircleIconButton(
+                                    icon = "\uEE69",
+                                    label = "配置初始地图",
+                                ) {
+                                    onOpenBaseWorldManage()
+                                }
+                            }
                         }
                         if (uiState.versionActionPending) {
                             Text(

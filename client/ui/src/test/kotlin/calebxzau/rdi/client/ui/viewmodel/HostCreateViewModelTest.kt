@@ -6,6 +6,8 @@ import calebxzhou.rdi.common.model.Host2PackStatus
 import calebxzhou.rdi.common.model.HostStatus
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.ModLoader
+import calebxzau.rdi.common.model.BaseWorld
+import calebxzhou.rdi.common.model.Modpack
 import calebxzhou.rdi.common.model.PackSource
 import calebxzhou.rdi.client.ui.screen.HostKind
 import calebxzhou.rdi.model.Role
@@ -93,6 +95,74 @@ class HostCreateViewModelTest {
         assertEquals(ObjectId(PACK_ID), create.modpackId)
         assertEquals("2.0.0", create.packVer)
         assertFalse(create.whitelist)
+    }
+
+    @Test
+    fun `version baseworld is selected automatically and required terrain cannot change`() = runBlocking {
+        val worldId = UUID.randomUUID()
+        val gateway = FakeHostCreateGateway(
+            binding = Modpack.Version.BaseWorldBinding(worldId, required = true),
+            baseWorlds = listOf(testBaseWorld(worldId)),
+            submissionResult = Result.success(Unit),
+        )
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "2.0.0",
+        )
+        awaitTemplateLoaded(viewModel)
+
+        assertEquals(worldId, viewModel.uiState.value.selectedBaseWorldId)
+        viewModel.selectLevelChoice(1)
+        assertEquals(HostCreateWorldSource.Template, viewModel.uiState.value.worldSource)
+        viewModel.updateHostName("强制模板房间")
+        viewModel.submit()
+
+        val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
+        assertEquals(worldId, create.baseWorldId)
+    }
+
+    @Test
+    fun `optional version baseworld keeps a confirmed override after refresh`() = runBlocking {
+        val configuredId = UUID.randomUUID()
+        val overrideId = UUID.randomUUID()
+        val gateway = FakeHostCreateGateway(
+            binding = Modpack.Version.BaseWorldBinding(configuredId),
+            baseWorlds = listOf(testBaseWorld(configuredId), testBaseWorld(overrideId, "替换模板")),
+        )
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "2.0.0",
+        )
+        awaitTemplateLoaded(viewModel)
+        viewModel.commitBaseWorldSelection(overrideId)
+        viewModel.refreshBaseWorlds()
+        withTimeout(5_000) { viewModel.uiState.filter { !it.baseWorldsLoading }.first() }
+
+        assertEquals(overrideId, viewModel.uiState.value.selectedBaseWorldId)
+    }
+
+    @Test
+    fun `required unavailable version baseworld blocks submission`() = runBlocking {
+        val gateway = FakeHostCreateGateway(
+            binding = Modpack.Version.BaseWorldBinding(UUID.randomUUID(), required = true),
+            baseWorlds = emptyList(),
+        )
+        val viewModel = createViewModel(
+            gateway,
+            kind = HostKind.Legacy,
+            sourceId = PACK_ID,
+            legacyVersionName = "2.0.0",
+        )
+        awaitTemplateLoaded(viewModel)
+        viewModel.updateHostName("缺失模板房间")
+        viewModel.submit()
+
+        assertTrue(viewModel.uiState.value.statusMessage?.contains("地图模板") == true)
+        assertTrue(gateway.submissions.isEmpty())
     }
 
     @Test
@@ -311,11 +381,16 @@ class HostCreateViewModelTest {
     private suspend fun awaitLoaded(viewModel: HostCreateViewModel): HostCreateUiState =
         withTimeout(5_000) { viewModel.uiState.filter { !it.loading }.first() }
 
+    private suspend fun awaitTemplateLoaded(viewModel: HostCreateViewModel): HostCreateUiState =
+        withTimeout(5_000) { viewModel.uiState.filter { !it.loading && !it.baseWorldsLoading }.first() }
+
     private class FakeHostCreateGateway(
         private val initial: HostCreateInitialData = HostCreateInitialData(),
         private val submissionResult: Result<Unit> = Result.success(Unit),
         private val submissionGate: CompletableDeferred<Result<Unit>>? = null,
         private val resetResult: Result<Unit> = Result.success(Unit),
+        private val binding: Modpack.Version.BaseWorldBinding? = null,
+        private val baseWorlds: List<BaseWorld> = emptyList(),
     ) : HostCreateGateway {
         var loadInitialCalls = 0
         val submissions = mutableListOf<HostCreateSubmission>()
@@ -325,6 +400,13 @@ class HostCreateViewModelTest {
             loadInitialCalls++
             return Result.success(initial)
         }
+
+        override suspend fun loadVersionBaseWorld(
+            modpackId: String,
+            versionName: String,
+        ): Result<Modpack.Version.BaseWorldBinding?> = Result.success(binding)
+
+        override suspend fun loadBaseWorlds(): Result<List<BaseWorld>> = Result.success(baseWorlds)
 
         override suspend fun createOrUpdate(submission: HostCreateSubmission): Result<Unit> {
             submissions += submission
@@ -342,6 +424,15 @@ class HostCreateViewModelTest {
         const val PACK_ID = "66a000000000000000000002"
         const val WORLD_ID = "66a000000000000000000003"
         val OWNER_ID = ObjectId("66a000000000000000000004")
+
+        fun testBaseWorld(id: UUID, name: String = "默认模板") = BaseWorld(
+            id = id,
+            ownerId = UUID.randomUUID(),
+            name = name,
+            levelType = "minecraft:normal",
+            generatorSettings = null,
+            size = 1L,
+        )
 
         /* fun testHost2Detail() = Host2.DetailVo(
             id = UUID.fromString("019c9c18-778d-7000-8000-000000000003"),

@@ -34,11 +34,16 @@ data class BaseWorldListUiState(
     val deletingWorldId: java.util.UUID? = null,
     val deletionInProgress: Boolean = false,
     val deletionErrorMessage: String? = null,
+    val renamingWorldId: UUID? = null,
+    val renameInProgress: Boolean = false,
+    val renameErrorMessage: String? = null,
+    val renameSuccessWorldId: UUID? = null,
 )
 
 interface BaseWorldListGateway {
     suspend fun list(ownerId: String): Result<List<BaseWorld>>
     suspend fun delete(ownerId: String, worldId: java.util.UUID): Result<Unit>
+    suspend fun rename(ownerId: String, worldId: UUID, name: String): Result<BaseWorld>
 }
 
 class RdiBaseWorldListGateway(
@@ -60,6 +65,14 @@ class RdiBaseWorldListGateway(
     } catch (error: Throwable) {
         Result.failure(error)
     }
+
+    override suspend fun rename(ownerId: String, worldId: UUID, name: String): Result<BaseWorld> = try {
+        Result.success(apiProvider().rename(worldId, BaseWorld.NameUpdateDto(name)))
+    } catch (cancel: CancellationException) {
+        throw cancel
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
 }
 
 class BaseWorldListViewModel(
@@ -71,8 +84,10 @@ class BaseWorldListViewModel(
     private var refreshGeneration = 0L
     private var loadJob: Job? = null
     private var deletionJob: Job? = null
+    private var renameJob: Job? = null
     private data class OwnerDeletionState(
         val reconciled: MutableSet<UUID> = mutableSetOf(),
+        val renamed: MutableMap<UUID, BaseWorld> = mutableMapOf(),
     )
     private val deletionStates = mutableMapOf<String, OwnerDeletionState>()
 
@@ -103,7 +118,9 @@ class BaseWorldListViewModel(
                         _uiState.update { state ->
                             state.copy(
                                 ownerId = ownerId,
-                                worlds = worlds.filterNot { it.id in deletionState(ownerId).reconciled },
+                                worlds = worlds
+                                    .filterNot { it.id in deletionState(ownerId).reconciled }
+                                    .map { deletionState(ownerId).renamed[it.id] ?: it },
                                 loading = false,
                                 errorMessage = null,
                             )
@@ -190,6 +207,69 @@ class BaseWorldListViewModel(
         if (_uiState.value.deletingWorldId == null) {
             _uiState.update { it.copy(deletionErrorMessage = null) }
         }
+    }
+
+    fun rename(ownerId: String, worldId: UUID, name: String) {
+        val currentState = _uiState.value
+        if (currentState.ownerId != ownerId || currentState.renameInProgress || renameJob?.isActive == true) return
+        if (currentState.worlds.none { it.id == worldId }) return
+        val validation = validateBaseWorldName(name)
+        if (validation.isFailure) {
+            _uiState.update {
+                it.copy(renameErrorMessage = validation.exceptionOrNull()?.message ?: "地图模板名称无效")
+            }
+            return
+        }
+        _uiState.update {
+            it.copy(renamingWorldId = worldId, renameInProgress = true, renameErrorMessage = null, renameSuccessWorldId = null)
+        }
+        renameJob = viewModelScope.launch {
+            val result = try {
+                gateway.rename(ownerId, worldId, name)
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (error: Throwable) {
+                Result.failure(error)
+            }
+            result.fold(
+                onSuccess = { renamed ->
+                    deletionState(ownerId).renamed[worldId] = renamed
+                    if (_uiState.value.ownerId == ownerId) {
+                        _uiState.update {
+                            it.copy(
+                                worlds = it.worlds.map { listed -> if (listed.id == worldId) renamed else listed },
+                                renamingWorldId = null,
+                                renameInProgress = false,
+                                renameErrorMessage = null,
+                                renameSuccessWorldId = worldId,
+                            )
+                        }
+                    } else {
+                        _uiState.update { it.copy(renameInProgress = false, renamingWorldId = null) }
+                    }
+                },
+                onFailure = { error ->
+                    if (_uiState.value.ownerId == ownerId) {
+                        _uiState.update {
+                            it.copy(
+                                renameInProgress = false,
+                                renameErrorMessage = error.message ?: "修改地图模板名称失败",
+                            )
+                        }
+                    } else {
+                        _uiState.update { it.copy(renameInProgress = false, renamingWorldId = null) }
+                    }
+                },
+            )
+        }
+    }
+
+    fun clearRenameError() {
+        _uiState.update { it.copy(renameErrorMessage = null) }
+    }
+
+    fun clearRenameSuccess() {
+        _uiState.update { it.copy(renameSuccessWorldId = null) }
     }
 
     fun clearErrorMessage() {
