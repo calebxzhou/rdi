@@ -70,7 +70,8 @@ fun BaseWorldListScreen(
             .asSequence()
             .filter { entry ->
                 entry.status.isTerminal &&
-                    entry.dedupeKey?.startsWith("baseworld-upload:${ownerId}:") == true
+                    (entry.dedupeKey?.startsWith("baseworld-upload:${ownerId}:") == true ||
+                        entry.dedupeKey?.startsWith("baseworld-generated:${ownerId}:") == true)
             }
             .joinToString("|") { entry -> "${entry.runId}:${entry.status}" }
     }

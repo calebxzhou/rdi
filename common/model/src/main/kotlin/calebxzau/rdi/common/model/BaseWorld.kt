@@ -29,6 +29,7 @@ data class BaseWorld(
         val levelType: String,
         val generatorSettings: String? = null,
         val size: Long,
+        val generated: Boolean = false,
     )
 
     @Serializable

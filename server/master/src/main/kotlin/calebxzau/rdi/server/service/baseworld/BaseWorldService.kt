@@ -20,6 +20,7 @@ import calebxzhou.rdi.common.util.toObjectId
 import calebxzau.rdi.server.service.upload.ChunkedUploadService
 import calebxzau.rdi.server.account.PgAccountRepo
 import calebxzhou.rdi.common.util.validateModpackName
+import calebxzau.rdi.common.util.uuid7j
 import io.ktor.utils.io.ByteReadChannel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -89,11 +90,51 @@ class BaseWorldService(
         levelType: String,
         generatorSettings: String?,
         size: Long,
+        generated: Boolean = false,
     ): Result<BaseWorld> = resultOf {
         name.validateModpackName().getOrElse { error ->
             throw RequestError(error.message?.replace("整合包", "地图模板") ?: "地图模板名称不正确", error)
         }
-        if (size !in 0..BaseWorld.MaxSize) throw RequestError("地图模板大小必须在${BaseWorld.MaxSize.humanFileSize}以内")
+        if (generated && size != 0L) throw RequestError("生成地图模板大小必须为0")
+        if (!generated && size !in 0..BaseWorld.MaxSize) {
+            throw RequestError("地图模板大小必须在${BaseWorld.MaxSize.humanFileSize}以内")
+        }
+        if (generated) {
+            val id = uuid7j()
+            val pending = BaseWorld(id, ownerId, name, levelType, generatorSettings, size)
+            return@resultOf withWorldLock(id) {
+                val destination = worldDestination(pending)
+                val marker = destination.resolve(".generated")
+                var createdDirectory = false
+                var createdMarker = false
+                var inserted = false
+                try {
+                    if (Files.exists(destination.toPath(), LinkOption.NOFOLLOW_LINKS) || Files.isSymbolicLink(destination.toPath())) {
+                        throw RequestError("地图模板目录已存在")
+                    }
+                    Files.createDirectories(destination.toPath())
+                    createdDirectory = true
+                    Files.createFile(marker.toPath())
+                    createdMarker = true
+                    val created = database.transaction {
+                        if (!accounts.lock(ownerId)) throw RequestError("玩家不存在")
+                        if (repository.countByOwner(ownerId) >= 3) throw RequestError("每位玩家最多拥有3个地图模板")
+                        repository.create(id, ownerId, name, levelType, generatorSettings, size)
+                    }
+                    inserted = true
+                    created
+                } catch (error: Throwable) {
+                    if (createdMarker) runCatching { Files.deleteIfExists(marker.toPath()) }
+                    if (createdDirectory) runCatching { destination.deleteRecursivelyNoSymlink() }
+                    if (inserted) {
+                        runCatching {
+                            database.transaction { repository.delete(ownerId, id) }
+                        }.onFailure { error.addSuppressed(it) }
+                    }
+                    throw error
+                }
+            }
+        }
         database.transaction {
             if (!accounts.lock(ownerId)) throw RequestError("玩家不存在")
             if (repository.countByOwner(ownerId) >= 3) throw RequestError("每位玩家最多拥有3个地图模板")
@@ -116,7 +157,7 @@ class BaseWorldService(
         buildList {
             worlds.forEach { listed ->
                 withWorldLock(listed.id) {
-                    if (publishedArchive(listed) != null) add(listed)
+                    if (publishedContent(listed) != null) add(listed)
                 }
             }
         }
@@ -127,7 +168,7 @@ class BaseWorldService(
         withWorldLock(worldId) {
             val world = database.transaction { repository.findById(worldId) }
                 ?: throw RequestError("地图模板不存在")
-            if (publishedArchive(world) == null) throw RequestError("地图模板尚未准备好")
+            if (publishedContent(world) == null) throw RequestError("地图模板尚未准备好")
             world
         }
     }
@@ -139,13 +180,14 @@ class BaseWorldService(
                 database.transaction { repository.findById(worldId) }
                     ?: throw RequestError("地图模板不存在")
             }
-            if (publishedArchive(world) == null) throw RequestError("地图模板尚未准备好")
-            SnapshotLease(world, BaseWorldReferenceCoordinator.acquireSnapshotLeaseLocked(worldId))
+            val content = publishedContent(world) ?: throw RequestError("地图模板尚未准备好")
+            SnapshotLease(world, content.generated, BaseWorldReferenceCoordinator.acquireSnapshotLeaseLocked(worldId))
         }
     }
 
     data class SnapshotLease(
         val world: BaseWorld,
+        val generated: Boolean,
         private val delegate: BaseWorldReferenceCoordinator.SnapshotLease,
     ) {
         suspend fun release() = delegate.release()
@@ -326,7 +368,7 @@ class BaseWorldService(
     suspend fun createUpload(ownerId: UUID, worldId: UUID, dto: BaseWorldUploadSessionCreateDto): Result<BaseWorldUploadSessionVo> = resultOf {
         withWorldLock(worldId) {
             val world = requireWorld(ownerId, worldId)
-            if (publishedArchive(world) != null) {
+            if (publishedContent(world) != null) {
                 throw RequestError("地图模板已发布，内容不可替换；请创建新的地图模板")
             }
             uploads.create(ownerId, worldId, dto.size, dto.sha1)
@@ -718,10 +760,21 @@ class BaseWorldService(
     private suspend fun <T> withWorldLock(worldId: UUID, block: suspend () -> T): T =
         worldLocks[(worldId.hashCode() and Int.MAX_VALUE) % worldLocks.size].withLock { block() }
 
-    private fun publishedArchive(world: BaseWorld): File? {
+    private data class PublishedContent(val generated: Boolean, val archive: File?)
+
+    private fun publishedContent(world: BaseWorld): PublishedContent? {
+        val destination = worldDestination(world)
+        val marker = destination.resolve(".generated")
+        if (Files.isRegularFile(marker.toPath(), LinkOption.NOFOLLOW_LINKS)) {
+            return PublishedContent(generated = true, archive = null)
+        }
         val archive = worldDestination(world).resolve("world.tar.zst")
         return archive.takeIf { Files.isRegularFile(it.toPath(), LinkOption.NOFOLLOW_LINKS) }
+            ?.let { PublishedContent(generated = false, archive = it) }
     }
+
+    private fun publishedArchive(world: BaseWorld): File? =
+        publishedContent(world)?.archive
 
     private suspend fun <T> resultOf(block: suspend () -> T): Result<T> = try {
         Result.success(block())

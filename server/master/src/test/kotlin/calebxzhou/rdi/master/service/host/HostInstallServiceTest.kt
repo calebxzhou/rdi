@@ -87,6 +87,14 @@ class HostInstallServiceTest {
                 exactHost.copy(packVer = "optional"),
             )
         )
+        val selectedGeneratedId = UUID.randomUUID()
+        assertEquals(
+            selectedGeneratedId,
+            HostLifecycleService.resolveResetBaseWorldId(
+                modpack,
+                exactHost.copy(packVer = "optional", baseWorldId = selectedGeneratedId),
+            ),
+        )
         assertFailsWith<RequestError> {
             HostLifecycleService.resolveRequiredBaseWorldId(modpack, exactHost.copy(packVer = "missing"))
         }
@@ -108,6 +116,22 @@ class HostInstallServiceTest {
             assertFalse(root.resolve("World_backup").exists())
             assertFalse(root.resolve("world_nether").exists())
             assertFalse(root.resolve("server.properties").exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `generated reset moves existing world to recoverable sibling`() {
+        val root = Files.createTempDirectory("host-generated-reset").toFile()
+        try {
+            val world = root.resolve("world").apply { mkdirs() }
+            world.resolve("level.dat").writeText("keep")
+
+            val backup = HostLifecycleService.moveWorldAsideForGeneratedReset(world)
+
+            assertFalse(world.exists())
+            assertTrue(backup?.resolve("level.dat")?.isFile == true)
         } finally {
             root.deleteRecursively()
         }

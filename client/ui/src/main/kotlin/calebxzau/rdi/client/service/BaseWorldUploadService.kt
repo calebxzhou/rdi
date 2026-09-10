@@ -30,6 +30,7 @@ import java.nio.file.LinkOption
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption
 import java.nio.file.attribute.BasicFileAttributes
+import java.nio.charset.StandardCharsets
 
 private const val MAX_ENTRIES = 100_000
 private const val DEFAULT_PART_RETRIES = 3
@@ -77,7 +78,7 @@ class BaseWorldUploadService(
     fun uploadTask(request: BaseWorldUploadRequest): Task2 {
         validateBaseWorldName(request.name).getOrThrow()
         val snapshot = request.copy(
-            directory = request.directory.absoluteFile.toPath().normalize().toFile(),
+            directory = request.directory?.absoluteFile?.toPath()?.normalize()?.toFile(),
             name = request.name,
             levelType = request.levelType.trim(),
             generatorSettings = request.generatorSettings?.trim()?.takeIf(String::isNotEmpty),
@@ -91,7 +92,22 @@ class BaseWorldUploadService(
         withContext(Dispatchers.IO) {
             require(request.name.isNotBlank()) { "地图模板名称不能为空" }
             validateBaseWorldLevelType(request.levelType).getOrThrow()
-            val sourceRoot = request.directory.toPath().toAbsolutePath().normalize()
+            val directory = request.directory
+            if (directory == null) {
+                context.emit(Task2Progress("正在创建生成地图模板", 0f))
+                api.create(
+                    BaseWorld.CreateDto(
+                        name = request.name,
+                        levelType = request.levelType,
+                        generatorSettings = request.generatorSettings,
+                        size = 0,
+                        generated = true,
+                    ),
+                )
+                context.emit(Task2Progress("地图模板已创建", 1f))
+                return@withContext
+            }
+            val sourceRoot = directory.toPath().toAbsolutePath().normalize()
             val temporaryRoot = tempRoot.absoluteFile.toPath().toAbsolutePath().normalize()
             require(!sourceRoot.startsWith(temporaryRoot) && !temporaryRoot.startsWith(sourceRoot)) {
                 "地图模板临时目录不能与世界目录重叠"
@@ -127,6 +143,7 @@ class BaseWorldUploadService(
                         levelType = request.levelType,
                         generatorSettings = request.generatorSettings,
                         size = initial.totalBytes,
+                        generated = false,
                     ),
                 )
                 worldId = world.id
@@ -375,4 +392,12 @@ fun baseWorldUploadTaskKey(ownerId: String, directory: File): String {
         normalized
     }
     return "baseworld-upload:${ownerId.trim()}:$path"
+}
+
+fun baseWorldGeneratedTaskKey(ownerId: String, name: String, levelType: String, generatorSettings: String?): String {
+    val normalized = listOf(name.trim(), levelType.trim(), generatorSettings?.trim().orEmpty())
+        .joinToString("\u0000")
+        .toByteArray(StandardCharsets.UTF_8)
+    val digest = sha1dig().apply { update(normalized) }.digestHex()
+    return "baseworld-generated:${ownerId.trim()}:$digest"
 }

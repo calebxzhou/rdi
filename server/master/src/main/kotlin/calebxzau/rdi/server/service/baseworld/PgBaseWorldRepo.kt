@@ -12,6 +12,7 @@ import org.jetbrains.exposed.v1.jdbc.insertReturning
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
 import java.util.UUID
+import calebxzau.rdi.common.util.uuid7j
 
 /** Synchronous Exposed operations; callers own the surrounding transaction. */
 class PgBaseWorldRepo {
@@ -21,8 +22,18 @@ class PgBaseWorldRepo {
         levelType: String,
         generatorSettings: String?,
         size: Long,
+    ): BaseWorld = create(uuid7j(), ownerId, name, levelType, generatorSettings, size)
+
+    fun create(
+        id: UUID,
+        ownerId: UUID,
+        name: String,
+        levelType: String,
+        generatorSettings: String?,
+        size: Long,
     ): BaseWorld =
         BaseWorldTable.insertReturning {
+            it[BaseWorldTable.id] = id
             it[BaseWorldTable.ownerId] = ownerId
             it[BaseWorldTable.name] = name
             it[BaseWorldTable.levelType] = levelType

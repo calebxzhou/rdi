@@ -46,6 +46,9 @@ object HostLifecycleService {
         return version.baseWorld?.takeIf { it.required }?.id
     }
 
+    internal fun resolveResetBaseWorldId(modpack: Modpack, host: Host): java.util.UUID? =
+        resolveRequiredBaseWorldId(modpack, host) ?: host.baseWorldId
+
     suspend fun HostContext.delete(payload: Host.DeleteDto = Host.DeleteDto()) {
         HostLifecycleLock.withLock(host._id) { fresh().needOwner.deleteLocked(payload) }
     }
@@ -112,14 +115,18 @@ object HostLifecycleService {
             lease = ModpackVersionMutationLock.withLock(current.modpackId, current.packVer) {
                 val modpack = calebxzhou.rdi.master.service.modpack.ModpackQueryService.getById(current.modpackId)
                     ?: throw RequestError("无此整合包")
-                val requiredBaseWorldId = resolveRequiredBaseWorldId(modpack, current)
+                val selectedBaseWorldId = resolveResetBaseWorldId(modpack, current)
                     ?: return@withLock null
-                baseWorldService.acquireSnapshotLease(requiredBaseWorldId).getOrThrow()
+                baseWorldService.acquireSnapshotLease(selectedBaseWorldId).getOrThrow()
             }
             val acquiredLease = lease ?: run {
                 if (worldPath.exists() || Files.isSymbolicLink(worldPath.toPath())) {
                     worldPath.deleteRecursivelyNoSymlink()
                 }
+                return
+            }
+            if (acquiredLease.generated) {
+                moveWorldAsideForGeneratedReset(worldPath)
                 return
             }
             snapshot = baseWorldService.snapshotForHost(acquiredLease.world.id).getOrThrow()
@@ -134,6 +141,15 @@ object HostLifecycleService {
                     .onFailure { error -> HostService.lgr.error(error) { "释放地图模板快照租约失败: ${acquired.world.id}" } }
             }
         }
+    }
+
+    internal fun moveWorldAsideForGeneratedReset(worldPath: java.io.File): java.io.File? {
+        if (!Files.exists(worldPath.toPath(), LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(worldPath.toPath())) {
+            return null
+        }
+        val backup = worldPath.resolveSibling(".${worldPath.name}.generated-backup-${java.util.UUID.randomUUID()}")
+        Files.move(worldPath.toPath(), backup.toPath())
+        return backup
     }
 
     suspend fun HostContext.changeVersion(packVer: String?) {

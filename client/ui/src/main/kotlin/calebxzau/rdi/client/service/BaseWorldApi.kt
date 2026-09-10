@@ -24,7 +24,7 @@ import java.util.UUID
 import java.io.IOException
 
 data class BaseWorldUploadRequest(
-    val directory: java.io.File,
+    val directory: java.io.File?,
     val name: String,
     val levelType: String,
     val generatorSettings: String?,

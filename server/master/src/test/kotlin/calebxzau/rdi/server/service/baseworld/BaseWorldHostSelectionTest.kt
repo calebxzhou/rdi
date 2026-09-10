@@ -29,6 +29,105 @@ import kotlin.test.assertTrue
 
 class BaseWorldHostSelectionTest {
     @Test
+    fun `generated template publishes marker and is ready without archive`() = runTest {
+        val root = Files.createTempDirectory("base-world-generated").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val account = mockk<PgAccountRepo>()
+            val repository = mockk<PgBaseWorldRepo>()
+            var created: BaseWorld? = null
+            every { account.lock(owner) } returns true
+            every { repository.countByOwner(owner) } returns 0L
+            every { repository.create(any(), owner, any(), any(), any(), any()) } answers {
+                world(owner).copy(id = firstArg()).also { created = it }
+            }
+            every { repository.findById(owner, any()) } answers { created }
+            every { repository.findById(any<UUID>()) } answers { created }
+            every { repository.delete(owner, any()) } returns true
+            val service = BaseWorldService(
+                database = mockk<DatabaseProvider>().also { database ->
+                    coEvery { database.transaction<Any?>(any()) } coAnswers {
+                        firstArg<JdbcTransaction.() -> Any?>().invoke(mockk(relaxed = true))
+                    }
+                },
+                repository = repository,
+                accounts = account,
+                worldDestination = { root.resolve(it.id.toString()) },
+            )
+
+            val template = service.create(owner, "Generated", "normal", null, 0, generated = true).getOrThrow()
+            assertTrue(root.resolve(template.id.toString()).resolve(".generated").isFile)
+            assertTrue(service.requireReadyForHost(template.id).isSuccess)
+            assertTrue(service.acquireSnapshotLease(template.id).getOrThrow().generated)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `generated template rejects non zero size`() = runTest {
+        val repository = mockk<PgBaseWorldRepo>()
+        val account = mockk<PgAccountRepo>()
+        val database = mockk<DatabaseProvider>()
+        val service = BaseWorldService(database, repository, accounts = account)
+        assertTrue(service.create(UUID.randomUUID(), "Generated", "normal", null, 1, generated = true).isFailure)
+    }
+
+    @Test
+    fun `generated marker must be a regular file`() = runTest {
+        val root = Files.createTempDirectory("base-world-marker").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val template = world(owner)
+            val destination = root.resolve(template.id.toString()).apply { mkdirs() }
+            val repository = repository(template)
+            val service = service(root, repository)
+            val marker = destination.resolve(".generated")
+            marker.mkdirs()
+            assertTrue(service.requireReadyForHost(template.id).isFailure)
+            marker.deleteRecursively()
+
+            val target = root.resolve("marker-target").apply { writeText("") }
+            val symlinkCreated = runCatching {
+                Files.createSymbolicLink(marker.toPath(), target.toPath())
+            }.isSuccess
+            if (symlinkCreated) {
+                assertTrue(service.requireReadyForHost(template.id).isFailure)
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `generated marker is cleaned when metadata insert fails`() = runTest {
+        val root = Files.createTempDirectory("base-world-insert-failure").toFile()
+        try {
+            val owner = UUID.randomUUID()
+            val account = mockk<PgAccountRepo>()
+            val repository = mockk<PgBaseWorldRepo>()
+            every { account.lock(owner) } returns true
+            every { repository.countByOwner(owner) } returns 0L
+            every { repository.create(any(), owner, any(), any(), any(), any()) } throws IllegalStateException("insert failed")
+            val database = mockk<DatabaseProvider>()
+            coEvery { database.transaction<Any?>(any()) } coAnswers {
+                firstArg<JdbcTransaction.() -> Any?>().invoke(mockk(relaxed = true))
+            }
+            val service = BaseWorldService(
+                database = database,
+                repository = repository,
+                accounts = account,
+                worldDestination = { root.resolve(it.id.toString()) },
+            )
+
+            assertTrue(service.create(owner, "Generated", "normal", null, 0, generated = true).isFailure)
+            assertTrue(root.listFiles().orEmpty().isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun `template names follow modpack rules and owner quota is three`() = runTest {
         val owner = UUID.randomUUID()
         val repository = mockk<PgBaseWorldRepo>()

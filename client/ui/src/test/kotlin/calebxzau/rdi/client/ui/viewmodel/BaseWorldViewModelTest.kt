@@ -24,6 +24,21 @@ import kotlin.test.assertTrue
 
 class BaseWorldViewModelTest {
     @Test
+    fun `submit without directory creates generated request`() = runTest {
+        val submitter = RecordingSubmitter()
+        val viewModel = BaseWorldUploadViewModel(
+            submitter = submitter,
+            isRunActive = { true },
+        )
+        viewModel.setOwner("owner")
+        viewModel.updateName("Generated")
+
+        assertTrue(viewModel.uiState.value.canSubmit)
+        assertEquals("run-1", viewModel.submit())
+        assertNull(submitter.requests.single().directory)
+    }
+
+    @Test
     fun `base world name validation matches modpack rules`() {
         listOf("", " ab", "ab ", "ab", "地图/模板").forEach { value ->
             assertTrue(validateBaseWorldName(value).isFailure, value)

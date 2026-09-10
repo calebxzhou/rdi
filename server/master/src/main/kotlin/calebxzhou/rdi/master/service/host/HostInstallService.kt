@@ -299,7 +299,7 @@ object HostInstallService {
                 try {
                     try {
                         requireModernLog4j2Config(modpack.mcVer)
-                        if (newHost && installHost.baseWorldId != null) {
+                        if (newHost && installHost.baseWorldId != null && pendingSnapshotLease?.generated != true) {
                         val baseWorldId = installHost.baseWorldId ?: throw RequestError("地图模板ID不存在")
                         val service = baseWorldService ?: throw RequestError("地图模板服务不可用")
                         ctx.emit(LoadProgress.Phase("准备地图模板"))
@@ -322,6 +322,10 @@ object HostInstallService {
                     modpack.installToHost(installHost.packVer, installHost) {
                         MailService.changeMail(mailId, runningTitle, newContent = it)
                         ctx.emit(LoadProgress.Phase(it))
+                    }
+
+                    if (newHost && pendingSnapshotLease?.generated == true) {
+                        moveGeneratedWorldAside(installHost.dir.resolve("world"))
                     }
 
                     if (newHost && baseWorldSnapshot != null) {
@@ -403,6 +407,14 @@ object HostInstallService {
         if (remaining.isNotEmpty()) {
             throw RequestError("清理房间目录失败，仍有文件未删除: ${remaining.joinToString { it.name }}")
         }
+    }
+
+    private fun moveGeneratedWorldAside(worldDir: File) {
+        if (!Files.exists(worldDir.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) && !Files.isSymbolicLink(worldDir.toPath())) {
+            return
+        }
+        val backup = worldDir.resolveSibling(".${worldDir.name}.generated-backup-${UUID.randomUUID()}")
+        Files.move(worldDir.toPath(), backup.toPath())
     }
 
     internal fun deleteStrictNoSymlink(target: File) {

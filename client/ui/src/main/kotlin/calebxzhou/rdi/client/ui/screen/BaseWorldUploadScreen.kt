@@ -89,12 +89,12 @@ fun BaseWorldUploadScreen(
     MaxBox {
         ScreenContentSurface(size = ScreenContentSize.SMALL) {
             TitleRow(
-                title = "上传地图模板",
+                title = "创建地图模板",
                 onBack = onBack,
             ) {
                 CircleIconButton(
                     icon = "\uF058",
-                    label = "开始上传",
+                    label = "创建地图模板",
                     enabled = state.canSubmit,
                     onClick = {
                         viewModel.submit(ownerId)?.let(onUploadSubmitted)
@@ -107,13 +107,19 @@ fun BaseWorldUploadScreen(
             ) {
                 CircleIconButton(
                     icon = "\uF07C",
-                    label = if (state.selectingDirectory) "正在选择..." else "选择地图文件夹",
+                    label = if (state.selectingDirectory) "正在选择..." else "选择已有地图文件夹",
                     enabled = !state.selectingDirectory && !state.submitting,
                     onClick = viewModel::selectDirectory,
                 )
                 state.directory?.let { directory ->
                     Text(
                         "已选择：${directory.absolutePath}",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (state.directory == null) {
+                    Text(
+                        "未选择地图文件夹，将在房间首次启动时生成地图。",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }

@@ -9,6 +9,7 @@ import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.common.util.sha1
+import calebxzhou.rdi.client.service.ClientTaskManager
 import kotlinx.coroutines.CompletableDeferred
 import java.io.File
 import java.io.IOException
@@ -23,9 +24,47 @@ import kotlin.test.assertFails
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+import kotlin.test.assertNotEquals
 import kotlinx.coroutines.runBlocking
 
 class BaseWorldUploadServiceTest {
+    @Test
+    fun `generated task key deduplicates only identical immutable inputs`() {
+        val task = calebxzhou.rdi.common.model.Task2.Leaf("generated") { }
+        val firstKey = baseWorldGeneratedTaskKey("owner", "Name", "minecraft:normal", "{\"seed\":1}")
+        val sameKey = baseWorldGeneratedTaskKey("owner", "Name", "minecraft:normal", " {\"seed\":1} ")
+        val changedKey = baseWorldGeneratedTaskKey("owner", "Name", "minecraft:flat", "{\"seed\":1}")
+        val first = ClientTaskManager.submit(task, firstKey, autoStart = false)
+        val duplicate = ClientTaskManager.submit(task, sameKey, autoStart = false)
+        val changed = ClientTaskManager.submit(task, changedKey, autoStart = false)
+        try {
+            assertEquals(first, duplicate)
+            assertNotEquals(first, changed)
+        } finally {
+            ClientTaskManager.remove(first)
+            ClientTaskManager.remove(changed)
+        }
+    }
+
+    @Test
+    fun `missing directory creates generated template without upload operations`() = runBlocking {
+        val root = createTempDirectory("baseworld-generated-")
+        val api = RecordingApi()
+        try {
+            BaseWorldUploadService(api, root.resolve("temporary").toFile())
+                .uploadTask(BaseWorldUploadRequest(null, "Generated", "minecraft:normal", null))
+                .run(Task2Context { })
+
+            assertEquals(1, api.createCount)
+            assertTrue(api.createdDto?.generated == true)
+            assertEquals(0L, api.createdDto?.size)
+            assertTrue(api.parts.isEmpty())
+            assertEquals(0, api.completeCount)
+        } finally {
+            root.toFile().deleteRecursively()
+        }
+    }
+
     @Test
     fun `base world name follows modpack naming rules`() {
         listOf("", " ab", "ab ", "ab", "地图/模板", "地图模板".repeat(17)).forEach { value ->

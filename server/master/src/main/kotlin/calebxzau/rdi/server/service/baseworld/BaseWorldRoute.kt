@@ -43,6 +43,7 @@ fun Route.baseWorldRoutes() = route("/baseworld") {
                 levelType = dto.levelType,
                 generatorSettings = dto.generatorSettings,
                 size = dto.size,
+                generated = dto.generated,
             ).getOrThrow()
         )
     }

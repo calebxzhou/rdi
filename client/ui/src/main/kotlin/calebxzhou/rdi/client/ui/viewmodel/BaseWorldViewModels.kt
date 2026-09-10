@@ -10,6 +10,7 @@ import calebxzau.rdi.client.service.validateBaseWorldLevelType
 import calebxzau.rdi.client.service.validateBaseWorldName
 import calebxzhou.rdi.client.service.ClientTaskManager
 import calebxzau.rdi.client.service.baseWorldUploadTaskKey
+import calebxzau.rdi.client.service.baseWorldGeneratedTaskKey
 import calebxzau.rdi.client.service.currentBaseWorldApi
 import calebxzau.rdi.common.model.BaseWorld
 import kotlinx.coroutines.CancellationException
@@ -299,8 +300,7 @@ data class BaseWorldUploadUiState(
     val errorMessage: String? = null,
 ) {
     val canSubmit: Boolean
-        get() = directory != null &&
-            validateBaseWorldName(name).isSuccess &&
+        get() = validateBaseWorldName(name).isSuccess &&
             validateBaseWorldLevelType(levelType).isSuccess &&
             !selectingDirectory &&
             !submitting
@@ -310,8 +310,8 @@ fun validateBaseWorldDirectory(directory: File): Result<Unit> = runCatching {
     require(directory.exists()) { "选择的路径不存在" }
     require(directory.isDirectory) { "请选择地图文件夹" }
     val levelDat = directory.resolve("level.dat")
-    require(levelDat.isFile) { "地图文件夹中缺少level.dat" }
-    require(levelDat.length() > 0L) { "level.dat不能为空" }
+    require(levelDat.isFile) { "不是有效的MC地图文件夹" }
+    require(levelDat.length() > 0L) { "没有成功读取地图摘要文件" }
 }
 
 fun validateBaseWorldGeneratorSettings(value: String): Result<Unit> = runCatching {
@@ -334,7 +334,9 @@ class RdiBaseWorldUploadSubmitter(
     override fun submit(ownerId: String, request: BaseWorldUploadRequest): Result<String> = runCatching {
         val api = apiProvider()
         val task = BaseWorldUploadService(api).uploadTask(request)
-        submitTask(task, baseWorldUploadTaskKey(ownerId, request.directory))
+        val key = request.directory?.let { baseWorldUploadTaskKey(ownerId, it) }
+            ?: baseWorldGeneratedTaskKey(ownerId, request.name, request.levelType, request.generatorSettings)
+        submitTask(task, key)
     }
 }
 
@@ -522,8 +524,7 @@ class BaseWorldUploadViewModel(
         if (state.selectingDirectory) return showSubmitError("正在选择地图文件夹")
         val normalizedOwner = ownerId.trim()
         if (normalizedOwner.isBlank()) return showSubmitError("当前账号无效")
-        if (state.ownerId != normalizedOwner) return showSubmitError("账号已变化，请重新选择地图文件夹")
-        val directory = state.directory ?: return showSubmitError("请先选择地图文件夹")
+        if (state.ownerId != normalizedOwner) return showSubmitError("账号已变化，请重新提交")
         val nameResult = validateBaseWorldName(state.name)
         if (nameResult.isFailure) {
             return showSubmitError(nameResult.exceptionOrNull()?.message ?: "地图模板名称无效")
@@ -537,7 +538,8 @@ class BaseWorldUploadViewModel(
         if (settingsResult.isFailure) {
             return showSubmitError(settingsResult.exceptionOrNull()?.message ?: "生成器设置无效")
         }
-        val key = directory.absoluteFile.toPath().normalize().toString()
+        val key = state.directory?.absoluteFile?.toPath()?.normalize()?.toString()
+            ?: baseWorldGeneratedTaskKey(normalizedOwner, state.name, levelType, state.generatorSettings)
         if (activeSubmissionKey == key && activeRunId != null) {
             if (isRunActive(activeRunId!!)) return activeRunId
             activeSubmissionKey = null
@@ -545,7 +547,7 @@ class BaseWorldUploadViewModel(
         }
         if (state.submitting) return null
         val request = BaseWorldUploadRequest(
-            directory = directory,
+            directory = state.directory,
             name = state.name,
             levelType = levelType,
             generatorSettings = state.generatorSettings.trim().takeIf(String::isNotBlank),
