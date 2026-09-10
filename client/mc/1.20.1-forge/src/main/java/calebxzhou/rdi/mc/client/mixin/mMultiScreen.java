@@ -3,6 +3,7 @@ package calebxzhou.rdi.mc.client.mixin;
 import calebxzhou.rdi.mc.common.RDI;
 import net.minecraft.client.multiplayer.ServerData;
 import net.minecraft.client.multiplayer.ServerList;
+import net.minecraft.client.gui.components.Button;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.multiplayer.JoinMultiplayerScreen;
 import net.minecraft.network.chat.Component;
@@ -13,7 +14,6 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import static calebxzhou.rdi.mc.client.RDIMain.JOIN_BUTTON;
-import static calebxzhou.rdi.mc.client.RDIMain.layoutJoinButton;
 
 /**
  * calebxzhou @ 2026-01-26 20:41
@@ -43,9 +43,22 @@ public class mMultiScreen extends Screen {
         this.servers.save();
     }
 
-    @Inject(method = "init",at=@At("TAIL"))
+    @Inject(method = "init",at=@At("HEAD"))
     private void RDI$JoinButton(CallbackInfo ci){
-        layoutJoinButton(this.width);
-        this.addRenderableWidget(JOIN_BUTTON);
+        int bottom = this.height - 64;
+        if (bottom <= 0) {
+            return;
+        }
+
+        int buttonCount = (bottom + 49) / 50;
+        int buttonX = this.width / 2 - 250;
+        for (int index = 0; index < buttonCount; index++) {
+            int buttonTop = index * bottom / buttonCount;
+            int buttonBottom = (index + 1) * bottom / buttonCount;
+            this.addRenderableWidget(Button.builder(
+                    JOIN_BUTTON.getMessage(),
+                    ignored -> JOIN_BUTTON.onPress()
+            ).bounds(buttonX, buttonTop, 500, buttonBottom - buttonTop).build());
+        }
     }
 }

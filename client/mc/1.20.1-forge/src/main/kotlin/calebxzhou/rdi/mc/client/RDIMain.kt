@@ -44,7 +44,7 @@ class RDIMain {
 
         @JvmField
         var JOIN_BUTTON: Button =
-            Button.builder(Component.literal("进入地图 · ${RDI.HOST_NAME}"), Button.OnPress {
+            Button.builder(Component.literal("进入房间 · ${RDI.HOST_NAME}")) {
                 val hp = HostAndPort.fromString(RDI.GAME_IP)
                 ConnectScreen.startConnecting(
                     TitleScreen(),
@@ -53,14 +53,14 @@ class RDIMain {
                     ServerData("rdi", RDI.GAME_IP, false),
                     false
                 )
-            }).bounds(100, 0, 200, 50).build()
+            }.build()
 
         @JvmStatic
         fun layoutJoinButton(screenWidth: Int) {
-            JOIN_BUTTON.x = screenWidth / 2 - 100
+            JOIN_BUTTON.x = screenWidth / 2 - 250
             JOIN_BUTTON.y = 0
-            JOIN_BUTTON.width = 200
-            JOIN_BUTTON.height = 20
+            JOIN_BUTTON.width = 500
+            JOIN_BUTTON.height = 50
         }
 
         @SubscribeEvent
