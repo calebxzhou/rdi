@@ -13,6 +13,10 @@ public final class RMixinPlugin implements IMixinConfigPlugin {
             "calebxzhou.rdi.mc.client.mixin.mEuphoriaPatcherWarning";
     private static final String EUPHORIA_WARNING_TARGET =
             "com.euphoriapatches.euphoria_patcher.util.UserInstallErrorMessages";
+    private static final String KUBEJS_WINDOW_ICON_MIXIN =
+            "calebxzhou.rdi.mc.client.mixin.mKubeJsWindowIcon";
+    private static final String KUBEJS_WINDOW_ICON_TARGET =
+            "dev.latvian.mods.kubejs.core.WindowKJS$KJSScaledIconProvider";
 
     @Override
     public void onLoad(String mixinPackage) {
@@ -27,6 +31,9 @@ public final class RMixinPlugin implements IMixinConfigPlugin {
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
         if (EUPHORIA_WARNING_MIXIN.equals(mixinClassName)) {
             return classExists(EUPHORIA_WARNING_TARGET);
+        }
+        if (KUBEJS_WINDOW_ICON_MIXIN.equals(mixinClassName)) {
+            return classExists(KUBEJS_WINDOW_ICON_TARGET);
         }
         return true;
     }
