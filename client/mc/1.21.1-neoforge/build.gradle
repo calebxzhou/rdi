@@ -144,7 +144,7 @@ neoForge {
             programArgument '--height'
             programArgument '1440'
             programArgument '--quickPlayMultiplayer'
-            programArgument 'localhost:56370'
+            programArgument 'localhost:6370'
             systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
             systemProperty 'mixin.hotSwap', 'true'
             systemProperty 'rdi.debug', 'true'

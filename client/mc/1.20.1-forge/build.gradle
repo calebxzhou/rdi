@@ -242,7 +242,7 @@ legacyForge {
                     "--uuid",
                     selectedPlayerUuid.replace("-", ""),
                     "--quickPlayMultiplayer",
-                    "localhost:51468"
+                    "localhost:1450"
             ]
             gameDirectory = project.file('run')
         }
@@ -342,8 +342,9 @@ dependencies {
     add('architecturyApi', 'dev.architectury:architectury-forge:9.1.12')
     //>>>Modrinth Mods<<<
     [
+            "embeddium:UTbfe5d1"
     ].each { dep ->
-        implementation "maven.modrinth:$dep"
+        modImplementation "maven.modrinth:$dep"
     }
     //>>>Official FTB Mods<<<
     [

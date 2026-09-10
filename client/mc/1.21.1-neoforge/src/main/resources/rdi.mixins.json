@@ -5,6 +5,7 @@
   "plugin": "calebxzhou.rdi.mc.client.mixin.RMixinPlugin",
   "compatibilityLevel": "JAVA_21",
   "client": [
+    "mClientLightCalculation",
     "ASkinManager",
     "mChat",
     "mGame",

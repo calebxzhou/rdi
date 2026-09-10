@@ -12,6 +12,7 @@
     "AChunkMap",
     "AServerEntity",
     "mAllowChineseNameLogin",
+    "mFullBrightLightPacket",
     "mArsNouveauAlakarkinosRecipeSync",
     "mBoundTickingBlockEntityGuard",
     "mCancelWorldGenAnimalSpawning",
