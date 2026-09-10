@@ -325,7 +325,6 @@ private fun AccountMenu(
             ) {
                 HeadButton(
                     uid = account._id,
-                    avatarSize = 24.dp
                 )
             }
         }

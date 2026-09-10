@@ -31,7 +31,7 @@ private val steveSkinImage: ImageBitmap? by lazy {
 @Composable
 fun HeadButton(
     uid: ObjectId,
-    avatarSize: Dp = 24.dp,
+    avatarSize: Dp = 20.dp,
     nameFontSize: TextUnit = 14.sp,
     showName: Boolean = true,
     onClick: (() -> Unit)? = null
@@ -51,7 +51,7 @@ fun HeadButton(
 fun HeadButton(
     name: String,
     skinImage: ImageBitmap?,
-    avatarSize: Dp = 24.dp,
+    avatarSize: Dp = 20.dp,
     nameFontSize: TextUnit = 14.sp,
     showName: Boolean = true,
     onClick: (() -> Unit)? = null
