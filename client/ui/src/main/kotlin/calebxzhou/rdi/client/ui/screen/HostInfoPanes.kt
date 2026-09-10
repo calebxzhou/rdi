@@ -522,18 +522,19 @@ internal fun HostConsolePane(
 
     Box(modifier) {
         Console(state = state, modifier = Modifier.fillMaxSize())
-        if (canManage) {
-            Column(
-                modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                horizontalAlignment = Alignment.End
-            ) {
-                CircleIconButton(
-                    "\uF04B",
-                    "启动",
-                    showText = false,
-                    bgColor = themeNow.primary
-                ) { sendAction(HostRuntimeAction.Start) }
+
+        Column(
+            modifier = Modifier.align(Alignment.BottomEnd).padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalAlignment = Alignment.End
+        ) {
+            CircleIconButton(
+                "\uF04B",
+                "启动",
+                showText = false,
+                bgColor = themeNow.primary
+            ) { sendAction(HostRuntimeAction.Start) }
+            if (canManage) {
                 CircleIconButton(
                     "\uF120",
                     "发送命令",
