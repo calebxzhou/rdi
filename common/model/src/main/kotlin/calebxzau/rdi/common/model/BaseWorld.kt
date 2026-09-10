@@ -1,5 +1,6 @@
 package calebxzau.rdi.common.model
 
+import calebxzhou.rdi.common.util.humanFileSize
 import kotlinx.serialization.Contextual
 import kotlinx.serialization.Serializable
 import java.util.UUID
@@ -20,7 +21,7 @@ data class BaseWorld(
     val size: Long,
 ) {
     companion object{
-        const val MaxSize = 2*1024*1024L
+        const val MaxSize = 2*1024*1024*1024L
     }
     @Serializable
     data class CreateDto(

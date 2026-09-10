@@ -10,6 +10,7 @@ import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.master.BaseWorldDir
 import calebxzhou.rdi.master.infra.postgres.DatabaseProvider
 import calebxzhou.rdi.master.service.MailService
@@ -92,7 +93,7 @@ class BaseWorldService(
         name.validateModpackName().getOrElse { error ->
             throw RequestError(error.message?.replace("整合包", "地图模板") ?: "地图模板名称不正确", error)
         }
-        if (size !in 0..BASE_WORLD_MAX_SIZE) throw RequestError("地图模板大小必须在1GB以内")
+        if (size !in 0..BaseWorld.MaxSize) throw RequestError("地图模板大小必须在${BaseWorld.MaxSize.humanFileSize}以内")
         database.transaction {
             if (!accounts.lock(ownerId)) throw RequestError("玩家不存在")
             if (repository.countByOwner(ownerId) >= 3) throw RequestError("每位玩家最多拥有3个地图模板")

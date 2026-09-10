@@ -1,10 +1,12 @@
 package calebxzau.rdi.server.service.baseworld
 
+import calebxzau.rdi.common.model.BaseWorld
 import calebxzau.rdi.common.model.BaseWorldUploadSessionVo
 import calebxzau.rdi.common.model.BaseWorldUploadStatus
 import calebxzhou.rdi.common.archive.forEachTarZstEntryStreaming
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.serdesJson
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzau.rdi.common.util.uuid7j
 import calebxzau.rdi.server.service.upload.ChunkedUploadService
 import io.ktor.utils.io.ByteReadChannel
@@ -24,8 +26,8 @@ import kotlin.coroutines.coroutineContext
 /** Disk-backed state for a BaseWorld tar.zst upload. Callers serialize mutations per world. */
 class BaseWorldUploadStore(
     private val root: File = calebxzhou.rdi.master.BaseWorldDir,
-    private val maxArchiveSize: Long = MAX_WORLD_SIZE,
-    private val maxExtractedSize: Long = MAX_WORLD_SIZE,
+    private val maxArchiveSize: Long = BaseWorld.MaxSize,
+    private val maxExtractedSize: Long = BaseWorld.MaxSize,
     private val clock: Clock = Clock.systemUTC(),
     private val partSize: Int = PART_SIZE,
 ) {
@@ -372,13 +374,13 @@ class BaseWorldUploadStore(
                 onFile(path, entry, input, context)
                 return@forEachTarZstEntryStreaming
             }
-            requestCheck(entry.size >= 0L && entry.size <= maxExtractedSize, "解压后的世界过大")
+            requestCheck(entry.size >= 0L && entry.size <= maxExtractedSize, "解压后的世界超过${maxExtractedSize.humanFileSize}限制")
             val key = path.lowercase()
             requestCheck(files.add(key) && key !in directories, "世界压缩包包含重复路径")
             ensureParentsAreDirectories(path, files)
             addParentDirectories(path, directories)
             extractedSize = Math.addExact(extractedSize, entry.size)
-            requestCheck(extractedSize <= maxExtractedSize, "解压后的世界过大")
+            requestCheck(extractedSize <= maxExtractedSize, "解压后的世界超过${maxExtractedSize.humanFileSize}限制")
             onFile(path, entry, input, context)
             if (path == "level.dat") levelDatFound = entry.size > 0
         }
@@ -539,7 +541,7 @@ class BaseWorldUploadStore(
     }
 
     private fun checkSize(size: Long) {
-        requestCheck(size in 1..maxArchiveSize, "上传文件大小必须在1GB以内")
+        requestCheck(size in 1..maxArchiveSize, "上传文件大小必须在${maxArchiveSize.humanFileSize}以内")
     }
 
     private fun normalizeSha1(value: String): String = value.trim().lowercase().also {
@@ -678,7 +680,6 @@ class BaseWorldUploadStore(
     internal data class SessionSnapshot(val worldId: UUID, val state: SessionState)
 
     private companion object {
-        const val MAX_WORLD_SIZE = BASE_WORLD_MAX_SIZE
         const val PART_SIZE = BASE_WORLD_PART_SIZE
         const val BUFFER_SIZE = 128 * 1024
         const val MAX_ENTRIES = 100_000
@@ -696,5 +697,4 @@ private fun requestCheck(condition: Boolean, message: String) {
 private val BaseWorldUploadStatus.isTerminal: Boolean
     get() = this == BaseWorldUploadStatus.Ready || this == BaseWorldUploadStatus.Failed
 
-const val BASE_WORLD_MAX_SIZE: Long = (1.2*1024L * 1024 * 1024).toLong()
 const val BASE_WORLD_PART_SIZE: Int = 4 * 1024 * 1024

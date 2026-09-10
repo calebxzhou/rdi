@@ -13,6 +13,7 @@ import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.util.deleteRecursivelyNoSymlink
 import calebxzhou.rdi.common.util.digestHex
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.common.util.sha1dig
 import calebxzhou.rdi.common.util.validateModpackName
 import kotlinx.coroutines.CancellationException
@@ -63,7 +64,7 @@ data class BaseWorldUploadTaskConfig(
 class BaseWorldUploadService(
     private val api: BaseWorldApi,
     private val tempRoot: File = ClientDirs.packProcDir.resolve("baseworld-uploads"),
-    private val maxSize: Long = (1.1*1024L * 1024L * 1024L).toLong(),
+    private val maxSize: Long = BaseWorld.MaxSize,
     private val config: BaseWorldUploadTaskConfig = BaseWorldUploadTaskConfig(),
 ) {
     init {
@@ -105,7 +106,7 @@ class BaseWorldUploadService(
             try {
                 context.emit(Task2Progress("正在扫描地图文件", 0f))
                 val initial = scanSource(sourceRoot, context)
-                require(initial.totalBytes <= maxSize) { "地图文件总大小超过1GB限制" }
+                require(initial.totalBytes <= maxSize) { "地图文件总大小超过${maxSize.humanFileSize}限制" }
                 Files.createDirectories(temporaryRoot)
                 temporary = Files.createTempDirectory(temporaryRoot, "baseworld-upload-")
                 val archive = temporary.resolve("world.tar.zst")
@@ -116,7 +117,7 @@ class BaseWorldUploadService(
                 require(initial.entries == finalSnapshot.entries && initial.totalBytes == finalSnapshot.totalBytes) {
                     "世界目录在打包期间发生变化，请重试"
                 }
-                require(Files.size(archive) in 1..maxSize) { "世界压缩包大小超过1GB限制" }
+                require(Files.size(archive) in 1..maxSize) { "世界压缩包大小超过${maxSize.humanFileSize}限制" }
                 val archiveSha1 = sha1(archive, context)
                 val archiveSize = Files.size(archive)
 
@@ -314,7 +315,7 @@ class BaseWorldUploadService(
                 entries[relative] = entry
                 if (!entry.directory) {
                     totalBytes = Math.addExact(totalBytes, entry.size)
-                    require(totalBytes <= maxSize) { "地图文件总大小超过1GB限制" }
+                    require(totalBytes <= maxSize) { "地图文件总大小超过${maxSize.humanFileSize}限制" }
                 }
             }
         }

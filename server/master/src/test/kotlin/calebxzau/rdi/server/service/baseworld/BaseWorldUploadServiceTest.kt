@@ -603,12 +603,18 @@ class BaseWorldUploadServiceTest {
     }
 
     @Test
-    fun `create rejects negative and over one gigabyte sizes before repository mutation`() = runTest {
+    fun `create accepts zero and max sizes and rejects out of range before mutation`() = runTest {
         val root = Files.createTempDirectory("base-world-service-size").toFile()
         try {
             val initial = world(size = 0)
             val fixture = fixture(root, initial)
             fixture.worlds.clear()
+
+            val zero = fixture.service.create(initial.ownerId, "zero", "normal", null, 0).getOrThrow()
+            val maximum = fixture.service.create(initial.ownerId, "maximum", "normal", null, BaseWorld.MaxSize).getOrThrow()
+            assertEquals(0, zero.size)
+            assertEquals(BaseWorld.MaxSize, maximum.size)
+            assertEquals(setOf(0L, BaseWorld.MaxSize), fixture.worlds.values.map { it.size }.toSet())
 
             assertTrue(fixture.service.create(initial.ownerId, "negative", "normal", null, -1).isFailure)
             assertTrue(
@@ -617,10 +623,11 @@ class BaseWorldUploadServiceTest {
                     "large",
                     "normal",
                     null,
-                    BASE_WORLD_MAX_SIZE + 1,
+                    BaseWorld.MaxSize + 1,
                 ).isFailure
             )
-            assertTrue(fixture.worlds.isEmpty())
+            assertEquals(2, fixture.worlds.size)
+            assertEquals(setOf("zero", "maximum"), fixture.worlds.values.map { it.name }.toSet())
         } finally {
             root.deleteRecursively()
         }
@@ -673,6 +680,24 @@ class BaseWorldUploadServiceTest {
             val id = secondArg<UUID>()
             worlds[id]?.takeIf { it.ownerId == owner }
         }
+        val accounts = mockk<calebxzau.rdi.server.account.PgAccountRepo>()
+        every { accounts.lock(any()) } returns true
+        every { repository.countByOwner(any()) } answers {
+            val owner = firstArg<UUID>()
+            worlds.values.count { it.ownerId == owner }.toLong()
+        }
+        every { repository.create(any(), any(), any(), any(), any()) } answers {
+            val created = BaseWorld(
+                id = uuid7j(),
+                ownerId = firstArg(),
+                name = secondArg(),
+                levelType = thirdArg(),
+                generatorSettings = invocation.args[3] as String?,
+                size = invocation.args[4] as Long,
+            )
+            worlds[created.id] = created
+            created
+        }
         every { repository.updateSize(any(), any(), any()) } answers {
             val owner = firstArg<UUID>()
             val id = secondArg<UUID>()
@@ -705,6 +730,7 @@ class BaseWorldUploadServiceTest {
             },
             taskStarter = {},
             notifier = { _, _, _ -> },
+            accounts = accounts,
         )
         return Fixture(service, worlds, pendingTasks) { world -> root.resolve(world.id.toString()) }
     }

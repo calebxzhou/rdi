@@ -7,6 +7,7 @@ import calebxzau.rdi.common.model.BaseWorldUploadStatus
 import calebxzhou.rdi.common.archive.forEachTarZstEntryStreaming
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Task2Context
+import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.common.util.sha1
 import kotlinx.coroutines.CompletableDeferred
 import java.io.File
@@ -118,12 +119,14 @@ class BaseWorldUploadServiceTest {
     fun `source exceeding limit never creates remote world`() = runBlocking {
         val root = createWorld(levelBytes = "level".toByteArray(), extraBytes = ByteArray(2_000))
         val api = RecordingApi()
+        val maxSize = 2_004L
         try {
-            assertFails {
-                BaseWorldUploadService(api, root.resolveSibling("baseworld-limit-tmp").toFile(), maxSize = 2_004)
+            val error = assertFailsWith<IllegalArgumentException> {
+                BaseWorldUploadService(api, root.resolveSibling("baseworld-limit-tmp").toFile(), maxSize = maxSize)
                     .uploadTask(BaseWorldUploadRequest(root.toFile(), "World", "minecraft:normal", null))
                     .run(Task2Context { })
             }
+            assertTrue(error.message.orEmpty().contains(maxSize.humanFileSize))
             assertEquals(0, api.createCount)
             assertTrue(root.resolveSibling("baseworld-limit-tmp").toFile().let { !it.exists() || it.listFiles().orEmpty().isEmpty() })
         } finally {
