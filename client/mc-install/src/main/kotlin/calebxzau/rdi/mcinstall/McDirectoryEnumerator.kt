@@ -118,5 +118,3 @@ class WindowsNativeMcDirectoryEnumerator : McDirectoryEnumerator {
         const val ERROR_NO_MORE_FILES = 18
     }
 }
-
-private fun isWindows(): Boolean = System.getProperty("os.name").contains("Windows", ignoreCase = true)

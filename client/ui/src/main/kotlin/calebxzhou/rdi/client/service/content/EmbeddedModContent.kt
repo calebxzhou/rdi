@@ -1,5 +1,7 @@
 package calebxzhou.rdi.client.service.content
 
+import calebxzau.rdi.client.service.ClientContentStores
+
 import calebxzau.rdi.client.packproc.EmbeddedModSource
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -32,7 +34,7 @@ private fun EmbeddedModSource.toContentRequest(): ContentRequest {
 suspend fun commitEmbeddedModSources(sources: List<EmbeddedModSource>): Result<Unit> {
     if (sources.isEmpty()) return Result.success(Unit)
     return try {
-        ClientContentStore.shared.use(
+        ClientContentStores.shared.use(
             requests = sources.map(EmbeddedModSource::toContentRequest)
         ) { }
     } finally {

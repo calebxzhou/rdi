@@ -86,12 +86,8 @@ fun HostFilesScreen(
     onBack: () -> Unit,
     onOpenTaskList: ((String) -> Unit)? = null,
 ) {
-    if (target.kind == HostKind.Legacy) {
-        val objectId = target.objectIdOrNull()
-        if (objectId == null) HostDetailRouteError("房间ID格式错误", onBack)
-        else HostFilesScreen(objectId, onBack, onOpenTaskList)
-    } else {
-        HostDetailRouteError("该房间类型暂不可用", onBack)
+    LegacyHostRoute(target, onBack) { objectId ->
+        HostFilesScreen(objectId, onBack, onOpenTaskList)
     }
 }
 

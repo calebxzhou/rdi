@@ -28,6 +28,7 @@ import calebxzau.rdi.client.ui.CursorPositionBox
 import calebxzau.rdi.client.ui.DEFAULT_HOST_ICON
 import calebxzau.rdi.client.ui.OffsetFirstItemUnderCursor
 import calebxzau.rdi.client.ui.RDropdownMenuItem
+import calebxzau.rdi.client.ui.RRow
 import calebxzau.rdi.client.ui.Space8w
 import calebxzau.rdi.client.ui.baseRoundCornerShape
 import calebxzhou.rdi.client.net.loggedAccount
@@ -141,22 +142,22 @@ fun UnifiedHostCard(
                     UnifiedHostIcon(host.iconUrl, 48.dp)
                     Space8w()
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Row(
+                        RRow(
                             modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
+                            host.ownerId?.let {
+                                HeadButton(it, avatarSize = 16.dp, showName = false)
+                            }
                             Text(
                                 text = host.name.ifBlank { "未命名房间" },
                                 modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Medium,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            /*host.ownerId?.let {
-                                HeadButton(it, avatarSize = 16.dp, showName = false)
-                            }*/
-                            onlinePlayerIds.take(firstRowOnlineCount).forEach {
+                            onlinePlayerIds.forEach {
                                 HeadButton(it, avatarSize = 16.dp, showName = false)
                             }
                             if (playLoading) {
@@ -175,9 +176,6 @@ fun UnifiedHostCard(
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
-                            onlinePlayerIds.drop(firstRowOnlineCount).forEach {
-                                HeadButton(it, avatarSize = 18.dp, showName = false)
-                            }
                         }
                     }
                 }

@@ -27,6 +27,7 @@ import calebxzhou.rdi.client.service.hydrateToUiModsInBatches
 import calebxzhou.rdi.client.service.modpackUploadTaskKey
 import calebxzhou.rdi.client.service.toUiMods
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
 import calebxzhou.rdi.client.service.content.ContentRequest
 import calebxzhou.rdi.client.service.content.commitEmbeddedModSources
@@ -412,7 +413,7 @@ class RdiModpackUploadGateway(
             return block(localSources.toMap())
         }
 
-        return ClientContentStore.shared.useCached(
+        return ClientContentStores.shared.useCached(
             requests = requests.map { it.second },
             onProgress = { progress ->
                 val completedItems = progress.completedItems ?: 0
@@ -1358,7 +1359,7 @@ private fun readInstalledModId(file: File, displayName: String): String? = try {
 
 private suspend fun readInstalledModIds(
     mods: List<UiMod>,
-    store: ClientContentStore = ClientContentStore.shared,
+    store: ClientContentStore = ClientContentStores.shared,
 ): Map<String, String?> {
     val requestById = linkedMapOf<String, ContentRequest>()
     val stableKeysByRequestId = linkedMapOf<String, MutableList<String>>()

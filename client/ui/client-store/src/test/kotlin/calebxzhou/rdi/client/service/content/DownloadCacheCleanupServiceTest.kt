@@ -7,6 +7,7 @@ import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
 import java.nio.file.Files
 import java.nio.file.Path
+import java.security.MessageDigest
 import kotlin.io.path.createDirectories
 import kotlin.io.path.exists
 import kotlin.io.path.writeBytes
@@ -117,7 +118,7 @@ class DownloadCacheCleanupServiceTest {
                 cacheRoot = cache,
                 versionsRoot = versions,
                 digestCalculator = { path, algorithm ->
-                    ClientContentStore.shared.calculateDigestForMigration(path, algorithm)
+                    ClientContentStore(cache).calculateDigestForMigration(path, algorithm)
                 },
             ).cleanup().getOrThrow()
 

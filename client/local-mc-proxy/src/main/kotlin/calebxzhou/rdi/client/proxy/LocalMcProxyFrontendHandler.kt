@@ -3,9 +3,7 @@ package calebxzhou.rdi.client.proxy
 import calebxzhou.rdi.mc.proxy.MinecraftFrameDecoder
 import io.netty.bootstrap.Bootstrap
 import io.netty.buffer.ByteBuf
-import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
-import io.netty.channel.ChannelFutureListener
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInitializer
 import io.netty.channel.ChannelInboundHandlerAdapter
@@ -42,7 +40,7 @@ internal class LocalMcProxyFrontendHandler(
     }
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
-        backendChannel?.takeIf { it.isActive }?.let(::closeOnFlush)
+        backendChannel?.takeIf { it.isActive }?.closeOnFlush()
         releasePendingBuffer()
         metrics?.closeAndSave()?.fold(
             onSuccess = { file -> file?.let { reportLog("net metrics saved: ${it.absolutePath}") } },
@@ -54,7 +52,7 @@ internal class LocalMcProxyFrontendHandler(
 
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
         reportLog("frontend exception: ${cause.message ?: cause.javaClass.simpleName}")
-        closeOnFlush(ctx.channel())
+        ctx.channel().closeOnFlush()
     }
 
     override fun channelReadComplete(ctx: ChannelHandlerContext) {
@@ -167,11 +165,5 @@ internal class LocalMcProxyFrontendHandler(
 
     private fun recordMetrics(direction: String, msg: Any) {
         if (metrics != null && msg is ByteBuf) metrics.record(direction, msg)
-    }
-
-    private fun closeOnFlush(channel: Channel) {
-        if (channel.isActive) {
-            channel.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE)
-        }
     }
 }

@@ -2,6 +2,7 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.client.model.ModrinthProjectVersionFileVo
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.ContentDigest
 import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
 import calebxzhou.rdi.client.service.content.ContentRequest
@@ -71,7 +72,7 @@ object ModrinthProjectDownloadService {
                 displayName = "$projectDisplayName $filename"
             )
             val staged = stagingDir.toPath().resolve(filename)
-            ClientContentStore.shared.materialize(
+            ClientContentStores.shared.materialize(
                 requests = listOf(request),
                 targetRoot = stagingDir.toPath(),
                 onProgress = ctx::emit
@@ -121,5 +122,3 @@ object ModrinthProjectDownloadService {
 
 private fun ModrinthProjectVersionFileVo.safeFilename(): String =
     filename.replace('\\', '/').substringAfterLast('/').ifBlank { "modrinth-project-file.zip" }
-
-private fun String.safePathSegment(): String = replace(Regex("[^A-Za-z0-9._-]"), "_")

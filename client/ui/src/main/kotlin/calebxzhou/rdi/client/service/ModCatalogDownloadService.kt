@@ -4,6 +4,7 @@ import calebxzhou.rdi.client.model.ModrinthProjectInfoVo
 import calebxzhou.rdi.client.model.ModrinthProjectVersionVo
 import calebxzhou.rdi.client.model.ModCatalogSource
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.toCurseForgeModSide
@@ -95,7 +96,7 @@ object ModCatalogDownloadService {
                 plan.mod.toClientContentRequest(targetRelativePath = plan.mod.fileName)
             }
             try {
-                ClientContentStore.shared.materialize(
+                ClientContentStores.shared.materialize(
                     requests = requests,
                     targetRoot = stagingDir.toPath(),
                     onProgress = ctx::emit
@@ -175,8 +176,6 @@ private fun ModInstallPlan.matchesInstalledFile(modsDir: java.io.File): Boolean 
         else -> true
     }
 }
-
-private fun String.safePathSegment(): String = replace(Regex("[^A-Za-z0-9._-]"), "_")
 
 private fun String?.toModSide(): Mod.Side =
     when (this?.lowercase()) {

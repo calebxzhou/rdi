@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.ContentDigest
 import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
 import calebxzhou.rdi.client.service.content.ContentRequest
@@ -108,7 +109,7 @@ object GithubExtraModService {
         val workDir = Files.createTempDirectory(ClientDirs.packProcDir.toPath(), "github-extra-mod-")
         try {
             val request = asset.toContentRequest(repo)
-            val jarFile = ClientContentStore.shared.materialize(
+            val jarFile = ClientContentStores.shared.materialize(
                 requests = listOf(request),
                 targetRoot = workDir,
                 onProgress = { progress -> onProgress(progress.message) }

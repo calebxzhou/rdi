@@ -255,8 +255,3 @@ class LocalMcDiscovery(
         const val FULL_SCAN_INTERVAL_MS = 72L * 60 * 60 * 1000
     }
 }
-
-private fun pathKey(path: Path): String =
-    path.toAbsolutePath().normalize().toString().lowercase(Locale.ROOT)
-
-private fun isWindows(): Boolean = System.getProperty("os.name").contains("Windows", ignoreCase = true)

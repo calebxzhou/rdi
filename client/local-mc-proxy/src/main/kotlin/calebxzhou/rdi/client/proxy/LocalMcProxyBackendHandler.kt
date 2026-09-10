@@ -1,9 +1,7 @@
 package calebxzhou.rdi.client.proxy
 
 import io.netty.buffer.ByteBuf
-import io.netty.buffer.Unpooled
 import io.netty.channel.Channel
-import io.netty.channel.ChannelFutureListener
 import io.netty.channel.ChannelHandlerContext
 import io.netty.channel.ChannelInboundHandlerAdapter
 
@@ -34,17 +32,11 @@ internal class LocalMcProxyBackendHandler(
     }
 
     override fun channelInactive(ctx: ChannelHandlerContext) {
-        closeOnFlush(frontendChannel)
+        frontendChannel.closeOnFlush()
     }
 
     override fun exceptionCaught(ctx: ChannelHandlerContext, cause: Throwable) {
         reportLog("backend exception: ${cause.message ?: cause.javaClass.simpleName}")
-        closeOnFlush(ctx.channel())
-    }
-
-    private fun closeOnFlush(channel: Channel) {
-        if (channel.isActive) {
-            channel.writeAndFlush(Unpooled.EMPTY_BUFFER).addListener(ChannelFutureListener.CLOSE)
-        }
+        ctx.channel().closeOnFlush()
     }
 }

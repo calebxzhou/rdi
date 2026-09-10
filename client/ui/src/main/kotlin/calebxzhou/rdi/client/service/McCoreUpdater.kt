@@ -3,6 +3,7 @@ package calebxzhou.rdi.client.service
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.ContentDigest
 import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
 import calebxzhou.rdi.client.service.content.ContentRequest
@@ -85,7 +86,7 @@ object McCoreUpdater {
         modsDir: File,
         onDetail: (String) -> Unit,
         onProgress: (Task2Progress) -> Unit = {},
-        contentStore: ClientContentStore = ClientContentStore.shared,
+        contentStore: ClientContentStore = ClientContentStores.shared,
     ): Result<Boolean> = runCatching {
         val request = update.contentRequest ?: error("RDI核心内容请求缺失")
         val expectedSha1 = request.digests

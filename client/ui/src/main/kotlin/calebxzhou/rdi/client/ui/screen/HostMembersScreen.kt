@@ -359,12 +359,8 @@ fun HostMembersScreen(
     onBack: () -> Unit,
     onQuit: () -> Unit,
 ) {
-    if (target.kind == HostKind.Legacy) {
-        val objectId = target.objectIdOrNull()
-        if (objectId == null) HostDetailRouteError("房间ID格式错误", onBack)
-        else HostMembersScreen(objectId, onBack, onQuit)
-    } else {
-        HostDetailRouteError("该房间类型暂不可用", onBack)
+    LegacyHostRoute(target, onBack) { objectId ->
+        HostMembersScreen(objectId, onBack, onQuit)
     }
 }
 

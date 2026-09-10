@@ -2,6 +2,7 @@ package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.client.service.content.ClientContentMigrator
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.ContentDigest
 import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
 import calebxzhou.rdi.client.service.content.ContentRequest
@@ -291,7 +292,7 @@ private suspend fun importRdiPack2(file: File, identity: RdiPack2Identity, conte
                 }
             }
             if (requests.isNotEmpty()) {
-                ClientContentStore.shared.materialize(requests, modsDir, context::emit).getOrThrow()
+                ClientContentStores.shared.materialize(requests, modsDir, context::emit).getOrThrow()
             }
         }
         require(Files.isDirectory(modsDir)) { "导入整合包缺少mods目录" }

@@ -6,6 +6,7 @@ import calebxzhou.rdi.common.util.humanFileSize
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.net.server
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.ContentDigest
 import calebxzhou.rdi.client.service.content.ContentDigestAlgorithm
 import calebxzhou.rdi.client.service.content.ContentRequest
@@ -298,7 +299,7 @@ object ModpackService {
             } else {
                 // A cache failure may return a temporary source. Keep archive
                 // detection and extraction inside use until the archive closes.
-                ClientContentStore.shared.use(
+                ClientContentStores.shared.use(
                     requests = listOf(request),
                     onProgress = ctx::emit,
                 ) { paths ->
@@ -327,7 +328,7 @@ object ModpackService {
                     }
                 },
             )
-            ClientContentStore.shared.materialize(
+            ClientContentStores.shared.materialize(
                 requests = requests,
                 targetRoot = modsDir.toPath(),
                 onProgress = ctx::emit

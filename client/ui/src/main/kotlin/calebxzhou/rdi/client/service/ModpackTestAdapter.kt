@@ -8,6 +8,7 @@ import calebxzau.rdi.modpacktest.ModpackTestModSourceResolver
 import calebxzau.rdi.modpacktest.ModpackTestPaths
 import calebxzau.rdi.modpacktest.ModpackTestProcess
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.toClientContentRequests
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -15,7 +16,7 @@ import java.io.File
 
 val modpackTestModSourceResolver = ModpackTestModSourceResolver { mods, testDir ->
     val modSourceDir = testDir.resolve(".rdi-mod-sources")
-    ClientContentStore.shared.materialize(
+    ClientContentStores.shared.materialize(
         requests = mods.toClientContentRequests(),
         targetRoot = modSourceDir.toPath(),
     ).map { modSourceDir }

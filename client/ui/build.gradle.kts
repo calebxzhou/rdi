@@ -131,6 +131,7 @@ dependencies {
     implementation(project(":code-editor"))
     implementation(project(":code-editor-ui"))
     implementation(project(":database"))
+    implementation(project(":client-store"))
     implementation(project(":misc"))
     implementation(project(":model"))
     implementation(project(":net"))

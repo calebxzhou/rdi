@@ -146,6 +146,21 @@ fun HostListScreen(
                         }
                         rememberPlayerInfoPrefetch(shownHosts.flatMap { listOfNotNull(it.ownerId) + it.onlinePlayerIds })
                         val (playableHosts, nonPlayableHosts) = remember(shownHosts) { groupUnifiedHosts(shownHosts) }
+                        val hostCard: @Composable (UnifiedHostBrief) -> Unit = { host ->
+                            UnifiedHostCard(
+                                host = host,
+                                onClick = onOpenHostInfo1,
+                                onPlay = viewModel::startHost,
+                                onOpenMembers = onOpenHostMembers1,
+                                onOpenMods = onOpenHostMods1,
+                                onOpenFiles = onOpenHostFiles1,
+                                onOpenBackend = onOpenHostBackend1,
+                                onOpenSettings = onOpenHostSettings1,
+                                onDelete = { deleteHost = it; deleteWorld = false; deleteName = "" },
+                                playEnabled = state.launchingHost == null,
+                                playLoading = state.launchingHost == host.target,
+                            )
+                        }
                         Box(Modifier.fillMaxWidth().weight(1f)) {
                             LazyVerticalGrid(
                                 state = gridState,
@@ -159,19 +174,7 @@ fun HostListScreen(
                                     items(
                                         playableHosts,
                                         key = { "playable:${it.target.kind}:${it.target.id}" }) { host ->
-                                        UnifiedHostCard(
-                                            host = host,
-                                            onClick = onOpenHostInfo1,
-                                            onPlay = viewModel::startHost,
-                                            onOpenMembers = onOpenHostMembers1,
-                                            onOpenMods = onOpenHostMods1,
-                                            onOpenFiles = onOpenHostFiles1,
-                                            onOpenBackend = onOpenHostBackend1,
-                                            onOpenSettings = onOpenHostSettings1,
-                                            onDelete = { deleteHost = it; deleteWorld = false; deleteName = "" },
-                                            playEnabled = state.launchingHost == null,
-                                            playLoading = state.launchingHost == host.target,
-                                        )
+                                        hostCard(host)
                                     }
                                 } else {
                                     item(span = { GridItemSpan(maxLineSpan) }) { Text("暂无可游玩的房间") }
@@ -189,19 +192,7 @@ fun HostListScreen(
                                     items(
                                         nonPlayableHosts,
                                         key = { "unplayable:${it.target.kind}:${it.target.id}" }) { host ->
-                                        UnifiedHostCard(
-                                            host = host,
-                                            onClick = onOpenHostInfo1,
-                                            onPlay = viewModel::startHost,
-                                            onOpenMembers = onOpenHostMembers1,
-                                            onOpenMods = onOpenHostMods1,
-                                            onOpenFiles = onOpenHostFiles1,
-                                            onOpenBackend = onOpenHostBackend1,
-                                            onOpenSettings = onOpenHostSettings1,
-                                            onDelete = { deleteHost = it; deleteWorld = false; deleteName = "" },
-                                            playEnabled = state.launchingHost == null,
-                                            playLoading = state.launchingHost == host.target,
-                                        )
+                                        hostCard(host)
                                     }
                                 }
                                 if (state.loadingMore) {

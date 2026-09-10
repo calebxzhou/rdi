@@ -147,12 +147,8 @@ fun HostBackendScreen(
     target: HostTarget,
     onBack: () -> Unit,
 ) {
-    if (target.kind == HostKind.Legacy) {
-        val objectId = target.objectIdOrNull()
-        if (objectId == null) HostDetailRouteError("房间ID格式错误", onBack)
-        else HostBackendScreen(objectId, onBack)
-    } else {
-        HostDetailRouteError("该房间类型暂不可用", onBack)
+    LegacyHostRoute(target, onBack) { objectId ->
+        HostBackendScreen(objectId, onBack)
     }
 }
 

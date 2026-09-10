@@ -119,97 +119,7 @@ fun RegisterScreen(
                     modifier = Modifier.fillMaxWidth().widthIn(max = 480.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (useMsa) {
-                        // MS Account registration flow
-                        if (msaInfo == null) {
-                            Text("即将登录微软账号，点击复制浏览器中打开链接，请在10分钟内登录")
-                            Text("不要切换到其他页面！", fontWeight = FontWeight.Bold)
-                            Text("登录完成后稍等10秒，会自动读取账号信息以进行下一步")
-                            msaDeviceCode?.let { msaDeviceCode ->
-                                Text(
-                                    text = msaDeviceCode.directVerificationUri,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    style = LocalTextStyle.current.copy(textDecoration = TextDecoration.Underline),
-                                    modifier = Modifier
-                                        .clickable {
-                                            copyToClipboard(msaDeviceCode.directVerificationUri)
-                                            scope.launch {
-                                                snackbarHostState.showSnackbar(
-                                                    "链接已复制到剪贴板",
-                                                    duration = SnackbarDuration.Short
-                                                )
-                                            }
-                                        }
-                                )
-                            }
-                        }
-                        msaInfo?.let { msaInfo ->
-                            Text("登录成功！${msaInfo.name} · MSID ${msaInfo.uuid}")
-
-                            OutlinedTextField(
-                                value = name,
-                                onValueChange = { name = it },
-                                shape = fieldShape,
-                                label = { Text("昵称 支持中文") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            OutlinedTextField(
-                                value = qq,
-                                onValueChange = { qq = it },
-                                shape = fieldShape,
-                                label = { Text("QQ号") },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                            PasswordField(
-                                value = pwd,
-                                onValueChange = { pwd = it },
-                                label = "密码",
-                                shape = fieldShape,
-                                showPassword = showPassword,
-                                onToggleVisibility = { showPassword = !showPassword },
-                                onEnter = {}
-                            )
-                            PasswordField(
-                                value = pwd2,
-                                onValueChange = { pwd2 = it },
-                                label = "确认密码",
-                                shape = fieldShape,
-                                showPassword = showPassword2,
-                                onToggleVisibility = { showPassword2 = !showPassword2 },
-                                onEnter = {}
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.End
-                            ) {
-                                Button(
-                                    onClick = {
-                                        if (!validateRegisterInput()) {
-                                            return@Button
-                                        }
-                                        submitting = true
-                                        errorMessage = null
-                                        scope.rdiRequestU(
-                                            "player/register", body = RAccount.RegisterDto(name, qq, pwd, msaInfo).json,
-                                            onDone = { submitting = false },
-                                            onErr = { errorMessage = it.message ?: "注册失败" }) {
-                                            okMessage = "注册成功，请登录"
-                                            onRegisterSuccess?.invoke()
-                                        }
-
-                                    },
-                                    enabled = !submitting
-                                ) {
-                                    Text(if (submitting) "注册中..." else "注册")
-                                }
-                            }
-                        }
-                    } else {
-                        // Non-MS Account registration flow - generate registration code
-                        Text("填写信息")
-
+                    val credentialFields: @Composable () -> Unit = {
                         OutlinedTextField(
                             value = name,
                             onValueChange = { name = it },
@@ -244,6 +154,64 @@ fun RegisterScreen(
                             onToggleVisibility = { showPassword2 = !showPassword2 },
                             onEnter = {}
                         )
+                    }
+                    if (useMsa) {
+                        // MS Account registration flow
+                        if (msaInfo == null) {
+                            Text("即将登录微软账号，点击复制浏览器中打开链接，请在10分钟内登录")
+                            Text("不要切换到其他页面！", fontWeight = FontWeight.Bold)
+                            Text("登录完成后稍等10秒，会自动读取账号信息以进行下一步")
+                            msaDeviceCode?.let { msaDeviceCode ->
+                                Text(
+                                    text = msaDeviceCode.directVerificationUri,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    style = LocalTextStyle.current.copy(textDecoration = TextDecoration.Underline),
+                                    modifier = Modifier
+                                        .clickable {
+                                            copyToClipboard(msaDeviceCode.directVerificationUri)
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar(
+                                                    "链接已复制到剪贴板",
+                                                    duration = SnackbarDuration.Short
+                                                )
+                                            }
+                                        }
+                                )
+                            }
+                        }
+                        msaInfo?.let { msaInfo ->
+                            Text("登录成功！${msaInfo.name} · MSID ${msaInfo.uuid}")
+                            credentialFields()
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                Button(
+                                    onClick = {
+                                        if (!validateRegisterInput()) {
+                                            return@Button
+                                        }
+                                        submitting = true
+                                        errorMessage = null
+                                        scope.rdiRequestU(
+                                            "player/register", body = RAccount.RegisterDto(name, qq, pwd, msaInfo).json,
+                                            onDone = { submitting = false },
+                                            onErr = { errorMessage = it.message ?: "注册失败" }) {
+                                            okMessage = "注册成功，请登录"
+                                            onRegisterSuccess?.invoke()
+                                        }
+
+                                    },
+                                    enabled = !submitting
+                                ) {
+                                    Text(if (submitting) "注册中..." else "注册")
+                                }
+                            }
+                        }
+                    } else {
+                        // Non-MS Account registration flow - generate registration code
+                        Text("填写信息")
+                        credentialFields()
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.End

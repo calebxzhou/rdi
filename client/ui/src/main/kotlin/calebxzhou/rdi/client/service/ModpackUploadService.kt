@@ -7,6 +7,7 @@ import calebxzau.rdi.client.service.ModpackChunkedUploader
 import calebxzau.rdi.client.service.ModpackUploadApi
 import calebxzau.rdi.client.service.currentModpackUploadApi
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.client.service.content.toClientContentRequests
 import calebxzhou.rdi.common.exception.ModpackError
@@ -239,13 +240,13 @@ private fun Mod.toUploadClientContentRequest() = toClientContentRequest()
 internal fun List<Mod>.toUploadClientContentRequests() = toClientContentRequests()
 
 internal suspend fun isUploadClientContentAvailable(mod: Mod): Boolean =
-    ClientContentStore.shared.use(
+    ClientContentStores.shared.use(
         requests = listOf(mod.toUploadClientContentRequest().copy(allowNetwork = false))
     ) { }.isSuccess
 
 internal fun createUploadClientModDownloadTask2(mods: List<Mod>): Task2 =
     Task2.Leaf("下载${mods.size}个Mod") { ctx ->
-        ClientContentStore.shared.use(
+        ClientContentStores.shared.use(
             requests = mods.toUploadClientContentRequests(),
             onProgress = ctx::emit
         ) { }

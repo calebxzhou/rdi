@@ -13,6 +13,8 @@ object ModpackModProcessor {
         "skybox-loader-forge",
         "customskinloader",
         "chunky",
+        //makes game no error log, f
+        "log-deduplicator"
     )
 
     private val clientSideSlugs = setOf(

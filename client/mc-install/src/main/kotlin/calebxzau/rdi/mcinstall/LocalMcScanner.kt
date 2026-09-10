@@ -12,7 +12,6 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.io.IOException
 import java.nio.file.Path
-import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -143,8 +142,3 @@ class LocalMcScanner(
         const val MAX_GLOBAL_ENUMERATORS = 12
     }
 }
-
-private fun pathKey(path: Path): String =
-    path.toAbsolutePath().normalize().toString().lowercase(Locale.ROOT)
-
-private fun isWindows(): Boolean = System.getProperty("os.name").contains("Windows", ignoreCase = true)

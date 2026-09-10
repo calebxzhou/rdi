@@ -1,7 +1,6 @@
 package calebxzhou.rdi.client.service.content
 
 import calebxzau.rdi.common.logging.Loggers
-import calebxzhou.rdi.client.service.ClientDirs
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Progress
@@ -193,14 +192,10 @@ private data class ProgressState(
  * laid out.
  */
 open class ClientContentStore(
-    private val root: Path = ClientDirs.dlcDir.toPath(),
+    private val root: Path,
     private val curseForgeFileInfoFetcher: suspend (List<Int>) -> List<CurseForgeFile> =
         CurseForgeService::getModFilesInfo
 ) {
-    companion object {
-        val shared: ClientContentStore by lazy { ClientContentStore() }
-    }
-
     suspend fun <T> use(
         requests: List<ContentRequest>,
         onProgress: (Task2Progress) -> Unit = {},

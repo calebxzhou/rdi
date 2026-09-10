@@ -35,7 +35,6 @@ import calebxzau.rdi.client.modcatalog.ModCatalog
 import calebxzau.rdi.client.ui.themeNow
 import calebxzhou.rdi.client.net.loggedAccount
 import calebxzhou.rdi.client.service.GithubReleaseAsset
-import calebxzhou.rdi.client.ui.*
 import calebxzau.rdi.client.ui.viewmodel.ExtraModDraft
 import calebxzau.rdi.client.ui.viewmodel.HostInfoViewModel
 import calebxzau.rdi.client.ui.viewmodel.HostModsEvent
@@ -88,17 +87,9 @@ fun HostInfoScreen(
     onBack: () -> Unit = {},
     onOpenModpackInfo: (String) -> Unit = {},
     onOpenPlay: ((calebxzhou.rdi.client.ui.McPlayArgs) -> Unit)? = null,
-    onOpenTaskList: (String) -> Unit = {},
 ) {
-    if (target.kind == HostKind.Legacy) {
-        val objectId = target.objectIdOrNull()
-        if (objectId == null) {
-            HostDetailRouteError("房间ID格式错误", onBack)
-        } else {
-            HostInfoScreen(objectId, onBack, onOpenModpackInfo)
-        }
-    } else {
-        HostDetailRouteError("该房间类型暂不可用", onBack)
+    LegacyHostRoute(target, onBack) { objectId ->
+        HostInfoScreen(objectId, onBack, onOpenModpackInfo)
     }
 }
 
@@ -109,6 +100,24 @@ internal fun HostDetailRouteError(message: String, onBack: () -> Unit) {
             TitleRow("房间详情", onBack)
             ContentBody { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text(message, color = MaterialTheme.colorScheme.error) } }
         }
+    }
+}
+
+@Composable
+internal fun LegacyHostRoute(
+    target: HostTarget,
+    onBack: () -> Unit,
+    content: @Composable (ObjectId) -> Unit,
+) {
+    if (target.kind != HostKind.Legacy) {
+        HostDetailRouteError("该房间类型暂不可用", onBack)
+        return
+    }
+    val objectId = target.objectIdOrNull()
+    if (objectId == null) {
+        HostDetailRouteError("房间ID格式错误", onBack)
+    } else {
+        content(objectId)
     }
 }
 
@@ -219,12 +228,8 @@ fun HostModsScreen(
     onOpenResourceMods: (McVersion, ModLoader) -> Unit,
     onOpenTaskList: (String) -> Unit,
 ) {
-    if (target.kind == HostKind.Legacy) {
-        val objectId = target.objectIdOrNull()
-        if (objectId == null) HostDetailRouteError("房间ID格式错误", onBack)
-        else HostModsScreen(modCatalog, objectId, onBack, onOpenResourceMods, onOpenTaskList)
-    } else {
-        HostDetailRouteError("该房间类型暂不可用", onBack)
+    LegacyHostRoute(target, onBack) { objectId ->
+        HostModsScreen(modCatalog, objectId, onBack, onOpenResourceMods, onOpenTaskList)
     }
 }
 

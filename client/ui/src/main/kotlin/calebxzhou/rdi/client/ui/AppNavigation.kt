@@ -310,7 +310,6 @@ fun AppNavigation(
                 onOpenPlay = { args ->
                     openMcPlay(args) { navController.navigateAbsolute(HostListRoute) }
                 },
-                onOpenTaskList = onOpenTask,
             )
         }
         composable<HostMembersRoute> {

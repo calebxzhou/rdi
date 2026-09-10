@@ -1,6 +1,7 @@
 package calebxzhou.rdi.client.service
 
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.toClientContentRequests
 import calebxzhou.rdi.common.model.EXTRA_MOD_PREFIX
 import calebxzhou.rdi.common.model.Mod
@@ -64,7 +65,7 @@ private suspend fun materializeHostExtraMods(
         return
     }
 
-    ClientContentStore.shared.materialize(
+    ClientContentStores.shared.materialize(
         requests = missingMods.toClientContentRequests(::extraModTargetFileName),
         targetRoot = modsDir.toPath(),
         onProgress = ctx::emit

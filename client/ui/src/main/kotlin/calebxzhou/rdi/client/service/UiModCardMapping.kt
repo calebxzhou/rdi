@@ -7,6 +7,7 @@ import calebxzau.rdi.client.modcatalog.CatalogSlugRef
 import calebxzau.rdi.client.modcatalog.toCatalogSlugRef
 import calebxzhou.rdi.client.model.UiMod
 import calebxzhou.rdi.client.service.content.ClientContentStore
+import calebxzau.rdi.client.service.ClientContentStores
 import calebxzhou.rdi.client.service.content.ContentRequest
 import calebxzhou.rdi.client.service.content.toClientContentRequest
 import calebxzhou.rdi.common.model.CurseForgeModInfo
@@ -25,7 +26,7 @@ internal typealias LocalCardContentReader = suspend (List<ContentRequest>) -> Re
 
 internal suspend fun UiMod.toLocalCardVo(
     metadata: CatalogModMetadata?,
-    contentStore: ClientContentStore = ClientContentStore.shared,
+    contentStore: ClientContentStore = ClientContentStores.shared,
     cachedContentReader: LocalCardContentReader = { requests ->
         contentStore.useCached(requests) { it }
     },
@@ -37,7 +38,7 @@ internal suspend fun UiMod.toLocalCardVo(
 
 internal suspend fun List<UiMod>.toLocalCardVos(
     metadata: Map<CatalogSlugRef, CatalogModMetadata>,
-    contentStore: ClientContentStore = ClientContentStore.shared,
+    contentStore: ClientContentStore = ClientContentStores.shared,
     cachedContentReader: LocalCardContentReader = { requests ->
         contentStore.useCached(requests) { it }
     },

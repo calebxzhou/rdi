@@ -1,8 +1,5 @@
 package calebxzhou.rdi.client.service.content
 
-import calebxzhou.rdi.client.service.ClientDirs
-import calebxzhou.rdi.client.service.ClientTaskManager
-import calebxzhou.rdi.common.model.Task2
 import calebxzhou.rdi.common.model.Task2Context
 import calebxzhou.rdi.common.model.Task2Progress
 import calebxzhou.rdi.common.util.humanFileSize
@@ -32,10 +29,10 @@ class DownloadCacheCleanupPartialFailureException(
 
 /** Removes only digest cache entries no longer represented by an installed Legacy pack. */
 class DownloadCacheCleanupService(
-    private val cacheRoot: Path = ClientDirs.dlcDir.toPath(),
-    private val versionsRoot: Path = ClientDirs.versionsDir.toPath(),
+    private val cacheRoot: Path,
+    private val versionsRoot: Path,
     private val digestCalculator: suspend (Path, ContentDigestAlgorithm) -> String =
-        { path, algorithm -> ClientContentStore.shared.calculateDigestForMigration(path, algorithm) },
+        { path, algorithm -> ClientContentStore(cacheRoot).calculateDigestForMigration(path, algorithm) },
     private val deleteCandidate: suspend (Path) -> Boolean = { path -> Files.deleteIfExists(path) },
 ) {
     private data class Candidate(
@@ -300,17 +297,3 @@ class DownloadCacheCleanupService(
     }
 }
 
-internal const val DOWNLOAD_CACHE_CLEANUP_DEDUPE_KEY = "client-download-cache-cleanup"
-
-fun buildDownloadCacheCleanupTask2(
-    service: DownloadCacheCleanupService = DownloadCacheCleanupService(),
-): Task2 = Task2.Leaf("清除下载缓存") { context ->
-    service.cleanup(context).getOrThrow()
-}
-
-fun submitDownloadCacheCleanupTask2(
-    service: DownloadCacheCleanupService = DownloadCacheCleanupService(),
-): String = ClientTaskManager.submit(
-    task = buildDownloadCacheCleanupTask2(service),
-    dedupeKey = DOWNLOAD_CACHE_CLEANUP_DEDUPE_KEY,
-)
