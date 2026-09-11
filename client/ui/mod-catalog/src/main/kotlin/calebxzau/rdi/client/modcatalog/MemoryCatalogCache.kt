@@ -1,8 +1,10 @@
 package calebxzau.rdi.client.modcatalog
 
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.time.Clock
 import java.time.Duration
 import java.time.Instant
@@ -63,8 +65,10 @@ internal class MemoryCatalogCache<K : Any, V : Any>(
             pending.complete(loaded)
             loaded
         } catch (cause: Throwable) {
-            mutex.withLock { inFlight.remove(key) }
-            pending.completeExceptionally(cause)
+            withContext(NonCancellable) {
+                mutex.withLock { inFlight.remove(key) }
+                pending.completeExceptionally(cause)
+            }
             throw cause
         }
     }

@@ -533,6 +533,222 @@ class CatalogDomainTest {
     }
 
     @Test
+    fun `project dependency skips incompatible latest curseforge file`() = runBlocking {
+        val release = curseForgeFile("release", "dependency", ReleaseChannel.RELEASE, 1)
+        val alpha = curseForgeFile("alpha", "dependency", ReleaseChannel.ALPHA, 2)
+        val olderAlpha = (0 until 50).map { index ->
+            curseForgeFile("older-alpha-$index", "dependency", ReleaseChannel.ALPHA, -index.toLong())
+        }
+        val files = listOf(alpha, release) + olderAlpha
+        val adapter = FakeAdapter(
+            ModPlatform.CURSEFORGE,
+            files = files.associateBy { it.ref.fileId }
+        )
+        val root = file(
+            "root",
+            "root-project",
+            dependencies = listOf(
+                CatalogDependency(
+                    DependencyTarget.Project(release.project),
+                    DependencyRequirement.REQUIRED
+                )
+            )
+        )
+        val graph = testCatalog(mapOf(ModPlatform.CURSEFORGE to adapter), FakeIdentityIndex())
+            .resolveDependencies(DependencyRequest(listOf(root), CatalogTarget(McVersion.V211, ModLoader.neoforge)))
+            .getOrThrow().value
+
+        assertEquals(setOf(root.ref, release.ref), graph.nodes.keys)
+        assertTrue(graph.unresolved.isEmpty())
+        assertEquals(1, adapter.fileListRequests)
+    }
+
+    @Test
+    fun `project dependency continues curseforge pages`() = runBlocking {
+        val files = (0..50).map { index ->
+            curseForgeFile("alpha-$index", "dependency", ReleaseChannel.ALPHA, (51 - index).toLong())
+        } + curseForgeFile("release", "dependency", ReleaseChannel.RELEASE, 0)
+        val adapter = FakeAdapter(
+            ModPlatform.CURSEFORGE,
+            files = files.associateBy { it.ref.fileId }
+        )
+        val root = file(
+            "root",
+            "root-project",
+            dependencies = listOf(
+                CatalogDependency(
+                    DependencyTarget.Project(files.first().project),
+                    DependencyRequirement.REQUIRED
+                )
+            )
+        )
+
+        val graph = testCatalog(mapOf(ModPlatform.CURSEFORGE to adapter), FakeIdentityIndex())
+            .resolveDependencies(DependencyRequest(listOf(root), CatalogTarget(McVersion.V211, ModLoader.neoforge)))
+            .getOrThrow().value
+
+        assertEquals(setOf(root.ref, files.last().ref), graph.nodes.keys)
+        assertEquals(2, adapter.fileListRequests)
+    }
+
+    @Test
+    fun `project dependency reports later page failure`() = runBlocking {
+        val files = (0..50).map { index ->
+            curseForgeFile("alpha-$index", "dependency", ReleaseChannel.ALPHA, (51 - index).toLong())
+        }
+        val adapter = FakeAdapter(
+            ModPlatform.CURSEFORGE,
+            files = files.associateBy { it.ref.fileId }
+        ).also { it.fileListFailureAtOffset = 50 }
+        val root = file(
+            "root",
+            "root-project",
+            dependencies = listOf(
+                CatalogDependency(
+                    DependencyTarget.Project(files.first().project),
+                    DependencyRequirement.REQUIRED
+                )
+            )
+        )
+
+        val outcome = testCatalog(
+            mapOf(ModPlatform.CURSEFORGE to adapter),
+            FakeIdentityIndex(),
+            onWarning = {}
+        )
+            .resolveDependencies(DependencyRequest(listOf(root), CatalogTarget(McVersion.V211, ModLoader.neoforge)))
+            .getOrThrow()
+
+        assertEquals(1, outcome.value.unresolved.size)
+        assertTrue(outcome.issues.any { it is CatalogIssue.SourceFailed })
+    }
+
+    @Test
+    fun `project dependency with no compatible files is unresolved`() = runBlocking {
+        val alpha = curseForgeFile("alpha", "dependency", ReleaseChannel.ALPHA, 1)
+        val adapter = FakeAdapter(
+            ModPlatform.CURSEFORGE,
+            files = mapOf(alpha.ref.fileId to alpha)
+        )
+        val root = file(
+            "root",
+            "root-project",
+            dependencies = listOf(
+                CatalogDependency(
+                    DependencyTarget.Project(alpha.project),
+                    DependencyRequirement.REQUIRED
+                )
+            )
+        )
+
+        val outcome = testCatalog(mapOf(ModPlatform.CURSEFORGE to adapter), FakeIdentityIndex())
+            .resolveDependencies(DependencyRequest(listOf(root), CatalogTarget(McVersion.V211, ModLoader.neoforge)))
+            .getOrThrow()
+
+        assertEquals(1, outcome.value.unresolved.size)
+        assertTrue(outcome.issues.isEmpty())
+        assertEquals(1, adapter.fileListRequests)
+    }
+
+    @Test
+    fun `modrinth project dependency selects compatible file from complete list`() = runBlocking {
+        val alpha = file(
+            "alpha",
+            "dependency",
+            channel = ReleaseChannel.ALPHA,
+            publishedAt = Instant.parse("2026-02-01T00:00:00Z")
+        )
+        val release = file(
+            "release",
+            "dependency",
+            channel = ReleaseChannel.RELEASE,
+            publishedAt = Instant.parse("2026-01-01T00:00:00Z")
+        )
+        val adapter = FakeAdapter(
+            ModPlatform.MODRINTH,
+            files = mapOf(alpha.ref.fileId to alpha, release.ref.fileId to release)
+        )
+        val root = file(
+            "root",
+            "root-project",
+            dependencies = listOf(
+                CatalogDependency(
+                    DependencyTarget.Project(release.project),
+                    DependencyRequirement.REQUIRED
+                )
+            )
+        )
+
+        val graph = testCatalog(mapOf(ModPlatform.MODRINTH to adapter), FakeIdentityIndex())
+            .resolveDependencies(DependencyRequest(listOf(root), CatalogTarget(McVersion.V211, ModLoader.neoforge)))
+            .getOrThrow().value
+
+        assertEquals(setOf(root.ref, release.ref), graph.nodes.keys)
+        assertEquals(1, adapter.fileListRequests)
+    }
+
+    @Test
+    fun `project dependency cancellation propagates`() = runBlocking<Unit> {
+        val dependency = curseForgeFile("dependency", "dependency", ReleaseChannel.RELEASE, 1)
+        val adapter = FakeAdapter(
+            ModPlatform.CURSEFORGE,
+            files = mapOf(dependency.ref.fileId to dependency)
+        ).also { it.fileListFailure = CancellationException("cancelled") }
+        val root = file(
+            "root",
+            "root-project",
+            dependencies = listOf(
+                CatalogDependency(
+                    DependencyTarget.Project(dependency.project),
+                    DependencyRequirement.REQUIRED
+                )
+            )
+        )
+
+        assertFailsWith<CancellationException> {
+            testCatalog(mapOf(ModPlatform.CURSEFORGE to adapter), FakeIdentityIndex())
+                .resolveDependencies(DependencyRequest(listOf(root), CatalogTarget(McVersion.V211, ModLoader.neoforge)))
+        }
+    }
+
+    @Test
+    fun `project dependency rejects non advancing page`() = runBlocking {
+        listOf(0, -1).forEach { invalidOffset ->
+            val dependencyFile = curseForgeFile("alpha-$invalidOffset", "dependency", ReleaseChannel.ALPHA, 1)
+            val adapter = FakeAdapter(
+                ModPlatform.CURSEFORGE,
+                files = mapOf(dependencyFile.ref.fileId to dependencyFile)
+            ).also { it.fileListNextOffset = { _, _ -> invalidOffset } }
+            val warnings = mutableListOf<Throwable>()
+            val root = file(
+                "root-$invalidOffset",
+                "root-project-$invalidOffset",
+                dependencies = listOf(
+                    CatalogDependency(
+                        DependencyTarget.Project(dependencyFile.project),
+                        DependencyRequirement.REQUIRED
+                    )
+                )
+            )
+
+            val outcome = testCatalog(
+                mapOf(ModPlatform.CURSEFORGE to adapter),
+                FakeIdentityIndex(),
+                onWarning = warnings::add
+            )
+                .resolveDependencies(
+                    DependencyRequest(listOf(root), CatalogTarget(McVersion.V211, ModLoader.neoforge))
+                )
+                .getOrThrow()
+
+            assertEquals(1, outcome.value.unresolved.size)
+            assertTrue(outcome.issues.any { it is CatalogIssue.SourceFailed })
+            assertEquals(1, warnings.size)
+            assertTrue(warnings.single() is CatalogException.InvalidResponse)
+        }
+    }
+
+    @Test
     fun `dependency resolver selects requirements at every depth`() = runBlocking {
         val grandchild = file("grandchild", "grandchild-project")
         val required = file(
@@ -759,6 +975,9 @@ private class FakeAdapter(
     val fileRequestStarted = CompletableDeferred<Unit>()
     var fileListRequests = 0
     var fileFailure: Throwable? = null
+    var fileListFailure: Throwable? = null
+    var fileListFailureAtOffset: Int? = null
+    var fileListNextOffset: ((Int, Int) -> Int?)? = null
 
     override suspend fun search(
         query: String,
@@ -799,13 +1018,16 @@ private class FakeAdapter(
         limit: Int
     ): AdapterFileList {
         fileListRequests++
+        fileListFailure?.let { throw it }
+        if (fileListFailureAtOffset == offset) throw IllegalStateException("file list failed at $offset")
         val items = files.values.asSequence()
         .filter { it.project == project }
         .sortedByDescending(CatalogFile::publishedAt)
         .toList()
         if (platform == ModPlatform.MODRINTH) return AdapterFileList.Complete(items)
         val page = items.drop(offset).take(limit)
-        val nextOffset = (offset + page.size).takeIf { page.isNotEmpty() && it < items.size }
+        val nextOffset = fileListNextOffset?.invoke(offset, page.size)
+            ?: (offset + page.size).takeIf { page.isNotEmpty() && it < items.size }
         return AdapterFileList.Page(page, nextOffset)
     }
 
@@ -866,6 +1088,16 @@ private fun file(
     environment = EnvironmentCompatibility(),
     digests = setOf(CatalogDigest(CatalogDigestAlgorithm.SHA1, "0".repeat(40))),
     dependencies = dependencies
+)
+
+private fun curseForgeFile(
+    id: String,
+    projectId: String,
+    channel: ReleaseChannel,
+    publishedAtSeconds: Long
+) = file(id, projectId, channel = channel, publishedAt = Instant.EPOCH.plusSeconds(publishedAtSeconds)).copy(
+    ref = CatalogFileRef(ModPlatform.CURSEFORGE, id),
+    project = CatalogProjectRef(ModPlatform.CURSEFORGE, projectId)
 )
 
 private fun List<CatalogProjectSource>.toCatalogModForTest(): CatalogMod {

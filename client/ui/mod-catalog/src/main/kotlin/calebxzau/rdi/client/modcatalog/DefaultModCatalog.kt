@@ -895,12 +895,32 @@ internal class DefaultModCatalog(
         is DependencyTarget.File -> loadPlatformFiles(target.ref.platform, listOf(target.ref))
             .found[target.ref.fileId]
 
-        is DependencyTarget.Project -> loadFileList(
-            target.ref,
-            catalogTarget,
-            0,
-            1
-        ).items.firstOrNull { it.channel in channels }
+        is DependencyTarget.Project -> findCompatibleProjectFile(target.ref, catalogTarget, channels)
+    }
+
+    private suspend fun findCompatibleProjectFile(
+        project: CatalogProjectRef,
+        target: CatalogTarget,
+        channels: Set<ReleaseChannel>
+    ): CatalogFile? {
+        var offset = 0
+        while (true) {
+            currentCoroutineContext().ensureActive()
+            when (val page = loadFileList(project, target, offset, PROJECT_DEPENDENCY_PAGE_SIZE)) {
+                is AdapterFileList.Complete -> return page.items.firstOrNull { it.channel in channels }
+                is AdapterFileList.Page -> {
+                    page.items.firstOrNull { it.channel in channels }?.let { return it }
+                    val nextOffset = page.nextOffset ?: return null
+                    if (nextOffset <= offset) {
+                        throw CatalogException.InvalidResponse(
+                            project.platform,
+                            IllegalStateException("File list offset did not advance: $offset -> $nextOffset")
+                        )
+                    }
+                    offset = nextOffset
+                }
+            }
+        }
     }
 
     private suspend fun loadPlatformFiles(
@@ -1078,6 +1098,7 @@ internal class DefaultModCatalog(
     companion object {
         private const val CURSEFORGE_SLUG_REQUEST_BUDGET = 3
         private const val FILE_LIST_CACHE_SIZE = 64
+        private const val PROJECT_DEPENDENCY_PAGE_SIZE = 50
 
         fun create(
             httpClient: HttpClient,
