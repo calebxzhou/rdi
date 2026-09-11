@@ -85,25 +85,20 @@ object HostContainerService {
             }
         }
         val noguiArg = if (mcv == McVersion.V071) "nogui" else "--nogui"
-        val totalArg = mutableListOf(
-
-            "-Drdi.onlySaveFirmSections=true",
-        ).apply {
+        val totalArg = mutableListOf<String>().apply {
 
             this.add("-XX:+UseCompactObjectHeaders")
 
-            if(modpack.mcVer == McVersion.V071 || modpack.mcVer == McVersion.V122){
+            /*if(modpack.mcVer == McVersion.V071 || modpack.mcVer == McVersion.V122){
                 this.add("-Dfml.queryResult=confirm")
-            }
-            this.add("-Drdi.firmSectionTotalMax=512")
-            this.add("-Drdi.firmSectionPersonMax=512")
+            }*/
             this.add("-Xmx8G")
             if (modpack.supportsForgeguard(modpack.modloader)) {
                 this.add("-javaagent:$FORGEGUARD_CONTAINER_PATH")
             }
-            if (worldId != null) {
+            /*if (worldId != null) {
                 this.add("-Drdi.terrain.cache.path=/data/world/cache")
-            }
+            }*/
             if (mcv.isModern) {
                 this.add(MC_LOG4J2_CONFIGURATION_ARG)
             }
