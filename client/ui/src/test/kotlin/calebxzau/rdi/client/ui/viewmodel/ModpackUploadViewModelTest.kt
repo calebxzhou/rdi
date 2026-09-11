@@ -15,6 +15,7 @@ import calebxzhou.rdi.common.service.validateIconUrlAddress
 import calebxzau.rdi.client.packproc.LoadedLocalModpack
 import calebxzau.rdi.client.packproc.LoadedServerPackResult
 import calebxzhou.rdi.common.util.sha1
+import calebxzhou.rdi.common.service.murmur2
 import calebxzau.rdi.client.packproc.LocalModpackSourceType
 import calebxzhou.rdi.client.service.content.ClientContentStore
 import kotlinx.coroutines.CompletableDeferred
@@ -40,6 +41,81 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class ModpackUploadViewModelTest {
+    @Test
+    fun `merge keeps URLs separate for different local content`() = runBlocking {
+        val root = Files.createTempDirectory("rdi-merge-content-mismatch").toFile()
+        try {
+            val clientFile = root.resolve("client.jar").also { it.writeBytes(byteArrayOf(1, 2, 3)) }
+            val serverFile = root.resolve("server.jar").also { it.writeBytes(byteArrayOf(4, 5, 6)) }
+            val client = Mod(
+                "cf", "project", "mod", "client", clientFile.murmur2.toULong().toString(),
+                downloadUrls = listOf("client-url")
+            )
+            val server = Mod(
+                "mr", "project", "mod", "server", serverFile.sha1,
+                downloadUrls = listOf("server-url")
+            )
+
+            val merged = mergeAsBoth(UiMod(client, file = clientFile), UiMod(server, file = serverFile))
+
+            assertEquals(listOf("client-url"), merged.mod.downloadUrls)
+            assertEquals(clientFile, merged.file)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `merge combines URLs for matching metadata content`() = runBlocking {
+        val client = Mod("cf", "project", "mod", "client", "1805207383", downloadUrls = listOf("client-url"))
+        val server = Mod("cf", "project", "mod", "server", "1805207383", downloadUrls = listOf("server-url"))
+
+        val merged = mergeAsBoth(UiMod(client), UiMod(server))
+
+        assertEquals(listOf("client-url", "server-url"), merged.mod.downloadUrls)
+    }
+
+    @Test
+    fun `merge does not inherit a server file when its bytes fail the client digest`() = runBlocking {
+        val root = Files.createTempDirectory("rdi-merge-file-mismatch").toFile()
+        try {
+            val serverFile = root.resolve("server.jar").also { it.writeBytes(byteArrayOf(4, 5, 6)) }
+            val client = Mod("mr", "project", "mod", "client", "a".repeat(40))
+            val server = client.copy(downloadUrls = listOf("server-url"))
+
+            val merged = mergeAsBoth(UiMod(client), UiMod(server, file = serverFile))
+
+            assertEquals(listOf("server-url"), merged.mod.downloadUrls)
+            assertNull(merged.file)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `merge can confirm different platform metadata from identical local bytes`() = runBlocking {
+        val root = Files.createTempDirectory("rdi-merge-cross-platform").toFile()
+        try {
+            val clientFile = root.resolve("client.jar").also { it.writeBytes(byteArrayOf(1, 2, 3)) }
+            val serverFile = root.resolve("server.jar").also { it.writeBytes(clientFile.readBytes()) }
+            val client = Mod(
+                "cf", "project", "mod", "client", clientFile.murmur2.toULong().toString(),
+                downloadUrls = listOf("client-url")
+            )
+            val server = Mod(
+                "mr", "project", "mod", "server", serverFile.sha1,
+                downloadUrls = listOf("server-url")
+            )
+
+            val merged = mergeAsBoth(UiMod(client, file = clientFile), UiMod(server, file = serverFile))
+
+            assertEquals(listOf("client-url", "server-url"), merged.mod.downloadUrls)
+            assertEquals(clientFile, merged.file)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test
     fun `server pack rejects Bukkit family root marker files`() = runBlocking {
         val gateway = RdiModpackUploadGateway(noCallModCatalog())

@@ -10,6 +10,8 @@ import calebxzau.rdi.client.packproc.LoadedLocalModpack
 import calebxzau.rdi.client.packproc.LoadedServerPackResult
 import calebxzau.rdi.client.packproc.ModpackProcessor
 import calebxzau.rdi.client.packproc.PackProcessingPaths
+import calebxzau.rdi.client.packproc.fileMatchesModContent
+import calebxzau.rdi.client.packproc.sameModContent
 import calebxzau.rdi.client.packproc.toUploadPayload
 import calebxzau.rdi.client.ui.currentJavaMajor
 import calebxzhou.rdi.client.model.UiMod
@@ -1451,12 +1453,25 @@ private suspend fun mergeClientAndServerMods(
     return distinctMerged.sortedBy { it.slug.lowercase() }
 }
 
-private fun mergeAsBoth(clientMod: UiMod, serverMod: UiMod): UiMod {
-    val mergedDownloadUrls = (clientMod.mod.downloadUrls + serverMod.mod.downloadUrls).distinct()
+internal suspend fun mergeAsBoth(clientMod: UiMod, serverMod: UiMod): UiMod {
+    val sameContent = sameModContent(
+        first = clientMod.mod,
+        firstFile = clientMod.file,
+        second = serverMod.mod,
+        secondFile = serverMod.file,
+    )
+    val mergedDownloadUrls = if (sameContent) {
+        (clientMod.mod.downloadUrls + serverMod.mod.downloadUrls).distinct()
+    } else {
+        clientMod.mod.downloadUrls
+    }
+    val mergedFile = clientMod.file ?: serverMod.file?.takeIf {
+        fileMatchesModContent(it, clientMod.mod)
+    }
     return clientMod.copy(
         mod = clientMod.mod.copy(side = Mod.Side.BOTH, downloadUrls = mergedDownloadUrls),
         card = (clientMod.card ?: serverMod.card)?.copy(side = Mod.Side.BOTH),
-        file = clientMod.file ?: serverMod.file,
+        file = mergedFile,
     )
 }
 

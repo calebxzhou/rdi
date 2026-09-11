@@ -13,6 +13,21 @@ For example:
 you can use intellij MCP to check code errors if available
 
 ---
+## Git access
+
+  Only read-only Git operations are allowed.
+
+  * Allowed examples: inspecting status, diffs, logs, commits, and tracked files.
+  * Do not modify the working tree, index, repository history, refs,
+    configuration, or remotes.
+  * Do not stage, commit, amend, stash, restore, checkout, switch, reset,
+    clean, merge, rebase, cherry-pick, fetch, pull, push, or create/delete
+    branches or tags.
+  * Judge commands by their actual effects and arguments. A command that
+    can inspect state must not be used with options that modify state.
+  * If an operation requires Git writes, report it to the parent agent
+    or user instead of executing it.
+    
 ## Subagents
 
 Use subagents according to the following responsibilities:
@@ -381,17 +396,6 @@ Before making code changes:
 4. Ask for the user's approval.
 5. Only execute the plan after approval.
 
-### Git
-
-Do not run Git commands unless the user explicitly asks for them.
-
-This includes commands such as:
-- `git status`
-- `git diff`
-- `git add`
-- `git commit`
-- `git push`
-- branch operations
 
 ### Project-Specific Instructions
 

@@ -7,6 +7,7 @@ import calebxzhou.rdi.common.archive.forEachArchiveEntry
 import calebxzhou.rdi.common.model.McVersion
 import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.util.sha1
 import kotlinx.coroutines.runBlocking
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -334,7 +335,7 @@ class PackModelsTest {
                 projectId = "project",
                 slug = "shared-mod",
                 fileId = "file",
-                hash = "0123456789012345678901234567890123456789",
+                hash = stagedClient.sha1,
             )
             val loaded = ModpackProcessor(PackProcessingPaths(root.resolve("work")))
                 .loadServerPack(
@@ -421,7 +422,7 @@ class PackModelsTest {
                         projectId = "project",
                         slug = "shared",
                         fileId = "file",
-                        hash = "0123456789012345678901234567890123456789",
+                        hash = stagedClient.sha1,
                     )
                 ),
                 clientModSources = mapOf(
@@ -430,7 +431,7 @@ class PackModelsTest {
                         projectId = "project",
                         slug = "shared",
                         fileId = "file",
-                        hash = "0123456789012345678901234567890123456789",
+                        hash = stagedClient.sha1,
                     ) to stagedClient
                 ),
                 onProgress = {}
@@ -492,7 +493,7 @@ class PackModelsTest {
                 projectId = "project",
                 slug = "shared-mod",
                 fileId = "file",
-                hash = "0123456789012345678901234567890123456789",
+                hash = stagedClient.sha1,
             )
             val loaded = ModpackProcessor(
                 PackProcessingPaths(root.resolve("work"))
@@ -505,6 +506,38 @@ class PackModelsTest {
 
             assertEquals(Mod.Side.BOTH, loaded.mods.single().side)
             assertEquals("shared-mod", loaded.mods.single().slug)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `server modId match does not relabel a different jar as the client mod`() = runBlocking {
+        val root = Files.createTempDirectory("pack-proc-server-mismatch").toFile()
+        try {
+            val serverMods = root.resolve("mods").also { it.mkdirs() }
+            val stagedClient = root.resolve("staged/client.jar")
+                .also { it.parentFile.mkdirs() }
+            writeModJar(stagedClient, "shared", "1.0.0")
+            writeModJar(serverMods.resolve("server-shared.jar"), "shared", "2.0.0")
+
+            val clientMod = Mod(
+                platform = "mr",
+                projectId = "client-project",
+                slug = "client-mod",
+                fileId = "client-file",
+                hash = stagedClient.sha1,
+            )
+            val loaded = ModpackProcessor(
+                PackProcessingPaths(root.resolve("work"))
+            ).loadServerPack(
+                file = root,
+                clientMods = listOf(clientMod),
+                clientModSources = mapOf(clientMod to stagedClient),
+                onProgress = {},
+            ).getOrThrow()
+
+            assertTrue(loaded.mods.none { it.projectId == clientMod.projectId })
         } finally {
             root.deleteRecursively()
         }
@@ -543,7 +576,8 @@ class PackModelsTest {
                     onProgress = {},
                 ).getOrThrow()
 
-                assertEquals("cc-tweaked-1.120.2.jar", loaded.embeddedModSources.single().originalFileName)
+                assertTrue(loaded.embeddedModSources.isEmpty())
+                assertTrue(loaded.serverExtraFiles.any { it.sourceFile.name == "cc-tweaked-1.120.2.jar" })
                 assertFalse(loaded.serverExtraFiles.any { it.sourceFile.name == "cc-tweaked-1.113.1.jar" })
             } finally {
                 root.deleteRecursively()

@@ -422,7 +422,7 @@ class ModpackProcessor(
         return clientModsByModId
     }
 
-    private fun matchServerModsByClientModId(
+    private suspend fun matchServerModsByClientModId(
         files: List<File>,
         clientModsByModId: Map<String, Mod>,
         onProgress: LoadProgressConsumer
@@ -437,13 +437,17 @@ class ModpackProcessor(
         val usedServerModIds = mutableSetOf<String>()
         files.forEach { serverFile ->
             val serverModId = readPrimaryModId(serverFile) ?: return@forEach
-            if (!usedServerModIds.add(serverModId)) {
+            if (serverModId in usedServerModIds) {
                 lgr.warn { "服务端目录里有多个jar共用了同一个modId=$serverModId，将保留第一个并忽略后续文件" }
                 ignoredFiles += serverFile
                 matchedFiles += serverFile
                 return@forEach
             }
             val clientMod = clientModsByModId[serverModId] ?: return@forEach
+            if (!fileMatchesModContent(serverFile, clientMod)) {
+                return@forEach
+            }
+            usedServerModIds += serverModId
             matchedMods += ModCardMatch(
                 mod = clientMod,
                 file = serverFile
