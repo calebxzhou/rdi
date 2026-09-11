@@ -40,9 +40,9 @@ import calebxzhou.rdi.client.service.rememberPlayerInfoPrefetch
 import calebxzhou.rdi.client.service.startHostPlay
 import calebxzhou.rdi.client.ui.McPlayArgs
 import calebxzhou.rdi.client.ui.comp.HeadButton
-import calebxzhou.rdi.client.ui.comp.HostCard
 import calebxzhou.rdi.client.ui.comp.ModpackDownloadMethodDialog
 import calebxzhou.rdi.client.ui.comp.PlayerModel
+import calebxzhou.rdi.client.ui.comp.UnifiedHostCard
 import calebxzhou.rdi.common.exception.RequestError
 import calebxzhou.rdi.common.model.Host
 import calebxzhou.rdi.common.model.Modpack
@@ -410,11 +410,13 @@ private fun RecentHostMenuActionCard(
     onStartHost: (Host.BriefVo) -> Unit,
 ) {
     MenuActionCardTooltip(enabled) {
-        host.copy(name = "继续游玩·${host.name}").HostCard(
+        UnifiedHostCard(
+            host = UnifiedHostBrief.fromLegacy(host).copy(name = "继续游玩·${host.name}"),
             modifier = Modifier.width(320.dp),
-            onDirectClick = if (enabled) onStartHost else null,
+            onDirectClick = { onStartHost(host) },
+            onClick = { onStartHost(host) },
             playEnabled = enabled && launchingHostId == null,
-            playLoading = launchingHostId == host._id.toHexString()
+            playLoading = launchingHostId == host._id.toHexString(),
         )
     }
 }

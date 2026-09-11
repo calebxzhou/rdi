@@ -44,6 +44,7 @@ fun UnifiedHostCard(
     host: UnifiedHostBrief,
     modifier: Modifier = Modifier,
     onClick: (HostTarget) -> Unit,
+    onDirectClick: ((UnifiedHostBrief) -> Unit)? = null,
     onPlay: ((UnifiedHostBrief) -> Unit)? = null,
     onOpenMembers: ((HostTarget) -> Unit)? = null,
     onOpenMods: ((HostTarget) -> Unit)? = null,
@@ -59,16 +60,8 @@ fun UnifiedHostCard(
     val isOwner = host.role == Role.OWNER || isDav
     val canManage = host.role in setOf(Role.OWNER, Role.ADMIN) || isDav
     val canUseMemberFeatures = host.isMember || isOwner
-    val playerIds = remember(host.ownerId, host.onlinePlayerIds) {
-        listOfNotNull(host.ownerId) + host.onlinePlayerIds
-    }
-    rememberPlayerInfoPrefetch(playerIds)
-    val onlinePlayerIds = host.onlinePlayerIds.filter { it != host.ownerId }
-    val firstRowOnlineCount = if (host.ownerId != null) {
-        onlinePlayerIds.size / 2
-    } else {
-        (onlinePlayerIds.size + 1) / 2
-    }
+    rememberPlayerInfoPrefetch(host.onlinePlayerIds)
+    val onlinePlayerIds = host.onlinePlayerIds
 
     CursorPositionBox(
         cursorContent = {
@@ -127,7 +120,11 @@ fun UnifiedHostCard(
             modifier = modifier
                 .fillMaxWidth()
                 .clip(baseRoundCornerShape)
-                .clickable { menuExpanded = true },
+                .clickable(
+                    enabled = onDirectClick == null || (host.playable && playEnabled && !playLoading),
+                ) {
+                    onDirectClick?.invoke(host) ?: run { menuExpanded = true }
+                },
             color = MaterialTheme.colorScheme.surface,
             shape = baseRoundCornerShape,
             tonalElevation = 1.dp,
@@ -151,7 +148,6 @@ fun UnifiedHostCard(
                             }
                             Text(
                                 text = host.name.ifBlank { "未命名房间" },
-                                modifier = Modifier.weight(1f),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
