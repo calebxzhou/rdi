@@ -9,6 +9,10 @@ import java.util.List;
 import java.util.Set;
 
 public final class RMixinPlugin implements IMixinConfigPlugin {
+    private static final String TCR_CORE_FANCY_MENU_LOGO_MIXIN =
+            "calebxzhou.rdi.mc.client.mixin.mTcrCoreFancyMenuLogo";
+    private static final String TCR_CORE_CLIENT_MOD_EVENTS_TARGET =
+            "com.p1nero.tcrcore.events.ClientModEvents";
     private static final String EUPHORIA_WARNING_MIXIN =
             "calebxzhou.rdi.mc.client.mixin.mEuphoriaPatcherWarning";
     private static final String EUPHORIA_WARNING_TARGET =
@@ -25,6 +29,9 @@ public final class RMixinPlugin implements IMixinConfigPlugin {
 
     @Override
     public boolean shouldApplyMixin(String targetClassName, String mixinClassName) {
+        if (TCR_CORE_FANCY_MENU_LOGO_MIXIN.equals(mixinClassName)) {
+            return classExists(TCR_CORE_CLIENT_MOD_EVENTS_TARGET);
+        }
         if (EUPHORIA_WARNING_MIXIN.equals(mixinClassName)) {
             return classExists(EUPHORIA_WARNING_TARGET);
         }
