@@ -1,7 +1,7 @@
 package calebxzhou.rdi.common.model
 
 enum class ModLoader {
-    forge,neoforge,cleanroom;
+    forge,neoforge;
     companion object{
         fun from(name:String):ModLoader?{
             val normalized = name.trim().substringBefore('-')

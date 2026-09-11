@@ -135,7 +135,7 @@ class MinecraftLauncherTest {
         java: MinecraftJava25Config,
         onCommand: (List<String>) -> Unit = {},
         onStart: () -> Unit = {},
-        manifestId: String = "1.12.2",
+        manifestId: String = "1.7.10",
         clientArtifact: MojangDownloadArtifact? = null,
     ): MinecraftLauncher {
         val directories = MinecraftDirectories(
@@ -204,7 +204,7 @@ class MinecraftLauncherTest {
 
     private fun request(
         root: File,
-        mcVersion: McVersion = McVersion.V122,
+        mcVersion: McVersion = McVersion.V071,
         launchOverrides: MinecraftLaunchOverrides = MinecraftLaunchOverrides(),
     ): MinecraftLaunchRequest = MinecraftLaunchRequest(
         mcVersion = mcVersion,

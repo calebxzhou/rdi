@@ -166,28 +166,6 @@ class HostCreateViewModelTest {
     }
 
     @Test
-    fun `legacy 1 12 create uses custom skyblock terrain`() = runBlocking {
-        val gateway = FakeHostCreateGateway(submissionResult = Result.success(Unit))
-        val viewModel = createViewModel(
-            gateway,
-            kind = HostKind.Legacy,
-            sourceId = PACK_ID,
-            legacyVersionName = "1.12.2",
-            legacyMcVersion = McVersion.V122.name,
-        )
-        awaitLoaded(viewModel)
-
-        assertEquals(McVersion.V122, viewModel.uiState.value.currentMcVersion)
-        viewModel.updateHostName("1.12房间")
-        viewModel.selectLevelChoice(2)
-        viewModel.submit()
-
-        assertIs<HostCreateEvent.LegacyCreateSubmitted>(viewModel.events.first())
-        val create = assertIs<HostCreateSubmission.CreateLegacy>(gateway.submissions.single()).dto
-        assertEquals("skyblockbuilder:custom_skyblock", create.levelType)
-    }
-
-    @Test
     fun `legacy 1 20 create uses modern skyblock terrain`() = runBlocking {
         val gateway = FakeHostCreateGateway(submissionResult = Result.success(Unit))
         val viewModel = createViewModel(

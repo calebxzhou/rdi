@@ -73,5 +73,5 @@
 1. 先补 mc/firmsection pure unit tests，成本最低，能覆盖 ownership/limit/load 边界。
 2. 再补 saved data serialization tests，防止历史重复数据和 autoSet 读写回归。
 3. 再写 service/cache policy tests；如果 Minecraft 类太难 fake，就先把测试点集中到小 helper，不为了测试大改结构。
-4. 最后补每个版本的 runtime checklist，特别是 1.7.10 / 1.12.2 / 1.20.1 / 1.21.1 各跑一遍 cache-loaded chunk -> set
+4. 最后补每个版本的 runtime checklist，特别是 1.7.10 / 1.20.1 / 1.21.1 各跑一遍 cache-loaded chunk -> set
    firm -> restart。

@@ -263,7 +263,7 @@ internal class ModrinthAdapter(
 }
 
 private fun ModLoader.modrinthName(): String = when (this) {
-    ModLoader.cleanroom, ModLoader.forge -> "forge"
+    ModLoader.forge -> "forge"
     ModLoader.neoforge -> "neoforge"
 }
 

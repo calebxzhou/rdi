@@ -530,7 +530,7 @@ object CurseForgeService {
 
 private fun String.toCurseForgeModLoaderType(): Int? =
     when (lowercase()) {
-        "forge", "cleanroom" -> 1
+        "forge" -> 1
         "fabric" -> 4
         "quilt" -> 5
         "neoforge" -> 6

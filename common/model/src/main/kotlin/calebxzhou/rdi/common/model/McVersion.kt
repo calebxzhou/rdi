@@ -43,19 +43,6 @@ enum class McVersion(
         )
     ),
 
-    V122(
-        "1.12.2",
-        "terracotta", 25,
-        340,
-        mapOf(
-            ModLoader.cleanroom to ModLoader.Version(
-                ModLoader.cleanroom,
-                "cleanroom-0.5.14-alpha",
-                "https://repo.cleanroommc.com/releases/com/cleanroommc/cleanroom/0.5.14-alpha/cleanroom-0.5.14-alpha-installer.jar",
-                "5709de37641ab1bd218a1c27e1940cc197e75b55"
-            )
-        ),enabled = true
-    ),
     //GTNH only
     V071(
         "1.7.10",

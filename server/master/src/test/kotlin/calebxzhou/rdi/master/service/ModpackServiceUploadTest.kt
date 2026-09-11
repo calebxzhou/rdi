@@ -173,7 +173,7 @@ class ModpackServiceUploadTest {
     @Test
     fun `create version rejects zip and unsupported minecraft versions`() = runTest {
         val player = ModpackServiceTestFixtures.account()
-        val pack = ModpackServiceTestFixtures.modpack(player._id, mcVersion = McVersion.V122)
+        val pack = ModpackServiceTestFixtures.modpack(player._id, mcVersion = McVersion.V071)
         stubPack(pack)
         val root = ModpackServiceTestFixtures.tempRoot()
         val zip = root.resolve("pack.zip").apply { writeBytes(byteArrayOf(80, 75, 3, 4)) }

@@ -202,7 +202,7 @@ It recognizes AVIF from the `ftyp` brands, preserves the caller's `ByteBuffer` s
 
 The same `NativeImage.read(Format, ByteBuffer)` Seam exists in the generated 1.20.1 Forge source. It does not have the same `PngInfo.validateHeader()` call, but the AVIF `HEAD` short-circuit design remains applicable.
 
-### Minecraft 1.7.10 and 1.12.2
+### Minecraft 1.7.10
 
 Legacy Minecraft uses `ImageIO.read()` across many independent paths such as atlas textures, simple textures, fonts, pack icons, skins and server icons. Do not create dozens of redirect mixins.
 
@@ -212,7 +212,7 @@ Preferred legacy Adapter:
 2. Register it once during client bootstrap through a small version-specific mixin.
 3. Return a `BufferedImage` containing the decoded RGBA data.
 
-Verify the exact generated 1.12.2 Minecraft sources before implementation. The 1.7.10 source already confirms broad `ImageIO.read()` usage.
+The 1.7.10 source confirms broad `ImageIO.read()` usage.
 
 ## Shipping FFmpeg to the game
 
@@ -257,7 +257,7 @@ Completed or in progress after approval:
 4. The 1.21.1 `NativeImage.read()` adapter and bulk RGBA Mixin are present. A real NeoForge client launch resolved JavaCPP, FFmpeg and coroutines; the Mixin transformed `NativeImage.read()` successfully.
 5. A temporary resource pack containing AVIF bytes under a `.png` texture path loaded through the production resource reload without a texture/decode error. Expand the fixture to cover opaque, binary-alpha, gradient-alpha and malformed AVIF cases.
 6. Port the modern adapter to 1.20.1.
-7. Add the legacy `ImageReaderSpi` adapter for 1.7.10 and 1.12.2.
+7. Add the legacy `ImageReaderSpi` adapter for 1.7.10.
 
 The smallest useful vertical slice is `mediaproc` plus launcher runtime plus Minecraft 1.21.1. Do not begin with every Minecraft version simultaneously.
 

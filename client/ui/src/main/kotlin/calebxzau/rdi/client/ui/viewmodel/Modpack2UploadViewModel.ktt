@@ -696,7 +696,6 @@ class Modpack2UploadViewModel(
             val loader = when (preview.modLoader) {
                 ModLoader.forge -> calebxzau.rdi.common.model.Modpack2Loader.Forge
                 ModLoader.neoforge -> calebxzau.rdi.common.model.Modpack2Loader.NeoForge
-                ModLoader.cleanroom -> null
             }
             if (loader == null || selected.loader != loader) return "安装包加载器与整合包不兼容"
             if (selected.currentVersionId == null || selected.currentVersionStatus != Modpack2VersionStatus.Ok) return "只能更新已完成的整合包版本"

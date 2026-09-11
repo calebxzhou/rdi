@@ -47,7 +47,7 @@ class HostLoggingConfigurationTest {
 
     @Test
     fun `legacy config preflight skips missing file`() = withTempConfig { configFile ->
-        assertNull(HostContainerService.requireModernLog4j2Config(McVersion.V122, configFile))
+        assertNull(HostContainerService.requireModernLog4j2Config(McVersion.V071, configFile))
     }
 
     @Test
@@ -95,9 +95,9 @@ class HostLoggingConfigurationTest {
     fun `legacy arguments do not enable bundled logging configuration`() {
         val env = HostContainerService.run {
             testHost().containerEnv(
-                McVersion.V122,
-                McVersion.V122.loaderVersions.getValue(ModLoader.cleanroom),
-                testModpack(McVersion.V122, ModLoader.cleanroom),
+                McVersion.V071,
+                McVersion.V071.loaderVersions.getValue(ModLoader.forge),
+                testModpack(McVersion.V071, ModLoader.forge),
                 null,
                 null,
             )

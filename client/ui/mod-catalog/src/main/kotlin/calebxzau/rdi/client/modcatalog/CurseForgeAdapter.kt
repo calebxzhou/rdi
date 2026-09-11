@@ -296,7 +296,7 @@ internal class CurseForgeAdapter(
 }
 
 private fun ModLoader.curseForgeType(): Int = when (this) {
-    ModLoader.forge, ModLoader.cleanroom -> 1
+    ModLoader.forge -> 1
     ModLoader.neoforge -> 6
 }
 

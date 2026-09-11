@@ -39,15 +39,6 @@ private val classpathOverrideArtifacts = setOf(
     "org.slf4j:slf4j-api",
 )
 
-private val cleanroomRemovedBaseArtifacts = setOf(
-    "org.lwjgl.lwjgl:lwjgl",
-    "org.lwjgl.lwjgl:lwjgl_util",
-    "org.lwjgl.lwjgl:lwjgl-platform",
-    "com.ibm.icu:icu4j-core-mojang",
-    "net.java.dev.jna:platform",
-    "oshi-project:oshi-core",
-)
-
 fun descriptorToLibraryPath(descriptor: String): String {
     val parts = descriptor.split("@", limit = 2)
     val coordinates = parts[0].split(":")
@@ -103,16 +94,9 @@ fun buildMinecraftClasspath(
     librariesDir: File,
 ): List<String> {
     val archMatchedOverrides = overrideLibraries.filter(MojangLibrary::shouldDownloadByArch)
-    val overrideGroupArtifacts = archMatchedOverrides.mapNotNull(::libraryGroupArtifact).toSet()
-    val removedBaseKeys = if ("com.cleanroommc:lwjglxx" in overrideGroupArtifacts) {
-        cleanroomRemovedBaseArtifacts
-    } else {
-        emptySet()
-    }
-    val overrideEntries = archMatchedOverrides.filterNot { libraryGroupArtifact(it).isIn(removedBaseKeys) }
+    val overrideEntries = archMatchedOverrides
     val baseEntries = baseLibraries
         .filter(MojangLibrary::shouldDownloadByArch)
-        .filterNot { libraryGroupArtifact(it).isIn(removedBaseKeys) }
     val overrideByKey = overrideEntries
         .mapNotNull { library -> classpathOverrideKey(library)?.let { it to library } }
         .toMap()
@@ -249,17 +233,9 @@ class MinecraftLaunchLibraryPreparer(
         overrideLibraries: List<MojangLibrary>,
     ): List<MojangLibrary> {
         val overrides = overrideLibraries.filter(MojangLibrary::shouldDownloadByArch)
-        val overrideGroupArtifacts = overrides.mapNotNull(::libraryGroupArtifact).toSet()
-        val removed = if ("com.cleanroommc:lwjglxx" in overrideGroupArtifacts) {
-            cleanroomRemovedBaseArtifacts
-        } else {
-            emptySet()
-        }
         val filteredBase = baseLibraries
             .filter(MojangLibrary::shouldDownloadByArch)
-            .filterNot { libraryGroupArtifact(it).isIn(removed) }
         val overrideByKey = overrides
-            .filterNot { libraryGroupArtifact(it).isIn(removed) }
             .mapNotNull { it -> classpathOverrideKey(it)?.let { key -> key to it } }
             .toMap()
         val used = mutableSetOf<String>()

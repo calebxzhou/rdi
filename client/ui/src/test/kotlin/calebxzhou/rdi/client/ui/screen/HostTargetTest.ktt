@@ -103,7 +103,7 @@ class HostTargetTest {
                     sourceId = "0123456789abcdef01234567",
                     legacyVersionName = "2.0.0",
                     displayName = "旧整合包",
-                    legacyMcVersion = "V122",
+                    legacyMcVersion = "V071",
                 )
             )
         )
@@ -136,7 +136,7 @@ class HostTargetTest {
         assertEquals("0123456789abcdef01234567", create.sourceId)
         assertEquals("2.0.0", create.legacyVersionName)
         assertEquals("旧整合包", create.displayName)
-        assertEquals("V122", create.legacyMcVersion)
+        assertEquals("V071", create.legacyMcVersion)
         assertEquals("Host2", modpack2Create.kind)
         assertEquals(host2Id, modpack2Create.sourceId)
         assertNull(modpack2Create.legacyVersionName)

@@ -301,18 +301,6 @@ class MinecraftLauncher(
                     add("%*")
                 }
 
-                McVersion.V122 -> {
-                    if (loaderVersion.loader == ModLoader.forge || loaderVersion.loader == ModLoader.cleanroom) {
-                        addAll(mcVersion.plusJvmArgs)
-                        val jarFileName = "cleanroom-${loaderVersion.id}.jar"
-                        add("-jar")
-                        add(jarFileName)
-                        linkFile(workDir.resolve(jarFileName), directories.mcDir.resolve(jarFileName)).getOrThrow()
-                        val minecraftServerJar = "minecraft_server.1.12.2.jar"
-                        linkFile(workDir.resolve(minecraftServerJar), directories.mcDir.resolve(minecraftServerJar)).getOrThrow()
-                    }
-                }
-
                 else -> throw RequestError("不支持的MC版本启动测试服务器")
             }
             add("--nogui")

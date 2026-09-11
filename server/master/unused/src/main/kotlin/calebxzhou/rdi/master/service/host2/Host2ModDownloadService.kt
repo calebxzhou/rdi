@@ -202,7 +202,6 @@ class Host2ModDownloadService {
         val loaderNames = when (modLoader) {
             ModLoader.forge -> setOf("forge")
             ModLoader.neoforge -> setOf("neoforge")
-            ModLoader.cleanroom -> setOf("cleanroom", "forge")
         }
         val declaredLoaders = file.gameVersions.map(String::lowercase).toSet()
         if (declaredLoaders.any { it in ALL_LOADER_NAMES } && declaredLoaders.none { it in loaderNames }) {
@@ -236,7 +235,6 @@ class Host2ModDownloadService {
         val expectedLoader = when (modLoader) {
             ModLoader.forge -> "forge"
             ModLoader.neoforge -> "neoforge"
-            ModLoader.cleanroom -> "forge"
         }
         if (version.loaders.isNotEmpty() && version.loaders.none { it.equals(expectedLoader, true) }) {
             throw RequestError("${mod.slug}不支持${modLoader.name}")
@@ -430,7 +428,7 @@ private data class GithubReleaseAssetResponse(
     @SerialName("browser_download_url") val downloadUrl: String
 )
 
-private val ALL_LOADER_NAMES = setOf("forge", "neoforge", "cleanroom", "fabric", "quilt")
+private val ALL_LOADER_NAMES = setOf("forge", "neoforge", "fabric", "quilt")
 private val HOST2_HASH = Regex("[A-Fa-f0-9]+")
 private val GITHUB_SHA256 = Regex("[A-Fa-f0-9]{64}")
 private val HOST2_RESERVED_FILES = setOf(

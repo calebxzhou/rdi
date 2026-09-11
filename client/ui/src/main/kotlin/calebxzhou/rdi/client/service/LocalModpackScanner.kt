@@ -96,7 +96,6 @@ class LocalModpackScanner(
     private fun inferLoader(mainClass: String?, mcVersion: McVersion): ModLoader? = when (mainClass) {
         BOOTSTRAP_LAUNCHER -> if (mcVersion == McVersion.V211) ModLoader.neoforge else ModLoader.forge
         LEGACY_LAUNCHWRAPPER -> ModLoader.forge
-        FOUNDATION_LAUNCHER -> ModLoader.cleanroom
         else -> null
     }
 
@@ -108,6 +107,5 @@ class LocalModpackScanner(
     private companion object {
         const val BOOTSTRAP_LAUNCHER = "cpw.mods.bootstraplauncher.BootstrapLauncher"
         const val LEGACY_LAUNCHWRAPPER = "net.minecraft.launchwrapper.Launch"
-        const val FOUNDATION_LAUNCHER = "top.outlands.foundation.boot.Foundation"
     }
 }

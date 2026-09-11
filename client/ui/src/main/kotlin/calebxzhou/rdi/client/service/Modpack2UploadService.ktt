@@ -434,6 +434,5 @@ class Modpack2UploadService(
     private fun ModLoader.toModpack2Loader() = when (this) {
         ModLoader.neoforge -> Modpack2Loader.NeoForge
         ModLoader.forge -> Modpack2Loader.Forge
-        ModLoader.cleanroom -> error("Modpack2不支持Cleanroom加载器")
     }
 }

@@ -13,7 +13,7 @@ class MinecraftManifestArgumentsTest {
     @Test
     fun resolvesLegacyArgumentsAndLaunchTokens() {
         val manifest = MojangVersionManifest(
-            id = "1.12.2",
+            id = "1.7.10",
             minecraftArguments = "--username \${auth_player_name} --version \${version_name}",
         )
         assertEquals(

@@ -73,7 +73,6 @@ object HostContainerService {
         val serverArgs = when (mcv) {
             McVersion.V201,
             McVersion.V211 -> listOf(loaderVersion.serverArgsPath(true))
-            McVersion.V122 -> McVersion.V122.plusJvmArgs + listOf("-jar", loaderVersion.serverJarName)
             McVersion.V071 -> buildList {
                 if (lwjgl3ifyRuntime != null) {
                     addAll(lwjgl3ifyRuntime.launchArgs)
@@ -89,9 +88,6 @@ object HostContainerService {
 
             this.add("-XX:+UseCompactObjectHeaders")
 
-            /*if(modpack.mcVer == McVersion.V071 || modpack.mcVer == McVersion.V122){
-                this.add("-Dfml.queryResult=confirm")
-            }*/
             this.add("-Xmx8G")
             if (modpack.supportsForgeguard(modpack.modloader)) {
                 this.add("-javaagent:$FORGEGUARD_CONTAINER_PATH")
@@ -184,7 +180,7 @@ object HostContainerService {
                         .withSource(source.absolutePath)
                         .withTarget("/opt/server/mods/${mod.fileName}")
                 }
-            if (listOf(/*McVersion.V165, */McVersion.V122, McVersion.V071).any { it == modpack.mcVer }) {
+            if (modpack.mcVer == McVersion.V071) {
                 val loaderJar = lwjgl3ifyRuntime?.forgeUniversalJar
                     ?: sharedLibsDir.resolve(
                         if (modpack.mcVer == McVersion.V071 && modpack.modloader == ModLoader.forge) {
@@ -225,7 +221,7 @@ object HostContainerService {
         }
         val image = if (lwjgl3ifyRuntime != null) "rdi:j25" else "rdi:j${modpack.mcVer.jreSupport}"
         val cpu = when(modpack.mcVer){
-            McVersion.V071, McVersion.V122 -> 2
+            McVersion.V071 -> 2
             else -> 4
         }
         val memory = 8 * 1024 * 1024 * 1024L

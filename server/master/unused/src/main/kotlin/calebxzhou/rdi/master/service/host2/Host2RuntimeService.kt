@@ -274,7 +274,6 @@ object Host2RuntimeService {
         }
         val args = when (mcVersion) {
             McVersion.V201, McVersion.V211 -> listOf(loaderVersion.serverArgsPath(true))
-            McVersion.V122 -> listOf("-jar", loaderVersion.serverJarName)
             McVersion.V071 -> {
                 val launcher = hostDir.resolve("lwjgl3ify-forgePatches.jar")
                 val java9Args = hostDir.resolve("java9args.txt")
@@ -295,7 +294,7 @@ object Host2RuntimeService {
         if (mcVersion.supportsForgeguard(modLoader)) {
             mounts += forgeguardMount()
         }
-        if (mcVersion in setOf(McVersion.V071, McVersion.V122)) {
+        if (mcVersion == McVersion.V071) {
             sharedRoot.listFiles()?.filter { it.isFile && it.extension.equals("jar", true) }?.forEach { jar ->
                 mounts += Mount().withType(MountType.BIND).withSource(jar.absolutePath).withTarget("/opt/server/${jar.name}")
             }
@@ -303,7 +302,7 @@ object Host2RuntimeService {
         DockerService.createContainer(
             port = host.port,
             containerName = id,
-            cpu = if (mcVersion in setOf(McVersion.V071, McVersion.V122)) 2 else 4,
+            cpu = if (mcVersion == McVersion.V071) 2 else 4,
             memory = 8L * 1024 * 1024 * 1024,
             memorySwap = 16L * 1024 * 1024 * 1024,
             mounts = mounts,
@@ -322,7 +321,7 @@ object Host2RuntimeService {
         add("-Drdi.onlySaveFirmSections=true")
         if (mcVersion.supportsForgeguard(modLoader)) add("-javaagent:$FORGEGUARD_CONTAINER_PATH")
         add("-XX:+UseCompactObjectHeaders")
-        if (mcVersion in setOf(McVersion.V071, McVersion.V122)) add("-Dfml.queryResult=confirm")
+        if (mcVersion == McVersion.V071) add("-Dfml.queryResult=confirm")
     }
 
     private fun patchServerProperties(hostDir: File, host: Host2Record) {

@@ -103,17 +103,13 @@ class ModpackProcessor(
                 onProgress = onProgress
             ).getOrThrow()
             onProgress.phase("Mod列表整理完成，共${mods.size}个，准备进入编辑")
-            //forge包可以视作cleanroom试运行
-            val loader = if (parsedPayload.modloader == ModLoader.forge && parsedPayload.mcVersion == McVersion.V122) {
-                ModLoader.cleanroom
-            } else parsedPayload.modloader
             LoadedLocalModpack(
                 sourceType = parsedPayload.sourceType,
                 sourceDir = parsedPayload.sourceDir,
                 packName = parsedPayload.sourceName,
                 packVersion = parsedPayload.sourceVersion,
                 mcVersion = parsedPayload.mcVersion,
-                modloader = loader,
+                modloader = parsedPayload.modloader,
                 mods = mods,
                 embeddedModOriginalFileNames = parsedPayload.embeddedModOriginalFileNames,
                 embeddedModSources = parsedPayload.embeddedModSources,

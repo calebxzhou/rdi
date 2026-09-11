@@ -96,7 +96,8 @@ internal class McmodSourceFetcher(
     suspend fun fetchAllEnabledVersions(): Result<List<McmodItem>> = try {
         Files.createDirectories(cacheDir)
         val items = linkedMapOf<Int, McmodItem>()
-        McVersion.entries.filter(McVersion::enabled).forEach { version ->
+        //只取现代版本
+        McVersion.entries.filter(McVersion::isModern).forEach { version ->
             fetchVersion(version.mcVer).forEach { items.putIfAbsent(it.mcmodId, it) }
         }
         Result.success(items.values.toList())

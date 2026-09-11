@@ -14,7 +14,6 @@ fun writeMinecraftOptions(versionDir: File, mcVersion: McVersion): Result<Unit> 
                 put("lang", "zh_cn")
             }
 
-            McVersion.V122 -> put("lang", "zh_cn")
             McVersion.V071 -> put("lang", "zh_CN")
         }
         put("forceUnicodeFont", "true")
