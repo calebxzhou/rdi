@@ -14,7 +14,9 @@ object ModpackModProcessor {
         "customskinloader",
         "chunky",
         //makes game no error log, f
-        "log-deduplicator"
+        "log-deduplicator",
+        //not working for 47.4 mc20forge
+        "lazyyyyy"
     )
 
     private val clientSideSlugs = setOf(
