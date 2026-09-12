@@ -1,7 +1,9 @@
 package calebxzau.rdi.modpacktest
 
 import calebxzhou.rdi.common.model.McVersion
+import calebxzhou.rdi.common.model.Mod
 import calebxzhou.rdi.common.model.ModLoader
+import calebxzhou.rdi.common.util.sha1
 import calebxzau.rdi.client.packproc.LoadedLocalModpack
 import calebxzau.rdi.client.packproc.LocalModpackSourceType
 import kotlinx.coroutines.flow.filter
@@ -11,7 +13,10 @@ import kotlinx.coroutines.withTimeout
 import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
+import kotlin.test.assertContentEquals
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 class ModpackTestSessionTest {
     @Test
@@ -47,7 +52,111 @@ class ModpackTestSessionTest {
             fixture.close()
         }
     }
+
+    @Test
+    fun `server staging preserves source jar whose filename contains another mod slug`() = runBlocking {
+        val fixture = TestFixture(serverLine = "Done (3.25s)! For help")
+        val kubejs = fixture.mod(slug = "kubejs", hash = "kubejs-hash")
+        val farmingBytes = "farming-tales-mod".encodeToByteArray()
+        val fragmentBytes = "filename-fragment-mod".encodeToByteArray()
+        fixture.addSourceMod("farmingtales-1.0.11-kubejs.jar", farmingBytes)
+        fixture.addSourceMod("unrelated-kubejs-kubejs-hash.jar", fragmentBytes)
+        val downloadedBytes = "real-kubejs".encodeToByteArray()
+        fixture.addDownloadedMod(kubejs.fileName, downloadedBytes)
+        val session = fixture.session(ModpackTestTarget.SERVER, listOf(kubejs))
+        try {
+            session.start(listOf(kubejs)).getOrThrow()
+            awaitStatus(session, ModpackTestStatus.PASSED)
+
+            val modsDir = checkNotNull(fixture.launcher.serverWorkDir).resolve("mods")
+            assertContentEquals(farmingBytes, modsDir.resolve("farmingtales-1.0.11-kubejs.jar").readBytes())
+            assertContentEquals(fragmentBytes, modsDir.resolve("unrelated-kubejs-kubejs-hash.jar").readBytes())
+            assertContentEquals(downloadedBytes, modsDir.resolve(kubejs.fileName).readBytes())
+        } finally {
+            session.close()
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `server staging reuses identical source and downloaded target`() = runBlocking {
+        val fixture = TestFixture(serverLine = "Done (1.0s)! For help")
+        val kubejs = fixture.mod(slug = "kubejs", hash = "kubejs-hash")
+        val bytes = "same-kubejs".encodeToByteArray()
+        fixture.addSourceMod(kubejs.fileName, bytes)
+        fixture.addDownloadedMod(kubejs.fileName, bytes)
+        val session = fixture.session(ModpackTestTarget.SERVER, listOf(kubejs))
+        try {
+            session.start(listOf(kubejs)).getOrThrow()
+            awaitStatus(session, ModpackTestStatus.PASSED)
+            assertContentEquals(bytes, checkNotNull(fixture.launcher.serverWorkDir).resolve("mods/${kubejs.fileName}").readBytes())
+        } finally {
+            session.close()
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `server staging fails before launch when source and download collide`() = runBlocking {
+        val fixture = TestFixture()
+        val kubejs = fixture.mod(slug = "kubejs", hash = "kubejs-hash")
+        val sourceBytes = "source-kubejs".encodeToByteArray()
+        val downloadedBytes = "different-kubejs".encodeToByteArray()
+        val source = fixture.addSourceMod(kubejs.fileName, sourceBytes)
+        val downloaded = fixture.addDownloadedMod(kubejs.fileName, downloadedBytes)
+        val session = fixture.session(ModpackTestTarget.SERVER, listOf(kubejs))
+        try {
+            session.start(listOf(kubejs)).getOrThrow()
+            val state = awaitStatus(session, ModpackTestStatus.FAILED)
+
+            assertEquals(0, fixture.launcher.serverLaunchCount)
+            assertContentEquals(sourceBytes, source.readBytes())
+            assertContentEquals(downloadedBytes, downloaded.readBytes())
+            assertTrue(state.errorMessage.orEmpty().contains(kubejs.fileName))
+            assertTrue(state.errorMessage.orEmpty().contains(fixture.resolvedDownloadedPath(kubejs.fileName).absolutePath))
+            assertTrue(state.errorMessage.orEmpty().contains("${File.separator}mods${File.separator}${kubejs.fileName}"))
+        } finally {
+            session.close()
+            fixture.close()
+        }
+    }
+
+    @Test
+    fun `client staging matches exact and sha1 names while filtering server mods`() = runBlocking {
+        val fixture = TestFixture(clientLine = CLIENT_TEST_SUCCESS_MARKER)
+        val exactClient = fixture.mod(slug = "exact-client", hash = "exact-hash", side = Mod.Side.CLIENT)
+        val hashBytes = "renamed-client".encodeToByteArray()
+        val hashClient = fixture.mod(slug = "hash-client", hash = hashBytes.sha1, side = Mod.Side.CLIENT)
+        val legacyClient = fixture.mod(slug = "true-ending", hash = "legacy-hash", side = Mod.Side.CLIENT)
+        val server = fixture.mod(slug = "server-only", hash = "server-hash", side = Mod.Side.SERVER)
+        val exactBytes = "exact-bytes".encodeToByteArray()
+        val legacyBytes = "legacy-bytes".encodeToByteArray()
+        fixture.addSourceMod(exactClient.fileName, exactBytes)
+        fixture.addSourceMod(legacyClient.legacyFileName, legacyBytes)
+        fixture.addSourceMod("renamed-client.jar", hashBytes)
+        fixture.addSourceMod(server.fileName, "server-bytes".encodeToByteArray())
+        val clientMods = listOf(exactClient, hashClient, legacyClient, server)
+        val session = fixture.session(ModpackTestTarget.CLIENT, clientMods)
+        try {
+            session.start(clientMods).getOrThrow()
+            awaitStatus(session, ModpackTestStatus.PASSED)
+
+            val modsDir = checkNotNull(fixture.launcher.clientVersionDir).resolve("mods")
+            assertContentEquals(exactBytes, modsDir.resolve(exactClient.fileName).readBytes())
+            assertContentEquals(legacyBytes, modsDir.resolve(legacyClient.fileName).readBytes())
+            assertFalse(modsDir.resolve(legacyClient.legacyFileName).exists())
+            assertTrue(modsDir.resolve(hashClient.fileName).isFile)
+            assertFalse(modsDir.resolve("renamed-client.jar").exists())
+            assertFalse(modsDir.resolve(server.fileName).exists())
+        } finally {
+            session.close()
+            fixture.close()
+        }
+    }
 }
+
+private suspend fun awaitStatus(session: ModpackTestSession, status: ModpackTestStatus): ModpackTestState =
+    withTimeout(2_000) { session.state.filter { it.status == status }.first() }
 
 private class TestFixture(
     clientLine: String? = null,
@@ -55,7 +164,9 @@ private class TestFixture(
 ) : AutoCloseable {
     private val root = Files.createTempDirectory("modpack-test-").toFile()
     private val sourceDir = root.resolve("source").apply { mkdirs() }
-    private val launcher = FakeModpackTestLauncher(clientLine, serverLine)
+    val launcher = FakeModpackTestLauncher(clientLine, serverLine)
+    private val downloadedMods = mutableMapOf<String, ByteArray>()
+    private val resolvedDownloadedPaths = mutableMapOf<String, File>()
     private val environment = ModpackTestEnvironment(
         paths = ModpackTestPaths(
             workDir = root.resolve("work"),
@@ -64,7 +175,7 @@ private class TestFixture(
         launcher = launcher,
     )
 
-    fun session(target: ModpackTestTarget): ModpackTestSession = ModpackTestSession(
+    fun session(target: ModpackTestTarget, mods: List<Mod> = emptyList()): ModpackTestSession = ModpackTestSession(
         loadedModpack = LoadedLocalModpack(
             sourceType = LocalModpackSourceType.CURSEFORGE,
             sourceDir = sourceDir,
@@ -72,14 +183,50 @@ private class TestFixture(
             packVersion = "1",
             mcVersion = McVersion.V201,
             modloader = ModLoader.forge,
-            mods = emptyList(),
+            mods = mods,
         ),
         target = target,
         environment = environment,
         modSourceResolver = ModpackTestModSourceResolver { _, testDir ->
-            Result.success(testDir.resolve(".rdi-mod-sources"))
+            val sourceDir = testDir.resolve(".rdi-mod-sources").apply { mkdirs() }
+            downloadedMods.forEach { (name, bytes) ->
+                val file = sourceDir.resolve(name)
+                Files.write(file.toPath(), bytes)
+                resolvedDownloadedPaths[name] = file
+            }
+            Result.success(sourceDir)
         },
     )
+
+    fun mod(
+        slug: String,
+        hash: String,
+        side: Mod.Side = Mod.Side.BOTH,
+    ): Mod = Mod(
+        platform = "mr",
+        projectId = slug,
+        slug = slug,
+        fileId = "$slug-file",
+        hash = hash,
+        side = side,
+    )
+
+    fun addSourceMod(name: String, bytes: ByteArray): File {
+        val file = sourceDir.resolve("mods/$name")
+        file.parentFile.mkdirs()
+        Files.write(file.toPath(), bytes)
+        return file
+    }
+
+    fun addDownloadedMod(name: String, bytes: ByteArray): File {
+        downloadedMods[name] = bytes
+        return root.resolve("downloaded/$name").also {
+            it.parentFile.mkdirs()
+            Files.write(it.toPath(), bytes)
+        }
+    }
+
+    fun resolvedDownloadedPath(name: String): File = checkNotNull(resolvedDownloadedPaths[name])
 
     override fun close() {
         root.deleteRecursively()
@@ -90,6 +237,13 @@ private class FakeModpackTestLauncher(
     private val clientLine: String?,
     private val serverLine: String?,
 ) : ModpackTestLauncher {
+    var serverWorkDir: File? = null
+        private set
+    var clientVersionDir: File? = null
+        private set
+    var serverLaunchCount = 0
+        private set
+
     override suspend fun prepareClientLoader(
         mcVersion: McVersion,
         loader: ModLoader,
@@ -109,6 +263,7 @@ private class FakeModpackTestLauncher(
         versionDir: File,
         onLine: (String) -> Unit,
     ): Result<ModpackTestProcess> {
+        clientVersionDir = versionDir
         clientLine?.let(onLine)
         return Result.success(FakeModpackTestProcess())
     }
@@ -119,6 +274,8 @@ private class FakeModpackTestLauncher(
         workDir: File,
         onLine: (String) -> Unit,
     ): Result<ModpackTestProcess> {
+        serverLaunchCount++
+        serverWorkDir = workDir
         serverLine?.let(onLine)
         return Result.success(FakeModpackTestProcess())
     }

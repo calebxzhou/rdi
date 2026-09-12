@@ -16,7 +16,9 @@ object ModpackModProcessor {
         //makes game no error log, f
         "log-deduplicator",
         //not working for 47.4 mc20forge
-        "lazyyyyy"
+        "lazyyyyy",
+        //rdi already have
+        "zstd-net",
     )
 
     private val clientSideSlugs = setOf(
@@ -25,7 +27,8 @@ object ModpackModProcessor {
         "flighthud-reborn",
         "i18nupdatemod",
         "modern-ui",
-        "controllable"
+        "controllable",
+        "mekalus"
     )
 
     private val bothSideSlugs = setOf(

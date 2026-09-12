@@ -473,7 +473,7 @@ private fun stageSourceModFiles(
             ?.forEach { source ->
                 val matchedMod = findMatchedSourceMod(source, mods)
                 if (matchedMod != null && !includeMod(matchedMod)) return@forEach
-                hardLinkFile(source, modsDir.resolve(matchedMod?.fileName ?: source.name)).getOrThrow()
+                stageModFile(source, modsDir.resolve(matchedMod?.fileName ?: source.name))
             }
     }
 }
@@ -490,15 +490,10 @@ private fun stageSourceModDirectories(modsDir: File, sourceDir: File) {
 
 private fun findMatchedSourceMod(source: File, mods: List<Mod>): Mod? {
     mods.firstOrNull { mod -> mod.fileNames.any { it.equals(source.name, ignoreCase = true) } }?.let { return it }
-    val sourceHash = runCatching { source.sha1 }.getOrNull()
-    if (!sourceHash.isNullOrBlank()) {
-        mods.firstOrNull { it.hash.equals(sourceHash, ignoreCase = true) }?.let { return it }
+    val sourceHash = runCatching { source.sha1 }.getOrElse { cause ->
+        throw IllegalStateException("读取源Mod SHA-1失败: ${source.absolutePath}", cause)
     }
-    val sourceName = source.name.lowercase()
-    return mods.firstOrNull { mod ->
-        mod.hash.isNotBlank() && sourceName.contains(mod.hash.lowercase()) ||
-            mod.slug.isNotBlank() && sourceName.contains(mod.slug.lowercase())
-    }
+    return mods.firstOrNull { it.hash.equals(sourceHash, ignoreCase = true) }
 }
 
 private fun stageDownloadedMods(
@@ -512,7 +507,29 @@ private fun stageDownloadedMods(
             .map(modSourceDir::resolve)
             .firstOrNull(File::isFile)
             ?: return@forEach
-        hardLinkFile(source, modsDir.resolve(mod.fileName)).getOrThrow()
+        stageModFile(source, modsDir.resolve(mod.fileName))
+    }
+}
+
+private fun stageModFile(source: File, target: File) {
+    check(source.isFile) { "源Mod文件不存在: ${source.absolutePath}" }
+    target.parentFile?.mkdirs()
+    val targetPath = target.toPath()
+    if (!Files.exists(targetPath)) {
+        hardLinkFile(source, target).getOrThrow()
+        return
+    }
+
+    val sameContent = runCatching {
+        Files.isSameFile(source.toPath(), targetPath) || Files.mismatch(source.toPath(), targetPath) == -1L
+    }.getOrElse { cause ->
+        throw IllegalStateException(
+            "检查Mod文件冲突失败: 源文件${source.absolutePath}，目标文件${target.absolutePath}",
+            cause,
+        )
+    }
+    check(sameContent) {
+        "Mod文件目标冲突: 目标文件${target.name}已存在，源文件${source.absolutePath}，目标文件${target.absolutePath}"
     }
 }
 

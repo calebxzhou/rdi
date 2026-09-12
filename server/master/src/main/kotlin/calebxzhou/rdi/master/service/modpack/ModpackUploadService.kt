@@ -34,7 +34,7 @@ import kotlinx.coroutines.withContext
 
 /** Upload staging and Legacy modpack/version creation with rollback semantics. */
 object ModpackUploadService {
-    private const val MODPACK_UPLOAD_VERSION_ERROR = "目前只支持上传MC1.20.1和MC1.21.1整合包"
+    private const val MODPACK_UPLOAD_VERSION_ERROR = "目前只支持上传MC20和MC21整合包"
     private const val MAX_MODPACK_PER_USER = 10
     private const val VERSION_PUBLICATION_MUTEX_STRIPE_COUNT = 64
     private val lgr by calebxzau.rdi.common.logging.Loggers
