@@ -1,0 +1,110 @@
+[versions]
+annotations = "26.1.0"
+app = "6.2.3"
+commons-compress = "1.28.0"
+knbt = "0.11.9"
+okhttp = "5.4.0"
+java = "25"
+kotlin = "2.4.10"
+compose-plugin = "1.12.0"
+zstd = "1.5.7-16"
+netty = "4.2.9.Final"
+ktor = "3.5.2"
+compose = "1.12.0"
+compose-material3 = "1.12.0-alpha03"
+markdown-renderer = "0.45.0"
+bson = "5.11.0"
+kotlinx-io-core = "0.9.1"
+kotlinx-coroutines = "1.11.0"
+kotlinx-serialization-json = "1.11.0"
+joml = "1.10.9"
+minecraft-auth = "5.0.2"
+kotlin-logging = "8.0.4"
+navigation-compose = "2.9.2"
+tomlkt = "0.5.0"
+androidx-lifecycle = "2.11.0"
+koin = "4.2.2"
+jna = "5.19.1"
+lwjgl = "3.4.3"
+oshi-desktop = "7.6.0"
+logback = "1.6.3"
+snakeyaml = "2.7"
+jsoup = "1.23.2"
+caffeine = "3.2.4"
+maven-artifact = "3.9.16"
+slf4j-api = "2.0.18"
+icu4j = "78.3"
+fastutil = "8.5.19"
+sqldelight = "2.3.2"
+sqlite = "3.53.4.0"
+pinyin-pro = "0.1.0"
+[libraries]
+annotations = { module = "org.jetbrains:annotations", version.ref = "annotations" }
+commons-compress = { module = "org.apache.commons:commons-compress", version.ref = "commons-compress" }
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose" }
+knbt = { module = "net.benwoodworth.knbt:knbt", version.ref = "knbt" }
+kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "kotlinx-coroutines" }
+kotlinx-io-core = { module = "org.jetbrains.kotlinx:kotlinx-io-core", version.ref = "kotlinx-io-core" }
+ktor-http = { module = "io.ktor:ktor-http", version.ref = "ktor" }
+ktor-sse = { module = "io.ktor:ktor-sse", version.ref = "ktor" }
+markdown-renderer = { module = "com.mikepenz:multiplatform-markdown-renderer", version.ref = "markdown-renderer" }
+markdown-renderer-m3 = { module = "com.mikepenz:multiplatform-markdown-renderer-m3", version.ref = "markdown-renderer" }
+kotlinx-serialization-json = { module = "org.jetbrains.kotlinx:kotlinx-serialization-json", version.ref = "kotlinx-serialization-json" }
+joml = { module = "org.joml:joml", version.ref = "joml" }
+minecraft-auth = { module = "net.raphimc:MinecraftAuth", version.ref = "minecraft-auth" }
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-content-negotiation = { module = "io.ktor:ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-client-encoding = { module = "io.ktor:ktor-client-encoding", version.ref = "ktor" }
+ktor-encoding-zstd = { module = "io.ktor:ktor-encoding-zstd", version.ref = "ktor" }
+ktor-client-auth = { module = "io.ktor:ktor-client-auth", version.ref = "ktor" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
+kotlin-logging-jvm = { module = "io.github.oshai:kotlin-logging-jvm", version.ref = "kotlin-logging" }
+slf4j-api = { module = "org.slf4j:slf4j-api", version.ref = "slf4j-api" }
+mongodb-bson = { module = "org.mongodb:bson", version.ref = "bson" }
+mongodb-bson-kotlinx = { module = "org.mongodb:bson-kotlinx", version.ref = "bson" }
+navigation-compose = { module = "org.jetbrains.androidx.navigation:navigation-compose", version.ref = "navigation-compose" }
+androidx-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-viewmodel = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
+koin-core = { module = "io.insert-koin:koin-core", version.ref = "koin" }
+koin-compose = { module = "io.insert-koin:koin-compose", version.ref = "koin" }
+koin-compose-viewmodel = { module = "io.insert-koin:koin-compose-viewmodel", version.ref = "koin" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "compose-material3" }
+compose-material3-desktop = { module = "org.jetbrains.compose.material3:material3-desktop", version.ref = "compose-material3" }
+okhttp = { module = "com.squareup.okhttp3:okhttp", version.ref = "okhttp" }
+tomlkt = { module = "net.peanuuutz.tomlkt:tomlkt", version.ref = "tomlkt" }
+oshi-core-desktop = { module = "com.github.oshi:oshi-core", version.ref = "oshi-desktop" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
+jna = { module = "net.java.dev.jna:jna-jpms", version.ref = "jna" }
+jna-platform = { module = "net.java.dev.jna:jna-platform-jpms", version.ref = "jna" }
+netty-common = { module = "io.netty:netty-common", version.ref = "netty" }
+netty-buffer = { module = "io.netty:netty-buffer", version.ref = "netty" }
+netty-transport = { module = "io.netty:netty-transport", version.ref = "netty" }
+netty-resolver = { module = "io.netty:netty-resolver", version.ref = "netty" }
+netty-codec = { module = "io.netty:netty-codec", version.ref = "netty" }
+netty-handler = { module = "io.netty:netty-handler", version.ref = "netty" }
+logback-classic = { module = "ch.qos.logback:logback-classic", version.ref = "logback" }
+snakeyaml = { module = "org.yaml:snakeyaml", version.ref = "snakeyaml" }
+jsoup = { module = "org.jsoup:jsoup", version.ref = "jsoup" }
+caffeine = { module = "com.github.ben-manes.caffeine:caffeine", version.ref = "caffeine" }
+maven-artifact = { module = "org.apache.maven:maven-artifact", version.ref = "maven-artifact" }
+zstd-jni = { module = "com.github.luben:zstd-jni", version.ref = "zstd" }
+sqldelight-sqlite-driver = { module = "app.cash.sqldelight:sqlite-driver", version.ref = "sqldelight" }
+ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
+pinyin-pro = { module = "com.aeb.pinyin:pinyin-pro-4j", version.ref = "pinyin-pro" }
+
+[bundles]
+ktor-common = ["ktor-client-core", "ktor-client-encoding"]
+ktor-json-client = ["ktor-client-content-negotiation", "ktor-serialization-kotlinx-json"]
+mongodb = ["mongodb-bson", "mongodb-bson-kotlinx"]
+netty-desktop = ["netty-common", "netty-buffer", "netty-transport", "netty-resolver", "netty-codec", "netty-handler"]
+
+[plugins]
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+compose = { id = "org.jetbrains.compose", version.ref = "compose-plugin" }
+sqldelight = { id = "app.cash.sqldelight", version.ref = "sqldelight" }

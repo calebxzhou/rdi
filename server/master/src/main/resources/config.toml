@@ -1,0 +1,42 @@
+[database]
+host = "127.0.0.1"
+port = 27017
+name = "rdi5"
+
+[postgres]
+jdbcUrl = "jdbc:postgresql://127.0.0.1:5432/rdi"
+username = "rdi"
+password = ""
+maximumPoolSize = 10
+
+[server]
+port = 28511
+
+[proxy]
+enabled = false
+systemProxy = false
+host = "127.0.0.1"
+
+
+port = 10808
+usr = ""
+pwd = ""
+
+[download]
+useMirror = true
+
+[email.imap]
+enabled = false
+host = ""
+port = 993
+username = ""
+password = ""
+folder = "INBOX"
+ssl = true
+startTls = false
+connectionTimeoutMillis = 10000
+timeoutMillis = 10000
+pollIntervalSeconds = 30
+operationSubject = "rdi-opr"
+markAsSeenAfterHandle = true
+

@@ -1,5 +1,4 @@
 *.log
-*.toml
 .vscode
 .gradle
 **/.idea/

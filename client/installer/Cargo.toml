@@ -1,0 +1,29 @@
+[package]
+name = "rdi-installer"
+version = "1.0.0"
+edition = "2024"
+build = "build.rs"
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+incremental = false
+
+[dependencies]
+tar = { version = "0.4.46", default-features = false }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_Console",
+    "Win32_System_IO",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+zstd = { version = "0.13.3", default-features = false }
+
+[build-dependencies]
+embed-resource = "3"
